@@ -80,7 +80,10 @@ function Transport() {
         {!track && <span className="scrub-note">Drop a song anywhere, or pick a demo</span>}
         {analyzing && <span className="scrub-note right">Listening…</span>}
       </div>
-      <ImpactKnob />
+      <div className="feel">
+        <ImpactKnob />
+        <HandToggle />
+      </div>
       <span className="time">{analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}</span>
       <button className="btn sm has-tip tip-left" data-tip="Tap along 4+ times to set the tempo" onClick={onTap}>
         Tap
@@ -197,6 +200,30 @@ function SongMap() {
       </label>
     </div>
   );
+}
+
+/** one-click hand-drawn finish (its settings live in the Look tab) */
+function HandToggle() {
+  const on = useStudio((s) => s.hand.on);
+  return (
+    <button
+      className={`hand-btn has-tip ${on ? 'on' : ''}`}
+      data-tip="Hand-drawn: choppy frames, wobbly lines, ink on paper. Fine-tune it in the Look tab. (H)"
+      onClick={() => toggleHand()}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.5 2.5l3 3L6 13H3v-3z" />
+        <path d="M9 4l3 3" />
+      </svg>
+      Hand-drawn
+    </button>
+  );
+}
+
+export function toggleHand() {
+  const s = useStudio.getState();
+  s.set({ hand: { ...s.hand, on: !s.hand.on } });
+  s.flash(s.hand.on ? 'Hand-drawn off' : 'Hand-drawn on. Fine-tune it in the Look tab');
 }
 
 function ImpactKnob() {

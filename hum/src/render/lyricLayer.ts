@@ -74,7 +74,7 @@ export class LyricLayer {
   }
 
   /** draw the lyrics for time t over whatever is on the screen */
-  render(r: THREE.WebGLRenderer, o: { lines: LyricLine[]; t: number; style: LyricStyle; palette: Palette; width: number; height: number; audio: AudioFrame }) {
+  render(r: THREE.WebGLRenderer, o: { lines: LyricLine[]; t: number; style: LyricStyle; palette: Palette; width: number; height: number; audio: AudioFrame }, target: THREE.WebGLRenderTarget | null = null) {
     if (o.style === 'off' || !o.lines.length) return;
     const t = o.t + LEAD;
     // the line on screen: the one being sung, or the one that just ended (fading out)
@@ -109,7 +109,7 @@ export class LyricLayer {
     }
     const ac = r.autoClear;
     r.autoClear = false;
-    this.quad.render(r, null);
+    this.quad.render(r, target);
     r.autoClear = ac;
   }
 

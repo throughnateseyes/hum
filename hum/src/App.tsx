@@ -7,7 +7,7 @@ import { live } from './state/live';
 import { useStudio } from './state/store';
 import { handleFiles, loadDemo, useMic } from './state/tracks';
 import { Recorder, download } from './render/recorder';
-import { Bottom } from './ui/Bottom';
+import { Bottom, toggleHand } from './ui/Bottom';
 import { Camera, Expand, Mic, Rec, Shuffle, Upload, X } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { Inspector } from './ui/Inspector';
@@ -58,6 +58,8 @@ export default function App() {
         requestAnimationFrame(focusDirector);
       } else if (e.key === 'r' && !e.metaKey) {
         shuffle();
+      } else if (e.key === 'h' && !e.metaKey) {
+        toggleHand();
       }
     };
     window.addEventListener('keydown', onKey);

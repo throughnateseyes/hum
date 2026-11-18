@@ -343,8 +343,27 @@ export interface Preset {
   effects: PresetEffect[];
   modulations: PresetModulation[];
   palette: Palette;
+  /** a hand-drawn finish saved with the look (looks without one leave the current setting alone) */
+  hand?: HandStyle;
   /** created by the AI director or the user */
   custom?: boolean;
+}
+
+/** the hand-drawn finish over the whole frame (see src/render/handPass.ts) */
+export interface HandStyle {
+  on: boolean;
+  /** new drawings per second: 24 is smooth, 12 is "on twos", 8 is "on threes" */
+  fps: 24 | 12 | 8;
+  /** how much each drawing strays from the last, 0..1 */
+  wobble: number;
+  /** printing inks besides the paper (1–4, from the palette); 0 keeps full colour */
+  inks: 0 | 1 | 2 | 3 | 4;
+  /** paper fibre, grain and uneven ink, 0..1 */
+  paper: number;
+  /** inks printed slightly out of line with each other, 0..1 */
+  misprint: number;
+  /** pencil outline along edges, 0..1 */
+  lines: number;
 }
 
 /* ───────────────────────── Director (AI) ───────────────────────── */

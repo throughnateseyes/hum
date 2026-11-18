@@ -967,6 +967,37 @@ div:hover > .card-del {
   align-items: center;
   gap: 12px;
 }
+.feel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hand-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.hand-btn:hover {
+  color: var(--ink);
+}
+.hand-btn.on {
+  background: var(--ink);
+  color: var(--panel);
+}
+.hand-btn.has-tip:hover::after {
+  left: auto;
+  right: 0;
+}
 .impact {
   display: flex;
   align-items: center;

@@ -40,6 +40,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
+- **Hand-drawn** (next to Impact, or `H`) runs every scene through a hand-made finish. It draws a
+  new picture only 12 or 8 times a second, like hand animation (kicks, snares and drops always get
+  a fresh drawing so hits land), and lines wobble between drawings. Colours print as a few flat inks
+  from the palette, slightly out of line, on paper, with an optional pencil outline. Fine-tune it in
+  the Look tab. Lyrics go through it too, and saved looks keep their hand-drawn settings.
 - **Scenes** (left) are the raw visual engines; **Inspector** (right) has the scene's sliders, the
   **Effects** stack, **Routing** (the modulation matrix) and **Look** (palette, lyric text, frame
   aspect for 9:16 reels / 4:5 / 1:1, quality, auto-pilot, save look).
@@ -51,7 +56,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `F` perform mode · `esc` exit.
+- Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `H` hand-drawn · `F` perform mode · `esc` exit.
 
 ## How it's built
 
@@ -65,6 +70,7 @@ audio file / mic
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
+  → impact, lyrics, hand-drawn finish      (src/render/stage.ts, lyricLayer.ts, handPass.ts)
   → screen / MediaRecorder
 ```
 

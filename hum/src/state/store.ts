@@ -6,6 +6,7 @@ import type {
   Modulation,
   Palette,
   ParamValue,
+  HandStyle,
   Lyrics,
   PhotoAsset,
   Preset,
@@ -78,6 +79,8 @@ export interface StudioState extends LookState {
   /** why nothing was found, or what was searched */
   lyricsNote: string;
   lyricStyle: LyricStyle;
+  /** hand-drawn finish over every scene */
+  hand: HandStyle;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -104,6 +107,26 @@ export interface StudioState extends LookState {
   flash: (msg: string) => void;
 }
 
+export const HAND_DEFAULT: HandStyle = { on: false, fps: 12, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
+
+/** a stored or AI-made hand style, with anything missing or out of range fixed */
+export function cleanHand(h: unknown): HandStyle | undefined {
+  if (!h || typeof h !== 'object') return undefined;
+  const o = h as Record<string, unknown>;
+  const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : d);
+  const fps = o.fps === 24 || o.fps === 8 ? o.fps : 12;
+  const inks = typeof o.inks === 'number' ? (Math.max(0, Math.min(4, Math.round(o.inks))) as HandStyle['inks']) : HAND_DEFAULT.inks;
+  return {
+    on: o.on !== false,
+    fps,
+    wobble: n(o.wobble, HAND_DEFAULT.wobble),
+    inks,
+    paper: n(o.paper, HAND_DEFAULT.paper),
+    misprint: n(o.misprint, HAND_DEFAULT.misprint),
+    lines: n(o.lines, HAND_DEFAULT.lines),
+  };
+}
+
 const LS_KEY = 'hum.v1';
 function loadPersisted(): Partial<StudioState> {
   try {
@@ -120,6 +143,7 @@ function loadPersisted(): Partial<StudioState> {
       chat: Array.isArray(j.chat) ? j.chat : [],
       directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
       directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
+      hand: cleanHand(j.hand),
       lyricStyle: j.lyricStyle === 'off' || j.lyricStyle === 'subtitle' || j.lyricStyle === 'big' ? j.lyricStyle : undefined,
     };
   } catch {
@@ -141,6 +165,7 @@ function persist(s: StudioState) {
         directorOpen: s.directorOpen,
         directorHeight: s.directorHeight,
         lyricStyle: s.lyricStyle,
+        hand: s.hand,
       }),
     );
   } catch {
@@ -210,11 +235,13 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricsStatus: 'idle',
   lyricsNote: '',
   lyricStyle: persisted.lyricStyle ?? 'subtitle',
+  hand: persisted.hand ?? HAND_DEFAULT,
 
   applyPreset: (p) => {
     const look = presetToLook(p);
     if (!getScene(look.sceneId)) return;
-    set({ ...look, presetId: p.id, shaderError: null });
+    const hand = cleanHand(p.hand);
+    set({ ...look, presetId: p.id, shaderError: null, ...(hand ? { hand } : {}) });
   },
 
   setScene: (id) => {
@@ -273,6 +300,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   saveCurrentAsPreset: (name) => {
     const s = get();
     const p = lookToPreset(s, { id: uid('preset'), name, description: 'Saved from the studio', tags: ['custom'] });
+    if (s.hand.on) p.hand = { ...s.hand };
     set({ customPresets: [p, ...s.customPresets], presetId: p.id });
     persist(get());
     return p;
@@ -302,7 +330,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'hand' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

@@ -13,6 +13,7 @@ import { autopilotTick } from '../state/autopilot';
 import { planTick } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
+import { HandPass } from './handPass';
 import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
 
@@ -130,6 +131,13 @@ export class Stage {
   private peekFx: FxChain;
   private peekFxParams = new Map<string, ParamValues>();
   private peekPalette: ResolvedPalette;
+  /** hand-drawn finish: the last drawing is held here between new drawings */
+  private hand = new HandPass();
+  private holdRT: THREE.WebGLRenderTarget;
+  private holdReady = false;
+  private lastDrawing = -1;
+  private drawingNo = 0;
+  private prevHit = { kick: 0, snare: 0, drop: 0 };
   width = 2;
   height = 2;
   fps = 60;
@@ -187,6 +195,7 @@ export class Stage {
     });
     this.impactQuad = createFullscreenQuad(this.impactMat);
     this.impactRT = makeRenderTarget(2, 2);
+    this.holdRT = makeRenderTarget(2, 2);
 
     this.shared = {
       spectrumTex,
@@ -234,6 +243,8 @@ export class Stage {
     this.prevRT.setSize(w, h);
     this.mixRT.setSize(w, h);
     this.impactRT.setSize(w, h);
+    this.holdRT.setSize(w, h);
+    this.holdReady = false;
     this.fx.setSize(w, h);
     this.current?.inst.resize?.(w, h);
     this.prev?.inst.resize?.(w, h);
@@ -431,10 +442,21 @@ export class Stage {
     this.ensureScene(s.sceneId, now);
     this.nextFadeMs = null; // only for a change made this frame
     if (!this.current) return;
+    const time = (now - this.t0) / 1000;
+
+    // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
+    // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
+    const hit = this.hitEdge(audio);
+    if (s.hand.on && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
+      this.shared.blit(this.holdRT.texture, null);
+      this.resolveSnapshots();
+      return;
+    }
+    this.lastDrawing = time;
+    if (!s.hand.on) this.holdReady = false;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
     const photos = s.photos.length ? s.photos : [this.placeholder];
-    const time = (now - this.t0) / 1000;
     const base: Omit<FrameContext, 'params'> = {
       renderer: this.renderer,
       time,
@@ -519,21 +541,47 @@ export class Stage {
     // the hover preview borrows a corner of the canvas before the main frame covers it
     this.renderPeek(base, s.impact, now);
 
-    if (s.impact > 0.001) {
-      this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
-      this.impactQuad.render(r, this.impactRT);
-      this.shared.blit(this.impactRT.texture, null);
+    const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
+    const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
+    if (s.hand.on) {
+      // everything (lyrics too) goes through the hand-drawn finish, then is held until the next drawing
+      if (s.impact > 0.001) {
+        this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
+        this.impactQuad.render(r, this.impactRT);
+      } else {
+        this.shared.blit(finalTex, this.impactRT);
+      }
+      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
+      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: s.hand, palette: this.palette, width: this.width, height: this.height, drawing: this.drawingNo++ });
+      this.holdReady = true;
+      this.shared.blit(this.holdRT.texture, null);
     } else {
-      this.shared.blit(finalTex, null);
+      if (s.impact > 0.001) {
+        this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
+        this.impactQuad.render(r, this.impactRT);
+        this.shared.blit(this.impactRT.texture, null);
+      } else {
+        this.shared.blit(finalTex, null);
+      }
+      if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
-    if (s.lyrics?.synced && s.lyricStyle !== 'off') {
-      this.lyricLayer.render(r, { lines: s.lyrics.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio });
-    }
+    this.resolveSnapshots();
+  }
 
-    if (this.snapshotResolvers.length) {
-      const url = this.canvas.toDataURL('image/png');
-      this.snapshotResolvers.splice(0).forEach((f) => f(url));
-    }
+  private resolveSnapshots() {
+    if (!this.snapshotResolvers.length) return;
+    const url = this.canvas.toDataURL('image/png');
+    this.snapshotResolvers.splice(0).forEach((f) => f(url));
+  }
+
+  /** true on the frame a kick, snare or drop starts (the rising edge of its envelope) */
+  private hitEdge(a: AudioFrame): boolean {
+    const p = this.prevHit;
+    const hit = (a.kick > 0.7 && p.kick <= 0.55) || (a.snare > 0.7 && p.snare <= 0.55) || (a.drop > 0.9 && p.drop <= 0.8);
+    p.kick = a.kick;
+    p.snare = a.snare;
+    p.drop = a.drop;
+    return hit;
   }
 
   /** Impact shaping: v → 1 − (1 − v)^k keeps 0..1, lifts and lengthens hits for k > 1, softens them for k < 1, k = 0 is still. */
@@ -553,6 +601,8 @@ export class Stage {
   dispose() {
     this.stop();
     this.impactRT.dispose();
+    this.holdRT.dispose();
+    this.hand.dispose();
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
     this.lyricLayer.dispose();

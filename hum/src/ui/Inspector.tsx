@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LAYERS, PALETTES } from '../core/palettes';
-import type { EffectCategory, LayerId, Palette } from '../core/types';
+import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types';
 import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
@@ -320,6 +320,73 @@ const COLOR_KEYS: [keyof Omit<Palette, 'id' | 'name'>, string][] = [
   ['muted', 'Muted'],
 ];
 const ASPECTS: Aspect[] = ['fill', '16:9', '9:16', '4:5', '1:1'];
+const HAND_FPS: { v: HandStyle['fps']; label: string }[] = [
+  { v: 24, label: 'Smooth' },
+  { v: 12, label: 'Drawn' },
+  { v: 8, label: 'Choppy' },
+];
+const HAND_INKS: { v: HandStyle['inks']; label: string }[] = [
+  { v: 0, label: 'Full colour' },
+  { v: 1, label: '1' },
+  { v: 2, label: '2' },
+  { v: 3, label: '3' },
+  { v: 4, label: '4' },
+];
+
+/** the hand-drawn finish: frame rate, inks from the palette, wobble, paper, misprint, pencil */
+function HandGroup() {
+  const hand = useStudio((s) => s.hand);
+  const set = useStudio((s) => s.set);
+  const put = (patch: Partial<HandStyle>) => set({ hand: { ...useStudio.getState().hand, ...patch } });
+  const slider = (key: 'wobble' | 'paper' | 'misprint' | 'lines', name: string, hint: string) => (
+    <div className="param" key={key}>
+      <div className="param-top has-tip" data-tip={hint}>
+        <span className="param-name">{name}</span>
+        <span className="param-val">{Math.round(hand[key] * 100)}%</span>
+      </div>
+      <Slider value={hand[key]} min={0} max={1} step={0.01} onChange={(v) => put({ [key]: v })} />
+    </div>
+  );
+  return (
+    <div className="group">
+      <div className="kv" style={{ marginBottom: hand.on ? 10 : 2 }}>
+        <span>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>Hand-drawn</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Choppy frames, wobbly lines, ink on paper</div>
+        </span>
+        <Toggle on={hand.on} onChange={(v) => put({ on: v })} />
+      </div>
+      {hand.on && (
+        <>
+          <div className="param-top has-tip" data-tip="New drawings per second: 24, 12 or 8. Kicks, snares and drops always get a fresh drawing.">
+            <span className="param-name">Frames</span>
+          </div>
+          <div className="seg" style={{ marginBottom: 10 }}>
+            {HAND_FPS.map((f) => (
+              <button key={f.v} className={hand.fps === f.v ? 'on' : ''} onClick={() => put({ fps: f.v })}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="param-top has-tip" data-tip="Print with a few flat inks from the palette above, or keep every colour.">
+            <span className="param-name">Inks</span>
+          </div>
+          <div className="seg" style={{ marginBottom: 10 }}>
+            {HAND_INKS.map((f) => (
+              <button key={f.v} className={hand.inks === f.v ? 'on' : ''} onClick={() => put({ inks: f.v })}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {slider('wobble', 'Wobble', 'How much each drawing strays from the last')}
+          {slider('lines', 'Pencil lines', 'An outline wherever the picture has an edge')}
+          {slider('paper', 'Paper', 'Paper fibre, grain and uneven ink')}
+          {hand.inks > 0 && slider('misprint', 'Misprint', 'Inks printed slightly out of line with each other')}
+        </>
+      )}
+    </div>
+  );
+}
 
 function LookPanel() {
   const palette = useStudio((s) => s.palette);
@@ -357,6 +424,7 @@ function LookPanel() {
           ))}
         </div>
       </div>
+      <HandGroup />
       <div className="group">
         <div className="group-title">
           <span className="label">Lyric / title text</span>
