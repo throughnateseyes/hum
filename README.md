@@ -46,10 +46,14 @@ More detail is in [hum/docs/DIRECTOR.md](hum/docs/DIRECTOR.md).
 
 ## Hosting it
 
-Hum is a static Vite app plus one serverless function (`hum/api/director.ts`) for the AI director. On Vercel, import the `hum` folder and set `ANTHROPIC_API_KEY`. Two optional settings protect the key:
+Hum is a static Vite app plus one serverless function (`hum/api/director.ts`) for the AI director. On Vercel, import the `hum` folder and set `ANTHROPIC_API_KEY`. These settings keep the bill small:
 
+- `HUM_ACCESS_CODES` gives each person their own code, like `sam=river-42, jo=blue-moon`. Remove someone's entry to cut them off. (`HUM_ACCESS_CODE` still works as one shared code.)
+- `HUM_DAILY_BUDGET` is the most the AI may spend per day for everyone together, in dollars (default 5). `HUM_CODE_DAILY_BUDGET` is the most per code per day (default 1). Spending is counted from what each Claude call actually used.
 - `HUM_RATE_LIMIT` caps requests per visitor per hour (default 20).
-- `HUM_ACCESS_CODE` requires a shared code with each request.
+- Add Upstash Redis (free tier, through Vercel's Marketplace) so these counts are shared by every server instance. Without it, each instance counts on its own and the limits are only approximate.
+
+A Make a video costs about $0.04 on the default model. When a limit is hit, the offline director takes over, so the site keeps working. Also set a monthly spend limit on the API key in the Anthropic Console as a hard backstop.
 
 Without a key, the hosted site still works with the offline director.
 

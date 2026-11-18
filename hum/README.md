@@ -177,5 +177,28 @@ Colour management is off on purpose: palette hex values go into shaders untouche
 ## Deploying (e.g. on your site)
 
 It's a static Vite app plus one serverless function (`api/director.ts`, Web-standard `POST`).
-On Vercel: import the folder, set `ANTHROPIC_API_KEY`, optionally `HUM_RATE_LIMIT` (per IP per hour,
-default 20) and `HUM_ACCESS_CODE`. Without a key the site still works with the offline director.
+On Vercel: import the folder and set `ANTHROPIC_API_KEY`. Without a key the site still works with the
+offline director.
+
+Limits (all in `server/limits.ts`, every one optional):
+
+| Setting | What it does | Default |
+|---|---|---|
+| `HUM_ACCESS_CODES` | One code per person: `sam=river-42, jo=blue-moon`. Delete an entry to cut that person off. Counts and logs use the name, never the code. | off (open) |
+| `HUM_ACCESS_CODE` | One shared code (counted as "shared") | off |
+| `HUM_DAILY_BUDGET` | Dollars per day for everyone together | 5 |
+| `HUM_CODE_DAILY_BUDGET` | Dollars per day per code | 1 |
+| `HUM_RATE_LIMIT` | Requests per visitor (IP) per hour | 20 |
+| `HUM_TIMEZONE` | When the day resets (e.g. `America/Los_Angeles`) | UTC |
+| `UPSTASH_REDIS_REST_URL` + `_TOKEN` (or `KV_REST_API_URL` + `_TOKEN`) | Keeps the counts in Upstash Redis so they hold across every Vercel instance | memory |
+
+Spend is counted from each response's real token usage at the model's price. A request is refused
+once today's total has reached the cap, so a cap can go over by at most the calls already running
+(about $0.04 each for Make a video). Refused requests fall back to the offline director. If Redis
+can't be reached, the counts drop to memory for that request instead of failing. Each call is logged
+as `[hum-director] plan for sam: $0.0410 (today $0.53)` in the function logs. Your Claude
+subscription in `npm run dev` skips the limits.
+
+Rough costs on Sonnet 5.5: Make a video ≈ $0.04, describe a feeling → look ≈ $0.02–0.03, a new
+GLSL scene ≈ $0.05–0.10. `HUM_MODEL=claude-haiku-5-5` is about 20× cheaper. Also set a monthly spend
+limit for the key in the Anthropic Console as the hard backstop.

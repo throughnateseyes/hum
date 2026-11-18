@@ -1,7 +1,8 @@
 /**
  * Vercel Node function: POST /api/director → Claude (via handleDirector).
- * Set ANTHROPIC_API_KEY (and optionally HUM_MODEL, HUM_RATE_LIMIT, HUM_ACCESS_CODE,
- * HUM_ALLOWED_ORIGIN) in the Vercel project's environment variables.
+ * Set ANTHROPIC_API_KEY (and optionally HUM_MODEL, HUM_ACCESS_CODES, HUM_DAILY_BUDGET,
+ * HUM_CODE_DAILY_BUDGET, HUM_RATE_LIMIT, the Upstash Redis variables and HUM_ALLOWED_ORIGIN; see
+ * server/limits.ts) in the Vercel project's environment variables.
  */
 import { handleDirector } from '../server/director';
 

@@ -15,14 +15,15 @@
  * Env:
  *   ANTHROPIC_API_KEY   API backend; with no key and no local backend the handler answers 501
  *   HUM_MODEL           default 'claude-sonnet-5-5'
- *   HUM_RATE_LIMIT      requests per IP per hour (default 20; 0 disables)
- *   HUM_ACCESS_CODE     optional shared code the request must send as `accessCode`
+ *   HUM_ACCESS_CODES    per-person codes ("sam=river-42, jo=blue-moon"); HUM_ACCESS_CODE = one shared code
+ *   HUM_RATE_LIMIT, HUM_DAILY_BUDGET, HUM_CODE_DAILY_BUDGET, UPSTASH_REDIS_REST_*: see server/limits.ts
  *   HUM_EFFORT          optional effort override (low | medium | high | xhigh | max)
  *   ANTHROPIC_BASE_URL  optional API base URL override
  */
 import type { LayerId } from '../src/core/types';
 import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide';
 import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList';
+import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits';
 
 export type DirectorEnv = Record<string, string | undefined>;
 
@@ -72,35 +73,6 @@ const LAYER_IDS: LayerId[] = [
   'drop',
   'sway',
 ];
-
-/* ───────────────────────── rate limit (in-memory sliding window) ───────────────────────── */
-
-const HOUR = 3_600_000;
-const hits = new Map<string, number[]>();
-
-function rateLimit(ip: string, limit: number, now = Date.now()): { ok: true } | { ok: false; retryAfter: number } {
-  if (limit <= 0) return { ok: true };
-  const list = (hits.get(ip) ?? []).filter((t) => now - t < HOUR);
-  if (list.length >= limit) {
-    hits.set(ip, list);
-    return { ok: false, retryAfter: Math.max(1, Math.ceil((list[0] + HOUR - now) / 1000)) };
-  }
-  list.push(now);
-  hits.set(ip, list);
-  // keep memory bounded on long-lived servers
-  if (hits.size > 5000) {
-    for (const [k, v] of hits) if (!v.length || now - v[v.length - 1] > HOUR) hits.delete(k);
-  }
-  return { ok: true };
-}
-
-/** constant-time-ish string compare */
-function safeEqual(a: string, b: string): boolean {
-  let diff = a.length ^ b.length;
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-  return diff === 0;
-}
 
 /* ───────────────────────── prompts ───────────────────────── */
 
@@ -511,6 +483,8 @@ interface ContentBlock {
 interface MessagesResponse {
   content?: ContentBlock[];
   stop_reason?: string;
+  model?: string;
+  usage?: Usage;
   error?: { type?: string; message?: string };
 }
 
@@ -572,19 +546,13 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   }
   if (!promptRaw && !body.current && !body.track) return { status: 400, json: { error: 'bad_request', note: 'Empty prompt.' } };
 
-  const code = env.HUM_ACCESS_CODE?.trim();
-  if (code) {
-    const sent = typeof body.accessCode === 'string' ? body.accessCode.trim() : '';
-    if (!safeEqual(sent, code)) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
-  }
+  const who = matchCode(env, body.accessCode);
+  if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
 
-  const limitEnv = env.HUM_RATE_LIMIT?.trim();
-  const limit = limitEnv !== undefined && limitEnv !== '' && Number.isFinite(Number(limitEnv)) ? Math.floor(Number(limitEnv)) : 20;
-  // the local backend is just you on your own machine, so it skips the visitor rate limit
-  const rl = useLocal ? ({ ok: true } as const) : rateLimit(ip || 'unknown', limit);
-  if (!rl.ok) {
-    const mins = Math.ceil(rl.retryAfter / 60);
-    return { status: 429, json: { error: 'rate_limited', retryAfter: rl.retryAfter, note: `Hourly AI limit reached — try again in about ${mins} min.` } };
+  // the local backend is just you on your own machine, so it skips the visitor limits
+  if (!useLocal) {
+    const gate = await checkLimits(env, { ip, code: who });
+    if (!gate.ok) return { status: gate.status, json: gate.json };
   }
 
   const prompt = promptRaw.slice(0, MAX_PROMPT_CHARS);
@@ -666,6 +634,11 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   try {
     for (let attempt = 0; attempt < 2 && toolInput === null; attempt++) {
       const { status, data } = await callClaude(env, payload, model);
+      const spent = costOf(data.model || model, data.usage);
+      if (spent > 0) {
+        const today = await recordSpend(env, who, spent).catch(() => 0);
+        console.info(`[hum-director] ${mode} for ${who}: $${spent.toFixed(4)} (today $${today.toFixed(2)})`);
+      }
       if (status < 200 || status >= 300) return upstreamError(status, data);
       if (data.stop_reason === 'refusal') {
         return { status: 422, json: { error: 'refused', note: 'Claude declined this request.' } };
