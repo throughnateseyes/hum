@@ -29,6 +29,13 @@ export const Mic = (p: SVGProps<SVGSVGElement>) => (
     <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
   </svg>
 );
+/** a browser window with a tab: listening to another tab */
+export const BrowserTab = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 9h18M7 5v4M12 13.5l2.5 1.5-2.5 1.5z" />
+  </svg>
+);
 export const Upload = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />

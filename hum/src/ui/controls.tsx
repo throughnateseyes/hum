@@ -67,8 +67,8 @@ export function Slider({
   );
 }
 
-export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return <button className={`toggle ${on ? 'on' : ''}`} onClick={() => onChange(!on)} aria-pressed={on} />;
+export function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return <button type="button" role="switch" className={`toggle ${on ? 'on' : ''}`} onClick={() => onChange(!on)} aria-checked={on} aria-label={label} />;
 }
 
 function fmt(v: number, def: { min: number; max: number; step?: number }) {
@@ -143,7 +143,10 @@ export function ParamControl({
         />
       )}
       {def.type === 'select' && (
-        <div className="seg" style={{ flexWrap: 'wrap', display: def.options.length > 4 ? 'none' : 'inline-flex' }}>
+        <div
+          className={`seg ${def.options.map((o) => o.label).join('').length > 26 ? 'grid2' : 'full'}`}
+          style={def.options.length > 4 ? { display: 'none' } : undefined}
+        >
           {def.options.map((o) => (
             <button key={o.value} className={v === o.value ? 'on' : ''} onClick={() => onChange(o.value)}>
               {o.label}
@@ -180,4 +183,101 @@ export function groupParams(defs: ParamDef[]): [string, ParamDef[]][] {
     bucket[1].push(d);
   }
   return out;
+}
+
+/* ───────── layout pieces shared by the panels ───────── */
+
+/** which collapsible sections are open, kept for this visit so switching tabs doesn't reset them */
+const sectionOpen = new Map<string, boolean>();
+
+/**
+ * A titled group in a panel. With `collapsible`, the title opens and closes it; `right` holds a
+ * control that sits on the title row (a switch, a value) and stays usable when it's closed.
+ */
+export function Section({
+  id,
+  title,
+  sub,
+  right,
+  collapsible = false,
+  defaultOpen = true,
+  children,
+}: {
+  id: string;
+  title: React.ReactNode;
+  sub?: React.ReactNode;
+  right?: React.ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpenState] = useState(() => sectionOpen.get(id) ?? defaultOpen);
+  const setOpen = (v: boolean) => {
+    sectionOpen.set(id, v);
+    setOpenState(v);
+  };
+  const shown = !collapsible || open;
+  const head = (
+    <>
+      <span className="sec-t">
+        {collapsible && <Caret open={open} />}
+        {title}
+      </span>
+      {sub && <span className="sec-s">{sub}</span>}
+    </>
+  );
+  return (
+    <section className={`sec ${collapsible ? 'collapsible' : ''} ${shown ? 'open' : ''}`}>
+      <div className="sec-head">
+        {collapsible ? (
+          <button className="sec-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
+            {head}
+          </button>
+        ) : (
+          <div className="sec-toggle">{head}</div>
+        )}
+        {right && <div className="sec-right">{right}</div>}
+      </div>
+      {shown && children && <div className="sec-body">{children}</div>}
+    </section>
+  );
+}
+
+function Caret({ open }: { open: boolean }) {
+  return (
+    <svg className="sec-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden style={{ transform: open ? 'rotate(90deg)' : 'none' }}>
+      <path d="M3.5 2l3 3-3 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** one labelled control inside a section: the name (with an optional value or hint) over the control */
+export function Field({ label, value, tip, children }: { label: React.ReactNode; value?: React.ReactNode; tip?: string; children: React.ReactNode }) {
+  return (
+    <div className="field">
+      <div className={`param-top ${tip ? 'has-tip' : ''}`} data-tip={tip}>
+        <span className="param-name">{label}</span>
+        {value !== undefined && <span className="param-val">{value}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** a long description cut to three lines, with a quiet More / Less */
+export function Clamp({ text, lines = 3 }: { text: string; lines?: number }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > lines * 52;
+  return (
+    <div className="clamp">
+      <p className={open || !long ? '' : 'cut'} style={{ ['--lines' as string]: lines }}>
+        {text}
+      </p>
+      {long && (
+        <button className="clamp-more" onClick={() => setOpen(!open)}>
+          {open ? 'Less' : 'More'}
+        </button>
+      )}
+    </div>
+  );
 }

@@ -256,10 +256,12 @@ function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; sug
         <Thumb p={p} />
       </div>
       <div style={{ minWidth: 0 }}>
-        <div className="title">{p.name}</div>
+        <div className="title">
+          <span>{p.name}</span>
+          {suggested && <span className="suggested">Fits</span>}
+        </div>
         <div className="desc">{p.description}</div>
       </div>
-      {suggested && <span className="suggested">Fits</span>}
     </button>
   );
 }
@@ -303,9 +305,7 @@ function Photos() {
   const photoScenes = allScenes().filter((s) => s.usesPhotos);
   return (
     <>
-      <p style={{ color: 'var(--ink-2)', margin: '4px 2px 10px', fontSize: 12 }}>
-        Add photos and the music will dissolve, mosh and rebuild them. A new photo comes in every 4 bars.
-      </p>
+      <p className="panel-intro">Add photos and the music will dissolve, mosh and rebuild them. A new photo comes in every 4 bars.</p>
       <div className="photo-grid">
         {photos.map((p) => (
           <div className="ph" key={p.id}>

@@ -255,9 +255,49 @@ export class AudioEngine {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
+    this.listenTo(ctx, stream, false);
+  }
+
+  /**
+   * Listen to another browser tab (a song playing on YouTube, Spotify's web player…). The browser
+   * asks which tab to share; the person must leave "Share tab audio" on. The tab keeps playing out
+   * loud on its own, so it's only analysed here, plus sent to recordings. Desktop Chrome and Edge.
+   */
+  async startTab(onEnded: () => void) {
+    const ctx = this.ensureContext();
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('unsupported');
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      // Chrome only offers tab audio with a video track too; the picture is never used
+      video: { frameRate: 1, width: 320 },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: false } as MediaTrackConstraints,
+      preferCurrentTab: false,
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+      systemAudio: 'include',
+    } as DisplayMediaStreamOptions);
+    const audio = stream.getAudioTracks()[0];
+    if (!audio) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('no_audio');
+    }
+    this.el.pause();
+    this.listenTo(ctx, stream, true);
+    // "Stop sharing" in the browser, or the tab closing
+    audio.addEventListener('ended', () => {
+      if (this.micStream === stream) {
+        this.stopMic();
+        onEnded();
+      }
+    });
+  }
+
+  private listenTo(ctx: AudioContext, stream: MediaStream, toRecording: boolean) {
+    this.stopMic();
     this.micStream = stream;
     this.micSource = ctx.createMediaStreamSource(stream);
     this.micSource.connect(this.analyser!);
+    // the song is heard from its own tab; recordings still need it
+    if (toRecording && this.recordDest) this.micSource.connect(this.recordDest);
     this.kind = 'mic';
     this.analysis = null;
     this.resetState();

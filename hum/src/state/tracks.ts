@@ -316,6 +316,40 @@ export async function useMic() {
   }
 }
 
+/** can this browser listen to another tab? (desktop Chrome / Edge) */
+export const canListenToTab = () =>
+  typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia && !/iPhone|iPad|Android|Mobile/i.test(navigator.userAgent);
+
+/**
+ * Listen to a song playing in another tab, e.g. a YouTube video: the browser asks which tab to
+ * share. Live like the microphone (no full-song breakdown or video plan), but the sound is clean.
+ */
+export async function useTab() {
+  const flash = useStudio.getState().flash;
+  if (!canListenToTab()) {
+    flash('Listening to a tab works in Chrome or Edge on a computer. Here, download the song and drop the file in.');
+    return;
+  }
+  try {
+    await audioEngine.startTab(() => {
+      const s = useStudio.getState();
+      if (s.track?.name === 'Tab audio') s.set({ track: null });
+      s.flash('Stopped listening to the tab');
+    });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (err.message === 'no_audio') flash('No sound came through. Pick a Chrome tab and leave “Share tab audio” on.');
+    else if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
+      /* the person cancelled the picker */
+    } else flash('This browser can’t listen to another tab. Try Chrome or Edge.');
+    return;
+  }
+  lastBuf = null;
+  lastFile = null;
+  useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
+  flash('Listening to the tab. Play the song there.');
+}
+
 export async function handleFiles(files: FileList | File[]) {
   const list = Array.from(files);
   // music videos work too: the browser decodes their soundtrack

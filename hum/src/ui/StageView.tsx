@@ -3,8 +3,8 @@ import { DEMO_TRACKS } from '../audio/demoTracks';
 import { Stage } from '../render/stage';
 import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
-import { handleFiles, loadDemo, useMic } from '../state/tracks';
-import { Mic, Upload } from './Icons';
+import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from '../state/tracks';
+import { BrowserTab, Mic, Upload } from './Icons';
 import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
 
@@ -92,7 +92,13 @@ export function StageView() {
                 <button className="btn" onClick={() => void useMic()}>
                   <Mic width={14} height={14} /> Use microphone
                 </button>
+                {canListenToTab() && (
+                  <button className="btn" onClick={() => void useTab()}>
+                    <BrowserTab width={14} height={14} /> Listen to a tab
+                  </button>
+                )}
               </div>
+              {canListenToTab() && <p className="empty-hint">Play the song on YouTube in another tab, pick that tab, keep Share tab audio on.</p>}
               <input
                 ref={fileInput}
                 type="file"

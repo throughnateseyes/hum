@@ -10,7 +10,7 @@ import { findLook, LABEL_NAME, skipLook } from '../state/plan';
 import { useStudio } from '../state/store';
 import { labelNow, pickByTaste, record, resetTaste, setLearning, tasteLines, useTaste } from '../state/taste';
 import { transitionForNow } from '../state/transitionPick';
-import { Toggle } from './controls';
+import { Section, Toggle } from './controls';
 import { X } from './Icons';
 
 const Heart = (p: React.SVGProps<SVGSVGElement>) => (
@@ -88,16 +88,13 @@ export function TasteGroup() {
   const skips = reactions.filter((r) => r.kind === 'skip').length;
   const picks = reactions.filter((r) => r.kind === 'pick' || r.kind === 'place').length;
   return (
-    <div className="group taste-group">
-      <div className="kv" style={{ marginBottom: 8 }}>
-        <span>
-          <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your taste</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            {on ? 'Hum learns from ♥ Keep (K) and ✕ Skip (X), and from looks you pick' : 'Learning is off: picks follow the music only'}
-          </div>
-        </span>
-        <Toggle on={on} onChange={setLearning} />
-      </div>
+    <Section
+      id="look.taste"
+      title="Your taste"
+      sub={on ? 'Learns from ♥ Keep (K), ✕ Skip (X) and the looks you pick' : 'Learning is off: picks follow the music only'}
+      right={<Toggle on={on} onChange={setLearning} label="Learn my taste" />}
+      collapsible
+    >
       {on && (
         <>
           {lines.length ? (
@@ -122,8 +119,7 @@ export function TasteGroup() {
       )}
       {reactions.length > 0 && (
         <button
-          className="btn sm ghost"
-          style={{ marginTop: 4 }}
+          className={`btn sm ${sure ? 'danger' : 'ghost'} taste-reset`}
           onClick={() => {
             if (!sure) return setSure(true);
             resetTaste();
@@ -134,6 +130,6 @@ export function TasteGroup() {
           {sure ? 'Click again to forget everything' : 'Reset what Hum learned'}
         </button>
       )}
-    </div>
+    </Section>
   );
 }

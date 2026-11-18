@@ -5,10 +5,10 @@ import { PRESETS } from './presets';
 import { allScenes, getScene } from './scenes';
 import { live } from './state/live';
 import { useStudio } from './state/store';
-import { handleFiles, loadDemo, useMic } from './state/tracks';
+import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
 import { Recorder, download } from './render/recorder';
 import { Bottom, toggleHand } from './ui/Bottom';
-import { Camera, Expand, Mic, Rec, Shuffle, Upload, X } from './ui/Icons';
+import { BrowserTab, Camera, Chevron, Expand, Mic, Rec, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
@@ -20,6 +20,7 @@ import { noteHandPick } from './state/taste';
 import { keepNow, skipNow } from './ui/Taste';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
+import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, togglePerform, usePerformSync } from './ui/Perform';
 
 const recorder = new Recorder();
 
@@ -28,6 +29,7 @@ export default function App() {
   const toast = useStudio((s) => s.toast);
   const [over, setOver] = useState(false);
   const dragDepth = useRef(0);
+  usePerformSync();
 
   // initial look
   useEffect(() => {
@@ -48,10 +50,12 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
         audioEngine.toggle();
-      } else if (e.key === 'f') {
-        s.set({ perform: !s.perform });
+      } else if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey) {
+        togglePerform();
       } else if (e.key === 'Escape' && s.perform) {
-        s.set({ perform: false });
+        exitPerform();
+      } else if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        cycleFrame(e.shiftKey ? -1 : 1);
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
         const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + PRESETS.length) % PRESETS.length;
@@ -114,11 +118,7 @@ export default function App() {
         <Inspector />
         <DirectorPanel />
       </div>
-      {perform && (
-        <button className="btn perform-exit" onClick={() => useStudio.getState().set({ perform: false })}>
-          <X width={13} height={13} /> Exit (esc)
-        </button>
-      )}
+      <PerformControls />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
@@ -131,8 +131,6 @@ function shuffle() {
 }
 
 function Topbar() {
-  const track = useStudio((s) => s.track);
-  const analysis = useStudio((s) => s.analysis);
   const recording = useStudio((s) => s.recording);
   const set = useStudio((s) => s.set);
   const flash = useStudio((s) => s.flash);
@@ -162,67 +160,145 @@ function Topbar() {
     if (url) download(url, `hum-${Date.now()}.png`);
   };
 
+  const openFiles = () => input.current?.click();
+
   return (
     <header className="topbar">
-      <div className="brand">
-        <span className="brand-mark" />
-        hum
-      </div>
-      {track ? (
-        <div className="trackpill">
-          <span className="dot">{track.source === 'mic' ? <Mic width={10} height={10} /> : <span style={{ fontSize: 8 }}>♪</span>}</span>
-          <span className="name">{track.name}</span>
-          {analysis && (
-            <span className="meta">
-              {Math.round(analysis.bpm)} bpm · {analysis.tags.slice(0, 3).join(', ')}
-            </span>
-          )}
+      <div className="tb-left">
+        <div className="brand" aria-label="hum">
+          <span className="brand-mark" />
+          <span className="brand-word">hum</span>
         </div>
-      ) : (
-        <div className="trackpill" style={{ color: 'var(--ink-3)' }}>
-          <span className="dot" style={{ background: 'var(--line-2)' }} />
-          No track
+        <SourceMenu onOpenFiles={openFiles} />
+        <LyricsChip />
+        <button className="btn icon ghost has-tip tip-below" data-tip="Open audio or photos" aria-label="Open audio or photos" onClick={openFiles}>
+          <Upload width={15} height={15} />
+        </button>
+        <input
+          ref={input}
+          type="file"
+          accept="audio/*,image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files) void handleFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+      </div>
+      <div className="tb-right">
+        <button className="btn icon ghost has-tip tip-below" data-tip="Shuffle look  R" aria-label="Shuffle look" onClick={shuffle}>
+          <Shuffle width={15} height={15} />
+        </button>
+        <span className="tb-div" />
+        <FramePicker />
+        <span className="tb-div" />
+        <button className="btn icon ghost has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void still()}>
+          <Camera width={15} height={15} />
+        </button>
+        <button
+          className={`btn rec has-tip tip-below ${recording ? 'on' : ''}`}
+          onClick={() => void toggleRec()}
+          data-tip={recording ? 'Stop and save the clip' : 'Record video with audio'}
+          aria-label={recording ? 'Stop recording' : 'Record'}
+        >
+          <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
+          <span className="lbl-wide">{recording ? 'Stop' : 'Record'}</span>
+        </button>
+        <button className="btn primary has-tip tip-below tip-end" onClick={enterPerform} data-tip="Fullscreen, controls hide  F">
+          <Expand width={13} height={13} /> Perform
+        </button>
+      </div>
+    </header>
+  );
+}
+
+/**
+ * The song now playing, as a button: it opens the places a song can come from (the two demos, a file
+ * from disk, the microphone). Keeps the topbar to one quiet pill instead of five controls.
+ */
+function SourceMenu({ onOpenFiles }: { onOpenFiles: () => void }) {
+  const track = useStudio((s) => s.track);
+  const analysis = useStudio((s) => s.analysis);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+
+  const pick = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
+
+  return (
+    <div className="src" ref={box}>
+      <button className={`trackpill ${track ? '' : 'none'} ${open ? 'open' : ''}`} onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open}>
+        <span className="dot">
+          {track?.name === 'Tab audio' ? (
+            <BrowserTab width={11} height={11} />
+          ) : track?.source === 'mic' ? (
+            <Mic width={10} height={10} />
+          ) : track ? (
+            <span style={{ fontSize: 8 }}>♪</span>
+          ) : null}
+        </span>
+        <span className="name">{track ? track.name : 'Choose a song'}</span>
+        {track && analysis && (
+          <span className="meta">
+            {Math.round(analysis.bpm)} bpm · {analysis.tags.slice(0, 3).join(', ')}
+          </span>
+        )}
+        <Chevron width={12} height={12} className="caret" />
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          <div className="menu-h">Demos</div>
+          {DEMO_TRACKS.map((d) => (
+            <button key={d.id} role="menuitem" className={`menu-item ${track?.id === d.id ? 'on' : ''}`} onClick={pick(() => void loadDemo(d.id))}>
+              <b>{d.name}</b>
+              <span>{d.description}</span>
+            </button>
+          ))}
+          <div className="menu-sep" />
+          <button role="menuitem" className="menu-item row" onClick={pick(onOpenFiles)}>
+            <Upload width={14} height={14} />
+            <b>Open audio or photos…</b>
+          </button>
+          <button role="menuitem" className={`menu-item row ${track?.source === 'mic' && track.name !== 'Tab audio' ? 'on' : ''}`} onClick={pick(() => void useMic())}>
+            <Mic width={14} height={14} />
+            <b>Listen to the microphone</b>
+          </button>
+          {canListenToTab() && (
+            <button
+              role="menuitem"
+              className={`menu-item row ${track?.name === 'Tab audio' ? 'on' : ''}`}
+              onClick={pick(() => void useTab())}
+              title="Play the song on YouTube in another tab, pick that tab, keep Share tab audio on"
+            >
+              <BrowserTab width={14} height={14} />
+              <span className="mi-text">
+                <b>Listen to a tab</b>
+                <span>A song playing in another tab, e.g. YouTube</span>
+              </span>
+            </button>
+          )}
+          <p className="menu-foot">Or drop a song anywhere on the page.</p>
         </div>
       )}
-      <LyricsChip />
-      <div className="seg" style={{ marginLeft: 4 }}>
-        {DEMO_TRACKS.map((d) => (
-          <button key={d.id} className={track?.id === d.id ? 'on' : ''} onClick={() => void loadDemo(d.id)} title={d.description}>
-            {d.name}
-          </button>
-        ))}
-      </div>
-      <button className="btn icon ghost has-tip tip-below" data-tip="Open audio or photos" onClick={() => input.current?.click()}>
-        <Upload width={15} height={15} />
-      </button>
-      <button className="btn icon ghost has-tip tip-below" data-tip="Listen to the microphone" onClick={() => void useMic()}>
-        <Mic width={15} height={15} />
-      </button>
-      <input
-        ref={input}
-        type="file"
-        accept="audio/*,image/*"
-        multiple
-        hidden
-        onChange={(e) => {
-          if (e.target.files) void handleFiles(e.target.files);
-          e.target.value = '';
-        }}
-      />
-      <div className="spacer" />
-      <button className="btn icon ghost has-tip tip-below" data-tip="Shuffle look  R" onClick={shuffle}>
-        <Shuffle width={15} height={15} />
-      </button>
-      <button className="btn icon ghost has-tip tip-below" data-tip="Save a still image" onClick={() => void still()}>
-        <Camera width={15} height={15} />
-      </button>
-      <button className={`btn rec ${recording ? 'on' : ''}`} onClick={() => void toggleRec()} title="Record video with audio">
-        <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
-        {recording ? 'Stop' : 'Record'}
-      </button>
-      <button className="btn primary" onClick={() => set({ perform: true })} title="Full-bleed perform mode (F)">
-        <Expand width={13} height={13} /> Perform
-      </button>
-    </header>
+    </div>
   );
 }
