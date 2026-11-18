@@ -1765,3 +1765,319 @@ textarea.txt {
 .lyr-wrong {
   margin-left: -8px;
 }
+.lyr-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.lyr-paste {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lyr-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.lyr-bar i {
+  display: block;
+  height: 100%;
+  background: #2f4bff;
+  transition: width 0.2s;
+}
+.lyr-offset {
+  width: 100%;
+}
+.lyr-pop.wide {
+  width: 340px;
+}
+.lyr-more {
+  margin-left: -8px;
+}
+.lyr-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lyr-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lyr-form label span {
+  width: 42px;
+  flex: none;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.lyr-form .txt {
+  flex: 1;
+  min-width: 0;
+}
+.lyr-err {
+  color: #c4372d;
+}
+.lyr-results {
+  width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.lyr-res {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 78px 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lyr-res:hover {
+  background: var(--panel-2);
+}
+.lyr-res b {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.lyr-res span {
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.lyr-res em {
+  font-style: normal;
+  color: #b06a1c;
+}
+.lyr-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--panel-2);
+  color: var(--ink-3);
+}
+.lyr-tag.timed {
+  background: #e6eaff;
+  color: #2f4bff;
+}
+.tap {
+  position: fixed;
+  left: 50%;
+  bottom: 200px;
+  transform: translateX(-50%);
+  z-index: 80;
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.07),
+    0 14px 40px rgba(0, 0, 0, 0.2);
+}
+.tap-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tap-head span {
+  flex: 1;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.tap-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px;
+}
+.tap-now {
+  color: var(--ink-3);
+  font-size: 12px;
+  min-height: 16px;
+}
+.tap-next {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.tap-k {
+  display: block;
+  color: #2f4bff;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.tap-after {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+.tap-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tap-time {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+}
+.tap-btn {
+  height: 36px;
+  min-width: 96px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--panel);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tap-btn:disabled {
+  opacity: 0.4;
+}
+.tap-btn.hit {
+  animation: tap-hit 0.25s ease-out;
+}
+@keyframes tap-hit {
+  from {
+    background: #2f4bff;
+    transform: scale(0.96);
+  }
+}
+
+/* ───────── loading: the Hum mark floating on the paper while a new song is analysed ───────── */
+.loading-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 30% 25%, rgba(214, 224, 255, 0.85) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(255, 226, 236, 0.75) 0%, transparent 55%),
+    var(--panel);
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.loading-stage.in {
+  animation: ld-fade-in 0.25s ease both;
+}
+.loading-stage.out {
+  opacity: 0;
+}
+@keyframes ld-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.ld-mark {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  display: grid;
+  place-items: center;
+  animation: ld-float 3.2s ease-in-out infinite;
+}
+@keyframes ld-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+.ld-ball {
+  --lvl: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #dfe6ff 0%, #8ea4ff 30%, #2f4bff 64%, #1a2acc 100%);
+  box-shadow:
+    0 calc(14px + var(--lvl) * 6px) calc(22px + var(--lvl) * 20px) rgba(47, 75, 255, calc(0.18 + var(--lvl) * 0.22)),
+    inset -6px -8px 16px rgba(10, 20, 90, 0.3);
+  transform: scale(calc(1 + var(--lvl) * 0.22));
+  animation: ld-breathe 2.4s ease-in-out infinite;
+}
+@keyframes ld-breathe {
+  50% {
+    filter: brightness(1.08);
+    border-radius: 47% 53% 50% 50% / 52% 48% 52% 48%;
+  }
+}
+.ld-rings {
+  position: absolute;
+  inset: 0;
+}
+.ld-rings b,
+.ld-rings i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(47, 75, 255, 0.28);
+  opacity: 0;
+}
+/* a slow idle ripple, so it moves even in a quiet intro */
+.ld-rings b {
+  animation: ld-ripple 3s ease-out infinite;
+}
+.ld-rings b:nth-child(2) {
+  animation-delay: 1s;
+}
+.ld-rings b:nth-child(3) {
+  animation-delay: 2s;
+}
+/* a sharper ring on every kick */
+.ld-rings i {
+  border-color: rgba(47, 75, 255, 0.5);
+  animation: ld-ripple 1.2s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes ld-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ld-mark,
+  .ld-ball,
+  .ld-rings b {
+    animation: none;
+  }
+}

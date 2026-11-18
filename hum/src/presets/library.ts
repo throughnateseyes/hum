@@ -43,6 +43,81 @@ export const PRESETS: Preset[] = [
     palette: 'paper-blue',
   }),
 
+  /* ───────── busy boards: games, control room, diary, forecast (pop-up session) ───────── */
+  P({
+    id: 'arcade-board',
+    name: 'Arcade Board',
+    description: 'A games sheet: Pong hitting on the beat, a runner jumping on kicks, Tetris, a BPM odometer and stamps on the drop.',
+    tags: ['bouncy', 'energetic', 'upbeat', 'euphoric', 'pop', 'house', 'playful'],
+    sceneId: 'board-arcade',
+    effects: [{ effectId: 'grain', params: { amount: 0.14 } }],
+    modulations: [],
+    palette: 'mint-lab',
+  }),
+  P({
+    id: 'arcade-night',
+    name: 'Arcade Night',
+    description: 'The games sheet after dark: violet and pink on black, through a CRT.',
+    tags: ['driving', 'fast', 'energetic', 'dark', 'bouncy', 'playful'],
+    sceneId: 'board-arcade',
+    effects: [
+      { effectId: 'crt', params: { scanlines: 0.3 } },
+      { effectId: 'grain', params: { amount: 0.12 } },
+    ],
+    modulations: [],
+    palette: 'bruise',
+  }),
+  P({
+    id: 'mission-control',
+    name: 'Mission Control',
+    description: 'Night-shift control room: a terminal narrating the song ("DROP IN 4"), radar, XY figure, song map and meters.',
+    tags: ['dark', 'driving', 'techno', 'hypnotic', 'electronic', 'intense'],
+    sceneId: 'board-mission',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.14 } },
+      { effectId: 'crt', params: { scanlines: 0.22 } },
+    ],
+    modulations: [],
+    palette: 'sodium',
+  }),
+  P({
+    id: 'dear-diary',
+    name: 'Dear Diary',
+    description: 'A lyric zine: the sung line on a typewriter, a word cloud of everything sung, a mood forecast and stamps.',
+    tags: ['tender', 'dreamy', 'romantic', 'indie', 'pop', 'acoustic', 'lyric'],
+    sceneId: 'board-diary',
+    effects: [{ effectId: 'grain', params: { amount: 0.16 } }],
+    modulations: [],
+    palette: 'blush',
+  }),
+  P({
+    id: 'diary-ink',
+    name: 'Diary in Ink',
+    description: 'The lyric zine in black ink on bone paper, for the sad ones.',
+    tags: ['melancholic', 'slow', 'spacious', 'acoustic', 'calm', 'lyric'],
+    sceneId: 'board-diary',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.18 } },
+      { effectId: 'vignette', params: { amount: 0.2 } },
+    ],
+    modulations: [],
+    palette: 'bone-ink',
+  }),
+  P({
+    id: 'song-forecast',
+    name: 'Song Forecast',
+    description: 'A weather station for the song: sun, drizzle or a storm on the drop, with the next parts as a forecast strip.',
+    tags: ['calm', 'spacious', 'dreamy', 'lofi', 'hip-hop', 'ambient', 'mid-tempo'],
+    sceneId: 'board-forecast',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.12 } },
+      { effectId: 'vignette', params: { amount: 0.15 } },
+    ],
+    modulations: [],
+    palette: 'sky-film',
+  }),
+  /* ───────── end busy boards ───────── */
+
   /* ───────── heavy / bass ───────── */
   P({
     id: 'sub-pressure',

@@ -4,7 +4,7 @@
  * machine, never the audio.
  */
 import type { LyricLine, Lyrics } from '../core/types';
-import { tagsFromFilename, type SongTags } from './tags';
+import { cleanArtist, cleanTitle, mainArtist, tagsFromFilename, type SongTags } from './tags';
 
 const LRCLIB = 'https://lrclib.net';
 const CLIENT = 'Hum v0.1 (audio-reactive visual playground)';
@@ -105,7 +105,7 @@ function finish(lines: LyricLine[], duration: number): LyricLine[] {
 
 /* ───────────────────────── LRCLIB ───────────────────────── */
 
-interface LrclibRecord {
+export interface LrclibRecord {
   id: number;
   trackName: string;
   artistName: string;
@@ -121,7 +121,8 @@ interface LrclibRecord {
 class RateLimited extends Error {}
 
 async function lrclib(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(`${LRCLIB}${path}?${new URLSearchParams(params)}`, { headers: { 'Lrclib-Client': CLIENT }, signal });
+  const q = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
+  const res = await fetch(`${LRCLIB}${path}${q}`, { headers: { 'Lrclib-Client': CLIENT }, signal });
   if (res.status === 404) return null;
   if (res.status === 429) throw new RateLimited('LRCLIB is rate limiting right now');
   if (!res.ok) throw new Error(`LRCLIB error ${res.status}`);
@@ -133,36 +134,75 @@ const norm = (s: string) =>
   s
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\(.*?\)|\[.*?\]|feat\..*$|ft\..*$/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-function toLyrics(r: LrclibRecord, duration: number): Lyrics {
+export function toLyrics(r: LrclibRecord, duration: number): Lyrics {
   if (r.instrumental) return { lines: [], synced: false, source: 'lrclib', title: r.trackName, artist: r.artistName, instrumental: true };
+  // parse against the record's own length: lines are re-timed to the file afterwards if it differs
+  const len = Math.max(duration, r.duration || 0);
   let lines: LyricLine[] = [];
-  if (r.hasWordSync && r.lyricsfile) lines = parseLyricsfile(r.lyricsfile, duration);
-  if (!lines.length && r.syncedLyrics) lines = parseLRC(r.syncedLyrics, duration);
-  if (!lines.length && r.lyricsfile) lines = parseLyricsfile(r.lyricsfile, duration);
+  if (r.hasWordSync && r.lyricsfile) lines = parseLyricsfile(r.lyricsfile, len);
+  if (!lines.length && r.syncedLyrics) lines = parseLRC(r.syncedLyrics, len);
+  if (!lines.length && r.lyricsfile) lines = parseLyricsfile(r.lyricsfile, len);
   return {
     lines,
     synced: lines.length > 0,
     source: 'lrclib',
     title: r.trackName,
     artist: r.artistName,
-    plain: r.plainLyrics ?? undefined,
+    plain: r.plainLyrics ?? (lines.length ? lines.map((l) => l.text).join('\n') : undefined),
   };
 }
 
-/** the closest-length record that has lyrics, preferring timed ones; null if nothing is within `tol` seconds */
-function pick(list: LrclibRecord[], duration: number, tol: number, title?: string): LrclibRecord | null {
-  const t = title ? norm(title) : '';
+/** how well a record's title / artist match what we searched for: 2 same, 1 close, 0 no */
+function titleMatch(r: LrclibRecord, title: string) {
+  const a = norm(r.trackName);
+  const b = norm(title);
+  if (!a || !b) return 0;
+  if (a === b) return 2;
+  return a.includes(b) || b.includes(a) ? 1 : 0;
+}
+function artistMatch(r: LrclibRecord, artist?: string) {
+  if (!artist) return 0;
+  const a = norm(r.artistName);
+  const b = norm(artist);
+  const m = norm(mainArtist(artist));
+  if (!a || !b) return 0;
+  if (a === b || a === m) return 2;
+  return a.includes(m) || b.includes(a) ? 1 : 0;
+}
+const hasLyrics = (r: LrclibRecord) => !!(r.syncedLyrics || r.lyricsfile || r.plainLyrics || r.instrumental);
+
+/**
+ * The best record for a song. Within the length window: the closest one with lyrics (timed first).
+ * Otherwise, a music video is often longer or shorter than the song (intros, outros, edits), so a
+ * record with the same title and artist is still taken, and re-timed to the file afterwards.
+ */
+function choose(list: LrclibRecord[], duration: number, title: string, artist?: string): { r: LrclibRecord; lengthDiff: number } | null {
   const scored = list
-    .filter((r) => !duration || Math.abs(r.duration - duration) <= tol)
-    .filter((r) => !t || norm(r.trackName).includes(t) || t.includes(norm(r.trackName)))
-    .map((r) => ({ r, s: Math.abs(r.duration - duration) + (r.syncedLyrics ? 0 : 5) + (r.instrumental ? 8 : 0) }))
-    .sort((a, b) => a.s - b.s);
-  return scored[0]?.r ?? null;
+    .filter(hasLyrics)
+    .map((r) => ({ r, tm: titleMatch(r, title), am: artistMatch(r, artist), dd: Math.abs(r.duration - duration) }))
+    .filter((x) => x.tm > 0 && (!artist || x.am > 0 || x.dd <= 1.2));
+  const timed = (r: LrclibRecord) => (r.syncedLyrics || r.lyricsfile ? 0 : 5);
+  const rank = (a: (typeof scored)[0]) => a.dd + timed(a.r) + (a.r.instrumental ? 8 : 0) + (2 - a.tm) * 2 + (2 - a.am);
+  const tol = artist ? 4 : 2.5;
+  const close = scored.filter((x) => !duration || x.dd <= tol).sort((a, b) => rank(a) - rank(b));
+  if (close[0]) return { r: close[0].r, lengthDiff: 0 };
+  // a strong title + artist match with timed lines, whatever its length. Uploads disagree about
+  // length (some add silence, some are other edits), so trust the length most of them agree on
+  const strong = scored.filter((x) => x.tm === 2 && x.am >= 1 && (x.r.syncedLyrics || x.r.lyricsfile) && x.dd <= Math.max(60, duration * 0.5));
+  if (!strong.length) return null;
+  const votes = new Map<number, number>();
+  for (const x of strong) {
+    const k = Math.round(x.r.duration / 3);
+    votes.set(k, (votes.get(k) ?? 0) + 1 + (x.am === 2 ? 0.5 : 0));
+  }
+  const top = Math.max(...votes.values());
+  const pickFrom = strong.filter((x) => votes.get(Math.round(x.r.duration / 3)) === top).sort((a, b) => b.am - a.am || a.dd - b.dd);
+  return { r: pickFrom[0].r, lengthDiff: pickFrom[0].r.duration - duration };
 }
 
 export interface LyricsResult {
@@ -170,17 +210,22 @@ export interface LyricsResult {
   /** what we searched for, to show the person */
   query: { title?: string; artist?: string };
   reason?: string;
+  /** record length − file length in seconds, when the lyrics came from a song of a different length */
+  lengthDiff?: number;
 }
 
 /**
  * Find lyrics for a track: embedded timed lyrics → LRCLIB exact match → LRCLIB search (closest
- * duration) → embedded plain lyrics. Never throws.
+ * length, or a strong title + artist match of another length) → embedded plain lyrics. Never throws.
+ * Only the title, artist and length are sent.
  */
 export async function findLyrics(opts: { tags: SongTags; fileName?: string; duration: number; signal?: AbortSignal }): Promise<LyricsResult> {
   const { duration, signal } = opts;
   const fromName = opts.fileName ? tagsFromFilename(opts.fileName) : {};
-  const title = opts.tags.title ?? fromName.title;
-  const artist = opts.tags.artist ?? (opts.tags.title ? undefined : fromName.artist);
+  const tagTitle = opts.tags.title ? cleanTitle(opts.tags.title) : undefined;
+  const tagArtist = opts.tags.artist ? cleanArtist(opts.tags.artist) : undefined;
+  const title = tagTitle || fromName.title;
+  const artist = tagArtist || (tagTitle ? undefined : fromName.artist);
   const album = opts.tags.album;
   const query = { title, artist };
 
@@ -193,29 +238,70 @@ export async function findLyrics(opts: { tags: SongTags; fileName?: string; dura
   const plainFallback: Lyrics | null = embedded ? { lines: [], synced: false, source: 'file', title, artist, plain: embedded } : null;
   if (!title) return { lyrics: plainFallback, query, reason: 'The file has no title to search for.' };
 
+  // every way of asking: as tagged, with just the first artist, as the file name says, title alone
+  const asks: { title: string; artist?: string }[] = [];
+  const add = (t?: string, a?: string) => {
+    if (t && !asks.some((x) => x.title === t && x.artist === a)) asks.push({ title: t, artist: a });
+  };
+  add(title, artist);
+  if (artist) add(title, mainArtist(artist));
+  if (fromName.title && (fromName.title !== title || fromName.artist !== artist)) add(fromName.title, fromName.artist);
+  add(title, undefined);
+
   try {
     const d = String(Math.round(duration));
     // 2. exact signature match
-    if (artist) {
+    for (const a of asks.filter((x) => x.artist).slice(0, 2)) {
       for (const params of [
-        { track_name: title, artist_name: artist, ...(album ? { album_name: album } : {}), duration: d },
-        ...(album ? [{ track_name: title, artist_name: artist, duration: d }] : []),
+        { track_name: a.title, artist_name: a.artist!, ...(album ? { album_name: album } : {}), duration: d },
+        ...(album ? [{ track_name: a.title, artist_name: a.artist!, duration: d }] : []),
       ]) {
         const r = (await lrclib('/api/get', params, signal)) as LrclibRecord | null;
         if (r && (r.syncedLyrics || r.lyricsfile || r.instrumental)) return { lyrics: toLyrics(r, duration), query };
       }
     }
-    // 3. search, keep the closest length
-    const params: Record<string, string> = artist ? { track_name: title, artist_name: artist } : { q: title };
-    const list = ((await lrclib('/api/search', params, signal)) as LrclibRecord[] | null) ?? [];
-    // without an artist, insist on a matching title, or failing that a near-exact length
-    const best = artist ? pick(list, duration, 4) : (pick(list, duration, 2.5, title) ?? pick(list, duration, 1.2));
-    if (best) return { lyrics: toLyrics(best, duration), query };
+    // 3. search each way, keep the best
+    const seen = new Map<number, LrclibRecord>();
+    let best: ReturnType<typeof choose> = null;
+    for (const a of asks.slice(0, 4)) {
+      const params: Record<string, string> = a.artist ? { track_name: a.title, artist_name: a.artist } : { q: a.title };
+      const list = ((await lrclib('/api/search', params, signal)) as LrclibRecord[] | null) ?? [];
+      for (const r of list) seen.set(r.id, r);
+      best = choose([...seen.values()], duration, title, artist ?? fromName.artist);
+      if (best && best.lengthDiff === 0) break;
+    }
+    if (best) return { lyrics: toLyrics(best.r, duration), query, ...(best.lengthDiff ? { lengthDiff: best.lengthDiff } : {}) };
   } catch (e) {
     if (signal?.aborted) throw e;
     return { lyrics: plainFallback, query, reason: e instanceof RateLimited ? e.message : 'Couldn’t reach LRCLIB.' };
   }
   return { lyrics: plainFallback, query, reason: 'No lyrics found for this song.' };
+}
+
+/* ───────────────────────── manual search ───────────────────────── */
+
+/** search LRCLIB the way a person types it; records with lyrics first, closest length first */
+export async function searchLrclib(artist: string, title: string, duration: number): Promise<LrclibRecord[]> {
+  const t = title.trim();
+  const a = artist.trim();
+  if (!t && !a) return [];
+  const params: Record<string, string> = t && a ? { track_name: t, artist_name: a } : { q: `${a} ${t}`.trim() };
+  let list = ((await lrclib('/api/search', params)) as LrclibRecord[] | null) ?? [];
+  if (!list.length && t && a) list = ((await lrclib('/api/search', { q: `${a} ${t}` })) as LrclibRecord[] | null) ?? [];
+  const score = (r: LrclibRecord) => (r.syncedLyrics || r.lyricsfile ? 0 : r.plainLyrics ? 1 : 2) * 1000 + Math.abs(r.duration - duration);
+  return list.sort((x, y) => score(x) - score(y)).slice(0, 20);
+}
+
+/** an LRCLIB record by its id, or from a lrclib.net link (the number in it) */
+export async function lrclibById(idOrLink: string): Promise<LrclibRecord | null> {
+  const m = /(\d{2,})(?!.*\d)/.exec(idOrLink.trim());
+  if (!m) return null;
+  return (await lrclib(`/api/get/${m[1]}`, {})) as LrclibRecord | null;
+}
+
+/** does the text look like a lrclib.net link or a bare record id? */
+export function isLrclibRef(s: string) {
+  return /lrclib\.net/i.test(s) || /^\s*\d{2,}\s*$/.test(s);
 }
 
 /** index of the last line that has started by time t (-1 before the first) */

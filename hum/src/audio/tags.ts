@@ -247,12 +247,49 @@ async function wav(file: Blob): Promise<SongTags> {
  * Guess artist and title from a file name: "Artist - Title", "03 - Artist - Title", "03. Title",
  * dropping things like "(Official Video)", "[320kbps]" and "lyrics".
  */
+/** words in brackets that only describe the upload, never the song */
+const JUNK = /official|video|lyric|audio|visuali[sz]er|\bhq\b|\bhd\b|\b4k\b|\b8k\b|1080p|720p|\d+\s?kbps|explicit|\bclean\b|remaster|\bmv\b|m\/v|\bft\b|\bfeat|featuring|prod\.|\bclip\b|color coded|\bsub(s|titles)?\b|full song|music|topic|premiere|visual/i;
+
+/**
+ * A song title as people (and LRCLIB) write it, from a file name or a video's title:
+ * "Cheerleader (Official Music Video) [dQw4w9WgXcQ] | Porter Robinson" → "Cheerleader".
+ */
+export function cleanTitle(raw: string): string {
+  let t = raw.replace(/[’‘]/g, "'");
+  t = t.replace(/\[[A-Za-z0-9_-]{11}\]/g, ' '); // yt-dlp video id
+  t = t.replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, ' ');
+  t = t.replace(/\s+\|.*$/, ''); // "| Channel name"
+  // (Official Video), [Lyrics], (feat. Someone)... but keep (Live), (Acoustic), (Remix) etc.
+  for (let k = 0; k < 3; k++) t = t.replace(/\s*[([{【]([^)\]}】]*)[)\]}】]/g, (m, inner: string) => (JUNK.test(inner) ? ' ' : m));
+  t = t.replace(/\s+(ft|feat|featuring)\.?\s.*$/i, ''); // feat. outside brackets
+  t = t.replace(/\s+\b(hd|hq|4k|8k|1080p|720p|mv|m\/v|official( music)? video|lyrics?)\b\s*$/i, '');
+  t = t.replace(/["“”«»]/g, '').replace(/(^|\s)'|'(\s|$)/g, '$1$2');
+  return t.replace(/\s{2,}/g, ' ').replace(/^[\s\-–—:|·]+|[\s\-–—:|·]+$/g, '').trim();
+}
+
+/** an artist name without channel decorations: "Porter Robinson - Topic", "PorterRobinsonVEVO", "… Official" */
+export function cleanArtist(raw: string): string {
+  let a = cleanTitle(raw);
+  a = a.replace(/\s*-\s*topic$/i, '').replace(/vevo$/i, '').replace(/\s+official$/i, '');
+  return a.trim();
+}
+
+/** the first artist of several: "A & B", "A x B", "A, B", "A feat. B" → "A" */
+export function mainArtist(artist: string): string {
+  return artist.split(/\s*(?:,|&|;|\/|\s+x\s+|\s+and\s+|\s+with\s+|\s+vs\.?\s+|\s+(?:ft|feat|featuring)\.?\s+)\s*/i)[0]?.trim() || artist;
+}
+
 export function tagsFromFilename(name: string): SongTags {
   let s = name.replace(/\.[a-z0-9]{2,4}$/i, '');
   s = s.replace(/[_]+/g, ' ');
-  s = s.replace(/\s*[([](official|lyric|lyrics|audio|video|visuali[sz]er|hq|hd|4k|\d+\s?kbps|explicit|clean|remaster(ed)?[^)\]]*)[^)\]]*[)\]]/gi, '');
   s = s.replace(/^\s*\d{1,3}\s*[-.)]\s*/, '').trim();
+  s = s.replace(/\s+\|.*$/, '');
   const parts = s.split(/\s+[-–—]\s+/).map((x) => x.trim()).filter(Boolean);
-  if (parts.length >= 2) return { artist: parts[0], title: parts.slice(1).join(' - ') };
-  return parts[0] ? { title: parts[0] } : {};
+  if (parts.length >= 2) {
+    const artist = cleanArtist(parts[0]);
+    const title = cleanTitle(parts.slice(1).join(' - '));
+    if (artist && title) return { artist, title };
+  }
+  const title = cleanTitle(s);
+  return title ? { title } : {};
 }

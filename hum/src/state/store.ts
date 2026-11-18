@@ -23,7 +23,11 @@ import type { VideoPlan } from './plan';
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
 export type LyricStyle = 'off' | 'subtitle' | 'big';
+/** small board windows over the picture: during a played video plan, always, or never */
+export type PopupMode = 'video' | 'always' | 'off';
 export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | 'instrumental';
+/** progress while pasted lyrics are being synced to the song */
+export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: number } | null;
 
 export interface ChatMsg {
   id: string;
@@ -79,8 +83,16 @@ export interface StudioState extends LookState {
   /** why nothing was found, or what was searched */
   lyricsNote: string;
   lyricStyle: LyricStyle;
+  lyricsSync: LyricsSync;
+  /** what the automatic lookup searched for (prefills the search box) */
+  lyricsQuery: { title?: string; artist?: string };
+  /** share of pasted words the listener matched, after a sync (null when not synced by listening) */
+  lyricsMatched: number | null;
+  /** the tap-to-fix panel is open */
+  tapSync: boolean;
   /** hand-drawn finish over every scene */
   hand: HandStyle;
+  popups: PopupMode;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -107,14 +119,15 @@ export interface StudioState extends LookState {
   flash: (msg: string) => void;
 }
 
-export const HAND_DEFAULT: HandStyle = { on: false, fps: 12, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
+export const HAND_DEFAULT: HandStyle = { on: false, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
 
 /** a stored or AI-made hand style, with anything missing or out of range fixed */
 export function cleanHand(h: unknown): HandStyle | undefined {
   if (!h || typeof h !== 'object') return undefined;
   const o = h as Record<string, unknown>;
   const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : d);
-  const fps = o.fps === 24 || o.fps === 8 ? o.fps : 12;
+  // settings saved before smooth became the default (no v: 2) start smooth too
+  const fps = o.v === 2 && (o.fps === 12 || o.fps === 8) ? o.fps : 60;
   const inks = typeof o.inks === 'number' ? (Math.max(0, Math.min(4, Math.round(o.inks))) as HandStyle['inks']) : HAND_DEFAULT.inks;
   return {
     on: o.on !== false,
@@ -144,6 +157,7 @@ function loadPersisted(): Partial<StudioState> {
       directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
       directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
       hand: cleanHand(j.hand),
+      popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
       lyricStyle: j.lyricStyle === 'off' || j.lyricStyle === 'subtitle' || j.lyricStyle === 'big' ? j.lyricStyle : undefined,
     };
   } catch {
@@ -165,7 +179,8 @@ function persist(s: StudioState) {
         directorOpen: s.directorOpen,
         directorHeight: s.directorHeight,
         lyricStyle: s.lyricStyle,
-        hand: s.hand,
+        hand: { ...s.hand, v: 2 },
+        popups: s.popups,
       }),
     );
   } catch {
@@ -235,7 +250,12 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricsStatus: 'idle',
   lyricsNote: '',
   lyricStyle: persisted.lyricStyle ?? 'subtitle',
+  lyricsSync: null,
+  lyricsQuery: {},
+  lyricsMatched: null,
+  tapSync: false,
   hand: persisted.hand ?? HAND_DEFAULT,
+  popups: persisted.popups ?? 'video',
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -330,7 +350,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'hand' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'hand' in patch || 'popups' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

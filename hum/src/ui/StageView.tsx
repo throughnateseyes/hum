@@ -5,6 +5,7 @@ import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
 import { handleFiles, loadDemo, useMic } from '../state/tracks';
 import { Mic, Upload } from './Icons';
+import { LoadingStage } from './Loading';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -61,6 +62,7 @@ export function StageView() {
     <div className="stage-wrap" ref={wrap}>
       <div className="stage-frame" ref={frame} style={{ width: size.w, height: size.h }}>
         <canvas ref={canvas} />
+        <LoadingStage />
         <div className="stage-hud">
           {recording && (
             <span className="hud-pill rec">

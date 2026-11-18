@@ -97,7 +97,7 @@ export interface Lyrics {
   lines: LyricLine[];
   /** lines have times (otherwise only `plain` text is known) */
   synced: boolean;
-  source: 'file' | 'lrclib';
+  source: 'file' | 'lrclib' | 'pasted';
   title?: string;
   artist?: string;
   plain?: string;
@@ -352,8 +352,8 @@ export interface Preset {
 /** the hand-drawn finish over the whole frame (see src/render/handPass.ts) */
 export interface HandStyle {
   on: boolean;
-  /** new drawings per second: 24 is smooth, 12 is "on twos", 8 is "on threes" */
-  fps: 24 | 12 | 8;
+  /** new drawings per second: 60 moves smoothly (only the lines re-draw, 12 times a second), 12 is "on twos", 8 is "on threes" */
+  fps: 60 | 12 | 8;
   /** how much each drawing strays from the last, 0..1 */
   wobble: number;
   /** printing inks besides the paper (1–4, from the palette); 0 keeps full colour */

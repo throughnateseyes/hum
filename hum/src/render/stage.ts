@@ -14,6 +14,7 @@ import { planTick } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
 import { HandPass } from './handPass';
+import { PopupLayer } from './popups';
 import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
 
@@ -123,6 +124,8 @@ export class Stage {
   private warm: Live | null = null;
   private warmFresh = false;
   private lyricLayer = new LyricLayer();
+  /** little board windows that pop in over the picture (after effects, under lyrics) */
+  private popups = new PopupLayer();
   private peekLook: PeekLook | null = null;
   private peekOut: HTMLCanvasElement | null = null;
   private peekCss = { w: 256, h: 160 };
@@ -447,7 +450,7 @@ export class Stage {
     // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
     // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
     const hit = this.hitEdge(audio);
-    if (s.hand.on && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
+    if (s.hand.on && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
       this.shared.blit(this.holdRT.texture, null);
       this.resolveSnapshots();
       return;
@@ -551,8 +554,11 @@ export class Stage {
       } else {
         this.shared.blit(finalTex, this.impactRT);
       }
+      this.popups.render(r, base, this.impactRT);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
-      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: s.hand, palette: this.palette, width: this.width, height: this.height, drawing: this.drawingNo++ });
+      // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
+      const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
+      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: s.hand, palette: this.palette, width: this.width, height: this.height, drawing });
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else {
@@ -563,6 +569,7 @@ export class Stage {
       } else {
         this.shared.blit(finalTex, null);
       }
+      this.popups.render(r, base);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
@@ -606,6 +613,7 @@ export class Stage {
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
     this.lyricLayer.dispose();
+    this.popups.dispose();
     this.peekFx.dispose();
     this.peekRT.dispose();
     this.current?.inst.dispose();

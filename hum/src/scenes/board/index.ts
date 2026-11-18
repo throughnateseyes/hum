@@ -23,6 +23,7 @@ import {
   stepSeq,
   vectorScope,
 } from './mod-signal';
+import { harmonograph, minimap, odometer, pong, radar, runner, stamps, terminal, typewriter, weather, wordCloud } from './mod-fun';
 
 const HEAD = '86px';
 const FOOT = '40px';
@@ -229,4 +230,231 @@ const oto = defineBoard({
   }),
 });
 
-export const scenes: SceneDef[] = [orbit, lab, oto];
+/* ───────────────────────── busy boards (games, control room, diary, forecast) ───────────────────────── */
+
+const arcade = defineBoard({
+  id: 'board-arcade',
+  name: 'Board · Arcade',
+  description:
+    'A games sheet: Pong with the ball hitting on the beat, a runner that jumps on kicks, Tetris, a BPM odometer, rubber stamps on the drop, radar and a step sequencer.',
+  tags: ['playful', 'bouncy', 'games', 'dance', 'pop', 'house', 'energetic', 'board'],
+  params: [{ id: 'fall', label: 'Fall speed', type: 'number', group: 'Modules', min: 0.2, max: 3, step: 0.05, default: 1.2, hint: 'Tetris drop speed' }],
+  modulations: [{ source: 'energy', param: 'fall', amount: 0.25 }],
+  defaults: { accent: 1, padding: 0.85 },
+  templates: {
+    tall: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 2.1, 1.5, 2.2, 1.5, 1.5, FOOT],
+      areas: [
+        'head head head head',
+        'pong pong pong pong',
+        'run run run run',
+        'tetris tetris odo odo',
+        'tetris tetris stamp stamp',
+        'radar radar seq seq',
+        'foot foot foot foot',
+      ],
+    },
+    square: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 1.25, 1.1, 1, FOOT],
+      areas: ['head head head head', 'pong pong run run', 'tetris odo odo stamp', 'tetris radar seq seq', 'foot foot foot foot'],
+    },
+    wide: {
+      cols: [1, 1, 1, 1, 1, 0.9],
+      rows: [HEAD, 1, 1, 1, FOOT],
+      areas: [
+        'head head head head head head',
+        'pong pong run run run tetris',
+        'pong pong odo odo stamp tetris',
+        'radar spec seq seq stamp tetris',
+        'foot foot foot foot foot foot',
+      ],
+    },
+  },
+  build: () => ({
+    head: header('HUM/ARCADE', 'INSERT COIN · BOARD 05'),
+    pong: pong(),
+    run: runner(),
+    tetris: tetris(),
+    odo: odometer(),
+    stamp: stamps(),
+    radar: radar(),
+    seq: stepSeq(),
+    spec: spectrumBars(),
+    foot: footer('HUM.ARCADE'),
+  }),
+});
+
+const mission = defineBoard({
+  id: 'board-mission',
+  name: 'Board · Mission',
+  description:
+    'A night-shift control room: a terminal log narrating the song (bars, kicks, "DROP IN 4"), radar sweep, XY harmonograph, song map with playhead, odometer, meters and a spectrogram.',
+  tags: ['technical', 'dark', 'techno', 'driving', 'electronic', 'hypnotic', 'busy', 'board'],
+  params: [],
+  defaults: { accent: 1, padding: 0.8 },
+  templates: {
+    tall: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 2, 2.6, 1.1, 1.4, 1, FOOT],
+      areas: [
+        'head head head head',
+        'radar radar xy xy',
+        'term term term term',
+        'map map map map',
+        'odo odo meter scope',
+        'specg specg specg specg',
+        'foot foot foot foot',
+      ],
+    },
+    square: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 1.4, 1.1, 0.8, FOOT],
+      areas: ['head head head head', 'term term radar radar', 'term term xy odo', 'map map specg meter', 'foot foot foot foot'],
+    },
+    wide: {
+      cols: [1.2, 1, 1, 1, 0.9, 0.9],
+      rows: [HEAD, 1.1, 1, 0.75, FOOT],
+      areas: [
+        'head head head head head head',
+        'term term radar radar xy xy',
+        'term term radar radar odo meter',
+        'map map map specg specg scope',
+        'foot foot foot foot foot foot',
+      ],
+    },
+  },
+  build: () => ({
+    head: header('HUM/MISSION', 'CONTROL · NIGHT SHIFT'),
+    term: terminal(),
+    radar: radar(),
+    xy: harmonograph(),
+    map: minimap(),
+    odo: odometer(),
+    meter: meters(),
+    scope: scope(),
+    specg: spectrogram(),
+    foot: footer('HUM.MISSION'),
+  }),
+});
+
+const diary = defineBoard({
+  id: 'board-diary',
+  name: 'Board · Diary',
+  description:
+    'A lyric zine: the sung line typed out on a typewriter, a word cloud of everything sung so far, a posterized photo, a mood weather report, stamps, pitch and a piano roll.',
+  tags: ['lyric', 'words', 'tender', 'indie', 'pop', 'romantic', 'dreamy', 'photo', 'board'],
+  usesPhotos: true,
+  params: [{ id: 'mosaic', label: 'Mosaic cells', type: 'number', group: 'Photo', min: 10, max: 72, step: 1, default: 22 }],
+  modulations: [{ source: 'bass', param: 'mosaic', amount: 0.15 }],
+  defaults: { accent: 0.95 },
+  templates: {
+    tall: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 2.2, 2, 1.4, 1, FOOT],
+      areas: [
+        'head head head head',
+        'type type type type',
+        'cloud cloud photo photo',
+        'weather weather stamp stamp',
+        'pitch roll roll roll',
+        'foot foot foot foot',
+      ],
+    },
+    square: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 1.3, 1.1, 0.8, FOOT],
+      areas: ['head head head head', 'type type type photo', 'cloud cloud weather weather', 'cloud cloud stamp pitch', 'foot foot foot foot'],
+    },
+    wide: {
+      cols: [1, 1, 1, 1, 1, 1],
+      rows: [HEAD, 1, 1, 0.8, FOOT],
+      areas: [
+        'head head head head head head',
+        'type type type cloud cloud photo',
+        'type type type cloud cloud stamp',
+        'weather weather roll roll pitch stamp',
+        'foot foot foot foot foot foot',
+      ],
+    },
+  },
+  build: () => ({
+    head: header('HUM/DIARY', 'DEAR DIARY · TONIGHT'),
+    type: typewriter(),
+    cloud: wordCloud(),
+    photo: photoMosaic(),
+    weather: weather(),
+    stamp: stamps(),
+    pitch: chroma(),
+    roll: pianoRoll(),
+    foot: footer('HUM.DIARY'),
+  }),
+});
+
+const forecast = defineBoard({
+  id: 'board-forecast',
+  name: 'Board · Forecast',
+  description:
+    'A weather station for the song: a big mood forecast (sun, drizzle, storm on the drop) with the next parts as a forecast strip, song map, topographic pressure, radar, XY figure, graph and knobs.',
+  tags: ['calm', 'spacious', 'organic', 'chill', 'lofi', 'ambient', 'playful', 'board'],
+  params: [
+    { id: 'density', label: 'Density', type: 'number', group: 'Modules', min: 0, max: 1, step: 0.01, default: 0.45, hint: 'Contour levels' },
+    { id: 'relief', label: 'Bass relief', type: 'number', group: 'Modules', min: 0, max: 2, step: 0.01, default: 0.55 },
+  ],
+  modulations: [{ source: 'bass', param: 'relief', amount: 0.2 }],
+  defaults: { accent: 0.9 },
+  templates: {
+    tall: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 2.4, 1.1, 1.8, 1.3, 0.9, FOOT],
+      areas: [
+        'head head head head',
+        'weather weather weather weather',
+        'map map map map',
+        'topo topo radar radar',
+        'graph graph xy xy',
+        'knobs knobs knobs knobs',
+        'foot foot foot foot',
+      ],
+    },
+    square: {
+      cols: [1, 1, 1, 1],
+      rows: [HEAD, 1.4, 0.7, 1, 0.7, FOOT],
+      areas: ['head head head head', 'weather weather weather radar', 'map map map map', 'topo topo xy graph', 'knobs knobs wave wave', 'foot foot foot foot'],
+    },
+    wide: {
+      cols: [1, 1, 1, 1, 0.9, 0.9],
+      rows: [HEAD, 1.2, 1, 0.7, FOOT],
+      areas: [
+        'head head head head head head',
+        'weather weather weather topo radar radar',
+        'weather weather weather topo xy graph',
+        'map map map map knobs knobs',
+        'foot foot foot foot foot foot',
+      ],
+    },
+  },
+  build: () => ({
+    head: header('HUM/FORECAST', 'STATION 07 · LIVE'),
+    weather: weather(),
+    map: minimap(),
+    topo: topo(),
+    radar: radar(),
+    xy: harmonograph(),
+    graph: lineGraph(
+      [
+        { id: 'energy', label: 'NRG', tone: 'ac' },
+        { id: 'brightness', label: 'BRT', tone: 'ac2' },
+        { id: 'bass', label: 'BAS', tone: 'fg' },
+      ],
+      'BAROMETER',
+      'NRG · BRT · BAS',
+    ),
+    knobs: knobs(),
+    wave: bandWaves(),
+    foot: footer('HUM.FORECAST'),
+  }),
+});
+
+export const scenes: SceneDef[] = [orbit, lab, oto, arcade, mission, diary, forecast];

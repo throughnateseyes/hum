@@ -25,6 +25,10 @@ export interface VideoPlan {
   via?: 'api' | 'subscription';
   /** analysis this plan belongs to (sections must match) */
   duration: number;
+  /** pop-up windows per section: 0 none … 3 lots (missing → picked from the section's label) */
+  pops?: number[];
+  /** a board look shown for the first few bars of a section, before its own look (null = none) */
+  interludes?: (string | null)[];
 }
 
 export const LABEL_NAME: Record<TrackSection['label'], string> = {
@@ -79,18 +83,65 @@ export function planTick(a: AudioFrame) {
   let i = sectionIndexAt(secs, a.time + (a.playing ? CUT_EARLY_S : 0));
   const next = secs[i + 1];
   let cut = false;
-  if (next && a.playing && !hardCut(next) && next.start - a.time < LEAD_S) i += 1;
+  if (next && a.playing && !hardCut(next) && !s.plan!.interludes?.[i + 1] && next.start - a.time < LEAD_S) i += 1;
   else cut = a.playing && hardCut(secs[i]) && a.time - secs[i].start < 0.25;
+  // a board interlude takes the first bars of its section, then cuts hard to the section's own look
+  let lookId = s.plan!.looks[i];
+  const inter = findLook(s.plan!.interludes?.[i]);
+  const bpm = a.bpm > 30 ? a.bpm : s.analysis!.bpm;
+  if (inter) {
+    const into = a.time - secs[i].start;
+    const len = interludeLength(secs[i], bpm);
+    if (into < len) {
+      lookId = inter.id;
+      cut = a.playing && into < 0.25;
+      if (a.playing && len - into < 2.5) {
+        const main = findLook(s.plan!.looks[i]);
+        if (main && main.sceneId !== s.sceneId) live.stage?.prewarm(main.sceneId);
+      }
+    } else if (a.playing && into < len + 0.3) cut = true;
+  }
   // get the next part's scene ready a moment before it starts
   const upcoming = secs[i + 1];
   if (upcoming && a.playing && upcoming.start - a.time < 2.5) {
-    const nextLook = findLook(s.plan!.looks[i + 1]);
+    const nextLook = findLook(s.plan!.interludes?.[i + 1]) ?? findLook(s.plan!.looks[i + 1]);
     if (nextLook && nextLook.sceneId !== s.sceneId) live.stage?.prewarm(nextLook.sceneId);
   }
-  const look = findLook(s.plan!.looks[i]);
+  const look = findLook(lookId);
   if (!look || look.id === s.presetId) return;
   if (live.stage) live.stage.nextFadeMs = cut ? 1 : a.playing ? 700 : 250;
   s.applyPreset(look);
+}
+
+/** how long a board interlude plays at the top of a section: 4 bars, at most ~45% of the section */
+export function interludeLength(sec: TrackSection, bpm: number): number {
+  const bars4 = (16 * 60) / Math.max(40, bpm || 120);
+  return Math.max(2.5, Math.min(bars4, (sec.end - sec.start) * 0.45));
+}
+
+/* ───────────────────────── pop-up windows ───────────────────────── */
+
+/** pop-ups per section label when the plan doesn't say */
+const POPS_BY_LABEL: Record<TrackSection['label'], number> = { intro: 1, verse: 1, chorus: 2, bridge: 1, build: 2, drop: 3, break: 1, outro: 0 };
+
+/**
+ * How busy the pop-up layer should be right now: 0 none … 3 lots. "In videos" follows the playing
+ * video plan (its per-section marks, or the section's label); "Always" keeps a few coming anyway.
+ */
+export function popLevelAt(t: number): number {
+  const s = useStudio.getState();
+  if (s.popups === 'off') return 0;
+  const a = s.analysis;
+  const planned = s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a);
+  if (planned) {
+    const i = sectionIndexAt(a!.sections, t);
+    const v = s.plan!.pops?.[i];
+    return typeof v === 'number' ? Math.max(0, Math.min(3, Math.round(v))) : POPS_BY_LABEL[a!.sections[i].label];
+  }
+  if (s.popups !== 'always') return 0;
+  if (!a?.sections.length) return 1;
+  const sec = a.sections[sectionIndexAt(a.sections, t)];
+  return Math.max(1, POPS_BY_LABEL[sec.label]);
 }
 
 /* ───────────────────────── picks while a plan is on ───────────────────────── */
@@ -182,13 +233,29 @@ export function localPlan(a: TrackAnalysis): VideoPlan {
     if (!groupLook.has(s.group)) groupLook.set(s.group, id);
     return id;
   });
+  const pops = a.sections.map((s) => POPS_BY_LABEL[s.label]);
+  // one busy instrument-board interlude: at the top of the bridge or break (else the second verse)
+  const interludes: (string | null)[] = a.sections.map(() => null);
+  const used = new Set(looks);
+  const boards = allLooks().filter((p) => !p.custom && p.sceneId.startsWith('board-') && !used.has(p.id));
+  const boardPick = boards.find((p) => suggested.includes(p)) ?? boards[Math.floor(a.duration) % Math.max(1, boards.length)];
+  let at = a.sections.findIndex((s, i) => i > 0 && (s.label === 'bridge' || s.label === 'break'));
+  if (at < 0) at = a.sections.findIndex((s, i) => s.label === 'verse' && a.sections.slice(0, i).some((x) => x.label === 'verse'));
+  // short songs: open the first build (or the first verse after the intro) with it instead
+  if (at < 0) at = a.sections.findIndex((s, i) => i > 0 && (s.label === 'build' || s.label === 'verse'));
+  if (boardPick && at > 0 && a.sections.length >= 4) interludes[at] = boardPick.id;
+  const names = sectionNames(a.sections);
   return {
     title: 'Song map',
-    note: `Calm sections get “${calm.name}”, the body “${main.name}”, and the big moments “${peak.name}”. Parts that sound alike share a look.`,
+    note: `Calm sections get “${calm.name}”, the body “${main.name}”, and the big moments “${peak.name}”. Parts that sound alike share a look.${
+      boardPick && interludes[at] ? ` ${names[at]} opens with “${boardPick.name}” for a few bars, and little windows pop up on the big moments.` : ''
+    }`,
     looks,
     why: [],
     source: 'local',
     duration: a.duration,
+    pops,
+    interludes,
   };
 }
 
@@ -230,7 +297,17 @@ export async function makeVideo(wish = '') {
       { accessCode: readAccessCode() || undefined },
     );
     if (r.ok) {
-      plan = { title: r.title, note: r.note, looks: r.looks.map((id, i) => id ?? offline.looks[i]), why: r.why, source: 'claude', via: r.via, duration: a.duration };
+      plan = {
+        title: r.title,
+        note: r.note,
+        looks: r.looks.map((id, i) => id ?? offline.looks[i]),
+        why: r.why,
+        source: 'claude',
+        via: r.via,
+        duration: a.duration,
+        pops: r.pops.map((v, i) => v ?? offline.pops?.[i] ?? 1),
+        interludes: r.interludes,
+      };
     } else reason = r.reason;
   } catch (e) {
     reason = String(e);

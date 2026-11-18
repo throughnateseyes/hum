@@ -4,7 +4,7 @@ import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types'
 import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
-import { useStudio, type Aspect, type InspectorTab } from '../state/store';
+import { useStudio, type Aspect, type InspectorTab, type PopupMode } from '../state/store';
 import { ParamControl, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
 import { readAccessCode } from './Director';
@@ -321,7 +321,7 @@ const COLOR_KEYS: [keyof Omit<Palette, 'id' | 'name'>, string][] = [
 ];
 const ASPECTS: Aspect[] = ['fill', '16:9', '9:16', '4:5', '1:1'];
 const HAND_FPS: { v: HandStyle['fps']; label: string }[] = [
-  { v: 24, label: 'Smooth' },
+  { v: 60, label: 'Smooth' },
   { v: 12, label: 'Drawn' },
   { v: 8, label: 'Choppy' },
 ];
@@ -358,7 +358,7 @@ function HandGroup() {
       </div>
       {hand.on && (
         <>
-          <div className="param-top has-tip" data-tip="New drawings per second: 24, 12 or 8. Kicks, snares and drops always get a fresh drawing.">
+          <div className="param-top has-tip" data-tip="Smooth keeps motion fluid and only re-draws the lines. Drawn (12 a second) and Choppy (8) hold each picture like hand animation; kicks, snares and drops always get a fresh one.">
             <span className="param-name">Frames</span>
           </div>
           <div className="seg" style={{ marginBottom: 10 }}>
@@ -384,6 +384,40 @@ function HandGroup() {
           {hand.inks > 0 && slider('misprint', 'Misprint', 'Inks printed slightly out of line with each other')}
         </>
       )}
+    </div>
+  );
+}
+
+const POPUP_MODES: { v: PopupMode; label: string }[] = [
+  { v: 'off', label: 'Off' },
+  { v: 'video', label: 'In videos' },
+  { v: 'always', label: 'Always' },
+];
+
+/** little board windows (radar, terminal, Pong…) that pop in over the picture */
+function PopupsGroup() {
+  const mode = useStudio((s) => s.popups);
+  const set = useStudio((s) => s.set);
+  return (
+    <div className="group">
+      <div className="kv" style={{ marginBottom: 10 }}>
+        <span>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>Pop-ups</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Busy little windows pop in on drops and new parts</div>
+        </span>
+        <Toggle on={mode !== 'off'} onChange={(v) => set({ popups: v ? 'video' : 'off' })} />
+      </div>
+      <div
+        className="seg has-tip"
+        data-tip="In videos: while a video plan plays (Make a video), busier on choruses and drops. Always: a few keep coming whatever is playing."
+        style={{ marginBottom: 2 }}
+      >
+        {POPUP_MODES.map((m) => (
+          <button key={m.v} className={mode === m.v ? 'on' : ''} onClick={() => set({ popups: m.v })}>
+            {m.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -425,6 +459,7 @@ function LookPanel() {
         </div>
       </div>
       <HandGroup />
+      <PopupsGroup />
       <div className="group">
         <div className="group-title">
           <span className="label">Lyric / title text</span>

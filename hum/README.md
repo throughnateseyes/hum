@@ -30,13 +30,34 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   calm parts, hard cuts on drops and choruses. To edit, drag a look onto a part (hold ⌥ to change
   only that one), or pick a look while a part plays. Picking a scene pauses the song map.
 - **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
-  (or its name, like `Artist - Title.mp3`), then gets timed lyrics from
+  (or its name, like `Artist - Title.mp3`; music-video rips work too, with "(Official Video)",
+  "[Lyrics]", "feat. …" and the like ignored), then gets timed lyrics from
   [LRCLIB](https://lrclib.net), a free lyrics library. Lyrics saved inside the file are used first.
+  If LRCLIB only has a longer or shorter version (videos add intros and outros), Hum moves the lines
+  to where the singing starts in your file. Wrong song or nothing found? **Search LRCLIB** in the
+  chip by artist and song, or paste a lrclib.net link.
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
   what was found. It also switches between **Subtitles**, **Big words** (one line at a time, word by
   word) and **Off**. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
-  get no lyrics.
+  get no lyrics, but you can **paste them** in the chip. Hum then times each line by listening for
+  the sung words on this computer (Whisper, about a 95 MB model downloaded once; the audio never
+  leaves your machine). If a line is off, **Fix timing** lets you tap along as each line starts, and
+  **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
+  song.
+- While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
+- **Busy boards and pop-ups.** Four more instrument boards join Orbit, Lab and Oto: **Arcade** (Pong
+  with the ball hitting on the beat, a runner that jumps on kicks, Tetris, a BPM odometer, rubber
+  stamps on the drop), **Mission** (a terminal log narrating the song — "BAR 017 · KICK .82",
+  "DROP IN 4" — with radar, an XY figure, the song map and meters), **Diary** (the sung line on a
+  typewriter, a word cloud of everything sung so far, a mood weather report) and **Forecast** (a
+  weather station for the song: sun, drizzle, a storm on the drop, the next parts as a forecast).
+  **Pop-ups** (Look tab) are little framed windows of these instruments that pop in over whatever is
+  playing on new parts, drops and some bars, then snap shut a few bars later, with a sticker slapped
+  on at the drop. They're in recordings too. *In videos* (the default) shows them while a video plan
+  plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
+  offline) marks how busy each part's pop-ups get and can open a part with a board look for its
+  first four bars.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -70,7 +91,7 @@ audio file / mic
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
-  → impact, lyrics, hand-drawn finish      (src/render/stage.ts, lyricLayer.ts, handPass.ts)
+  → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
   → screen / MediaRecorder
 ```
 

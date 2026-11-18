@@ -14,6 +14,7 @@ import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
 import { PeekWindow } from './ui/Peek';
 import { LyricsChip } from './ui/Lyrics';
+import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
 import { StageView } from './ui/StageView';
 
@@ -93,6 +94,7 @@ export default function App() {
       <Topbar />
       <Library />
       <PeekWindow />
+      <TapSync />
       <main className="center">
         <StageView />
         <Bottom />

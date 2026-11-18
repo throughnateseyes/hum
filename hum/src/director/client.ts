@@ -478,7 +478,18 @@ export interface PlanRequest {
   looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
 }
 export type PlanReply =
-  | { ok: true; title: string; note: string; looks: (string | null)[]; why: string[]; via: 'api' | 'subscription' }
+  | {
+      ok: true;
+      title: string;
+      note: string;
+      looks: (string | null)[];
+      why: string[];
+      via: 'api' | 'subscription';
+      /** pop-up windows per section, 0..3 (null when Claude didn't say) */
+      pops: (number | null)[];
+      /** board look shown for the first bars of a section (null = none) */
+      interludes: (string | null)[];
+    }
   | { ok: false; reason: string };
 
 /**
@@ -515,6 +526,9 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   const known = new Set(req.looks.map((l) => l.id));
   const looks: (string | null)[] = req.sections.map(() => null);
   const why: string[] = req.sections.map(() => '');
+  const pops: (number | null)[] = req.sections.map(() => null);
+  const interludes: (string | null)[] = req.sections.map(() => null);
+  const boards = new Set(req.looks.filter((l) => l.category === 'board').map((l) => l.id));
   for (const e of json.plan.sections) {
     if (!isObj(e)) continue;
     const i = toNum(e.index);
@@ -522,6 +536,10 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     if (i === null || i < 0 || i >= looks.length || !Number.isInteger(i) || !known.has(id)) continue;
     looks[i] = id;
     why[i] = str(e.why, 120);
+    const p = toNum(e.pops);
+    if (p !== null) pops[i] = Math.max(0, Math.min(3, Math.round(p)));
+    const inter = str(e.interlude, 60);
+    if (inter && boards.has(inter) && inter !== id) interludes[i] = inter;
   }
   if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
   return {
@@ -531,5 +549,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     looks,
     why,
     via: json.via === 'subscription' ? 'subscription' : 'api',
+    pops,
+    interludes,
   };
 }

@@ -160,8 +160,12 @@ Every look already reacts to the music on its own (kicks, bass, builds and drops
 - If the person adds a wish (for example "keep it dreamy" or "use the photo looks"), follow it.
 - Use only look ids from the list.
 
+## Pop-ups and interludes
+- Small framed windows (a terminal log, radar, Pong, a weather report, the lyric typewriter…) can pop in over the picture, a few at a time, on beats and section changes. Give each section pops from 0 to 3: 0 keeps the picture clean (intimate intros, outros, quiet verses), 1 an occasional window, 2 a busy part, 3 a pile-up for drops and the biggest choruses. Calm songs stay mostly at 0–1.
+- You may open one or two sections with an interlude: a [board] look (a dense sheet of live instruments) shown for the first four bars before the section's own look cuts in. It suits a bridge, a break or the second verse, so the song feels like it is being built. Never put one on a drop. Leave interlude out for most sections.
+
 ## Answer
-Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId and a short reason (at most 12 words).`;
+Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId, a short reason (at most 12 words), pops (0–3) and, only where you want one, an interlude board look id.`;
 
 /* ───────────────────────── tools ───────────────────────── */
 
@@ -288,6 +292,8 @@ const PLAN_TOOL = {
             index: { type: 'integer', description: 'Section index from the list.' },
             lookId: { type: 'string', description: 'A look id from the list.' },
             why: { type: 'string', description: 'Short reason, at most 12 words.' },
+            pops: { type: 'integer', minimum: 0, maximum: 3, description: 'Pop-up windows over this section: 0 none … 3 lots.' },
+            interlude: { type: 'string', description: 'Optional: a [board] look id shown for the first four bars of this section.' },
           },
           required: ['index', 'lookId', 'why'],
         },
