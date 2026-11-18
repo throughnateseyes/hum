@@ -4,11 +4,14 @@ import { FULLSCREEN_VERT } from '../core/glsl';
 import { resolvePalette } from '../core/palettes';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
 import type { AudioFrame, EffectDef, EffectInstance, FrameContext, LayerId, Modulation, Palette, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
+import { TRANSITIONS, type TransitionId } from '../core/transitionList';
+import { transitionForNow, type ResolvedTransition } from '../state/transitionPick';
+import { TransitionPass } from './transitions';
 import { getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
-import { useStudio } from '../state/store';
+import { useStudio, type StudioState } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
 import { planTick } from '../state/plan';
 import { FxChain } from './fxChain';
@@ -19,21 +22,6 @@ import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
 
 THREE.ColorManagement.enabled = false;
-
-const MIX_FRAG = /* glsl */ `
-precision highp float;
-varying vec2 vUv;
-uniform sampler2D tA;
-uniform sampler2D tB;
-uniform float uMix;
-uniform float uTime;
-float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
-void main(){
-  // dithered dissolve crossfade — reads as a deliberate transition, not a blur
-  float n = h(floor(gl_FragCoord.xy / 3.0) + floor(uTime * 30.0) * 0.0);
-  float m = smoothstep(n - 0.25, n + 0.25, uMix * 1.5 - 0.25);
-  gl_FragColor = vec4(mix(texture2D(tA, vUv).rgb, texture2D(tB, vUv).rgb, m), 1.0);
-}`;
 
 const BLIT_FRAG = /* glsl */ `
 precision highp float;
@@ -89,6 +77,27 @@ interface Live {
   params: ParamValues;
 }
 
+/** what a look is made of, kept so the outgoing look can keep playing during a transition */
+interface LookSnap {
+  sceneParams: ParamValues;
+  effects: EffectInstance[];
+  modulations: Modulation[];
+  palette: Palette;
+}
+
+interface Running extends ResolvedTransition {
+  start: number;
+  /** extra progress from kicks (breathing transitions), and what it eases towards */
+  boost: number;
+  target: number;
+  breathes: boolean;
+  dir: [number, number];
+  center: [number, number];
+}
+
+const BREATHES = new Set<TransitionId>(TRANSITIONS.filter((t) => t.breathes).map((t) => t.id));
+const tmpColor = new THREE.Color();
+
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
   readonly shared: SharedResources;
@@ -98,14 +107,20 @@ export class Stage {
   private fx: FxChain;
   private blitMat: THREE.ShaderMaterial;
   private blitQuad: ReturnType<typeof createFullscreenQuad>;
-  private mixMat: THREE.ShaderMaterial;
-  private mixQuad: ReturnType<typeof createFullscreenQuad>;
   private current: Live | null = null;
-  private prev: Live | null = null;
-  private fadeStart = 0;
-  private fadeDur = 900;
-  /** set before a look change to use a different crossfade length once (1 = a hard cut) */
-  nextFadeMs: number | null = null;
+  /** the look being transitioned away from: still playing (live) or a frozen frame (live = null) */
+  private out: { live: Live | null; look: LookSnap; pal: ResolvedPalette } | null = null;
+  private tr: Running | null = null;
+  private trPass = new TransitionPass();
+  /** the outgoing look's effect chain (swapped with `fx` when a transition starts, so its trails carry on) */
+  private fxOut: FxChain;
+  private fxOutParams = new Map<string, ParamValues>();
+  private stillRT: THREE.WebGLRenderTarget;
+  /** the look on screen last frame */
+  private seen: LookSnap | null = null;
+  private seenPreset: string | null = null;
+  /** set before a look change to choose its transition once (else it's picked from the setting and the music) */
+  nextTransition: ResolvedTransition | null = null;
   private raf = 0;
   private last = performance.now();
   private t0 = performance.now();
@@ -172,14 +187,6 @@ export class Stage {
       depthWrite: false,
     });
     this.blitQuad = createFullscreenQuad(this.blitMat);
-    this.mixMat = new THREE.ShaderMaterial({
-      uniforms: { tA: { value: null }, tB: { value: null }, uMix: { value: 0 }, uTime: { value: 0 } },
-      vertexShader: FULLSCREEN_VERT,
-      fragmentShader: MIX_FRAG,
-      depthTest: false,
-      depthWrite: false,
-    });
-    this.mixQuad = createFullscreenQuad(this.mixMat);
     this.impactMat = new THREE.ShaderMaterial({
       uniforms: {
         tMap: { value: null },
@@ -212,7 +219,9 @@ export class Stage {
     this.sceneRT = makeRenderTarget(2, 2, sceneOpts);
     this.prevRT = makeRenderTarget(2, 2, sceneOpts);
     this.mixRT = makeRenderTarget(2, 2);
+    this.stillRT = makeRenderTarget(2, 2);
     this.fx = new FxChain(this.shared);
+    this.fxOut = new FxChain(this.shared);
     this.palette = resolvePalette(useStudio.getState().palette);
     this.peekRT = makeRenderTarget(2, 2, sceneOpts);
     this.peekFx = new FxChain(this.shared);
@@ -222,9 +231,11 @@ export class Stage {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s) || '';
       const msg = (log(fs) || log(vs) || gl.getProgramInfoLog(program) || 'Shader failed to compile').trim();
       console.warn('[hum] shader error\n' + msg);
-      if (this.fx.current) {
-        this.fx.failed.add(this.fx.current);
-        const inst = useStudio.getState().effects.find((e) => e.instanceId === this.fx.current);
+      const chain = this.fx.current ? this.fx : this.fxOut.current ? this.fxOut : null;
+      if (chain?.current) {
+        const id = chain.current;
+        chain.failed.add(id);
+        const inst = useStudio.getState().effects.find((e) => e.instanceId === id);
         useStudio.getState().flash(`Effect “${inst?.effectId ?? '?'}” failed to compile and was skipped`);
       } else if (this.compilingScene) {
         useStudio.getState().set({ shaderError: msg.slice(0, 1200) });
@@ -245,12 +256,14 @@ export class Stage {
     this.sceneRT.setSize(w, h);
     this.prevRT.setSize(w, h);
     this.mixRT.setSize(w, h);
+    this.stillRT.setSize(w, h);
+    this.fxOut.setSize(w, h);
     this.impactRT.setSize(w, h);
     this.holdRT.setSize(w, h);
     this.holdReady = false;
     this.fx.setSize(w, h);
     this.current?.inst.resize?.(w, h);
-    this.prev?.inst.resize?.(w, h);
+    this.out?.live?.inst.resize?.(w, h);
     this.warm?.inst.resize?.(w, h);
   }
 
@@ -383,7 +396,7 @@ export class Stage {
 
   /** Create a scene now (shaders compile, buffers allocate) so switching to it later is instant. */
   prewarm(id: string) {
-    if (this.current?.id === id || this.warm?.id === id || this.width <= 2) return;
+    if (this.warm?.id === id || this.width <= 2) return;
     const def = getScene(id);
     if (!def) return;
     this.warm?.inst.dispose();
@@ -396,10 +409,10 @@ export class Stage {
     }
   }
 
-  private ensureScene(id: string, now: number) {
-    if (this.current?.id === id) return;
+  /** a new instance of scene `id` (the prewarmed one when it matches) */
+  private makeLive(id: string, now: number): Live | null {
     const def = getScene(id);
-    if (!def) return;
+    if (!def) return null;
     let inst: SceneInstance;
     try {
       if (this.warm?.id === id) {
@@ -409,14 +422,83 @@ export class Stage {
     } catch (e) {
       console.error(e);
       useStudio.getState().set({ shaderError: String(e) });
+      return null;
+    }
+    return { id, def, inst, born: now, params: {} };
+  }
+
+  /**
+   * Notice a look change and start its transition. The outgoing look keeps playing with its own
+   * params, palette and effects while the transition pass blends it into the new one; a look on the
+   * same scene gets a fresh instance so both can play at once. A change in the middle of a
+   * transition freezes what is on screen and transitions from that.
+   */
+  private syncLook(s: StudioState, audio: AudioFrame, now: number) {
+    const cur = this.current;
+    const want = this.nextTransition;
+    this.nextTransition = null; // only for a change made this frame
+    if (!cur) {
+      this.current = this.makeLive(s.sceneId, now);
+      this.seenPreset = s.presetId;
       return;
     }
-    if (this.prev) this.prev.inst.dispose();
-    this.prev = this.current;
-    this.fadeStart = now;
-    this.fadeDur = Math.max(1, this.nextFadeMs ?? 900);
-    this.nextFadeMs = null;
-    this.current = { id, def, inst, born: now, params: {} };
+    if (s.sceneId === cur.id && s.presetId === this.seenPreset) return;
+    if (!getScene(s.sceneId)) return;
+    this.seenPreset = s.presetId;
+    const tr = want ?? transitionForNow('manual', audio.playing ? audio.time : null);
+    const was = this.seen;
+    if (tr.id === 'cut' || tr.ms <= 1 || !was) {
+      this.endTransition();
+      if (s.sceneId !== cur.id) {
+        const next = this.makeLive(s.sceneId, now);
+        if (!next) return;
+        cur.inst.dispose();
+        this.current = next;
+      }
+      return;
+    }
+    if (this.tr) {
+      // already mid-transition: freeze what is on screen as the outgoing picture
+      this.shared.blit(this.mixRT.texture, this.stillRT);
+      this.endTransition();
+      if (s.sceneId !== cur.id) {
+        const next = this.makeLive(s.sceneId, now);
+        if (!next) return;
+        cur.inst.dispose();
+        this.current = next;
+      }
+      this.out = { live: null, look: was, pal: resolvePalette(was.palette) };
+    } else {
+      const next = this.makeLive(s.sceneId, now);
+      if (!next) return;
+      this.out = { live: cur, look: was, pal: resolvePalette(was.palette) };
+      // the outgoing effects keep their chain (and its trails); the new look gets the spare one
+      [this.fx, this.fxOut] = [this.fxOut, this.fx];
+      [this.fxParams, this.fxOutParams] = [this.fxOutParams, this.fxParams];
+      this.current = next;
+    }
+    const r = (k: number) => {
+      const x = Math.sin(tr.seed * 12.9898 + k * 78.233) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const ang = Math.floor(r(1) * 8) * (Math.PI / 4);
+    this.tr = {
+      ...tr,
+      start: now,
+      boost: 0,
+      target: 0,
+      breathes: BREATHES.has(tr.id),
+      dir: [Math.cos(ang), Math.sin(ang)],
+      center: [0.5 + (r(2) - 0.5) * 0.3, 0.5 + (r(3) - 0.5) * 0.3],
+    };
+  }
+
+  private endTransition() {
+    if (this.out?.live && this.out.live !== this.current) this.out.live.inst.dispose();
+    this.out = null;
+    this.tr = null;
+    this.fxOut.prune(new Set());
+    this.fxOutParams.clear();
   }
 
   private tick() {
@@ -425,11 +507,12 @@ export class Stage {
     this.last = now;
     this.fps = this.fps * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
     this.frameNo++;
-    const s = useStudio.getState();
-    audioEngine.sensitivity = s.sensitivity;
+    audioEngine.sensitivity = useStudio.getState().sensitivity;
     const raw = audioEngine.update(dt);
     autopilotTick(raw);
     planTick(raw);
+    // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
+    const s = useStudio.getState();
     const audio = this.shape(raw, s.impact);
 
     // shared audio textures
@@ -442,8 +525,8 @@ export class Stage {
 
     resolvePalette(s.palette, this.palette);
     if (!s.sceneId || this.width <= 2) return; // wait for the first real layout size
-    this.ensureScene(s.sceneId, now);
-    this.nextFadeMs = null; // only for a change made this frame
+    this.syncLook(s, audio, now);
+    this.seen = { sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette };
     if (!this.current) return;
     const time = (now - this.t0) / 1000;
 
@@ -478,13 +561,13 @@ export class Stage {
     };
 
     const r = this.renderer;
-    const drawScene = (live: Live, target: THREE.WebGLRenderTarget, params: ParamValues) => {
+    const drawScene = (live: Live, target: THREE.WebGLRenderTarget, params: ParamValues, palette = this.palette) => {
       r.setRenderTarget(target);
-      r.setClearColor(this.palette.c.bg, 1);
+      r.setClearColor(palette.c.bg, 1);
       r.clear(true, true, false);
       this.compilingScene = live === this.current;
       try {
-        live.inst.render({ ...base, params }, target);
+        live.inst.render({ ...base, palette, params }, target);
       } catch (e) {
         console.error(e);
       }
@@ -492,7 +575,7 @@ export class Stage {
     };
 
     // draw a prewarmed scene once (into the spare buffer) so its shaders are compiled before the cut
-    if (this.warm && this.warmFresh && !this.prev) {
+    if (this.warm && this.warmFresh && !this.out) {
       this.warmFresh = false;
       const defaults: ParamValues = {};
       for (const d of this.warm.def.params) defaults[d.id] = d.default;
@@ -510,23 +593,6 @@ export class Stage {
       drawScene(this.current, this.sceneRT, curParams);
     }
 
-    let sceneTex: THREE.Texture = this.sceneRT.texture;
-    const fade = (now - this.fadeStart) / this.fadeDur;
-    if (this.prev) {
-      if (fade >= 1) {
-        this.prev.inst.dispose();
-        this.prev = null;
-      } else {
-        drawScene(this.prev, this.prevRT, this.prev.params);
-        this.mixMat.uniforms.tA.value = this.prevRT.texture;
-        this.mixMat.uniforms.tB.value = this.sceneRT.texture;
-        this.mixMat.uniforms.uMix.value = fade;
-        this.mixMat.uniforms.uTime.value = time;
-        this.mixQuad.render(r, this.mixRT);
-        sceneTex = this.mixRT.texture;
-      }
-    }
-
     // effects
     const live: { inst: EffectInstance; def: EffectDef; params: ParamValues }[] = [];
     const ids = new Set<string>();
@@ -540,7 +606,8 @@ export class Stage {
       live.push({ inst, def, params: out });
     }
     this.fx.prune(ids);
-    const finalTex = this.fx.run(r, sceneTex, live, { width: this.width, height: this.height, time, audio, palette: this.palette });
+    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.width, height: this.height, time, audio, palette: this.palette });
+    finalTex = this.runTransition(finalTex, base, audio, time, dt, now);
     // the hover preview borrows a corner of the canvas before the main frame covers it
     this.renderPeek(base, s.impact, now);
 
@@ -573,6 +640,70 @@ export class Stage {
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
+  }
+
+  /** blend the outgoing look into `inTex` while a transition runs; returns what goes on screen */
+  private runTransition(inTex: THREE.Texture, base: Omit<FrameContext, 'params'>, audio: AudioFrame, time: number, dt: number, now: number): THREE.Texture {
+    const tr = this.tr;
+    const out = this.out;
+    if (!tr || !out) return inTex;
+    const lin = Math.min(1, Math.max(0, (now - tr.start) / tr.ms));
+    // breathing transitions take a small step forward on each kick; the clock still ends them on time
+    if (tr.breathes && audio.playing && audio.kickHit) tr.target = Math.min(0.45, tr.target + 0.06 + 0.08 * audio.kick);
+    tr.boost += (tr.target - tr.boost) * Math.min(1, dt * 12);
+    const p = lin + tr.boost * (1 - lin);
+    if (lin >= 1) {
+      this.endTransition();
+      return inTex;
+    }
+    const r = this.renderer;
+    let outTex: THREE.Texture = this.stillRT.texture;
+    if (out.live) {
+      const look = out.look;
+      const params = resolveParams(out.live.def.params, look.sceneParams, look.modulations, 'scene', audio.layers, out.live.params);
+      r.setRenderTarget(this.prevRT);
+      r.setClearColor(out.pal.c.bg, 1);
+      r.clear(true, true, false);
+      try {
+        out.live.inst.render({ ...base, palette: out.pal, params }, this.prevRT);
+      } catch (e) {
+        console.error(e);
+      }
+      const chain: { inst: EffectInstance; def: EffectDef; params: ParamValues }[] = [];
+      for (const inst of look.effects) {
+        const def = getEffect(inst.effectId);
+        if (!def) continue;
+        let o = this.fxOutParams.get(inst.instanceId);
+        if (!o) this.fxOutParams.set(inst.instanceId, (o = {}));
+        resolveParams(def.params, inst.params, look.modulations, `fx.${inst.instanceId}`, audio.layers, o);
+        chain.push({ inst, def, params: o });
+      }
+      outTex = this.fxOut.run(r, this.prevRT.texture, chain, { width: this.width, height: this.height, time, audio, palette: out.pal });
+    }
+    const t = Math.min(1, Math.max(0, (p - 0.3) / 0.4));
+    this.trPass.render(r, tr.id, outTex, inTex, this.mixRT, {
+      p,
+      seed: tr.seed % 97,
+      time,
+      kick: audio.kick,
+      bass: audio.bass,
+      aspect: this.width / this.height,
+      width: this.width,
+      height: this.height,
+      dir: tr.dir,
+      center: tr.center,
+      bg: tmpColor.copy(out.pal.c.bg).lerp(this.palette.c.bg, t * t * (3 - 2 * t)),
+      accent: this.palette.c.accent,
+    });
+    return this.mixRT.texture;
+  }
+
+  /** the transition running now (for tests and the UI), or null */
+  get transition(): { id: TransitionId; p: number; ms: number } | null {
+    const tr = this.tr;
+    if (!tr) return null;
+    const lin = Math.min(1, (performance.now() - tr.start) / tr.ms);
+    return { id: tr.id, p: lin + tr.boost * (1 - lin), ms: tr.ms };
   }
 
   private resolveSnapshots() {
@@ -616,9 +747,12 @@ export class Stage {
     this.popups.dispose();
     this.peekFx.dispose();
     this.peekRT.dispose();
+    this.endTransition();
     this.current?.inst.dispose();
-    this.prev?.inst.dispose();
+    this.trPass.dispose();
     this.fx.dispose();
+    this.fxOut.dispose();
+    this.stillRT.dispose();
     this.sceneRT.dispose();
     this.prevRT.dispose();
     this.mixRT.dispose();

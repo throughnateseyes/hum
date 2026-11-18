@@ -1,6 +1,8 @@
 import type { AudioFrame, Preset } from '../core/types';
 import { PRESETS } from '../presets';
 import { useStudio } from './store';
+import { live } from './live';
+import { transitionForNow } from './transitionPick';
 
 /**
  * Auto-pilot: when enabled, switches looks on drops and every 32 beats,
@@ -40,5 +42,7 @@ export function autopilotTick(a: AudioFrame) {
     cursor = (cursor + 1) % candidates.length;
     pick = candidates[cursor];
   }
+  // drops cut hard; the regular switches use the Transition setting and the music
+  if (live.stage) live.stage.nextTransition = transitionForNow(dropEdge ? 'drop' : 'auto', a.time, a.beatCount * 1.37, dropEdge);
   s.applyPreset(pick);
 }

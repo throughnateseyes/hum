@@ -17,6 +17,7 @@ export async function makeThumbs(opts: { only?: string[]; settleMs?: number } = 
   for (const p of PRESETS) {
     if (opts.only && !opts.only.includes(p.id)) continue;
     if (!getScene(p.sceneId)) continue;
+    if (live.stage) live.stage.nextTransition = { id: 'cut', ms: 1, seed: 0 };
     useStudio.getState().applyPreset(p);
     await wait(opts.settleMs ?? 2200);
     const body = live.stage!.capture(SIZE, SIZE).toDataURL('image/jpeg', 0.82);

@@ -19,6 +19,7 @@ import { makeCustomShaderScene } from '../scenes/custom';
 import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
+import { isTransitionId, type TransitionId } from '../core/transitionList';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
@@ -102,6 +103,10 @@ export interface StudioState extends LookState {
   popups: PopupMode;
   /** shot pacing for video plans */
   pace: Pace;
+  /** how looks change: picked from the song (auto), one transition always, or 'cut' */
+  transition: 'auto' | TransitionId;
+  /** transition length in beats (0 = picked from the song) */
+  transitionBeats: number;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -168,6 +173,8 @@ function loadPersisted(): Partial<StudioState> {
       hand: cleanHand(j.hand),
       popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
       pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
+      transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
+      transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
       // a style only sticks once the user has picked one; before that every song gets Auto
       lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
       lyricStylePicked: j.lyricStylePicked === true,
@@ -197,6 +204,8 @@ function persist(s: StudioState) {
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
         pace: s.pace,
+        transition: s.transition,
+        transitionBeats: s.transitionBeats,
       }),
     );
   } catch {
@@ -275,6 +284,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   hand: persisted.hand ?? HAND_DEFAULT,
   popups: persisted.popups ?? 'video',
   pace: persisted.pace ?? 'song',
+  transition: persisted.transition ?? 'auto',
+  transitionBeats: persisted.transitionBeats ?? 0,
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -369,7 +380,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

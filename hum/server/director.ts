@@ -22,6 +22,7 @@
  */
 import type { LayerId } from '../src/core/types';
 import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide';
+import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList';
 
 export type DirectorEnv = Record<string, string | undefined>;
 
@@ -165,14 +166,16 @@ Every look already reacts to the music on its own (kicks, bass, builds and drops
 People's attention is short, so the stage never holds one picture for a whole section: it cuts each section into shots on phrase lines and on things happening in the music (the kick or bass coming back, a vocal coming in, a new lyric line, a hit). You choose, per section:
 - rotate: 1 to 3 extra look ids the section cycles through besides its lookId. Pick looks related to the main one (shared mood, colour or kind) so the part still reads as one part with one feeling: 1 extra for calm parts, 2 for the body, 3 for drops and the biggest choruses. Sections in the same group should share their rotation. Never a [board] look, and don't use the next section's lookId (its change should show).
 - pace: bars per shot, 1, 2, 4 or 8. Loud, busy, fast parts cut every 1–2 bars; the body every 2–4; calm, sparse parts every 4–8 (no shot holds longer than about ten seconds anyway). busy (0..1) on each section line says how dense its drums and bass are. Leave pace out to let the music decide.
-- Melancholic, tender or dreamy songs dissolve between shots; aggressive, euphoric or energetic songs cut hard. That follows the mood on its own.
+- Transitions are picked from the music on their own: long dissolves and fades in calm, tender parts; wipes and slit-scans on builds; mostly hard cuts in loud, aggressive songs; and every DROP of 0.5 or more always cuts hard. Only choose one where you have a reason (a burn into a fiery chorus, an ink bleed into a dark verse, a fade through black into the outro):
+  - transition: how the section arrives; within: how its own shots change; transitionBeats: length in beats (0.5, 1, 2, 4 or 8; slow songs suit 2–8, fast songs 0.5–1).
+  - The transitions: ${TRANSITIONS.map((t) => `${t.id} (${t.blurb})`).join('; ')}.
 
 ## Pop-ups and interludes
 - Small framed windows (a terminal log, radar, Pong, a weather report, the lyric typewriter…) can pop in over the picture, a few at a time, on beats and section changes. Give each section pops from 0 to 3: 0 keeps the picture clean (intimate intros, outros, quiet verses), 1 an occasional window, 2 a busy part, 3 a pile-up for drops and the biggest choruses. Calm songs stay mostly at 0–1.
 - You may open one or two sections with an interlude: a [board] look (a dense sheet of live instruments) shown for the first four bars before the section's own look cuts in. It suits a bridge, a break or the second verse, so the song feels like it is being built. Never put one on a drop. Leave interlude out for most sections.
 
 ## Answer
-Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId, a short reason (at most 12 words), pops (0–3), rotate (1–3 extra look ids), optionally pace (bars per shot) and, only where you want one, an interlude board look id.`;
+Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId, a short reason (at most 12 words), pops (0–3), rotate (1–3 extra look ids), optionally pace (bars per shot), optionally transition / within / transitionBeats, and, only where you want one, an interlude board look id.`;
 
 /* ───────────────────────── tools ───────────────────────── */
 
@@ -303,6 +306,9 @@ const PLAN_TOOL = {
             interlude: { type: 'string', description: 'Optional: a [board] look id shown for the first four bars of this section.' },
             rotate: { type: 'array', items: { type: 'string' }, maxItems: 3, description: '1–3 extra look ids (not boards) this section rotates through besides lookId.' },
             pace: { type: 'integer', enum: [1, 2, 4, 8], description: 'Optional: bars per shot. Busy loud parts 1–2, calm parts 4–8.' },
+            transition: { type: 'string', enum: [...TRANSITION_IDS], description: 'Optional: how this section arrives. Strong drops always cut whatever you choose.' },
+            within: { type: 'string', enum: [...TRANSITION_IDS], description: 'Optional: how the shots inside this section change.' },
+            transitionBeats: { type: 'number', enum: [0.5, 1, 2, 4, 8], description: 'Optional: transition length in beats.' },
           },
           required: ['index', 'lookId', 'why'],
         },

@@ -5,6 +5,7 @@ import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
 import { useStudio, type Aspect, type InspectorTab, type Pace, type PopupMode } from '../state/store';
+import { TRANSITIONS } from '../core/transitionList';
 import { ParamControl, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
 import { readAccessCode } from './Director';
@@ -455,6 +456,63 @@ function PaceGroup() {
   );
 }
 
+const LENGTHS: { v: number; label: string }[] = [
+  { v: 0, label: 'Auto' },
+  { v: 0.5, label: '½' },
+  { v: 1, label: '1' },
+  { v: 2, label: '2' },
+  { v: 4, label: '4' },
+  { v: 8, label: '8' },
+];
+
+/** how one look turns into the next: picked from the song, one transition always, or hard cuts */
+function TransitionGroup() {
+  const transition = useStudio((s) => s.transition);
+  const beats = useStudio((s) => s.transitionBeats);
+  const set = useStudio((s) => s.set);
+  const info = TRANSITIONS.find((t) => t.id === transition);
+  return (
+    <div className="group">
+      <div className="kv" style={{ marginBottom: 10 }}>
+        <span>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>Transition</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            {transition === 'auto' ? 'Picked to fit the song and the moment' : transition === 'cut' ? 'Hard cuts, no blending' : `Always ${info?.blurb ?? ''}`}
+          </div>
+        </span>
+      </div>
+      <div
+        className="has-tip"
+        data-tip="Auto: long dissolves and fades in calm parts, wipes and slit-scans on builds, quick pushes or hard cuts when it's loud. Pick one to use it for every change (videos, auto-pilot and your own picks). Big drops always cut."
+        style={{ marginBottom: 8 }}
+      >
+        <select className="sel" style={{ width: '100%' }} value={transition} onChange={(e) => set({ transition: e.target.value as typeof transition })}>
+          <option value="auto">Auto (fits the song)</option>
+          {TRANSITIONS.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="kv" style={{ margin: '4px 0 6px' }}>
+        <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>Length in beats</span>
+      </div>
+      <div
+        className="seg has-tip"
+        data-tip="How long a transition takes, locked to the song's tempo. Auto: longer in calm parts, short and punchy in loud ones."
+        style={{ marginBottom: 2, opacity: transition === 'cut' ? 0.45 : 1 }}
+      >
+        {LENGTHS.map((m) => (
+          <button key={m.v} className={beats === m.v ? 'on' : ''} disabled={transition === 'cut'} onClick={() => set({ transitionBeats: m.v })}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LookPanel() {
   const palette = useStudio((s) => s.palette);
   const text = useStudio((s) => s.text);
@@ -493,6 +551,7 @@ function LookPanel() {
       </div>
       <HandGroup />
       <PaceGroup />
+      <TransitionGroup />
       <PopupsGroup />
       <div className="group">
         <div className="group-title">

@@ -4,8 +4,8 @@
  * The analysis splits a song into sections (intro, verse, chorus, build, drop…) and groups the ones
  * that sound alike. A plan gives each section a main look plus a few related looks to rotate through;
  * while "Follow song map" is on, the stage cuts each section into shots (on phrase lines and on things
- * happening in the music, faster when it's loud and busy, see `planShots`) — dissolving in calm parts,
- * cutting hard on drops and choruses. Every real drop (strength ≥ 0.5) is guaranteed a hard cut to a
+ * happening in the music, faster when it's loud and busy, see `planShots`), each change with a
+ * transition picked to fit the moment (`transitionPick.ts`): long dissolves in calm parts, hard cuts on drops. Every real drop (strength ≥ 0.5) is guaranteed a hard cut to a
  * different look, whoever made the plan. Picking a look while the plan plays puts it into the current section (and into the
  * sections that sound the same), so editing is just: play to a part, pick a look.
  */
@@ -15,6 +15,8 @@ import type { AudioFrame, Lyrics, Preset, TrackAnalysis, TrackDrop, TrackSection
 import { PRESETS } from '../presets';
 import { live } from './live';
 import { useStudio, type Pace } from './store';
+import type { PlanTransition, TransitionId } from '../core/transitionList';
+import { moodOf, pickTransition, resolveTransition, type PickContext, type TransitionSpec } from './transitionPick';
 
 export interface VideoPlan {
   title: string;
@@ -35,6 +37,8 @@ export interface VideoPlan {
   rotate?: (string[] | null)[];
   /** bars per shot for each section (null/missing → from the music; the Pace setting scales it) */
   shotBars?: (number | null)[];
+  /** how each section arrives and how its shots change (null/missing → picked from the music); strong drops always cut */
+  transitions?: (PlanTransition | null)[];
 }
 
 export const LABEL_NAME: Record<TrackSection['label'], string> = {
@@ -173,23 +177,15 @@ export interface Shot {
   /** seconds */
   t: number;
   lookId: string;
-  /** cross-fade into this shot in ms (1 = a hard cut) */
-  fadeMs: number;
+  /** how this shot arrives (length in beats, so it follows the tempo) */
+  tr: TransitionSpec;
+  /** lands on a drop big enough that it always cuts, whatever the Transition setting */
+  strongDrop?: boolean;
+  /** what the transition picker knew about this shot (filled in once all shot times are known) */
+  pick?: Omit<PickContext, 'seed' | 'prev' | 'room'>;
   section: number;
   /** what the cut lands on */
   on: 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric';
-}
-
-/** moods that want slow dissolves and longer shots */
-const SOFT_MOODS = ['melancholic', 'heartbroken', 'tender', 'dreamy', 'wistful', 'calm', 'bittersweet', 'spacious', 'warm', 'brooding'];
-/** moods that want hard cuts and shorter shots */
-const HARD_MOODS = ['aggressive', 'euphoric', 'explosive', 'energetic', 'menacing', 'driving', 'heavy', 'swaggering', 'uplifting', 'joyful'];
-
-function moodOf(a: TrackAnalysis): 'soft' | 'hard' | 'mid' {
-  const m = a.character?.mood ?? a.tags[0] ?? '';
-  if (SOFT_MOODS.includes(m)) return 'soft';
-  if (HARD_MOODS.includes(m)) return 'hard';
-  return a.mood.arousal > 0.62 ? 'hard' : a.mood.arousal < 0.3 ? 'soft' : 'mid';
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -222,8 +218,6 @@ interface SectionPacing {
   cap: number;
   /** no two cuts closer than this */
   minGap: number;
-  /** cross-fade for cuts inside the section */
-  fadeWithin: number;
   /** 0 calm … 1 loud and busy */
   drive: number;
 }
@@ -246,13 +240,11 @@ export function sectionPacing(plan: VideoPlan, a: TrackAnalysis, i: number, pace
   bars = Math.max(1, Math.min(16, bars));
   while (bars > 1 && bars * bar > cap + 0.01) bars /= 2;
   const shotLen = bars * bar;
-  const hard = mood === 'hard' || drive > 0.6 || sec.label === 'drop';
   return {
     shotLen,
     bars,
     cap: Math.max(cap, shotLen),
     minGap: Math.max(1.5, (pace === 'slow' ? 0.8 : 0.5) * shotLen),
-    fadeWithin: hard ? 1 : mood === 'soft' ? 900 : 450,
     drive,
   };
 }
@@ -318,7 +310,6 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   const secs = a.sections;
   const out: Shot[] = [];
   const beat = 60 / Math.max(50, Math.min(200, a.bpm || 120));
-  const mood = moodOf(a);
   const L = a.layers;
   const kicks = L?.kick ?? [];
   const sd = sectionDrops(a);
@@ -344,15 +335,17 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     // next look in its rotation instead, so the section change still shows
     const shift = lastLook === main && !plan.interludes?.[i] && pool.length > 1 ? 1 : 0;
     const heldBefore = lastLook === main && !shift && !plan.interludes?.[i] ? sec.start - lastChange : 0;
-    const boundaryFade = i === 0 || hardCut(a, i) || mood === 'hard' ? 1 : mood === 'soft' ? 1100 : 700;
-    // a board interlude takes the first bars, then the section's own look cuts in
+    const here = { label: sec.label, energy: sec.energy };
+    const strong = strongDropAt(a, i);
+    const into: Shot['pick'] = { on: 'section', ...here, first: i === 0, strongDrop: strong, drop: sd[i]?.strength ?? 0 };
+    // a board interlude takes the first bars, then the section's own look comes in
     let s0 = sec.start;
     const inter = plan.interludes?.[i];
     if (inter && findLook(inter)) {
-      out.push({ t: sec.start, lookId: inter, fadeMs: 1, section: i, on: 'interlude' });
+      out.push({ t: sec.start, lookId: inter, tr: CUT, section: i, on: 'interlude', pick: { ...into, on: 'interlude' } });
       s0 = sec.start + interludeLength(sec, a.bpm);
-      out.push({ t: s0, lookId: main, fadeMs: 1, section: i, on: 'section' });
-    } else out.push({ t: sec.start, lookId: pool[shift], fadeMs: boundaryFade, section: i, on: 'section' });
+      out.push({ t: s0, lookId: main, tr: CUT, section: i, on: 'section', pick: { on: 'phrase', ...here, fromInterlude: true } });
+    } else out.push({ t: sec.start, lookId: pool[shift], tr: CUT, section: i, on: 'section', strongDrop: strong, pick: into });
     const s1 = sec.end;
     if (pool.length < 2 || (s1 - s0 < P.minGap * 2 && heldBefore + s1 - s0 <= P.cap)) {
       track(first);
@@ -366,7 +359,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       const g = sec.start + Math.round((t - sec.start) / beat) * beat;
       return Math.abs(g - t) <= 0.3 ? g : t;
     };
-    const events: { t: number; on: Shot['on']; pri: number }[] = [];
+    const events: { t: number; on: Shot['on']; pri: number; drop?: number }[] = [];
     const bar = 4 * beat;
     if (L) {
       // the kick or the bass coming back after two bars or more away
@@ -382,7 +375,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       for (const [v0] of L.vocal) if (v0 > s0 && v0 < s1) events.push({ t: snapBeat(v0), on: 'vocal', pri: 2 });
     }
     // smaller drops inside the section
-    for (const d of dropsOf(a)) if (d.t > s0 + 0.1 && d.t < s1 && !sd.includes(d)) events.push({ t: d.t, on: 'drop', pri: 3 });
+    for (const d of dropsOf(a)) if (d.t > s0 + 0.1 && d.t < s1 && !sd.includes(d)) events.push({ t: d.t, on: 'drop', pri: 3, drop: d.strength });
     // sudden jumps in loudness (a big hit or a new layer)
     const ec = a.energyCurve;
     if (ec?.length) {
@@ -409,7 +402,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     }
     // keep the most meaningful cuts that are far enough apart
     events.sort((x, y) => y.pri - x.pri || x.t - y.t);
-    const cuts: { t: number; on: Shot['on'] }[] = [];
+    const cuts: { t: number; on: Shot['on']; drop?: number }[] = [];
     const endGap = Math.max(1.2, P.minGap * 0.75);
     for (const e of events) {
       if (e.t - s0 < P.minGap || s1 - e.t < endGap) continue;
@@ -418,7 +411,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     }
     cuts.sort((x, y) => x.t - y.t);
     // no look holds longer than the cap (counting time it was already on before this section)
-    const filled: { t: number; on: Shot['on'] }[] = [];
+    const filled: { t: number; on: Shot['on']; drop?: number }[] = [];
     let prev = s0;
     let budget = Math.max(P.minGap, P.cap - heldBefore);
     for (const c of [...cuts, { t: s1, on: 'section' as const }]) {
@@ -434,20 +427,38 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       prev = c.t;
       budget = P.cap;
     }
-    filled.forEach((c, k) =>
+    filled.forEach((c, k) => {
+      const strongDrop = (c.drop ?? 0) >= STRONG_DROP;
       out.push({
         t: c.t,
         lookId: pool[(k + 1 + shift) % pool.length],
-        // hits cut hard, except in soft songs where everything dissolves (just a little quicker on a hit)
-        fadeMs: c.on === 'hit' || c.on === 'drop' ? (mood === 'soft' ? 600 : 1) : P.fadeWithin,
+        tr: CUT,
+        strongDrop,
         section: i,
         on: c.on,
-      }),
-    );
+        pick: { on: c.on, ...here, drop: c.drop ?? 0, strongDrop },
+      });
+    });
     track(first);
   }
+  // transitions, now that every shot's neighbours are known: picked from the music, or the plan's own
+  // choice for that section; strong drops always cut
+  let prev: TransitionId | undefined;
+  out.forEach((sh, k) => {
+    const room = Math.min(sh.t - (out[k - 1]?.t ?? -1e9), (out[k + 1]?.t ?? a.duration) - sh.t);
+    const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room });
+    const own = plan.transitions?.[sh.section];
+    const ownId = sh.on === 'section' || sh.on === 'interlude' ? own?.into : own?.within;
+    if (ownId && !sh.strongDrop && k > 0) {
+      const beats = ownId === 'cut' ? 0 : (own?.beats ?? (picked.beats || 1));
+      sh.tr = { id: ownId, beats: Math.min(beats, Math.max(0.25, (room * 0.6) / beat)) };
+    } else sh.tr = picked;
+    prev = sh.tr.id;
+  });
   return out;
 }
+
+const CUT: TransitionSpec = { id: 'cut', beats: 0 };
 
 /** index of the last shot starting at or before t */
 export function shotIndexAt(shots: Shot[], t: number): number {
@@ -464,15 +475,10 @@ export function shotIndexAt(shots: Shot[], t: number): number {
 
 /* ───────────────────────── sequencer (runs every frame) ───────────────────────── */
 
-/** dissolves start a little early so they finish on the downbeat */
-const LEAD_S = 0.45;
+/** transitions start up to half their length early, so they're halfway through on the beat */
+const LEAD_S = 1.6;
 /** hard cuts fire a frame early so the new look is on screen when the hit lands */
 const CUT_EARLY_S = 0.02;
-/** drops and choruses cut hard, and so does every strong drop whatever its section is called */
-const hardCut = (a: TrackAnalysis, i: number) => {
-  const sec = a.sections[i];
-  return !!sec && (sec.label === 'drop' || sec.label === 'chorus' || strongDropAt(a, i));
-};
 
 /** a look picked by hand stays on screen until the next shot, instead of being rotated away at once */
 let hold: { plan: VideoPlan; from: number; until: number } | null = null;
@@ -483,15 +489,21 @@ export function planTick(f: AudioFrame) {
   const shots = planShots(s.plan!, s.analysis!, s.pace, s.lyrics);
   if (!shots.length) return;
   const t = f.time;
-  const early = (sh: Shot) => (!f.playing ? 0 : sh.fadeMs <= 1 ? CUT_EARLY_S : Math.min(LEAD_S, sh.fadeMs / 2000));
+  const bpm = s.analysis!.bpm;
+  const resolved = (sh: Shot, k: number) => resolveTransition(sh.tr, { strongDrop: sh.strongDrop, bpm, seed: k * 7.31 + 1 });
+  const early = (sh: Shot, k: number) => {
+    if (!f.playing) return 0;
+    const r = resolved(sh, k);
+    return r.id === 'cut' ? CUT_EARLY_S : Math.min(LEAD_S, r.ms / 2000);
+  };
   let k = shotIndexAt(shots, t + LEAD_S);
-  while (k > 0 && shots[k].t - early(shots[k]) > t) k--;
+  while (k > 0 && shots[k].t - early(shots[k], k) > t) k--;
   const sh = shots[k];
   // get the next shot's scene ready a moment before it starts
   const next = shots[k + 1];
   if (next && f.playing && next.t - t < 2.5) {
     const nl = findLook(next.lookId);
-    if (nl && nl.sceneId !== s.sceneId) live.stage?.prewarm(nl.sceneId);
+    if (nl && nl.id !== s.presetId) live.stage?.prewarm(nl.sceneId);
   }
   if (hold) {
     if (hold.plan === s.plan && t >= hold.from - 0.5 && t < hold.until) return;
@@ -499,8 +511,9 @@ export function planTick(f: AudioFrame) {
   }
   const look = findLook(sh.lookId);
   if (!look || look.id === s.presetId) return;
-  const since = t - (sh.t - early(sh));
-  if (live.stage) live.stage.nextFadeMs = !f.playing ? 250 : since < 0.35 ? sh.fadeMs : 400;
+  const since = t - (sh.t - early(sh, k));
+  // a shot reached by seeking or pausing gets a short crossfade instead of its own transition
+  if (live.stage) live.stage.nextTransition = f.playing && since < 0.35 ? resolved(sh, k) : { id: 'crossfade', ms: f.playing ? 400 : 250, seed: k };
   s.applyPreset(look);
 }
 
@@ -729,6 +742,7 @@ export async function makeVideo(wish = '') {
         // Claude's rotation where it gave one, else picked around its main look
         rotate: r.rotate,
         shotBars: r.shotBars,
+        transitions: r.transitions,
       }, a);
     } else reason = r.reason;
   } catch (e) {

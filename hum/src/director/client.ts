@@ -25,6 +25,7 @@ import { allScenes } from '../scenes';
 import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
 import { localDirect } from './local';
+import { cleanPlanTransition, type PlanTransition } from '../core/transitionList';
 
 export const MAX_EFFECTS = 6;
 export const MAX_MODULATIONS = 16;
@@ -497,6 +498,8 @@ export type PlanReply =
       rotate: (string[] | null)[];
       /** bars per shot in each section (null when Claude didn't say) */
       shotBars: (number | null)[];
+      /** how each section arrives and cuts between its shots (null when Claude didn't say) */
+      transitions: (PlanTransition | null)[];
     }
   | { ok: false; reason: string };
 
@@ -547,6 +550,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   const interludes: (string | null)[] = req.sections.map(() => null);
   const rotate: (string[] | null)[] = req.sections.map(() => null);
   const shotBars: (number | null)[] = req.sections.map(() => null);
+  const transitions: (PlanTransition | null)[] = req.sections.map(() => null);
   const boards = new Set(req.looks.filter((l) => l.category === 'board').map((l) => l.id));
   for (const e of json.plan.sections) {
     if (!isObj(e)) continue;
@@ -565,6 +569,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     }
     const bars = toNum(e.pace);
     if (bars !== null && [1, 2, 4, 8, 16].includes(bars)) shotBars[i] = bars;
+    transitions[i] = cleanPlanTransition({ into: e.transition, within: e.within, beats: toNum(e.transitionBeats) });
   }
   if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
   return {
@@ -578,5 +583,6 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     interludes,
     rotate,
     shotBars,
+    transitions,
   };
 }

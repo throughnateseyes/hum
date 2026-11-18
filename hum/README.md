@@ -31,7 +31,12 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays the song from the top. Each part is cut into short shots on musical phrases, rotating
   through 2–4 related looks: busy parts cut faster, calm parts hold longer, extra cuts land when the
   kick or bass comes back, a vocal starts or a lyric line begins, and every big drop is a hard cut.
-  The song's mood sets the transitions (dissolves for tender songs, hard cuts for intense ones).
+  Transitions come from a library of 15 (crossfade, fades through the background colour or black,
+  light and cloud dissolves, film burn, ink, soft wipe, iris, ripple, mosaic, glyphs, zoom push,
+  slit-scan, cut), timed in beats and picked to fit the moment: long dissolves in calm parts, wipes
+  and slit-scans on builds, quick pushes and glitch swaps in loud ones, and a hard cut on every big
+  drop. Dissolves step forward on kicks. **Transition** (Look tab) pins one for everything (videos,
+  auto-pilot and your own picks) or Cut, and **Length** sets it in beats.
   **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
   a part (hold ⌥ to change only that one), or pick a look while a part plays. Picking a scene
   pauses the song map.
@@ -125,6 +130,8 @@ audio file / mic
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
+  → transition (src/render/transitions.ts) blends the outgoing look (still playing) into the new one;
+                                           picked by src/state/transitionPick.ts
   → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
   → screen / MediaRecorder
 ```
