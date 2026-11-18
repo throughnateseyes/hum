@@ -26,6 +26,7 @@ import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
 import { localDirect } from './local';
 import { cleanPlanTransition, type PlanTransition } from '../core/transitionList';
+import { LYRIC_MEDIUMS, LYRIC_MOMENTS, TYPE_FAMILIES, type LyricMedium, type LyricMoment, type LyricPart, type TypeFamily } from '../state/lyricPlan';
 
 export const MAX_EFFECTS = 6;
 export const MAX_MODULATIONS = 16;
@@ -481,6 +482,13 @@ export interface PlanRequest {
   /** whole lyrics when they have no timing */
   lyrics?: string;
   looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
+  /** taste memory: what the person tends to keep or skip, and the last plan's looks (ids, tags and counts only) */
+  taste?: import('../state/taste').TasteSummary;
+  /** lyric video: how overlay lyrics fit each look (one short line per look id) and words sung per second per section */
+  lyricFit?: { id: string; fit: string }[];
+  wps?: number[];
+  /** this render's suggested type family (seeded), so takes vary */
+  lyricTake?: TypeFamily;
 }
 export type PlanReply =
   | {
@@ -500,6 +508,8 @@ export type PlanReply =
       shotBars: (number | null)[];
       /** how each section arrives and cuts between its shots (null when Claude didn't say) */
       transitions: (PlanTransition | null)[];
+      /** lyric video: a type family and a medium (+ optional moment) per section (null when Claude didn't say) */
+      lyric: { family: TypeFamily | null; parts: (LyricPart | null)[] };
     }
   | { ok: false; reason: string };
 
@@ -521,6 +531,8 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         sections: req.sections,
         looks: req.looks,
         lyrics: req.lyrics,
+        ...(req.taste ? { taste: req.taste } : {}),
+        ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
         accessCode: opts.accessCode,
       }),
       signal: opts.signal,
@@ -551,6 +563,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   const rotate: (string[] | null)[] = req.sections.map(() => null);
   const shotBars: (number | null)[] = req.sections.map(() => null);
   const transitions: (PlanTransition | null)[] = req.sections.map(() => null);
+  const lyricParts: (LyricPart | null)[] = req.sections.map(() => null);
   const boards = new Set(req.looks.filter((l) => l.category === 'board').map((l) => l.id));
   for (const e of json.plan.sections) {
     if (!isObj(e)) continue;
@@ -570,6 +583,12 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     const bars = toNum(e.pace);
     if (bars !== null && [1, 2, 4, 8, 16].includes(bars)) shotBars[i] = bars;
     transitions[i] = cleanPlanTransition({ into: e.transition, within: e.within, beats: toNum(e.transitionBeats) });
+    // lyric video
+    if (isObj(e.lyric)) {
+      const medium = str(e.lyric.medium, 12) as LyricMedium;
+      const moment = str(e.lyric.moment, 12) as LyricMoment;
+      if (LYRIC_MEDIUMS.includes(medium)) lyricParts[i] = { medium, moment: LYRIC_MOMENTS.includes(moment) ? moment : null, why: 'planned by Claude' };
+    }
   }
   if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
   return {
@@ -584,5 +603,6 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     rotate,
     shotBars,
     transitions,
+    lyric: { family: TYPE_FAMILIES.includes(json.plan.lyricType as TypeFamily) ? (json.plan.lyricType as TypeFamily) : null, parts: lyricParts },
   };
 }

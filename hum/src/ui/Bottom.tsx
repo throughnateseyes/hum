@@ -10,6 +10,7 @@ import { LAYER_MIME, Slider, Toggle } from './controls';
 import { Pause, Play, Plus, Sparkle, Wave } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { peekHandlers } from './Peek';
+import { noteHandPick } from '../state/taste';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
 
@@ -296,7 +297,10 @@ function SectionRow({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
               e.preventDefault();
               setOver(null);
               const id = e.dataTransfer.getData(LOOK_MIME);
-              if (id) assignLook(i, id, !e.altKey);
+              if (!id) return;
+              const placed = findLook(id);
+              if (placed) noteHandPick(placed, 'place', sec.label);
+              assignLook(i, id, !e.altKey);
             }}
             {...(look && !dragging
               ? peekHandlers({

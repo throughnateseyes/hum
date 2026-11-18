@@ -6,6 +6,7 @@ import { getScene } from '../scenes';
 import { treatmentFor } from '../render/lyricAuto';
 import { applyLrclibRecord, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, shiftAllLyrics, syncPastedLyrics } from '../state/tracks';
 import { Slider } from './controls';
+import { FAMILY_NAME, MEDIUM_NAME, MOMENT_NAME, useLyricNow } from '../state/lyricPlan';
 
 const STYLES: { id: LyricStyle; label: string }[] = [
   { id: 'auto', label: 'Auto' },
@@ -176,11 +177,7 @@ export function LyricsChip() {
                       </button>
                     ))}
                   </div>
-                  {style === 'auto' && (
-                    <p className="lyr-p">
-                      Reads the song as {treatmentFor(analysis).label}. Held and louder words get bigger; drops hit hardest.
-                    </p>
-                  )}
+                  {style === 'auto' && <AutoNow motion={treatmentFor(analysis).label} />}
                   {(style === 'big' || style === 'cutout' || style === 'auto') && (
                     <div className="lyr-boards">
                       <span className="param-name">On looks that show the words themselves</span>
@@ -407,5 +404,32 @@ function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string
       )}
       <p className="lyr-p">Only the artist and song name you type are sent to LRCLIB, a free lyrics library.</p>
     </>
+  );
+}
+
+/** what Auto is doing with the words right now: the medium for this part, the song's type, the backing */
+function AutoNow({ motion }: { motion: string }) {
+  const now = useLyricNow();
+  const backing: Record<string, string> = { none: '', shadow: ', with a soft shadow', soft: ', on a soft plate', band: ', on a band', paper: ', on a paper strip' };
+  return (
+    <div className="lyr-auto">
+      {now.medium ? (
+        <p className="lyr-p">
+          <b>
+            {now.section ? `${now.section}: ` : 'Now: '}
+            {MEDIUM_NAME[now.medium]}
+            {now.moment ? ` + ${MOMENT_NAME[now.moment]}` : ''}
+          </b>
+          {now.medium !== 'own' ? backing[now.backing] ?? '' : ''}
+          {now.why ? ` · ${now.why}` : ''}
+        </p>
+      ) : (
+        <p className="lyr-p">Waiting for the next line.</p>
+      )}
+      <p className="lyr-p">
+        A lyric video: each part gets its own treatment{now.family ? ` in ${FAMILY_NAME[now.family]} type` : ''}, {motion}.
+        {now.source === 'claude' ? ' Planned by Claude with the video.' : ' Make a video to plan it again with a fresh take.'} Text moves or gets a backing when the picture behind it gets busy.
+      </p>
+    </div>
   );
 }

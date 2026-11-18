@@ -17,6 +17,9 @@ import { live } from './live';
 import { useStudio, type Pace } from './store';
 import type { PlanTransition, TransitionId } from '../core/transitionList';
 import { moodOf, pickTransition, resolveTransition, type PickContext, type TransitionSpec } from './transitionPick';
+import { affinityIn, contextFor, EXPLORE, planSignature, recentPlans, rememberPlan, record, rng, setTransitionProbe, tasteSummary } from './taste';
+import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type LyricPart, type LyricPlan, type TypeFamily } from './lyricPlan';
+import { profileFor } from '../render/lyricProfiles';
 
 export interface VideoPlan {
   title: string;
@@ -39,6 +42,8 @@ export interface VideoPlan {
   shotBars?: (number | null)[];
   /** how each section arrives and how its shots change (null/missing → picked from the music); strong drops always cut */
   transitions?: (PlanTransition | null)[];
+  /** lyric video: how the words appear in each section, its type family and seed (missing → made up per song, see lyricPlan.ts) */
+  lyricPlan?: LyricPlan;
 }
 
 export const LABEL_NAME: Record<TrackSection['label'], string> = {
@@ -260,7 +265,7 @@ function poolSize(drive: number, pace: Pace, given?: number): number {
  * suggested for this song, a similar intensity, and preferably another scene so the change shows.
  * Looks that are other sections' main looks rank lower so the parts stay distinct. Never boards.
  */
-export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | null)[] = []): string[] {
+export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | null)[] = [], bias?: (id: string) => number): string[] {
   const m = findLook(mainId);
   if (!m) return [];
   const sug = a.suggestedPresets;
@@ -270,7 +275,7 @@ export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | 
     .map((p) => {
       const r = sug.indexOf(p.id);
       const overlap = p.tags.filter((t) => m.tags.includes(t)).length;
-      const score = overlap + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0);
+      const score = overlap + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0) + (bias ? bias(p.id) : 0);
       return { id: p.id, score };
     })
     .sort((x, y) => y.score - x.score || (x.id < y.id ? -1 : 1))
@@ -286,7 +291,9 @@ function poolFor(plan: VideoPlan, a: TrackAnalysis, i: number, pace: Pace, drive
   const want = poolSize(drive, pace, given ? given.length + 1 : undefined);
   // the look the next part starts on stays out, so every section change (and every drop) shows
   const next = plan.looks[i + 1];
-  const ok = (id: string) => id !== main && id !== next && !!findLook(id) && !findLook(id)!.sceneId.startsWith('board-');
+  // taste memory: looks the person skipped in this kind of part don't come back in its rotation
+  const aff = affinityIn(contextFor(a.sections[i].label));
+  const ok = (id: string) => id !== main && id !== next && !!findLook(id) && !findLook(id)!.sceneId.startsWith('board-') && aff(id) > -0.4;
   const extras: string[] = [];
   for (const id of [...(given ?? []), ...relatedLooks(main, a, plan.looks)]) {
     if (extras.length >= want - 1) break;
@@ -623,16 +630,13 @@ const intensity = (p: Preset) => p.tags.filter((t) => LOUD.includes(t)).length -
  * outros, a main one for verses and builds, a peak one for choruses and drops — with a fourth for a
  * bridge. Sections that sound alike always share a look.
  */
-export function localPlan(a: TrackAnalysis): VideoPlan {
+export function localPlan(a: TrackAnalysis, opts: { seed?: number } = {}): VideoPlan {
   // the curated looks first, then the person's own, then everything else
   const suggested = a.suggestedPresets.map((id) => findLook(id)).filter((p): p is Preset => !!p);
   const ranked = [...suggested.filter((p) => !p.custom), ...suggested.filter((p) => p.custom)];
   for (const p of PRESETS) if (!ranked.includes(p)) ranked.push(p);
-  const top = ranked.slice(0, 8);
-  const main = top[0];
-  const peak = [...top.slice(1)].sort((x, y) => intensity(y) - intensity(x))[0] ?? main;
-  const calm = [...top].filter((p) => p !== peak).sort((x, y) => intensity(x) - intensity(y))[0] ?? main;
-  const bridge = top.find((p) => p !== main && p !== peak && p !== calm) ?? calm;
+  // taste memory + a seed: which looks play each role (see the taste block below)
+  const { main, peak, calm, bridge, bias } = tastefulRoles(ranked, suggested, a, opts.seed);
   const byLabel: Record<TrackSection['label'], Preset> = {
     intro: calm,
     outro: calm,
@@ -666,7 +670,7 @@ export function localPlan(a: TrackAnalysis): VideoPlan {
   const rotate = looks.map((id, i) => {
     const want = poolSize(sectionPacing({ looks } as VideoPlan, a, i, 'song').drive, 'song') - 1;
     const key = `${id}|${want}`;
-    if (!pools.has(key)) pools.set(key, relatedLooks(id, a, looks).slice(0, want));
+    if (!pools.has(key)) pools.set(key, relatedLooks(id, a, looks, bias(a.sections[i].label)).slice(0, want));
     return pools.get(key)!;
   });
   const names = sectionNames(a.sections);
@@ -701,9 +705,11 @@ export async function makeVideo(wish = '') {
   const { getScene } = await import('../scenes');
   const looks = allLooks().filter((p) => getScene(p.sceneId));
   const lyr = s.lyrics;
-  const offline = localPlan(a);
+  const offline = freshLocalPlan(a);
   let plan: VideoPlan = offline;
   let reason = '';
+  let claudeLyric: { family: TypeFamily | null; parts: (LyricPart | null)[] } | null = null;
+  const lyricSeed = (Math.random() * 2 ** 31) | 0;
   try {
     const r = await requestPlan(
       {
@@ -725,9 +731,17 @@ export async function makeVideo(wish = '') {
         }),
         ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
         looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '' })),
+        // taste memory: a short anonymous summary (look ids, tags, counts) and the last plan's looks
+        ...(() => {
+          const taste = tasteSummary(a);
+          return taste ? { taste } : {};
+        })(),
+        // lyric video: how overlay lyrics fit each look, and how wordy each section is
+        ...lyricRequest(a, lyr, looks, getScene, lyricSeed),
       },
       { accessCode: readAccessCode() || undefined },
     );
+    if (r.ok) claudeLyric = r.lyric;
     if (r.ok) {
       plan = ensureDropCuts({
         title: r.title,
@@ -748,12 +762,14 @@ export async function makeVideo(wish = '') {
   } catch (e) {
     reason = String(e);
   }
+  plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
   // the song may have changed while Claude was thinking
   const now = useStudio.getState();
   if (now.analysis !== a) {
     now.set({ planning: false });
     return;
   }
+  rememberPlan(a, planSignature(plan));
   now.set({ plan, planOn: true, autoPilot: false, planning: false });
   now.pushChat({
     role: 'director',
@@ -765,4 +781,198 @@ export async function makeVideo(wish = '') {
   });
   audioEngine.seek(0);
   void audioEngine.play().catch(() => {});
+}
+
+/* ───────────────────────── taste memory ───────────────────────── */
+/*
+ * What the person keeps and skips (`taste.ts`) steers the offline planner: each role (calm, body,
+ * peak, bridge) is scored by the analysis' suggestions, by intensity, by learned affinity in that kind
+ * of part, and by a little seeded noise, so every "Make a video" is a fresh take. About one role in
+ * five ignores taste on purpose and picks something new. A plan that matches one of the song's last
+ * few plans is re-rolled.
+ */
+
+const ROLE_LABEL = { calm: 'intro', main: 'verse', peak: 'chorus', bridge: 'bridge' } as const;
+const ROLE_LABELS: Record<keyof typeof ROLE_LABEL, TrackSection['label'][]> = {
+  calm: ['intro', 'break', 'outro'],
+  main: ['verse', 'build'],
+  peak: ['chorus', 'drop'],
+  bridge: ['bridge'],
+};
+
+function tastefulRoles(ranked: Preset[], suggested: Preset[], a: TrackAnalysis, seed?: number) {
+  const roll = seed === undefined ? () => 0.5 : rng(seed);
+  const noise = seed === undefined ? 0 : 0.7;
+  const pool = ranked.filter((p) => !p.sceneId.startsWith('board-'));
+  const base = (p: Preset) => {
+    const r = suggested.indexOf(p);
+    return r >= 0 ? 2.2 - r * 0.18 : pool.indexOf(p) < 8 ? 0.4 : 0;
+  };
+  // the song's labels for each role that actually appear, for context
+  const labelsIn = new Set(a.sections.map((x) => x.label));
+  const scorer = (role: keyof typeof ROLE_LABEL) => {
+    const lab = ROLE_LABELS[role].find((l) => labelsIn.has(l)) ?? ROLE_LABEL[role];
+    return affinityIn(contextFor(lab));
+  };
+  const level = (p: Preset) => Math.max(-3, Math.min(3, intensity(p)));
+  const fit = { calm: (p: Preset) => -0.4 * level(p), main: () => 0, peak: (p: Preset) => 0.4 * level(p), bridge: () => 0.1 };
+  const taken: Preset[] = [];
+  const choose = (role: keyof typeof ROLE_LABEL): Preset => {
+    const aff = scorer(role);
+    const free = pool.filter((p) => !taken.includes(p));
+    // a look the person keeps skipping in this kind of part stays out of it
+    const wanted = free.filter((p) => aff(p.id) > -0.75);
+    const list = wanted.length ? wanted : free.length ? free : pool;
+    let pick: Preset | undefined;
+    // exploration: now and then something outside the usual picks that the person hasn't turned down
+    if (seed !== undefined && roll() < EXPLORE) {
+      const fresh = list.filter((p) => aff(p.id) > -0.25 && Math.abs(fit[role](p)) < 1.4);
+      pick = fresh[Math.floor(roll() * fresh.length)];
+    }
+    pick ??= [...list]
+      .map((p) => {
+        // the stronger the person's feeling about a look here, the less the defaults matter
+        const t = aff(p.id);
+        const k = Math.abs(t);
+        return { p, s: base(p) * (1 - 0.4 * k) + fit[role](p) * (1 - 0.7 * k) + 3 * t + noise * (roll() - 0.5) };
+      })
+      .sort((x, y) => y.s - x.s)[0]?.p;
+    pick ??= pool[0] ?? ranked[0];
+    taken.push(pick);
+    return pick;
+  };
+  // the role the person feels most strongly about picks first, so a look liked on drops lands on the drop
+  const strength = (role: keyof typeof ROLE_LABEL) => {
+    const aff = scorer(role);
+    return Math.max(0, ...pool.map((p) => aff(p.id)));
+  };
+  const order = (['main', 'peak', 'calm', 'bridge'] as const).map((r, i) => ({ r, s: strength(r) - i * 0.01 })).sort((x, y) => y.s - x.s);
+  const got = {} as Record<keyof typeof ROLE_LABEL, Preset>;
+  for (const { r } of order) got[r] = choose(r);
+  const { main, peak, calm, bridge } = got;
+  /** rotation bias for a section label: taste plus a little noise */
+  const bias = (label: TrackSection['label']) => {
+    const aff = affinityIn(contextFor(label));
+    const r = seed === undefined ? null : rng(seed * 31 + label.length);
+    return (id: string) => 1.2 * aff(id) + (r ? 0.8 * (r() - 0.5) : 0);
+  };
+  return { main, peak, calm, bridge, bias };
+}
+
+/** an offline plan that differs from the song's last few plans */
+export function freshLocalPlan(a: TrackAnalysis): VideoPlan {
+  const recent = recentPlans(a);
+  const seen = new Set(recent);
+  // the main looks of the last two plans, so a new take changes more than its rotation
+  const mains = (sig: string) => sig.split(',').map((x) => x.split('+')[0]).join(',');
+  const lastMains = new Set(recent.slice(-2).map(mains));
+  const seed0 = (Math.random() * 2 ** 31) >>> 0;
+  let fallback: VideoPlan | null = null;
+  for (let k = 0; k < 12; k++) {
+    const plan = localPlan(a, { seed: seed0 + k * 7919 });
+    const sig = planSignature(plan);
+    if (seen.has(sig)) continue;
+    if (!lastMains.has(mains(sig))) return plan;
+    fallback ??= plan;
+  }
+  return fallback ?? localPlan(a, { seed: seed0 });
+}
+
+/**
+ * Skip the look on screen: remember it, and take it out of the playing part (its rotation, or its main
+ * look, for the part and the parts that sound the same) so Hum moves on right away. Returns false when
+ * no plan is playing (the caller picks the next look).
+ */
+export function skipLook(): boolean {
+  const s = useStudio.getState();
+  const id = s.presetId;
+  if (!id) return false;
+  record('skip', id);
+  const a = s.analysis;
+  if (!(s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a))) return false;
+  const i = sectionIndexAt(a!.sections, audioEngine.currentTime);
+  const plan = s.plan!;
+  const looks = [...plan.looks];
+  const rotate = a!.sections.map((_, j) => plan.rotate?.[j] ?? null);
+  const interludes = plan.interludes ? [...plan.interludes] : undefined;
+  const aff = affinityIn(contextFor(a!.sections[i].label));
+  const same = a!.sections.map((x, j) => j === i || (x.group === a!.sections[i].group && looks[j] === looks[i]));
+  if (interludes?.[i] === id) interludes[i] = null;
+  if (looks[i] === id) {
+    // a new main look: the best liked related look that isn't the skipped one
+    const pool = relatedLooks(id, a!, looks, (x) => 1.5 * aff(x)).filter((x) => x !== id && x !== looks[i + 1]);
+    const next = pool[0];
+    if (!next) return false;
+    // its rotation is picked around the new look, without the skipped one
+    const want = Math.max(1, (plan.rotate?.[i] ?? []).length || 2);
+    const rot = relatedLooks(next, a!, looks, (x) => 1.5 * aff(x)).filter((x) => x !== id && x !== next).slice(0, want);
+    same.forEach((on, j) => {
+      if (on && looks[j] === id) {
+        looks[j] = next;
+        rotate[j] = rot.filter((x) => x !== looks[j + 1]);
+      }
+    });
+  } else {
+    // drop it from this part's rotation (and its look-alikes'), with a fresh pick in its place
+    const shown = planShots(plan, a!, s.pace, s.lyrics).filter((sh) => sh.section === i).map((sh) => sh.lookId);
+    const cur = [...new Set(shown)].filter((x) => x !== looks[i]);
+    const extra = relatedLooks(looks[i]!, a!, looks, (x) => 1.5 * aff(x)).find((x) => x !== id && !cur.includes(x) && x !== looks[i + 1]);
+    const nextRot = [...cur.filter((x) => x !== id), ...(extra ? [extra] : [])].slice(0, 3);
+    same.forEach((on, j) => {
+      if (on) rotate[j] = nextRot.length ? nextRot : null;
+    });
+  }
+  const nextPlan = ensureDropCuts({ ...plan, looks, rotate, ...(interludes ? { interludes } : {}) }, a!, i);
+  hold = null;
+  s.set({ plan: nextPlan });
+  return true;
+}
+
+// tell taste which transition the playing shot came in with
+setTransitionProbe(() => {
+  const s = useStudio.getState();
+  if (!s.planOn || audioEngine.kind !== 'file' || !validPlan(s.plan, s.analysis)) return s.transition === 'auto' ? undefined : s.transition;
+  const shots = planShots(s.plan!, s.analysis!, s.pace, s.lyrics);
+  return shots[shotIndexAt(shots, audioEngine.currentTime)]?.tr.id;
+});
+
+/* ───────────────────────── lyric video ───────────────────────── */
+/*
+ * Every video plan carries a lyric plan (lyricPlan.ts): which medium shows the words in each section
+ * (subtitles, big words, cutouts, a word or two, or the look's own lyric components), one type family
+ * for the song, and one-off moments. Claude's choices where it made them, the local planner's for the
+ * rest; a fresh seed per render, so two videos of one song read differently.
+ */
+
+type SceneLookup = (id: string) => { category: string; showsLyrics?: boolean } | undefined;
+
+/** one short line per look: what overlay text suits it, its calm zones, whether it shows the words itself */
+function lyricFitLine(p: Preset, getScene: SceneLookup): string {
+  const sc = getScene(p.sceneId);
+  const prof = profileFor(p.id, sc?.category, !!sc?.showsLyrics);
+  if (prof.own === 'carries') return 'carries the words itself (use own)';
+  const good = (Object.entries(prof.suits) as [string, number][]).filter(([, v]) => v >= 0.6).map(([k]) => k);
+  const poor = (Object.entries(prof.suits) as [string, number][]).filter(([, v]) => v < 0.3).map(([k]) => k);
+  return `suits ${good.join('/') || 'subtitle'}${poor.length ? `; poor for ${poor.join('/')}` : ''}; calm ${prof.zones.slice(0, 2).join('/')}${prof.own === 'echoes' ? '; has lyric bits of its own' : ''}`;
+}
+
+function lyricRequest(a: TrackAnalysis, lyr: Lyrics | null, looks: Preset[], getScene: SceneLookup, seed: number): { lyricFit?: { id: string; fit: string }[]; wps?: number[]; lyricTake?: TypeFamily } {
+  if (!lyr?.synced || !lyr.lines.length) return {};
+  return {
+    lyricFit: looks.filter((p) => !p.custom || getScene(p.sceneId)).map((p) => ({ id: p.id, fit: lyricFitLine(p, getScene) })),
+    wps: a.sections.map((sec) => round2(vocalDensity(lyr.lines, sec).wps)),
+    // this render's seeded type family, so Claude's takes vary like the offline planner's
+    lyricTake: localLyricPlan(a, lyr, seed).family,
+  };
+}
+
+function withLyricPlan(plan: VideoPlan, a: TrackAnalysis, lyr: Lyrics | null, claude: { family: TypeFamily | null; parts: (LyricPart | null)[] } | null, getScene: SceneLookup, seed: number): VideoPlan {
+  if (!lyr?.synced || !lyr.lines.length) return plan;
+  const profiles = plan.looks.map((id) => {
+    const p = id ? findLook(id) : undefined;
+    const sc = p ? getScene(p.sceneId) : undefined;
+    return p ? profileFor(p.id, sc?.category, !!sc?.showsLyrics) : null;
+  });
+  const lyricPlan = mergeLyricPlan(localLyricPlan(a, lyr, seed, { profiles }), claude);
+  return { ...plan, lyricPlan, note: `${plan.note} Lyrics: ${describeLyricPlan(lyricPlan, sectionNames(a.sections))}.` };
 }

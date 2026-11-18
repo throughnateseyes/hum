@@ -177,6 +177,46 @@ People's attention is short, so the stage never holds one picture for a whole se
 ## Answer
 Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId, a short reason (at most 12 words), pops (0–3), rotate (1–3 extra look ids), optionally pace (bars per shot), optionally transition / within / transitionBeats, and, only where you want one, an interlude board look id.`;
 
+/* ───────────────────────── taste memory (plan mode) ───────────────────────── */
+
+const TASTE_RULES = `## The person's taste
+Hum remembers what this person keeps and skips. When a taste block is given, lean toward the looks and tags they keep, in the parts where they kept them, and away from the ones they skip; never use a skipped look in the part where it was skipped. Treat it as a strong preference, not a rule: still serve the song first, and still give each plan at least one look they haven't reacted to yet, so it can surprise them. "Avoid" lists the main looks of the last plan for this song: make a clearly different take (a different main look for most groups and a different rotation), still good.`;
+
+/** the taste block of a plan request: look ids, tags, section labels and counts only (anything else is dropped) */
+function describeTaste(raw: unknown, knownLooks: Set<string>): string {
+  if (!isObj(raw)) return '';
+  const id = (v: unknown) => (typeof v === 'string' && knownLooks.has(v) ? v : '');
+  const tag = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9 -]/g, '').slice(0, 24) : '');
+  const LABELS = ['intro', 'verse', 'chorus', 'bridge', 'build', 'drop', 'break', 'outro'];
+  const looks = (v: unknown) =>
+    Array.isArray(v)
+      ? v
+          .filter(isObj)
+          .map((x) => {
+            const i = id(x.id);
+            if (!i) return '';
+            const where = typeof x.where === 'string' && LABELS.includes(x.where) ? ` on ${x.where}` : '';
+            const n = typeof x.n === 'number' && Number.isFinite(x.n) ? ` ×${Math.max(1, Math.min(20, Math.round(x.n)))}` : '';
+            return `${i}${where}${n}`;
+          })
+          .filter(Boolean)
+          .slice(0, 6)
+          .join(', ')
+      : '';
+  const tags = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map(tag).filter(Boolean))].slice(0, 6).join(', ') : '');
+  const avoid = Array.isArray(raw.avoid) ? [...new Set(raw.avoid.map(id).filter(Boolean))].slice(0, 8).join(', ') : '';
+  const lines = [
+    ['Keeps', looks(raw.liked)],
+    ['Skips', looks(raw.skipped)],
+    ['Leans toward tags', tags(raw.likedTags)],
+    ['Leans away from tags', tags(raw.skippedTags)],
+    ['Avoid (last plan for this song)', avoid],
+  ]
+    .filter(([, v]) => v)
+    .map(([k, v]) => `- ${k}: ${v}`);
+  return lines.length ? lines.join('\n') : '';
+}
+
 /* ───────────────────────── tools ───────────────────────── */
 
 const hex = { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' };
@@ -317,6 +357,61 @@ const PLAN_TOOL = {
     required: ['title', 'note', 'sections'],
   },
 };
+
+/* ───────────────────────── lyric video (plan mode) ───────────────────────── */
+
+const LYRIC_MEDIUMS = ['subtitle', 'big', 'cutout', 'sparse', 'own'] as const;
+const LYRIC_MOMENTS = ['giant', 'burst'] as const;
+const LYRIC_TYPES = ['grotesk', 'serif', 'condensed', 'mono', 'rounded', 'typewriter'] as const;
+
+const LYRIC_RULES = `## The lyrics: direct a lyric video
+When the song has timed lyrics, also decide how the words appear, per section, like an editor making a lyric video. Mix mediums across the song instead of one treatment for everything:
+- subtitle: the line small, low or high in the frame. For verses and dense, wordy parts (over ~2.5 words per second big type can't be read).
+- big: the line huge, word by word, in the song's motion. For choruses and drops, and slow, sparse lines that deserve weight.
+- cutout: ransom-note clippings on paper scraps. Loud choruses and drops, bridges, punk or playful songs; it is legible on any picture.
+- sparse: only one or two key words of each line, small, in a calm corner. Builds, intros, breaks, the hush before a drop.
+- own: the look shows the words itself (its lyric fit says "carries the words"): overlay text stands down there. Use it whenever that look leads a section with lyrics.
+Respect each look's lyric fit (what it suits, where its calm zones are): never put big type on a look that suits it poorly; prefer the look's own lyrics when it carries them. Sections in the same group usually keep their medium, so a returning chorus looks like itself; the last chorus may escalate. Use at least two mediums in a song with three or more sung parts.
+- moment (optional, rare): "giant" puts one huge word on the first line of the biggest drop or peak; "burst" throws one chorus line down as a scatter of cutouts. At most one of each per song.
+- lyricType: one type family for the whole video (grotesk, serif, condensed, mono, rounded, typewriter) that fits the genre and mood: serif or typewriter for tender and intimate songs, condensed or grotesk for loud ones, mono for cold electronic ones, rounded for sweet pop.
+Give each section with words a lyric entry; leave it out for sections without words.`;
+
+const LYRIC_PART_SCHEMA = {
+  type: 'object',
+  description: 'Optional (sections with words): how the lyrics appear in this section.',
+  properties: {
+    medium: { type: 'string', enum: [...LYRIC_MEDIUMS] },
+    moment: { type: 'string', enum: [...LYRIC_MOMENTS], description: 'Optional one-off: giant (one huge word on the drop) or burst (a scatter of cutouts).' },
+  },
+  required: ['medium'],
+};
+
+/** lyric fit per look: [{ id, fit }] → one line each */
+function describeLyricFit(raw: unknown, known: Set<string>): string {
+  if (!Array.isArray(raw)) return '';
+  const lines = raw
+    .slice(0, 80)
+    .filter(isObj)
+    .filter((x) => typeof x.id === 'string' && known.has(x.id) && typeof x.fit === 'string')
+    .map((x) => `${String(x.id).slice(0, 48)}: ${String(x.fit).replace(/\s+/g, ' ').slice(0, 90)}`);
+  return capBytes(lines.join('\n'), 6_000);
+}
+
+/** words per second per section: [n|null] → "#0 0.0, #1 2.4 …" */
+function describeWps(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  return raw
+    .slice(0, 40)
+    .map((v, i) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? `#${i} ${Math.min(9, v).toFixed(1)}` : ''))
+    .filter(Boolean)
+    .join(', ');
+}
+
+// the plan tool also carries the lyric plan (kept apart so the blocks above stay as they were)
+Object.assign(PLAN_TOOL.input_schema.properties.sections.items.properties, { lyric: LYRIC_PART_SCHEMA });
+Object.assign(PLAN_TOOL.input_schema.properties, {
+  lyricType: { type: 'string', enum: [...LYRIC_TYPES], description: 'Optional (songs with lyrics): one type family for the whole lyric video.' },
+});
 
 /* ───────────────────────── request parsing ───────────────────────── */
 
@@ -518,6 +613,24 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     parts.push(`Sections (index, time, label, group, energy 0..1, busy 0..1, DROP size and why when the section starts on a drop, words sung):\n${describeSections(body.sections)}`);
     if (typeof body.lyrics === 'string' && body.lyrics.trim()) parts.push(`Lyrics (not timed):\n${body.lyrics.slice(0, 1500)}`);
     parts.push(`Looks (id — name [kind] (tags) description):\n${describeLooks(body.looks)}`);
+    // taste memory: its own block, after the looks it refers to
+    const known = new Set(Array.isArray(body.looks) ? body.looks.filter(isObj).map((l) => String(l.id)) : []);
+    const taste = describeTaste(body.taste, known);
+    if (taste) {
+      system.push({ type: 'text', text: TASTE_RULES });
+      parts.push(`Taste (from this person's Keep / Skip reactions; follow it, but vary):\n${taste}`);
+    }
+    // lyric video: its own block, only when the song has words
+    const fit = describeLyricFit(body.lyricFit, known);
+    const wps = describeWps(body.wps);
+    if (fit && (wps || (typeof body.lyrics === 'string' && body.lyrics.trim()))) {
+      system.push({ type: 'text', text: LYRIC_RULES });
+      parts.push(`Lyric fit per look (what overlay text suits it, calm zones, whether it carries the words itself):\n${fit}`);
+      if (wps) parts.push(`Words sung per second, per section: ${wps}`);
+      // a seeded suggestion per render, so two videos of one song don't read the same
+      const take = typeof body.lyricTake === 'string' && (LYRIC_TYPES as readonly string[]).includes(body.lyricTake) ? body.lyricTake : '';
+      if (take) parts.push(`For this take, the suggested lyricType is ${take}: use it unless it clearly fights the song, and vary the mediums from the most obvious choice where another still fits.`);
+    }
   } else if (current) parts.push(`Current preset (edit from this when the request asks for a change):\n${current}`);
   const tool = mode === 'plan' ? PLAN_TOOL : mode === 'preset' ? MAKE_PRESET_TOOL : WRITE_SHADER_TOOL;
   const model = env.HUM_MODEL?.trim() || DEFAULT_MODEL;
@@ -581,7 +694,8 @@ function finishOutput(mode: 'preset' | 'shader' | 'plan', toolInput: unknown, vi
     if (!Array.isArray(toolInput.sections)) return { status: 502, json: { error: 'bad_output', note: 'Claude’s plan had no sections.' } };
     const note = typeof toolInput.note === 'string' ? toolInput.note.trim().slice(0, 400) : '';
     const title = typeof toolInput.title === 'string' ? toolInput.title.trim().slice(0, 60) : '';
-    return { status: 200, json: { plan: { title, sections: toolInput.sections.slice(0, 40) }, note: note || 'Directed by Claude.', source: 'claude', via } };
+    const lyricType = typeof toolInput.lyricType === 'string' && (LYRIC_TYPES as readonly string[]).includes(toolInput.lyricType) ? toolInput.lyricType : undefined;
+    return { status: 200, json: { plan: { title, sections: toolInput.sections.slice(0, 40), ...(lyricType ? { lyricType } : {}) }, note: note || 'Directed by Claude.', source: 'claude', via } };
   }
 
   const { note, ...rest } = toolInput;

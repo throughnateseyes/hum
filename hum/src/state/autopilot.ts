@@ -3,10 +3,11 @@ import { PRESETS } from '../presets';
 import { useStudio } from './store';
 import { live } from './live';
 import { transitionForNow } from './transitionPick';
+import { pickByTaste } from './taste';
 
 /**
  * Auto-pilot: when enabled, switches looks on drops and every 32 beats,
- * preferring the presets the track analysis suggested.
+ * preferring the presets the track analysis suggested, weighted by the person's taste memory.
  */
 let lastSwitchBeat = 0;
 let prevDrop = 0;
@@ -37,10 +38,11 @@ export function autopilotTick(a: AudioFrame) {
   let pick: Preset;
   if (dropEdge) {
     const intense = candidates.filter((p) => p.tags.some((t) => ['heavy', 'aggressive', 'intense', 'dubstep', 'chaotic', 'bass'].includes(t)));
-    pick = intense.length ? intense[Math.floor(Math.random() * intense.length)] : candidates[0];
+    pick = (intense.length ? pickByTaste(intense) : undefined) ?? candidates[0];
   } else {
+    // learned taste picks most switches; about one in five explores (see taste.ts)
     cursor = (cursor + 1) % candidates.length;
-    pick = candidates[cursor];
+    pick = pickByTaste(candidates) ?? candidates[cursor];
   }
   // drops cut hard; the regular switches use the Transition setting and the music
   if (live.stage) live.stage.nextTransition = transitionForNow(dropEdge ? 'drop' : 'auto', a.time, a.beatCount * 1.37, dropEdge);

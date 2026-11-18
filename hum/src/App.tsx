@@ -16,6 +16,8 @@ import { PeekWindow } from './ui/Peek';
 import { LyricsChip } from './ui/Lyrics';
 import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
+import { noteHandPick } from './state/taste';
+import { keepNow, skipNow } from './ui/Taste';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
 
@@ -53,7 +55,14 @@ export default function App() {
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
         const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + PRESETS.length) % PRESETS.length;
-        if (PRESETS[j]) pickLook(PRESETS[j]);
+        if (PRESETS[j]) {
+          noteHandPick(PRESETS[j], 'browse');
+          pickLook(PRESETS[j]);
+        }
+      } else if ((e.key === 'k' || e.key === 'K') && !e.metaKey && !e.ctrlKey) {
+        keepNow();
+      } else if ((e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey) {
+        skipNow();
       } else if (e.key === '/') {
         e.preventDefault();
         s.set({ directorOpen: true });

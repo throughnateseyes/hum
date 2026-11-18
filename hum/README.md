@@ -40,6 +40,19 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
   a part (hold ⌥ to change only that one), or pick a look while a part plays. Picking a scene
   pauses the song map.
+- **Your taste.** Hum learns what you like as you use it. While a video plays (or any look is on
+  screen), hover the stage and press **♥ Keep** (`K`) on looks you love or **✕ Skip** (`X`) on ones
+  you don't; Skip also takes that look out of the part and moves on. Looks you pick from the list
+  or drag onto a part count too, and a look Hum chose that you swap out within a few seconds counts
+  a little against it. Each reaction remembers where it happened (chorus, drop…) and what kind of
+  song it was (genre, mood, energy), so Hum can learn "Paper looks on choruses" and "no Glyph on
+  tender songs" at once. Recent reactions count most and old ones fade (half as much every 30
+  days). It steers the offline planner, auto-pilot, each part's rotation and the AI planner, but
+  about one pick in five still explores, and every **Make a video** is a new take: renders are
+  seeded and Hum remembers the last few plans per song so it doesn't repeat one. **Your taste**
+  (Look tab) says in plain words what Hum has learned, with a switch to turn learning off and a
+  reset. It all stays in this browser (localStorage); the AI planner only gets a short summary
+  (look ids, tags, section names and counts) with a plan you asked for.
 - **Breakdown** (button by the timeline, or `B`) shows how Hum took the song apart: its genre,
   mood and instruments, the parts, every drop with how big it is and why, the waveform, energy and
   low / mid / high lanes, kick, snare and hat hits, a piano roll of the bass and lead notes, and
@@ -53,10 +66,8 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   to where the singing starts in your file. Wrong song or nothing found? **Search LRCLIB** in the
   chip by artist and song, or paste a lrclib.net link.
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
-  what was found. It also switches between **Auto** (the default: the treatment follows the
-  song's mood: soft, widely spaced fades for tender songs, blur-ins for dreamy ones, words that slam
-  in for energetic ones (cutouts on the drop), shaking heavy type for aggressive ones; words held
-  longer or sung louder come out bigger), **Subtitles**, **Big words** (one line at a time, word by
+  what was found. It also switches between **Auto** (the default, a lyric video: see *Auto lyrics*
+  below), **Subtitles**, **Big words** (one line at a time, word by
   word), **Cutouts** (the same big line as a ransom note: each word or letter cut from a different
   clipping, slapped down as it's sung) and **Off**. On looks that already type the words out (Diary,
   Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
@@ -66,6 +77,22 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   leaves your machine). If a line is off, **Fix timing** lets you tap along as each line starts, and
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
+- **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
+  subtitles for verses and wordy parts, big words or cutouts for choruses and drops, a word or two in
+  a calm corner for builds and intros, and the look's own lyric components where it has them (the
+  Diary typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments
+  land too: one giant word on the biggest drop, a burst of cutouts on one chorus. The choice comes from
+  each part's label, energy, words per second and the look planned there; the whole song keeps one
+  type family (serif, grotesk, condensed, mono, rounded or typewriter, picked to fit its mood) and one
+  motion (soft fades, blur-ins, slams or shaking type). **Make a video** plans the lyrics together with
+  the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
+  so two videos of the same song read differently. The chip shows what Auto chose for the part that's
+  playing and why. Every style is **guarded for legibility**: every other frame Hum shrinks the
+  picture under the text to 96×54 and checks it, then picks the calmest place for the line, an ink
+  that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
+  soft plate, a band, or a torn paper strip on paper looks), easing between them so nothing flickers
+  when a cut changes the picture. The per-look lyric profiles and the audit behind them are in
+  [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
 - **Busy boards and pop-ups.** Four more instrument boards join Orbit, Lab and Oto: **Arcade** (Pong
   with the ball hitting on the beat, a runner that jumps on kicks, Tetris, a BPM odometer, a
@@ -116,7 +143,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
+- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
 
 ## How it's built
 
@@ -127,6 +154,7 @@ audio file / mic
                                            bar-aligned, repeats grouped), drops, mood, tags, preset ranking
   → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
+  → taste memory (src/state/taste.ts)      Keep / Skip and hand picks, in context; biases every pick
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)

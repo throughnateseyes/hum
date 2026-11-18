@@ -9,6 +9,7 @@ import { TRANSITIONS } from '../core/transitionList';
 import { ParamControl, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
 import { readAccessCode } from './Director';
+import { TasteGroup } from './Taste';
 
 const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director' };
 
@@ -549,6 +550,7 @@ function LookPanel() {
           ))}
         </div>
       </div>
+      <TasteGroup />
       <HandGroup />
       <PaceGroup />
       <TransitionGroup />

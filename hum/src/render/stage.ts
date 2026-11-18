@@ -621,6 +621,8 @@ export class Stage {
       } else {
         this.shared.blit(finalTex, this.impactRT);
       }
+      // the lyric legibility guard looks at the picture before pop-ups and lyrics go over it
+      if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       this.popups.render(r, base, this.impactRT);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
@@ -633,8 +635,10 @@ export class Stage {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
         this.shared.blit(this.impactRT.texture, null);
+        if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       } else {
         this.shared.blit(finalTex, null);
+        if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
       this.popups.render(r, base);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);

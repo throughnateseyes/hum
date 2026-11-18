@@ -148,8 +148,17 @@ function makePiece(g: CanvasRenderingContext2D, text: string, size: number, seed
 }
 
 /** lay a line out once: scraps per word, wrapped and scaled to fit the frame */
-export function buildCutout(g: CanvasRenderingContext2D, words: string[], lineIdx: number, W: number, H: number, pal: Palette): CutoutLayout {
-  const base = Math.min(H * 0.1, W * 0.07);
+export function buildCutout(
+  g: CanvasRenderingContext2D,
+  words: string[],
+  lineIdx: number,
+  W: number,
+  H: number,
+  pal: Palette,
+  o: { box?: { x0: number; y0: number; x1: number; y1: number }; scale?: number; burst?: boolean } = {},
+): CutoutLayout {
+  const base = Math.min(H * 0.1, W * 0.07) * (o.scale ?? 1);
+  const box = o.box ?? { x0: W * 0.07, y0: H * 0.14, x1: W * 0.93, y1: H * 0.86 };
   const cuts: WordCut[] = words.map((word, i) => {
     const seed = lineIdx * 257 + i * 31 + 7;
     const R = (k: number) => hash(seed, k, 5);
@@ -159,12 +168,18 @@ export function buildCutout(g: CanvasRenderingContext2D, words: string[], lineId
       ? [...clean].map((ch, k) => makePiece(g, R(20 + k) < 0.55 ? ch.toUpperCase() : ch.toLowerCase(), base, seed * 13 + k + 1, pal, true))
       : [makePiece(g, casing(clean, R(2)), base, seed * 13, pal, false)];
     const gap = base * 0.03;
+    // a burst throws the clippings down harder: more tilt, more scatter
+    if (o.burst)
+      for (const p of pieces) {
+        p.rot *= 2.4;
+        p.dy *= 2.6;
+      }
     return { pieces, w: pieces.reduce((a, p) => a + p.w, 0) + gap * (pieces.length - 1), h: Math.max(...pieces.map((p) => p.h)) };
   });
 
-  const space = base * 0.36;
-  const maxW = W * 0.86;
-  const maxH = H * 0.72;
+  const space = base * (o.burst ? 0.5 : 0.36);
+  const maxW = box.x1 - box.x0;
+  const maxH = box.y1 - box.y0;
   let scale = 1;
   for (let tries = 0; tries < 8; tries++) {
     const rows: number[][] = [[]];
@@ -189,10 +204,10 @@ export function buildCutout(g: CanvasRenderingContext2D, words: string[], lineId
       continue;
     }
     const out: CutoutLayout['words'] = [];
-    let y = (H - totalH) / 2;
+    let y = box.y0 + (maxH - totalH) / 2;
     rows.forEach((row, ri) => {
       const rw = row.reduce((a, i) => a + cuts[i].w * scale, 0) + space * scale * (row.length - 1);
-      let rx = (W - rw) / 2;
+      let rx = box.x0 + (maxW - rw) / 2;
       for (const i of row) {
         out.push({ x: rx, y: y + rowH[ri] / 2, cut: cuts[i] });
         rx += cuts[i].w * scale + space * scale;

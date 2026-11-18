@@ -1,4 +1,4 @@
-import type { AudioFrame, Palette, TrackAnalysis } from '../core/types';
+import type { AudioFrame, TrackAnalysis } from '../core/types';
 import { hash } from '../scenes/board/kit';
 
 /**
@@ -29,7 +29,7 @@ const WORDS: Record<Treatment, string[]> = {
 const LABELS: Record<Treatment, string> = {
   tender: 'tender: soft fades, wide spacing',
   dreamy: 'dreamy: words blur in and float',
-  punchy: 'punchy: words slam in, cutouts on the drop',
+  punchy: 'punchy: words slam in on the beat',
   aggressive: 'aggressive: heavy type that shakes',
 };
 
@@ -92,20 +92,32 @@ interface Placed {
   w: number;
 }
 
+/** pixel box text is fitted into */
+export interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 export interface AutoLayout {
   treatment: Treatment;
+  style: Style;
   size: number;
   words: Placed[];
   cx: number;
   cy: number;
+  /** each row's box (for plates and bands behind it) */
+  rows: { x: number; y: number; w: number; h: number }[];
 }
 
-interface Style {
+export interface Style {
   weight: number;
   family: string;
   track: number;
   upper: boolean;
   lower: boolean;
+  italic?: boolean;
   /** base size as a share of min(H × 1.45, W) */
   base: number;
 }
@@ -118,18 +130,88 @@ const STYLES: Record<Treatment, Style> = {
   aggressive: { weight: 400, family: 'Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Black", sans-serif', track: 0.01, upper: true, lower: false, base: 0.08 },
 };
 
+/** the song's type family: one per song, so the whole video speaks with one voice */
+export const FAMILY_FONTS: Record<string, string> = {
+  grotesk: SANS,
+  serif: 'Didot, "Bodoni 72", "Bodoni MT", "Playfair Display", Georgia, serif',
+  condensed: '"Avenir Next Condensed", "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif',
+  mono: '"SF Mono", "JetBrains Mono", Menlo, Consolas, "Courier New", monospace',
+  rounded: 'ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Varela Round", sans-serif',
+  typewriter: '"American Typewriter", "Courier New", Courier, serif',
+};
+
+/**
+ * The motion's style set in the song's family, varied a little per part (`variant` 0..1 from the
+ * seed): a different weight, case or tracking, so parts differ but still belong together.
+ */
+export function styleFor(treatment: Treatment, family?: string, variant = 0.5): Style {
+  const st = { ...STYLES[treatment] };
+  if (!family || !FAMILY_FONTS[family]) return st;
+  st.family = family === 'condensed' && treatment === 'aggressive' ? STYLES.aggressive.family : FAMILY_FONTS[family];
+  const heavy = treatment === 'punchy' || treatment === 'aggressive';
+  if (family === 'serif') {
+    st.weight = heavy ? 700 : 400;
+    st.italic = !heavy && variant > 0.45;
+    st.track = heavy ? 0 : 0.03;
+    st.upper = heavy && variant > 0.5;
+    st.lower = !st.upper && treatment === 'tender' && variant < 0.3;
+  } else if (family === 'condensed') {
+    st.weight = heavy ? 800 : 600;
+    st.upper = true;
+    st.lower = false;
+    st.track = heavy ? 0.01 : 0.06;
+    st.base *= 1.12;
+  } else if (family === 'mono') {
+    st.weight = heavy ? 700 : 400;
+    st.track = 0.02;
+    st.upper = variant > 0.5;
+    st.lower = !st.upper;
+    st.base *= 0.9;
+  } else if (family === 'rounded') {
+    st.weight = heavy ? 800 : 500;
+    st.track = heavy ? 0 : 0.04;
+  } else if (family === 'typewriter') {
+    st.weight = heavy ? 700 : 400;
+    st.track = 0.03;
+    st.upper = heavy;
+    st.lower = !heavy;
+    st.base *= 0.92;
+  } else {
+    // grotesk: weight wanders around the motion's own
+    st.weight = Math.max(200, Math.min(900, st.weight + Math.round((variant - 0.5) * 4) * 100));
+    if (!heavy) st.upper = variant > 0.8;
+    if (st.upper) st.lower = false;
+  }
+  return st;
+}
+
 function font(st: Style, px: number) {
-  return `${st.weight} ${px.toFixed(1)}px ${st.family}`;
+  return `${st.italic ? 'italic ' : ''}${st.weight} ${px.toFixed(1)}px ${st.family}`;
 }
 
 function caseOf(st: Style, s: string) {
   return st.upper ? s.toUpperCase() : st.lower ? s.toLowerCase() : s;
 }
 
-/** lay one line out: emphasis per word from how it's sung, wrapped and fitted (with room to swell) */
-export function buildAuto(g: CanvasRenderingContext2D, words: AWord[], timed: boolean, an: TrackAnalysis | null | undefined, W: number, H: number, treatment: Treatment): AutoLayout {
-  const st = STYLES[treatment];
-  const base = Math.min(H * 1.45, W) * st.base;
+/**
+ * Lay one line out: emphasis per word from how it's sung, wrapped and fitted (with room to swell)
+ * into `box`, aligned left, centre or right. `scale` sizes the type (sparse words smaller, the giant
+ * word huge); `maxRows` caps the wrap.
+ */
+export function buildAuto(
+  g: CanvasRenderingContext2D,
+  words: AWord[],
+  timed: boolean,
+  an: TrackAnalysis | null | undefined,
+  W: number,
+  H: number,
+  treatment: Treatment,
+  o: { style?: Style; box?: Box; align?: 'left' | 'center' | 'right'; scale?: number; maxRows?: number } = {},
+): AutoLayout {
+  const st = o.style ?? STYLES[treatment];
+  const box = o.box ?? { x0: W * 0.1, y0: H * 0.19, x1: W * 0.9, y1: H * 0.81 };
+  const align = o.align ?? 'center';
+  const base = Math.min(H * 1.45, W) * st.base * (o.scale ?? 1);
   // emphasis: held longer than the line's typical word, and/or sung over a louder moment
   const durs = words.map((w) => Math.max(0.01, w.end - w.t));
   const med = [...durs].sort((a, b) => a - b)[Math.floor(durs.length / 2)] || 0.3;
@@ -139,7 +221,7 @@ export function buildAuto(g: CanvasRenderingContext2D, words: AWord[], timed: bo
     const held = Math.min(1, Math.max(0, (durs[i] / med - 1) / 1.5));
     const lo = Math.min(1, Math.max(0, (loud[i] - mean) * 5 + 0.5));
     const e = (timed ? 0.6 : 0.25) * held + (timed ? 0.4 : 0.35) * lo;
-    return 0.88 + 0.5 * e;
+    return words.length === 1 ? 1 : 0.88 + 0.5 * e;
   });
 
   g.letterSpacing = '0px';
@@ -151,11 +233,13 @@ export function buildAuto(g: CanvasRenderingContext2D, words: AWord[], timed: bo
     return w;
   };
 
+  const maxW = box.x1 - box.x0;
+  const maxH = box.y1 - box.y0;
+  const maxRows = o.maxRows ?? 4;
   let scale = 1;
-  for (let tries = 0; tries < 8; tries++) {
+  for (let tries = 0; tries < 12; tries++) {
     const sz = base * scale;
     const space = sz * (0.3 + st.track);
-    const maxW = W * 0.8;
     const items = words.map((w, i) => ({ text: caseOf(st, w.text), t: w.t, k: ks[i], w: measure(caseOf(st, w.text), sz * ks[i]) }));
     const rows: (typeof items)[] = [[]];
     let x = 0;
@@ -172,45 +256,48 @@ export function buildAuto(g: CanvasRenderingContext2D, words: AWord[], timed: bo
     const rowH = rows.map((r) => Math.max(...r.map((it) => it.k)) * sz * 1.12);
     const totalH = rowH.reduce((a, b) => a + b, 0);
     const widest = Math.max(...items.map((it) => it.w));
-    if ((rows.length > 4 || totalH > H * 0.62 || widest > maxW) && tries < 7) {
-      scale *= 0.87;
+    if ((rows.length > maxRows || totalH > maxH || widest > maxW) && tries < 11) {
+      scale *= 0.88;
       continue;
     }
     const out: Placed[] = [];
-    let y = (H - totalH) / 2;
+    const rowBoxes: AutoLayout['rows'] = [];
+    let y = box.y0 + (maxH - totalH) / 2;
     rows.forEach((row, ri) => {
       const rw = row.reduce((a, it) => a + it.w, 0) + space * (row.length - 1);
-      let rx = (W - rw) / 2;
+      let rx = align === 'left' ? box.x0 : align === 'right' ? box.x1 - rw : box.x0 + (maxW - rw) / 2;
       const baseY = y + rowH[ri] * 0.8;
+      rowBoxes.push({ x: rx, y: y + rowH[ri] * 0.08, w: rw, h: rowH[ri] * 0.86 });
       for (const it of row) {
         out.push({ text: it.text, t: it.t, k: it.k, x: rx, y: baseY, w: it.w });
         rx += it.w + space;
       }
       y += rowH[ri];
     });
-    return { treatment, size: sz, words: out, cx: W / 2, cy: H / 2 };
+    const cx = rowBoxes.length ? (Math.min(...rowBoxes.map((r) => r.x)) + Math.max(...rowBoxes.map((r) => r.x + r.w))) / 2 : W / 2;
+    return { treatment, style: st, size: sz, words: out, cx, cy: box.y0 + maxH / 2, rows: rowBoxes };
   }
-  return { treatment, size: base, words: [], cx: W / 2, cy: H / 2 };
+  return { treatment, style: st, size: base, words: [], cx: W / 2, cy: H / 2, rows: [] };
 }
 
 const ease = (x: number) => 1 - (1 - x) ** 3;
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-function rgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+/** colours to draw with: the guard's ink, the accent for the current word (only when it reads), the ghost */
+export interface Inks {
+  ink: string;
+  accent: string;
+  accent2: string;
+  /** sets the glyph shadow (from the guard's backing) */
+  shadow: (g: CanvasRenderingContext2D, size: number) => void;
 }
-const rgba = (hex: string, a: number) => {
-  const [r, g, b] = rgb(hex);
-  return `rgba(${r},${g},${b},${a})`;
-};
 
 /**
  * Draw a laid-out line at time t. `energy` is how hard the music is going right now (0..1),
  * `drop` whether a drop is happening; both push the treatment further.
  */
-export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, alpha: number, pal: Palette, a: AudioFrame, energy: number, drop: boolean) {
-  const st = STYLES[L.treatment];
+export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, alpha: number, c: Inks, a: AudioFrame, energy: number, drop: boolean) {
+  const st = L.style;
   const tr = L.treatment;
   const sz = L.size;
   // the whole line swells a little with the music (around the centre, no reflow)
@@ -221,9 +308,7 @@ export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, 
   g.translate(-L.cx, -L.cy);
   g.textBaseline = 'alphabetic';
   g.textAlign = 'left';
-  // the same legibility as the big style: a soft shadow in the scene's background colour
-  g.shadowColor = rgba(pal.bg, 0.55);
-  g.shadowBlur = sz * 0.5;
+  c.shadow(g, sz);
 
   let lastSung = -1;
   L.words.forEach((w, i) => {
@@ -239,7 +324,7 @@ export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, 
     const loud = w.k > 1.08;
     g.font = font(st, px);
     g.letterSpacing = `${(px * st.track).toFixed(2)}px`;
-    let color = pal.fg;
+    let color = c.ink;
     let op = alpha;
     let dx = 0;
     let dy = 0;
@@ -250,7 +335,7 @@ export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, 
       const k = clamp01(age / (0.75 + (w.k - 0.88) * 0.8));
       op *= ease(k);
       dy = (1 - ease(k)) * px * 0.35;
-      if (loud && (drop || energy > 0.6)) color = pal.accent;
+      if (loud && (drop || energy > 0.6)) color = c.accent;
     } else if (tr === 'dreamy') {
       const k = clamp01(age / 0.65);
       op *= ease(k);
@@ -258,15 +343,15 @@ export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, 
       dx = Math.cos(t * 0.6 + i * 2.3) * px * 0.04;
       const blur = (1 - ease(k)) * px * 0.22;
       g.filter = blur > 0.3 ? `blur(${blur.toFixed(1)}px)` : 'none';
-      if (current && (drop || energy > 0.65)) color = pal.accent;
+      if (current && (drop || energy > 0.65)) color = c.accent;
     } else if (tr === 'punchy') {
       const k = clamp01(age / 0.14);
       s = 1 + (drop ? 0.9 : 0.55) * (1 - k) ** 2;
-      if (current) color = pal.accent;
+      if (current) color = c.accent;
     } else {
       const k = clamp01(age / 0.1);
       s = 1 + 0.35 * (1 - k) ** 2;
-      if (current || (drop && loud)) color = pal.accent;
+      if (current || (drop && loud)) color = c.accent;
     }
 
     g.save();
@@ -285,7 +370,7 @@ export function drawAuto(g: CanvasRenderingContext2D, L: AutoLayout, t: number, 
         g.save();
         g.shadowBlur = 0;
         g.globalAlpha = op * 0.45;
-        g.fillStyle = pal.accent2;
+        g.fillStyle = c.accent2;
         g.fillText(w.text, px * (0.03 + a.kick * 0.06), -px * 0.02);
         g.restore();
       }

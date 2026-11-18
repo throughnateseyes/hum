@@ -7,6 +7,7 @@ import { live } from '../state/live';
 import { pickLook, pickScene } from '../state/plan';
 import { sceneLook, useStudio } from '../state/store';
 import { handleFiles } from '../state/tracks';
+import { noteHandPick } from '../state/taste';
 import { Cube, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 
@@ -168,7 +169,7 @@ function Looks() {
           <div className="cards">
             {custom.map((p) => (
               <div key={p.id} style={{ position: 'relative' }}>
-                <PresetCard p={p} on={presetId === p.id} onClick={() => pickLook(p)} />
+                <PresetCard p={p} on={presetId === p.id} onClick={() => handPick(p)} />
                 <button
                   className="btn icon sm ghost card-del"
                   onClick={() => deleteCustomPreset(p.id)}
@@ -187,11 +188,17 @@ function Looks() {
       </div>
       <div className="cards">
         {list.map((p) => (
-          <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => pickLook(p)} />
+          <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => handPick(p)} />
         ))}
       </div>
     </>
   );
+}
+
+/** a look clicked in the library counts toward the person's taste */
+function handPick(p: Preset) {
+  noteHandPick(p, 'pick');
+  pickLook(p);
 }
 
 /** hover a scene row to preview it (current colours and effects), click to switch */
