@@ -6,6 +6,7 @@ import type {
   Modulation,
   Palette,
   ParamValue,
+  Lyrics,
   PhotoAsset,
   Preset,
   TrackAnalysis,
@@ -20,6 +21,8 @@ import type { VideoPlan } from './plan';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
+export type LyricStyle = 'off' | 'subtitle' | 'big';
+export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | 'instrumental';
 
 export interface ChatMsg {
   id: string;
@@ -70,6 +73,11 @@ export interface StudioState extends LookState {
   /** switch looks along the song map while playing */
   planOn: boolean;
   planning: boolean;
+  lyrics: Lyrics | null;
+  lyricsStatus: LyricsStatus;
+  /** why nothing was found, or what was searched */
+  lyricsNote: string;
+  lyricStyle: LyricStyle;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -112,6 +120,7 @@ function loadPersisted(): Partial<StudioState> {
       chat: Array.isArray(j.chat) ? j.chat : [],
       directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
       directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
+      lyricStyle: j.lyricStyle === 'off' || j.lyricStyle === 'subtitle' || j.lyricStyle === 'big' ? j.lyricStyle : undefined,
     };
   } catch {
     return {};
@@ -131,6 +140,7 @@ function persist(s: StudioState) {
         chat: s.chat.slice(-60),
         directorOpen: s.directorOpen,
         directorHeight: s.directorHeight,
+        lyricStyle: s.lyricStyle,
       }),
     );
   } catch {
@@ -196,6 +206,10 @@ export const useStudio = create<StudioState>((set, get) => ({
   plan: null,
   planOn: false,
   planning: false,
+  lyrics: null,
+  lyricsStatus: 'idle',
+  lyricsNote: '',
+  lyricStyle: persisted.lyricStyle ?? 'subtitle',
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -288,7 +302,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

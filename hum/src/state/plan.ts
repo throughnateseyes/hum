@@ -8,6 +8,7 @@
  * sections that sound the same), so editing is just: play to a part, pick a look.
  */
 import { audioEngine } from '../audio/engine';
+import { textBetween } from '../audio/lyrics';
 import type { AudioFrame, Preset, TrackAnalysis, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
 import { live } from './live';
@@ -206,6 +207,7 @@ export async function makeVideo(wish = '') {
   const { readAccessCode } = await import('../ui/Director');
   const { getScene } = await import('../scenes');
   const looks = allLooks().filter((p) => getScene(p.sceneId));
+  const lyr = s.lyrics;
   const offline = localPlan(a);
   let plan: VideoPlan = offline;
   let reason = '';
@@ -214,7 +216,15 @@ export async function makeVideo(wish = '') {
       {
         wish,
         track: { summary: a.summary, bpm: a.bpm, mood: a.mood, tags: a.tags },
-        sections: a.sections.map((x) => ({ label: x.label, group: x.group, start: x.start, end: x.end, energy: x.energy })),
+        sections: a.sections.map((x) => ({
+          label: x.label,
+          group: x.group,
+          start: x.start,
+          end: x.end,
+          energy: x.energy,
+          ...(lyr?.synced ? { lyrics: textBetween(lyr.lines, x.start, x.end) } : {}),
+        })),
+        ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
         looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '' })),
       },
       { accessCode: readAccessCode() || undefined },

@@ -12,6 +12,8 @@ import { useStudio } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
 import { planTick } from '../state/plan';
 import { FxChain } from './fxChain';
+import { LyricLayer } from './lyricLayer';
+import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
 
 THREE.ColorManagement.enabled = false;
@@ -119,6 +121,7 @@ export class Stage {
   /** the next section's scene, created and drawn once ahead of time so a cut lands without a compile stall */
   private warm: Live | null = null;
   private warmFresh = false;
+  private lyricLayer = new LyricLayer();
   private peekLook: PeekLook | null = null;
   private peekOut: HTMLCanvasElement | null = null;
   private peekCss = { w: 256, h: 160 };
@@ -445,7 +448,8 @@ export class Stage {
       photos,
       shared: this.shared,
       analysis: s.analysis,
-      text: s.text,
+      // scenes that show text (the boards) get the line being sung when no text is typed in
+      text: s.text || (s.lyrics?.synced ? (lineAt(s.lyrics.lines, audio.time)?.line.text ?? '') : ''),
     };
 
     const r = this.renderer;
@@ -522,6 +526,9 @@ export class Stage {
     } else {
       this.shared.blit(finalTex, null);
     }
+    if (s.lyrics?.synced && s.lyricStyle !== 'off') {
+      this.lyricLayer.render(r, { lines: s.lyrics.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio });
+    }
 
     if (this.snapshotResolvers.length) {
       const url = this.canvas.toDataURL('image/png');
@@ -548,6 +555,7 @@ export class Stage {
     this.impactRT.dispose();
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
+    this.lyricLayer.dispose();
     this.peekFx.dispose();
     this.peekRT.dispose();
     this.current?.inst.dispose();

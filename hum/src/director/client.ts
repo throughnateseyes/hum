@@ -472,7 +472,9 @@ export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Pr
 export interface PlanRequest {
   wish?: string;
   track: DirectorRequest['track'];
-  sections: { label: string; group: number; start: number; end: number; energy: number }[];
+  sections: { label: string; group: number; start: number; end: number; energy: number; lyrics?: string }[];
+  /** whole lyrics when they have no timing */
+  lyrics?: string;
   looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
 }
 export type PlanReply =
@@ -489,7 +491,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     res = await fetch(opts.endpoint ?? '/api/director', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'plan', prompt: req.wish ?? '', track: req.track, sections: req.sections, looks: req.looks, accessCode: opts.accessCode }),
+      body: JSON.stringify({ mode: 'plan', prompt: req.wish ?? '', track: req.track, sections: req.sections, looks: req.looks, lyrics: req.lyrics, accessCode: opts.accessCode }),
       signal: opts.signal,
     });
   } catch (err) {

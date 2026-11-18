@@ -80,6 +80,30 @@ export interface TrackSection {
   group: number;
 }
 
+export interface LyricWord {
+  t: number;
+  end: number;
+  text: string;
+}
+export interface LyricLine {
+  /** seconds */
+  t: number;
+  end: number;
+  text: string;
+  /** word timings, when the source has them */
+  words?: LyricWord[];
+}
+export interface Lyrics {
+  lines: LyricLine[];
+  /** lines have times (otherwise only `plain` text is known) */
+  synced: boolean;
+  source: 'file' | 'lrclib';
+  title?: string;
+  artist?: string;
+  plain?: string;
+  instrumental?: boolean;
+}
+
 export interface MoodProfile {
   /** 0 calm … 1 intense */
   arousal: number;

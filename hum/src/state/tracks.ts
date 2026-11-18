@@ -1,5 +1,7 @@
 import { audioEngine } from '../audio/engine';
 import { analyzeTrack } from '../audio/analysis';
+import { findLyrics } from '../audio/lyrics';
+import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
@@ -11,14 +13,17 @@ let loadToken = 0;
 /** Load audio, start playing, analyse it, then theme the stage from the analysis. */
 export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean } = {}) {
   const token = ++loadToken;
+  lastFile = info.source === 'file' ? { blob, name: info.name } : null;
   const st = useStudio.getState();
-  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false });
+  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '' });
   const ctx = audioEngine.ensureContext();
   try {
     await audioEngine.loadFile(blob, null);
     void audioEngine.play().catch(() => {});
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     if (token !== loadToken) return;
+    // lyrics are looked up alongside the analysis (demo tracks are instrumental)
+    if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
     const analysis = await analyzeTrack(
       buf,
       [...PRESETS, ...useStudio.getState().customPresets].map((p) => ({ id: p.id, tags: p.tags })),
@@ -42,6 +47,32 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   }
 }
 
+/** Read the file's tags and find timed lyrics. Runs in the background; never throws. */
+export async function lookUpLyrics(blob: Blob, name: string, duration: number, token = loadToken) {
+  useStudio.getState().set({ lyricsStatus: 'searching', lyricsNote: '' });
+  try {
+    const tags = await readTags(blob);
+    const res = await findLyrics({ tags, fileName: name, duration });
+    if (token !== loadToken) return;
+    const l = res.lyrics;
+    const what = [res.query.artist, res.query.title].filter(Boolean).join(' — ');
+    if (l?.instrumental) useStudio.getState().set({ lyrics: null, lyricsStatus: 'instrumental', lyricsNote: what });
+    else if (l?.synced) useStudio.getState().set({ lyrics: l, lyricsStatus: 'found', lyricsNote: what });
+    else if (l?.plain) useStudio.getState().set({ lyrics: l, lyricsStatus: 'plain', lyricsNote: what });
+    else useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: `${res.reason ?? 'No lyrics found.'}${what ? ` Searched for “${what}”.` : ''}` });
+  } catch (e) {
+    console.warn('[hum] lyrics lookup failed', e);
+    if (token === loadToken) useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: 'Lyrics lookup failed.' });
+  }
+}
+
+/** the blob of the loaded file, for "try again" */
+let lastFile: { blob: Blob; name: string } | null = null;
+export function retryLyrics() {
+  const d = audioEngine.frame.duration;
+  if (lastFile && d) void lookUpLyrics(lastFile.blob, lastFile.name, d);
+}
+
 export async function loadDemo(id: string) {
   const d = DEMO_TRACKS.find((t) => t.id === id);
   if (!d) return;
@@ -57,7 +88,7 @@ export async function loadDemo(id: string) {
 export async function useMic() {
   try {
     await audioEngine.startMic();
-    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false });
+    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle' });
   } catch {
     useStudio.getState().flash('Microphone permission was denied');
   }

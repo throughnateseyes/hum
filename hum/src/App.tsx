@@ -13,6 +13,7 @@ import { DirectorPanel, focusDirector } from './ui/Director';
 import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
 import { PeekWindow } from './ui/Peek';
+import { LyricsChip } from './ui/Lyrics';
 import { pickLook } from './state/plan';
 import { StageView } from './ui/StageView';
 
@@ -168,6 +169,7 @@ function Topbar() {
           No track
         </div>
       )}
+      <LyricsChip />
       <div className="seg" style={{ marginLeft: 4 }}>
         {DEMO_TRACKS.map((d) => (
           <button key={d.id} className={track?.id === d.id ? 'on' : ''} onClick={() => void loadDemo(d.id)} title={d.description}>

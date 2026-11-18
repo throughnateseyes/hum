@@ -29,6 +29,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays the song from the top. While **Follow** is on, looks change at each part: dissolves into
   calm parts, hard cuts on drops and choruses. To edit, drag a look onto a part (hold ⌥ to change
   only that one), or pick a look while a part plays. Picking a scene pauses the song map.
+- **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
+  (or its name, like `Artist - Title.mp3`), then gets timed lyrics from
+  [LRCLIB](https://lrclib.net), a free lyrics library. Lyrics saved inside the file are used first.
+  Only the title, artist and length are sent, never the audio. The chip beside the track name shows
+  what was found. It also switches between **Subtitles**, **Big words** (one line at a time, word by
+  word) and **Off**. Lyrics show up in recordings and stills, and the song map's planner reads them
+  to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
+  get no lyrics.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -52,6 +60,7 @@ audio file / mic
   → AudioEngine (src/audio/engine.ts)      real-time: 6 bands, onset envelopes, beat phase, energy, build, drop
   → analyzeTrack (src/audio/analysis*.ts)  offline worker: bpm, sections (harmony/timbre self-similarity,
                                            bar-aligned, repeats grouped), drops, mood, tags, preset ranking
+  → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
