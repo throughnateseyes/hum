@@ -140,6 +140,54 @@ export interface TrackAnalysis {
   suggestedPresets: string[];
   /** a short plain-text description, used as context for the AI director */
   summary: string;
+  /** the song taken apart into layers (missing on analyses made before it existed) */
+  layers?: TrackLayers;
+  /** each drop with how big it is, same order as `drops` (missing → treat every drop as 1) */
+  dropInfo?: TrackDrop[];
+  /** what kind of song this is, judged from the sound (missing on older analyses) */
+  character?: TrackCharacter;
+}
+
+/** one pitched note heard in a layer */
+export interface TrackNote {
+  /** start and end in seconds */
+  t: number;
+  end: number;
+  /** MIDI note number (60 = middle C) */
+  midi: number;
+  /** loudness 0..1 */
+  v: number;
+}
+
+/** the song taken apart: when each drum hits and which notes the bass and lead play */
+export interface TrackLayers {
+  /** hit times (s) */
+  kick: number[];
+  snare: number[];
+  hat: number[];
+  bass: TrackNote[];
+  lead: TrackNote[];
+  /** vocals present, as [start, end] spans (s) */
+  vocal: [number, number][];
+}
+
+export interface TrackDrop {
+  t: number;
+  /** 0..1: 1 is the biggest moment in the song */
+  strength: number;
+  /** a few words on why it counts as a drop, e.g. 'bass and kick return after a 16-bar build' */
+  why: string;
+}
+
+export interface TrackCharacter {
+  /** best genre guess, e.g. 'dubstep', 'indie pop', 'lo-fi hip hop' */
+  genre: string;
+  /** 0..1 */
+  confidence: number;
+  /** instruments heard, most prominent first, e.g. ['sub bass', 'synth lead', 'vocals'] */
+  instruments: string[];
+  /** one or two words for what the song is going for, e.g. 'euphoric', 'heartbroken' */
+  mood: string;
 }
 
 /* ───────────────────────── Params ───────────────────────── */
@@ -274,6 +322,9 @@ export interface SceneDef {
   usesPhotos?: boolean;
   /** true when the scene expects a light (off-white) background by default */
   light?: boolean;
+  /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);
+   *  big lyrics over it are hidden unless the user asks for them anyway */
+  showsLyrics?: boolean;
   create(init: SceneInit): SceneInstance;
 }
 

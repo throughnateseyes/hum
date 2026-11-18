@@ -955,17 +955,16 @@ div:hover > .card-del {
 
 /* ───────── bottom: transport + layers ───────── */
 .bottom {
+  grid-area: 2 / 1;
   border-top: 1px solid var(--line);
   padding: 10px 16px 12px;
   display: grid;
   gap: 8px;
   background: var(--panel);
+  min-width: 0;
 }
-.transport {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
-  align-items: center;
-  gap: 12px;
+.center > .stage-wrap {
+  grid-area: 1 / 1;
 }
 .feel {
   display: flex;
@@ -1050,32 +1049,6 @@ div:hover > .card-del {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.scrubber {
-  position: relative;
-  height: 40px;
-  cursor: pointer;
-  border-radius: 7px;
-  background: var(--panel-2);
-  overflow: hidden;
-}
-.scrubber canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.scrub-note {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--ink-3);
-}
-.scrub-note.right {
-  left: auto;
-  right: 12px;
-  color: var(--accent);
-}
 .layer-strip {
   display: grid;
   grid-template-columns: repeat(17, minmax(0, 1fr));
@@ -1118,6 +1091,591 @@ div:hover > .card-del {
 }
 .meter.hit {
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* top row: transport on the left, the feel switches on the right */
+.bt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+}
+.bt-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.time.bpm {
+  color: var(--ink-3);
+}
+/* a labelled on/off switch */
+.sw {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.sw:hover {
+  color: var(--ink);
+}
+.sw.boxed {
+  height: 32px;
+  padding: 0 11px 0 9px;
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+
+/* ───────── the timeline: parts with their looks over the waveform, one playhead ───────── */
+.tl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  min-width: 0;
+}
+.tl-lane {
+  position: relative;
+  display: grid;
+  grid-template-rows: 44px 28px;
+  gap: 3px;
+  min-width: 0;
+}
+.tl-secs {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+}
+.tl-placeholder {
+  align-items: center;
+  padding: 0 12px;
+  border: 1px dashed var(--line-2);
+  border-radius: 7px;
+  color: var(--ink-3);
+}
+.tl-sec {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 4px 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: left;
+  color: var(--ink);
+  background: var(--panel-2);
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+/* a part with a look: its picture fills the block */
+.tl-pic {
+  position: absolute;
+  inset: 0;
+  background: center / cover no-repeat;
+  pointer-events: none;
+}
+.tl-sec.filled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(10, 10, 12, 0.62), rgba(10, 10, 12, 0) 62%);
+  pointer-events: none;
+}
+/* a part without one: a dashed empty slot, clearly not a look */
+.tl-sec.empty {
+  background: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(27, 27, 26, 0.035) 6px 7px), var(--panel);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  outline: 1px dashed transparent;
+}
+.tl-sec.empty::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1.5px dashed var(--line-2);
+  border-radius: 6px;
+  pointer-events: none;
+}
+.tl-name {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 17px;
+  padding: 0 6px 0 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.tl-sec.empty .tl-name {
+  background: transparent;
+  box-shadow: none;
+  padding-left: 1px;
+}
+.tl-name i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.tl-name b {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-look {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.tl-sec.empty .tl-look {
+  color: var(--ink-3);
+  font-weight: 400;
+  text-shadow: none;
+}
+.tl-look svg {
+  flex: none;
+}
+.tl-sec.tiny {
+  padding: 4px 0 0;
+  align-items: center;
+}
+.tl-sec.tiny .tl-name {
+  padding: 0 5px;
+}
+/* a board interlude that opens the part */
+.tl-inter {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: center / cover no-repeat;
+  border-right: 2px solid #fff;
+  opacity: 0.95;
+}
+.tl-sec:hover {
+  box-shadow: 0 0 0 1.5px var(--ink-3);
+}
+.tl-sec.now {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+/* dragging a look from the library: every part is a drop target */
+.tl-secs.dragging .tl-sec {
+  box-shadow: 0 0 0 1.5px var(--accent-soft);
+}
+.tl-secs.dragging .tl-sec.empty::before {
+  border-color: var(--accent);
+  opacity: 0.6;
+}
+.tl-secs.dragging .tl-sec.empty .tl-look {
+  color: var(--accent);
+}
+.tl-sec.preview {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.tl-sec.preview .tl-pic {
+  opacity: 0.8;
+}
+.tl-sec.over {
+  box-shadow: 0 0 0 2.5px var(--accent);
+  transform: translateY(-2px);
+}
+.tl-sec.over .tl-pic {
+  opacity: 1;
+}
+.tl-droptip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow-lg);
+}
+.tl-droptip span {
+  color: rgba(255, 255, 255, 0.75);
+}
+.tl-droptip em {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+}
+.tl-wave {
+  position: relative;
+  border-radius: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
+  touch-action: none;
+}
+.tl-wave canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* a drop: a blue pin on the waveform, bigger for bigger drops */
+.tl-drop {
+  --s: 1;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  margin-left: -7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.tl-drop::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  margin-left: -0.75px;
+  background: var(--accent);
+  opacity: calc(0.3 + 0.5 * var(--s));
+}
+.tl-drop::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: calc(5px + 8px * var(--s));
+  height: calc(5px + 8px * var(--s));
+  transform: translateX(-50%) rotate(45deg) translate(-30%, -30%);
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--panel-2);
+}
+.tl-drop:hover::after {
+  background: var(--ink);
+}
+.tl-head {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rec);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 3;
+}
+.tl-head::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--rec);
+}
+.tl-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  justify-content: center;
+}
+.tl-side .btn {
+  height: 33px;
+  justify-content: flex-start;
+  padding: 0 12px;
+  font-weight: 500;
+}
+.tl-bd.on {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+/* ───────── breakdown: how Hum took the song apart ───────── */
+.bd {
+  grid-area: 1 / 1;
+  z-index: 20;
+  margin: 12px 16px 8px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-lg);
+  overflow: hidden;
+  animation: bd-in 0.16s ease-out;
+}
+@keyframes bd-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.app.perform .bd {
+  display: none;
+}
+.bd-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.bd-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bd-title b {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bd-kicker {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.bd-empty {
+  padding: 40px 16px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.bd-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.bd-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.bd-fact .k {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.bd-fact .v {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.bd-fact .v.cap::first-letter {
+  text-transform: uppercase;
+}
+.bd-fact .v.quiet {
+  font-weight: 400;
+  color: var(--ink-3);
+  text-transform: none;
+  font-size: 12px;
+}
+.bd-fact .n {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.bd-fact.wide {
+  flex: 1 1 200px;
+}
+.bd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.bd-chips i {
+  font-style: normal;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 11.5px;
+}
+.bd-mood {
+  display: grid;
+  grid-template-columns: repeat(2, 132px);
+  gap: 4px 14px;
+  align-content: center;
+}
+.bd-mb {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.bd-mb i {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.bd-mb u {
+  display: block;
+  height: 100%;
+  background: var(--ink-2);
+}
+.bd-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 16px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+.bd-grid {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 10px;
+}
+.bd-labels {
+  position: relative;
+}
+.bd-lab {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.2;
+}
+.bd-lab b {
+  font-weight: 600;
+  font-size: 11.5px;
+}
+.bd-lab span {
+  font-size: 10.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bd-area {
+  min-width: 0;
+}
+.bd-area canvas {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+.bd-note {
+  margin: 12px 0 0 122px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--ink-2);
+  max-width: 620px;
+}
+.bd-drops {
+  margin: 14px 0 0 122px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 720px;
+}
+.bd-drops h4 {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.bd-drop {
+  display: grid;
+  grid-template-columns: 40px 90px 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+.bd-drop:hover {
+  background: var(--panel-2);
+}
+.bd-drop .t,
+.bd-drop .pct {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.bd-drop .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.bd-drop .bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.bd-drop .why {
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 760px) {
+  .bd {
+    position: fixed;
+    inset: 8px;
+    margin: 0;
+    z-index: 80;
+  }
+  .bd-grid {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .bd-note,
+  .bd-drops {
+    margin-left: 0;
+  }
+  .tl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tl-side {
+    flex-direction: row;
+  }
+  .tl-side .btn {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 /* ───────── inspector controls ───────── */
@@ -1572,122 +2130,6 @@ textarea.txt {
   }
 }
 
-/* ───────── song map (second row of the transport grid) ───────── */
-.sm-row {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.sm-make {
-  flex: none;
-  height: 30px;
-  padding: 0 11px;
-}
-.songmap {
-  flex: 1 1 auto;
-  position: relative;
-  display: flex;
-  gap: 2px;
-  height: 38px;
-  min-width: 0;
-}
-.sm-sec {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 7px 0 4px;
-  border: 0;
-  border-radius: 6px;
-  text-align: left;
-  overflow: hidden;
-  color: var(--ink);
-  opacity: 0.78;
-  transition: opacity 0.15s, box-shadow 0.15s;
-}
-.sm-sec:hover,
-.sm-sec.now {
-  opacity: 1;
-}
-.sm-sec.now {
-  box-shadow: inset 0 0 0 1.5px var(--ink);
-}
-.sm-sec.over {
-  opacity: 1;
-  box-shadow: inset 0 0 0 2px var(--accent, #2f4bff);
-}
-.sm-sec.narrow {
-  padding: 0;
-}
-.sm-sec img,
-.sm-swatch {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 4px;
-  object-fit: cover;
-  display: block;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
-}
-.sm-txt {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.25;
-}
-.sm-txt b,
-.sm-txt em {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sm-txt b {
-  font-weight: 550;
-  font-size: 11.5px;
-  color: var(--ink);
-}
-.sm-txt b::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin: 0 5px 1px 2px;
-  background: var(--g, #77756e);
-  vertical-align: middle;
-}
-.sm-txt em {
-  font-style: normal;
-  font-size: 11px;
-  color: var(--ink-2);
-}
-.sm-head {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 1.5px;
-  margin-left: -0.75px;
-  background: #ff3b30;
-  pointer-events: none;
-}
-.sm-follow {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink-2);
-  font-weight: 500;
-  cursor: pointer;
-}
-.sm-hint {
-  color: var(--ink-3);
-  font-weight: 400;
-}
-
 /* ───────── lyrics chip (top bar) ───────── */
 .lyr {
   position: relative;
@@ -1731,7 +2173,7 @@ textarea.txt {
   top: calc(100% + 6px);
   left: 0;
   z-index: 70;
-  width: 280px;
+  width: 320px;
   padding: 12px;
   display: flex;
   flex-direction: column;
@@ -1755,6 +2197,7 @@ textarea.txt {
 }
 .lyr-seg button {
   flex: 1;
+  white-space: nowrap;
 }
 .lyr-p {
   margin: 0;
@@ -1792,6 +2235,12 @@ textarea.txt {
 }
 .lyr-offset {
   width: 100%;
+}
+.lyr-boards {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 .lyr-pop.wide {
   width: 340px;

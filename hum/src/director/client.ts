@@ -18,6 +18,7 @@ import type {
   PresetEffect,
   PresetModulation,
   SceneDef,
+  TrackCharacter,
 } from '../core/types';
 import { LAYERS, PALETTES } from '../core/palettes';
 import { allScenes } from '../scenes';
@@ -472,7 +473,10 @@ export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Pr
 export interface PlanRequest {
   wish?: string;
   track: DirectorRequest['track'];
-  sections: { label: string; group: number; start: number; end: number; energy: number; lyrics?: string }[];
+  /** what kind of song it is (genre, instruments, mood), when the analysis knows */
+  character?: TrackCharacter;
+  /** `drop`: the section starts on a drop of this size (0..1) */
+  sections: { label: string; group: number; start: number; end: number; energy: number; busy?: number; lyrics?: string; drop?: { strength: number; why: string } }[];
   /** whole lyrics when they have no timing */
   lyrics?: string;
   looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
@@ -489,6 +493,10 @@ export type PlanReply =
       pops: (number | null)[];
       /** board look shown for the first bars of a section (null = none) */
       interludes: (string | null)[];
+      /** extra looks to rotate through in each section (null when Claude didn't say) */
+      rotate: (string[] | null)[];
+      /** bars per shot in each section (null when Claude didn't say) */
+      shotBars: (number | null)[];
     }
   | { ok: false; reason: string };
 
@@ -502,7 +510,16 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     res = await fetch(opts.endpoint ?? '/api/director', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'plan', prompt: req.wish ?? '', track: req.track, sections: req.sections, looks: req.looks, lyrics: req.lyrics, accessCode: opts.accessCode }),
+      body: JSON.stringify({
+        mode: 'plan',
+        prompt: req.wish ?? '',
+        track: req.track,
+        character: req.character,
+        sections: req.sections,
+        looks: req.looks,
+        lyrics: req.lyrics,
+        accessCode: opts.accessCode,
+      }),
       signal: opts.signal,
     });
   } catch (err) {
@@ -528,6 +545,8 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   const why: string[] = req.sections.map(() => '');
   const pops: (number | null)[] = req.sections.map(() => null);
   const interludes: (string | null)[] = req.sections.map(() => null);
+  const rotate: (string[] | null)[] = req.sections.map(() => null);
+  const shotBars: (number | null)[] = req.sections.map(() => null);
   const boards = new Set(req.looks.filter((l) => l.category === 'board').map((l) => l.id));
   for (const e of json.plan.sections) {
     if (!isObj(e)) continue;
@@ -540,6 +559,12 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     if (p !== null) pops[i] = Math.max(0, Math.min(3, Math.round(p)));
     const inter = str(e.interlude, 60);
     if (inter && boards.has(inter) && inter !== id) interludes[i] = inter;
+    if (Array.isArray(e.rotate)) {
+      const extra = [...new Set(e.rotate.map((r) => str(r, 60)))].filter((r) => known.has(r) && !boards.has(r) && r !== id).slice(0, 3);
+      if (extra.length) rotate[i] = extra;
+    }
+    const bars = toNum(e.pace);
+    if (bars !== null && [1, 2, 4, 8, 16].includes(bars)) shotBars[i] = bars;
   }
   if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
   return {
@@ -551,5 +576,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     via: json.via === 'subscription' ? 'subscription' : 'api',
     pops,
     interludes,
+    rotate,
+    shotBars,
   };
 }

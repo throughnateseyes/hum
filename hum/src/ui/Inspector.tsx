@@ -4,7 +4,7 @@ import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types'
 import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
-import { useStudio, type Aspect, type InspectorTab, type PopupMode } from '../state/store';
+import { useStudio, type Aspect, type InspectorTab, type Pace, type PopupMode } from '../state/store';
 import { ParamControl, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
 import { readAccessCode } from './Director';
@@ -422,6 +422,39 @@ function PopupsGroup() {
   );
 }
 
+const PACES: { v: Pace; label: string }[] = [
+  { v: 'slow', label: 'Slow' },
+  { v: 'song', label: 'Song-driven' },
+  { v: 'fast', label: 'Fast' },
+];
+
+/** how often a video plan changes the picture */
+function PaceGroup() {
+  const pace = useStudio((s) => s.pace);
+  const set = useStudio((s) => s.set);
+  return (
+    <div className="group">
+      <div className="kv" style={{ marginBottom: 10 }}>
+        <span>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>Pace</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>How often a video changes the picture</div>
+        </span>
+      </div>
+      <div
+        className="seg has-tip"
+        data-tip="Song-driven: cuts on the music's phrases and hits, faster when it's loud and busy, at least every ~10 s. Slow holds each picture longer; Fast cuts about twice as often. Big drops always cut."
+        style={{ marginBottom: 2 }}
+      >
+        {PACES.map((m) => (
+          <button key={m.v} className={pace === m.v ? 'on' : ''} onClick={() => set({ pace: m.v })}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function LookPanel() {
   const palette = useStudio((s) => s.palette);
   const text = useStudio((s) => s.text);
@@ -459,6 +492,7 @@ function LookPanel() {
         </div>
       </div>
       <HandGroup />
+      <PaceGroup />
       <PopupsGroup />
       <div className="group">
         <div className="group-title">

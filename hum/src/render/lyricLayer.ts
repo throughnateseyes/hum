@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import type { AudioFrame, LyricLine, Palette } from '../core/types';
 import { createFullscreenQuad } from '../core/sceneHelpers';
 import { indexAt } from '../audio/lyrics';
-import type { LyricStyle } from '../state/store';
+import { useStudio, type LyricStyle } from '../state/store';
+import { getScene } from '../scenes';
+import { buildCutout, drawCutout, type CutoutLayout } from './cutout';
+import { buildAuto, drawAuto, dropMoment, treatmentFor, type AutoLayout } from './lyricAuto';
 
 /**
  * Timed lyrics drawn over the finished frame, so they are in recordings and stills too.
@@ -11,7 +14,21 @@ import type { LyricStyle } from '../state/store';
  *
  *   subtitle: the current line low in the frame; sung words brighten as they're sung
  *   big:      one huge line in the middle; words land one by one, the current word in the accent
+ *   cutout:   the same big line as a ransom note: every word (or letter) cut from a different
+ *             clipping, slapped down as it's sung (see cutout.ts)
+ *   auto:     the treatment follows the song's mood and the moment: soft fades for tender songs,
+ *             blur-ins for dreamy ones, slams (and cutouts on the drop) for energetic ones,
+ *             shaking type for aggressive ones (see lyricAuto.ts)
+ *
+ * Big, cutout and auto lyrics stand down on looks that already show the words themselves (scenes with
+ * `showsLyrics`, e.g. the Diary board's typewriter) unless the user picks "Show anyway".
  */
+
+/** the current look shows the sung words itself and the user hasn't asked for big lyrics over it */
+function lookShowsLyrics(): boolean {
+  const s = useStudio.getState();
+  return s.lyricsOnBoards !== 'show' && !!getScene(s.sceneId)?.showsLyrics;
+}
 
 const FONT = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 const FADE_IN = 0.14;
@@ -66,6 +83,10 @@ export class LyricLayer {
   private quad = createFullscreenQuad(this.mat);
   private lastKey = '';
   private empty = true;
+  private cutout: { key: string; layout: CutoutLayout } | null = null;
+  private auto: { key: string; layout: AutoLayout } | null = null;
+  /** smoothed music energy for the auto style */
+  private energy = 0;
 
   constructor() {
     this.tex.minFilter = THREE.LinearFilter;
@@ -79,7 +100,8 @@ export class LyricLayer {
     const t = o.t + LEAD;
     // the line on screen: the one being sung, or the one that just ended (fading out)
     const i = indexAt(o.lines, t);
-    const cur = i >= 0 && t < o.lines[i].end + FADE_OUT ? { i, line: o.lines[i] } : null;
+    const hidden = (o.style === 'big' || o.style === 'cutout' || o.style === 'auto') && lookShowsLyrics();
+    const cur = !hidden && i >= 0 && t < o.lines[i].end + FADE_OUT ? { i, line: o.lines[i] } : null;
     const scale = Math.min(1, 1600 / Math.max(o.width, 1));
     const W = Math.max(2, Math.round(o.width * scale));
     const H = Math.max(2, Math.round(o.height * scale));
@@ -95,15 +117,32 @@ export class LyricLayer {
     const alpha = Math.min(1, (t - line.t) / FADE_IN, 1 - (t - line.end) / FADE_OUT);
     const words = wordsOf(line);
     const sung = words.filter((w) => w.t <= t).length;
-    const pop = o.style === 'big' ? Math.round(Math.max(0, 1 - (t - (words[sung - 1]?.t ?? -9)) / 0.18) * 8) : 0;
-    const key = `${o.style}|${cur.i}|${sung}|${pop}|${Math.round(alpha * 20)}|${W}x${H}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
+    const pop = o.style === 'big' || o.style === 'cutout' || o.style === 'auto' ? Math.round(Math.max(0, 1 - (t - (words[sung - 1]?.t ?? -9)) / 0.18) * 8) : 0;
+    // auto keeps moving (fades, blur, shake), so it redraws 30 times a second
+    const an = o.style === 'auto' ? useStudio.getState().analysis : null;
+    const tr = o.style === 'auto' ? treatmentFor(an).id : null;
+    const drop = o.style === 'auto' ? dropMoment(an, o.t, o.audio) : false;
+    this.energy += ((o.style === 'auto' ? o.audio.energy : 0) - this.energy) * 0.12;
+    const tick = o.style === 'auto' ? `${tr}|${drop}|${Math.floor(t * 30)}` : '';
+    const key = `${o.style}|${tick}|${cur.i}|${sung}|${pop}|${Math.round(alpha * 20)}|${W}x${H}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
     if (key !== this.lastKey) {
       this.lastKey = key;
       if (this.canvas.width !== W || this.canvas.height !== H) {
         this.canvas.width = W;
         this.canvas.height = H;
       }
-      this.draw(words, sung, pop / 8, Math.max(0, alpha), W, H, o.style, o.palette);
+      if (o.style === 'auto' && tr && !(tr === 'punchy' && drop)) {
+        const ak = `${cur.i}|${line.text}|${W}x${H}|${tr}|${an?.duration ?? 0}`;
+        if (this.auto?.key !== ak) this.auto = { key: ak, layout: buildAuto(this.ctx, words, !!line.words?.length, an, W, H, tr) };
+        this.ctx.clearRect(0, 0, W, H);
+        if (alpha > 0.01) drawAuto(this.ctx, this.auto.layout, t, Math.max(0, alpha), o.palette, o.audio, Math.min(1, this.energy * 1.4), drop);
+      } else if (o.style === 'cutout' || o.style === 'auto') {
+        // (auto on an energetic song's drop: the cutouts are its loudest treatment)
+        const ck = `${cur.i}|${line.text}|${W}x${H}|${o.palette.fg}${o.palette.accent}${o.palette.accent2}${o.palette.bg}`;
+        if (this.cutout?.key !== ck) this.cutout = { key: ck, layout: buildCutout(this.ctx, words.map((w) => w.text), cur.i, W, H, o.palette) };
+        this.ctx.clearRect(0, 0, W, H);
+        if (alpha > 0.01) drawCutout(this.ctx, this.cutout.layout, sung, pop / 8, Math.max(0, alpha));
+      } else this.draw(words, sung, pop / 8, Math.max(0, alpha), W, H, o.style, o.palette);
       this.tex.needsUpdate = true;
       this.empty = false;
     }

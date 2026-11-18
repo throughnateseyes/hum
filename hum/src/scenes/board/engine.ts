@@ -20,6 +20,8 @@ export interface BoardOptions {
   params: ParamDef[];
   modulations?: ModulationSeed[];
   usesPhotos?: boolean;
+  /** the board already shows the sung words (typewriter, word cloud, lyric text over a photo) */
+  showsLyrics?: boolean;
   templates: Templates;
   defaults?: { padding?: number; lineWeight?: number; accent?: number; speed?: number };
   /** create fresh module instances (called on setup / resize) */
@@ -163,6 +165,7 @@ export function defineBoard(o: BoardOptions): SceneDef {
     tags: o.tags,
     light: true,
     usesPhotos: o.usesPhotos,
+    showsLyrics: o.showsLyrics,
     modulations: o.modulations,
     params: [...boardParams(o.defaults), ...o.params],
     setup: (_ctx, w, h) => {

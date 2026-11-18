@@ -3,7 +3,8 @@ import type { FrameContext } from '../core/types';
 import { createFullscreenQuad } from '../core/sceneHelpers';
 import { lum, makeInk, mix, rgba, setFont, MONO } from '../scenes/board/kit';
 import type { BF, Ink, Module, Rect, SF } from '../scenes/board/kit';
-import { harmonograph, minimap, odometer, pong, radar, runner, terminal, typewriter, weather, wordCloud, drawStamp } from '../scenes/board/mod-fun';
+import { harmonograph, minimap, odometer, pong, radar, runner, terminal, typewriter, weather, wordCloud } from '../scenes/board/mod-fun';
+import { ticker, topWords, upNext } from '../scenes/board/mod-words';
 import { tetris } from '../scenes/board/mod-gen';
 import { chroma, radial, scope, spectrogram, stepSeq } from '../scenes/board/mod-signal';
 import { getScene } from '../scenes';
@@ -13,7 +14,7 @@ import { useStudio } from '../state/store';
 /**
  * Pop-ups: little framed board windows (one instrument each, with a title bar) that pop in over
  * whatever is playing — on section changes, drops and some bars — and snap shut a few bars later.
- * A sticker slaps on at the drop. Drawn on a 2D canvas and composited into the frame, so they are
+ * Drawn on a 2D canvas and composited into the frame, so they are
  * in recordings too. How busy it gets comes from popLevelAt() (the video plan, or the Always mode).
  */
 
@@ -37,6 +38,9 @@ const KINDS: Kind[] = [
   { title: 'SONG MAP', make: minimap, w: 1.45, h: 0.52, needs: 'map' },
   { title: 'WORDS', make: wordCloud, w: 1.15, h: 0.85, needs: 'words' },
   { title: 'TYPEWRITER', make: typewriter, w: 1.4, h: 0.62, needs: 'words' },
+  { title: 'UP NEXT', make: upNext, w: 1.3, h: 0.62, needs: 'words' },
+  { title: 'NEWS.WIRE', make: () => ticker('WIRE'), w: 1.6, h: 0.34, needs: 'words' },
+  { title: 'HI-SCORES', make: () => topWords('MOST SUNG'), w: 1, h: 0.85, needs: 'words' },
   { title: 'TETRIS', make: tetris, w: 0.72, h: 1.05 },
   { title: 'SPECTROGRAM', make: spectrogram, w: 1.25, h: 0.62 },
   { title: 'BEAT', make: radial, w: 0.95, h: 0.95 },
@@ -44,8 +48,6 @@ const KINDS: Kind[] = [
   { title: 'SEQUENCER', make: stepSeq, w: 1.45, h: 0.5 },
   { title: 'PITCH', make: chroma, w: 1, h: 0.62 },
 ];
-
-const STICKERS = ['DROP!', 'BOOM', 'WOW!', 'YES!', 'LOUD!', 'WHOA'];
 
 interface Win {
   kind: Kind;
@@ -64,16 +66,6 @@ interface Win {
   cacheKey: string;
   bumpX: number;
   bumpY: number;
-}
-
-interface Sticker {
-  text: string;
-  x: number;
-  y: number;
-  rot: number;
-  born: number;
-  until: number;
-  seed: number;
 }
 
 /** on a dark palette the windows land as light paper sheets, so they pop off the picture */
@@ -98,7 +90,6 @@ export class PopupLayer {
   private mat = new THREE.MeshBasicMaterial({ map: this.tex, transparent: true, depthTest: false, depthWrite: false });
   private quad = createFullscreenQuad(this.mat);
   private wins: Win[] = [];
-  private stickers: Sticker[] = [];
   private queue: number[] = [];
   private lastSec = -1;
   private lastBar = -1;
@@ -133,9 +124,8 @@ export class PopupLayer {
     this.schedule(base, level, W, H);
     for (const w of this.wins) if (w.closing < 0 && (t >= w.until || level === 0)) w.closing = t;
     this.wins = this.wins.filter((w) => w.closing < 0 || t - w.closing < OUT_TIME);
-    this.stickers = this.stickers.filter((k) => t < k.until);
 
-    if (!this.wins.length && !this.stickers.length) {
+    if (!this.wins.length) {
       if (!this.empty) {
         this.ctx.clearRect(0, 0, W, H);
         this.empty = true;
@@ -175,15 +165,6 @@ export class PopupLayer {
       this.lastSec = si;
     }
     if (dropEdge) {
-      this.stickers.push({
-        text: STICKERS[Math.floor(Math.random() * STICKERS.length)],
-        x: 0.25 + Math.random() * 0.5,
-        y: 0.25 + Math.random() * 0.5,
-        rot: (Math.random() - 0.5) * 0.5,
-        born: t,
-        until: t + Math.max(1.4, spb * 6),
-        seed: Math.floor(Math.random() * 1e5),
-      });
       for (let k = 0; k < Math.min(3, level + 1); k++) this.queue.push(t + k * spb * 0.5);
     }
     if (bar !== this.lastBar) {
@@ -283,13 +264,6 @@ export class PopupLayer {
         w.bumpY *= 0.6;
       }
       this.drawWin(g, w, bf, ink);
-    }
-    for (const k of this.stickers) {
-      const age = t - k.born;
-      const sc = age < 0.05 ? 2 : age < 0.1 ? 0.86 : age < 0.15 ? 1.08 : 1;
-      const out = k.until - t < 0.12 ? 0 : 1;
-      if (!out) continue;
-      drawStamp(g, k.x * W, k.y * H, Math.min(W, H) * 0.11 * sc, k.text, k.rot, ink.ac, ink.bg, k.seed);
     }
   }
 

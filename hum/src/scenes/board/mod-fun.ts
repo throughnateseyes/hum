@@ -1,7 +1,7 @@
 /**
  * Playful instruments: a terminal log narrating the song, radar sweep, BPM odometer, Pong, a runner
  * that jumps on kicks, a harmonograph XY figure, a mood "weather report", a song-section minimap,
- * a lyric word cloud, a lyric typewriter and a rubber stamp that slaps on at the drop.
+ * a lyric word cloud and a lyric typewriter. More lyric instruments live in mod-words.ts.
  *
  * Same contract as the other mod-*.ts files: factories return a Module whose state lives in the
  * closure; everything is drawn with palette ink so the boards (and the pop-up windows) re-skin.
@@ -34,7 +34,7 @@ import type { BF, Ink, Module, RGB, Rect } from './kit';
 
 /* ───────────────────────── shared helpers ───────────────────────── */
 
-const LABEL: Record<TrackSection['label'], string> = {
+export const LABEL: Record<TrackSection['label'], string> = {
   intro: 'INTRO',
   verse: 'VERSE',
   chorus: 'CHORUS',
@@ -45,7 +45,7 @@ const LABEL: Record<TrackSection['label'], string> = {
   outro: 'OUTRO',
 };
 
-function sectionAt(bf: BF): { i: number; sec: TrackSection | null; secs: TrackSection[] } {
+export function sectionAt(bf: BF): { i: number; sec: TrackSection | null; secs: TrackSection[] } {
   const secs = bf.f.analysis?.sections ?? [];
   const t = bf.a.time;
   for (let i = secs.length - 1; i >= 0; i--) if (t >= secs[i].start) return { i, sec: secs[i], secs };
@@ -53,7 +53,7 @@ function sectionAt(bf: BF): { i: number; sec: TrackSection | null; secs: TrackSe
 }
 
 /** seconds until the next section with this label (or null) */
-function untilNext(bf: BF, label: TrackSection['label']): number | null {
+export function untilNext(bf: BF, label: TrackSection['label']): number | null {
   const secs = bf.f.analysis?.sections ?? [];
   for (const s of secs) if (s.start > bf.a.time + 0.05 && s.label === label) return s.start - bf.a.time;
   return null;
@@ -74,10 +74,10 @@ function makeDropEdge() {
 }
 
 const bpmOf = (bf: BF) => (bf.a.bpm > 30 ? bf.a.bpm : 92);
-const barOf = (bf: BF) => Math.max(0, Math.floor(bf.a.beatCount / 4));
+export const barOf = (bf: BF) => Math.max(0, Math.floor(bf.a.beatCount / 4));
 
 /** synced lyric lines when there are any (read lazily: the store imports the scene registry) */
-function syncedLines(): LyricLine[] | null {
+export function syncedLines(): LyricLine[] | null {
   try {
     const l = useStudio.getState().lyrics;
     return l?.synced && l.lines.length ? l.lines : null;
@@ -87,7 +87,7 @@ function syncedLines(): LyricLine[] | null {
 }
 
 /** the line being sung now: synced lyrics first, else the typed text cycled every 8 beats */
-function currentLine(bf: BF): { key: string; text: string; prog: number } | null {
+export function currentLine(bf: BF): { key: string; text: string; prog: number } | null {
   const lines = syncedLines();
   if (lines) {
     const hit = lineAt(lines, bf.a.time + 0.08);
@@ -109,7 +109,7 @@ function currentLine(bf: BF): { key: string; text: string; prog: number } | null
   return { key: `T${li}|${parts[li]}`, text: parts[li], prog: clamp01((beats % 8) / 5) };
 }
 
-function wrapWords(ctx: CanvasRenderingContext2D, line: string, maxW: number): string[] {
+export function wrapWords(ctx: CanvasRenderingContext2D, line: string, maxW: number): string[] {
   const out: string[] = [];
   let cur = '';
   for (const w of line.split(/\s+/).filter(Boolean)) {
@@ -121,55 +121,6 @@ function wrapWords(ctx: CanvasRenderingContext2D, line: string, maxW: number): s
   }
   if (cur) out.push(cur);
   return out;
-}
-
-/** a rubber stamp: double border, chunky text, speckled ink. Also used by the pop-up stickers. */
-export function drawStamp(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  size: number,
-  label: string,
-  rot: number,
-  color: RGB,
-  bg: RGB,
-  seed: number,
-  alpha = 1,
-) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(rot);
-  setFont(ctx, size, 800, SANS, 0.02);
-  const tw = ctx.measureText(label).width;
-  const padX = size * 0.45;
-  const padY = size * 0.3;
-  const w = tw + padX * 2;
-  const h = size + padY * 2;
-  const lw = Math.max(1.5, size * 0.09);
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = rgba(color);
-  ctx.lineWidth = lw;
-  ctx.beginPath();
-  ctx.roundRect(-w / 2, -h / 2, w, h, size * 0.18);
-  ctx.stroke();
-  ctx.lineWidth = Math.max(1, lw * 0.45);
-  ctx.beginPath();
-  ctx.roundRect(-w / 2 + lw * 1.6, -h / 2 + lw * 1.6, w - lw * 3.2, h - lw * 3.2, size * 0.12);
-  ctx.stroke();
-  ctx.fillStyle = rgba(color);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, 0, size * 0.04);
-  // knock out speckles so it reads as rubber ink, not vector
-  ctx.fillStyle = rgba(bg, 0.85);
-  const n = Math.round(14 + (w * h) / (size * size) * 6);
-  for (let k = 0; k < n; k++) {
-    const x = (hash(seed, k, 1) - 0.5) * w;
-    const y = (hash(seed, k, 2) - 0.5) * h;
-    const r = size * (0.02 + 0.05 * hash(seed, k, 3) ** 2);
-    ctx.fillRect(x, y, r * 2, r);
-  }
-  ctx.restore();
 }
 
 /* ───────────────────────── Terminal log ───────────────────────── */
@@ -1185,7 +1136,7 @@ export function minimap(): Module {
 
 /* ───────────────────────── Lyric word cloud ───────────────────────── */
 
-const STOP = new Set(
+export const STOP = new Set(
   'the a an and or but if of to in on at by for with from up out as is are was were be been am i im i\'m you your yours me my mine we our us he she it its they them their this that these those so not no do does did dont don\'t just all oh ooh yeah la na hey ah got get gotta can cant can\'t will wont won\'t would could should there here what when where who how than then too very into over'.split(
     ' ',
   ),
@@ -1435,74 +1386,6 @@ export function typewriter(): Module {
       const ms = labelPx(s) * 0.78;
       const wpm = Math.round(bpmOf(bf) * 0.4 + a.energy * 20);
       text(ctx, `${ding > 0 ? 'DING! · ' : ''}LINE ${pad2(lineNo)} · ${wpm} WPM`, r.x + r.w, r.y + ms * 0.7, ms, rgba(ding > 0 ? ink.ac : ink.fg, 0.6), 'right');
-    },
-  };
-}
-
-/* ───────────────────────── Rubber stamps ───────────────────────── */
-
-const STAMP_WORDS = ['APPROVED', 'LOUD', 'OK!', 'FRESH', 'BASS OK', 'CERTIFIED', 'NICE', 'ON BEAT', 'FILED', 'YES'];
-
-interface Stamp {
-  t: string;
-  x: number;
-  y: number;
-  rot: number;
-  born: number;
-  tone: number;
-  seed: number;
-  size: number;
-}
-
-export function stamps(): Module {
-  const list: Stamp[] = [];
-  const dropEdge = makeDropEdge();
-  let lastSec = -2;
-  let lastBar = -1;
-  let shake = 0;
-  const slap = (bf: BF, t: string, tone: number, big: boolean) => {
-    list.push({ t, x: 0.15 + Math.random() * 0.7, y: 0.2 + Math.random() * 0.6, rot: (Math.random() - 0.5) * 0.6, born: bf.t, tone, seed: Math.floor(Math.random() * 1e5), size: big ? 1.35 : 0.85 + Math.random() * 0.3 });
-    if (list.length > 9) list.shift();
-    shake = big ? 1 : 0.5;
-  };
-  return {
-    label: 'STAMPS',
-    meta: 'DROP → SLAP',
-    clip: true,
-    draw(ctx, r, bf) {
-      const { a, ink, s, dt } = bf;
-      if (lastSec === -2) {
-        const { i, sec } = sectionAt(bf);
-        slap(bf, sec ? LABEL[sec.label] : 'HUM', sec && (sec.label === 'drop' || sec.label === 'chorus') ? 2 : 0, false);
-        lastSec = i;
-      }
-      if (bf.live) {
-        if (dropEdge(bf)) slap(bf, 'DROP!', 2, true);
-        const { i, sec } = sectionAt(bf);
-        if (sec && i !== lastSec) {
-          if (sec.label !== 'drop') slap(bf, LABEL[sec.label], sec.label === 'chorus' ? 2 : 0, false);
-          lastSec = i;
-        }
-        const bar = barOf(bf);
-        if (bar !== lastBar && a.beat) {
-          lastBar = bar;
-          if (bar % (bf.idle ? 2 : 8) === 0) slap(bf, STAMP_WORDS[Math.floor(Math.random() * STAMP_WORDS.length)], Math.random() < 0.5 ? 1 : 0, false);
-        }
-      }
-      shake = Math.max(0, shake - dt * 6);
-      const ox = shake > 0 ? (Math.random() - 0.5) * shake * 6 * s : 0;
-      const oy = shake > 0 ? (Math.random() - 0.5) * shake * 6 * s : 0;
-      const base = Math.min(r.h * 0.2, r.w * 0.11);
-      const tones: RGB[] = [ink.fg, ink.ac2, ink.ac];
-      list.forEach((st, k) => {
-        const age = bf.t - st.born;
-        const newest = k === list.length - 1;
-        // slap: comes in big and drops onto the page in three hard steps
-        const sc = age < 0.05 ? 1.9 : age < 0.1 ? 0.88 : age < 0.14 ? 1.06 : 1;
-        const alpha = newest ? 1 : Math.max(0.28, 0.85 - (list.length - 1 - k) * 0.09);
-        drawStamp(ctx, r.x + st.x * r.w + (newest ? ox : 0), r.y + st.y * r.h + (newest ? oy : 0), base * st.size * sc, st.t, st.rot, tones[st.tone], ink.bg, st.seed, alpha);
-      });
-      if (!list.length) text(ctx, 'WAITING FOR THE DROP', r.x + r.w / 2, r.y + r.h / 2, labelPx(s), rgba(ink.fg, 0.4), 'center');
     },
   };
 }

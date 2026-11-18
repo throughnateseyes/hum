@@ -17,6 +17,17 @@ export const PALETTES: Palette[] = [
   { id: 'marble', name: 'Marble (blue/gold)', bg: '#140f3d', fg: '#f5e9c8', accent: '#3b2dd6', accent2: '#e8b13a', muted: '#2a2270' },
   { id: 'mono', name: 'Mono', bg: '#000000', fg: '#ffffff', accent: '#bdbdbd', accent2: '#5c5c5c', muted: '#1a1a1a' },
   { id: 'blush', name: 'Blush', bg: '#f6ecea', fg: '#2a1a1d', accent: '#ff5a7a', accent2: '#ffb38a', muted: '#e2cfcb' },
+  // inspo looks: text wall, particle columns, glass planes, tracking HUD
+  { id: 'redact', name: 'Redact', bg: '#000000', fg: '#f4f4f4', accent: '#ff3b1f', accent2: '#2333ff', muted: '#3b3b3b' },
+  { id: 'ice', name: 'Ice', bg: '#010406', fg: '#f2fbff', accent: '#3fc8e6', accent2: '#0f5d78', muted: '#0b1d24' },
+  { id: 'glasshouse', name: 'Glasshouse', bg: '#04080b', fg: '#d6f1ff', accent: '#dcff6b', accent2: '#3a8db0', muted: '#0f2530' },
+  { id: 'hud-blue', name: 'HUD Blue', bg: '#04050a', fg: '#eef5ff', accent: '#2f63ff', accent2: '#3fdcff', muted: '#121726' },
+  // inspo looks: paper visualizer, glyph mosaic, pixel cube, flip cards
+  { id: 'paper-red', name: 'Paper / Red', bg: '#f4f2ee', fg: '#2a2a2c', accent: '#b8232c', accent2: '#e06a5a', muted: '#cfcac3' },
+  { id: 'cobalt', name: 'Cobalt', bg: '#f6f6f1', fg: '#0f1a66', accent: '#1238ff', accent2: '#8ea0ff', muted: '#c9d0f5' },
+  { id: 'pistachio', name: 'Pistachio Poster', bg: '#dde4a3', fg: '#141414', accent: '#1d3bff', accent2: '#f2d70c', muted: '#f7f7f0' },
+  { id: 'bubblegum', name: 'Bubblegum Poster', bg: '#ffc9de', fg: '#161616', accent: '#ff5a1f', accent2: '#2b44ff', muted: '#ffffff' },
+  { id: 'flip-night', name: 'Flip Night', bg: '#000000', fg: '#f4f0e6', accent: '#ffd400', accent2: '#ff6b2b', muted: '#4e0a7a' },
 ];
 
 export function getPalette(id: string): Palette {

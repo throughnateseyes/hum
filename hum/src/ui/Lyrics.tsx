@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { isLrclibRef, lrclibById, searchLrclib, type LrclibRecord } from '../audio/lyrics';
-import { useStudio, type LyricStyle, type LyricsSync } from '../state/store';
+import { useStudio, type LyricStyle, type LyricsOnBoards, type LyricsSync } from '../state/store';
+import { getScene } from '../scenes';
+import { treatmentFor } from '../render/lyricAuto';
 import { applyLrclibRecord, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, shiftAllLyrics, syncPastedLyrics } from '../state/tracks';
 import { Slider } from './controls';
 
 const STYLES: { id: LyricStyle; label: string }[] = [
-  { id: 'off', label: 'Off' },
+  { id: 'auto', label: 'Auto' },
   { id: 'subtitle', label: 'Subtitles' },
   { id: 'big', label: 'Big words' },
+  { id: 'cutout', label: 'Cutouts' },
+  { id: 'off', label: 'Off' },
+];
+
+const ON_BOARDS: { id: LyricsOnBoards; label: string }[] = [
+  { id: 'hide', label: 'Hide big lyrics' },
+  { id: 'show', label: 'Show anyway' },
 ];
 
 const fmtLen = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -32,6 +41,9 @@ export function LyricsChip() {
   const lyrics = useStudio((s) => s.lyrics);
   const note = useStudio((s) => s.lyricsNote);
   const style = useStudio((s) => s.lyricStyle);
+  const onBoards = useStudio((s) => s.lyricsOnBoards);
+  const lookShowsWords = useStudio((s) => !!getScene(s.sceneId)?.showsLyrics);
+  const analysis = useStudio((s) => s.analysis);
   const sync = useStudio((s) => s.lyricsSync);
   const matched = useStudio((s) => s.lyricsMatched);
   const query = useStudio((s) => s.lyricsQuery);
@@ -159,11 +171,29 @@ export function LyricsChip() {
                   {note && note !== who && <p className="lyr-p">{note}</p>}
                   <div className="seg lyr-seg">
                     {STYLES.map((s) => (
-                      <button key={s.id} className={style === s.id ? 'on' : ''} onClick={() => useStudio.getState().set({ lyricStyle: s.id })}>
+                      <button key={s.id} className={style === s.id ? 'on' : ''} onClick={() => useStudio.getState().set({ lyricStyle: s.id, lyricStylePicked: true })}>
                         {s.label}
                       </button>
                     ))}
                   </div>
+                  {style === 'auto' && (
+                    <p className="lyr-p">
+                      Reads the song as {treatmentFor(analysis).label}. Held and louder words get bigger; drops hit hardest.
+                    </p>
+                  )}
+                  {(style === 'big' || style === 'cutout' || style === 'auto') && (
+                    <div className="lyr-boards">
+                      <span className="param-name">On looks that show the words themselves</span>
+                      <div className="seg lyr-seg">
+                        {ON_BOARDS.map((o) => (
+                          <button key={o.id} className={onBoards === o.id ? 'on' : ''} onClick={() => useStudio.getState().set({ lyricsOnBoards: o.id })}>
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                      {lookShowsWords && onBoards === 'hide' && <p className="lyr-p">Hidden on this look: it already types the words out.</p>}
+                    </div>
+                  )}
                   <div className="lyr-offset">
                     <div className="param-top">
                       <span className="param-name">Shift all lines</span>

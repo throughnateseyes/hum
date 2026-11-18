@@ -93,7 +93,10 @@ export function directorDevPlugin(options: { path?: string } = {}): Plugin {
           }
           try {
             const ip = req.socket.remoteAddress ?? 'local';
-            const result = await handleDirector(body, ip, env, { local });
+            // your Claude subscription only answers this computer, even if the dev server is
+            // opened to the network with --host; other devices need the API key
+            const fromThisComputer = /^(::1|127\.|::ffff:127\.)/.test(ip);
+            const result = await handleDirector(body, ip, env, { local: fromThisComputer ? local : null });
             send(res, result.status, result.json);
           } catch (err) {
             server.config.logger.error(`[hum-director] ${err instanceof Error ? err.stack ?? err.message : String(err)}`);

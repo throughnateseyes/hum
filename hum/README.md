@@ -23,12 +23,23 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   (a new photo every 4 bars).
 - **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any
   look or scene to preview it live in a small window beside the list; click to use it.
-- **Song map** (under the timeline): the song's parts (intro, verse, chorus, bridge, build, drop,
-  break, outro). Parts that sound alike share a colour, so a returning chorus is easy to spot.
+- **The timeline** (bottom) is one lane: the waveform, the song's parts (intro, verse, chorus,
+  bridge, build, drop, break, outro) with each part's look as a picture and name (or an empty
+  "No look yet" slot), drops marked by how big they are, and one playhead. Parts that sound alike
+  share a colour, so a returning chorus is easy to spot.
   **Make a video** asks Claude to give every part a look (offline plan if Claude isn't reachable) and
-  plays the song from the top. While **Follow** is on, looks change at each part: dissolves into
-  calm parts, hard cuts on drops and choruses. To edit, drag a look onto a part (hold ⌥ to change
-  only that one), or pick a look while a part plays. Picking a scene pauses the song map.
+  plays the song from the top. Each part is cut into short shots on musical phrases, rotating
+  through 2–4 related looks: busy parts cut faster, calm parts hold longer, extra cuts land when the
+  kick or bass comes back, a vocal starts or a lyric line begins, and every big drop is a hard cut.
+  The song's mood sets the transitions (dissolves for tender songs, hard cuts for intense ones).
+  **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
+  a part (hold ⌥ to change only that one), or pick a look while a part plays. Picking a scene
+  pauses the song map.
+- **Breakdown** (button by the timeline, or `B`) shows how Hum took the song apart: its genre,
+  mood and instruments, the parts, every drop with how big it is and why, the waveform, energy and
+  low / mid / high lanes, kick, snare and hat hits, a piano roll of the bass and lead notes, and
+  where the vocals are. Click anywhere to jump there.
+- **Overlays** (switch by the timeline) turns the pop-up windows off or back on.
 - **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
   (or its name, like `Artist - Title.mp3`; music-video rips work too, with "(Official Video)",
   "[Lyrics]", "feat. …" and the like ignored), then gets timed lyrics from
@@ -37,8 +48,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   to where the singing starts in your file. Wrong song or nothing found? **Search LRCLIB** in the
   chip by artist and song, or paste a lrclib.net link.
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
-  what was found. It also switches between **Subtitles**, **Big words** (one line at a time, word by
-  word) and **Off**. Lyrics show up in recordings and stills, and the song map's planner reads them
+  what was found. It also switches between **Auto** (the default: the treatment follows the
+  song's mood: soft, widely spaced fades for tender songs, blur-ins for dreamy ones, words that slam
+  in for energetic ones (cutouts on the drop), shaking heavy type for aggressive ones; words held
+  longer or sung louder come out bigger), **Subtitles**, **Big words** (one line at a time, word by
+  word), **Cutouts** (the same big line as a ransom note: each word or letter cut from a different
+  clipping, slapped down as it's sung) and **Off**. On looks that already type the words out (Diary,
+  Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
   get no lyrics, but you can **paste them** in the chip. Hum then times each line by listening for
   the sung words on this computer (Whisper, about a 95 MB model downloaded once; the audio never
@@ -47,17 +63,35 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   song.
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
 - **Busy boards and pop-ups.** Four more instrument boards join Orbit, Lab and Oto: **Arcade** (Pong
-  with the ball hitting on the beat, a runner that jumps on kicks, Tetris, a BPM odometer, rubber
-  stamps on the drop), **Mission** (a terminal log narrating the song — "BAR 017 · KICK .82",
+  with the ball hitting on the beat, a runner that jumps on kicks, Tetris, a BPM odometer, a
+  hi-score table of the most-sung words), **Mission** (a terminal log narrating the song — "BAR 017 · KICK .82",
   "DROP IN 4" — with radar, an XY figure, the song map and meters), **Diary** (the sung line on a
-  typewriter, a word cloud of everything sung so far, a mood weather report) and **Forecast** (a
-  weather station for the song: sun, drizzle, a storm on the drop, the next parts as a forecast).
+  typewriter, a word cloud of everything sung so far, the next line coming up, a mood weather
+  report) and **Forecast** (a weather station for the song: sun, drizzle, a storm on the drop, the
+  next parts as a forecast, a news crawl of the whole lyric sheet).
   **Pop-ups** (Look tab) are little framed windows of these instruments that pop in over whatever is
-  playing on new parts, drops and some bars, then snap shut a few bars later, with a sticker slapped
-  on at the drop. They're in recordings too. *In videos* (the default) shows them while a video plan
+  playing on new parts, drops and some bars, then snap shut a few bars later. They're in recordings too. *In videos* (the default) shows them while a video plan
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
   first four bars.
+- **Text wall, particle columns, glass planes, tracking HUD.** **Text Wall** (*Redacted*,
+  *Highlighter*) fills the page with the song's lyrics, knocks words out and snaps red, yellow,
+  blue and cyan boxes onto them on the beat; the sung line lights up wherever it appears and drops
+  flood the wall (no lyrics → title, genre, mood and section names). **Particle Columns** (*Ice*,
+  *Sodium*) is a spectrum of stippled glowing dots over a haze band. **Glass Planes** (*Glasshouse*,
+  *Violet Glass*) folds isometric glass strips with lime edges and hairlines: kicks extrude, snares
+  streak, drops re-fold. **Tracking HUD** (*Tracking HUD*, *Surveillance*) puts red tracking boxes,
+  centroids, motion arrows and live x / y readouts over a swirling body of light.
+- **Paper, glyphs, a pixel cube and flip cards.** **Paper Visualizer** (*Paper Visualizer*,
+  *Paper Tangerine*) stands red cut-paper bars, a curve, a waterfall of slices and a radial ring up
+  off white card in soft daylight, folding from one to the next on new parts and drops, with paper
+  type, a scrubber bead and dots that hop on kicks. **Glyph Mosaic** (*Glyph Mosaic*, *Glyph
+  Negative*) prints dots, rings, crosses and asterisks in one ink; patches flip on kicks, the bands
+  pick the glyphs, drops dissolve to the negative. **Pixel Cube** (*Pixel Cube*, *Bubblegum Cube*)
+  is a 3×3 puzzle cube with pixel-art faces drawn from the music on a pastel poster: layers turn on
+  the beat, it solves itself back, drops make it tumble. **Flip Cards** (*Flip Cards*, *Flip Cards
+  Paper*) deals big turned words from the lyrics (else the title) onto colour cards that flip on the
+  beat and skew on snares.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -77,7 +111,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `H` hand-drawn · `F` perform mode · `esc` exit.
+- Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
 
 ## How it's built
 

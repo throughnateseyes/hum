@@ -17,6 +17,7 @@ import { LyricsChip } from './ui/Lyrics';
 import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
 import { StageView } from './ui/StageView';
+import { Breakdown } from './ui/Breakdown';
 
 const recorder = new Recorder();
 
@@ -97,6 +98,7 @@ export default function App() {
       <TapSync />
       <main className="center">
         <StageView />
+        <Breakdown />
         <Bottom />
       </main>
       <div className="right">

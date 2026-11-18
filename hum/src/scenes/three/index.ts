@@ -5,5 +5,14 @@ import { ridgeline } from './ridgeline';
 import { ringTunnel } from './ringTunnel';
 import { monolithGrid } from './monolithGrid';
 import { silk } from './silk';
+import { particleColumns } from './particleColumns';
+import { glassPlanes } from './glassPlanes';
+import { trackingHud } from './trackingHud';
+import { paperVisualizer } from './paperVisualizer';
+import { pixelCube } from './pixelCube';
+import { flipCards } from './flipCards';
 
-export const scenes: SceneDef[] = [clayOrb, pointSwarm, ridgeline, ringTunnel, monolithGrid, silk];
+export const scenes: SceneDef[] = [clayOrb, pointSwarm, ridgeline, ringTunnel, monolithGrid, silk, paperVisualizer, pixelCube, flipCards];
+
+// inspo looks: particle columns, glass planes, tracking HUD
+scenes.push(particleColumns, glassPlanes, trackingHud);

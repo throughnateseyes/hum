@@ -6,5 +6,10 @@ import { liquidMarble } from './liquidMarble';
 import { slitSmear } from './slitSmear';
 import { subPressure } from './subPressure';
 import { topo } from './topo';
+import { glyphMosaic } from './glyphMosaic';
+import { textWall } from './textWall';
 
-export const scenes: SceneDef[] = [liquidMarble, aura, chromeBlobs, slitSmear, topo, subPressure, flowHair];
+export const scenes: SceneDef[] = [liquidMarble, aura, chromeBlobs, slitSmear, topo, subPressure, flowHair, glyphMosaic];
+
+// inspo looks: lyric text wall (a canvas scene)
+scenes.push(textWall);

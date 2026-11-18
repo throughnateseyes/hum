@@ -456,13 +456,19 @@ export class AudioEngine {
 
     let buildTarget: number;
     let dropFired = false;
+    /** how big the drop that just fired is (the drop envelope peaks there: small drops flash less) */
+    let dropSize = 1;
     const an2 = this.analysis;
     if (this.kind === 'file' && an2) {
       const tt = this.el.currentTime;
       const sec = an2.sections.find((s) => tt >= s.start && tt < s.end);
       buildTarget = sec?.label === 'build' ? Math.min(1, (tt - sec.start) / Math.max(1, sec.end - sec.start)) : 0;
       if (this.nextDropIdx < an2.drops.length && tt >= an2.drops[this.nextDropIdx]) {
-        if (tt - an2.drops[this.nextDropIdx] < 0.5) dropFired = true;
+        if (tt - an2.drops[this.nextDropIdx] < 0.5) {
+          dropFired = true;
+          const st = an2.dropInfo?.[this.nextDropIdx]?.strength;
+          if (typeof st === 'number') dropSize = 0.55 + 0.45 * Math.max(0, Math.min(1, st));
+        }
         this.nextDropIdx++;
       }
     } else {
@@ -475,7 +481,7 @@ export class AudioEngine {
     f.build = smooth(f.build, buildTarget, 0.5, 0.25, dt);
     if (dropFired) {
       this.lastDropT = t;
-      f.drop = 1;
+      f.drop = dropSize;
       this.buildAcc = 0;
     } else {
       f.drop *= Math.exp(-dt / 1.2);

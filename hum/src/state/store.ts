@@ -22,9 +22,13 @@ import type { VideoPlan } from './plan';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
-export type LyricStyle = 'off' | 'subtitle' | 'big';
+export type LyricStyle = 'off' | 'subtitle' | 'big' | 'cutout' | 'auto';
+/** big / cutout lyrics on looks that already show the words themselves (typewriter, word cloud…) */
+export type LyricsOnBoards = 'hide' | 'show';
 /** small board windows over the picture: during a played video plan, always, or never */
 export type PopupMode = 'video' | 'always' | 'off';
+/** how often a video plan changes the picture: calmer, follow the song, or faster */
+export type Pace = 'slow' | 'song' | 'fast';
 export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | 'instrumental';
 /** progress while pasted lyrics are being synced to the song */
 export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: number } | null;
@@ -83,6 +87,9 @@ export interface StudioState extends LookState {
   /** why nothing was found, or what was searched */
   lyricsNote: string;
   lyricStyle: LyricStyle;
+  /** the user chose a lyric style themselves (until then it's Auto) */
+  lyricStylePicked: boolean;
+  lyricsOnBoards: LyricsOnBoards;
   lyricsSync: LyricsSync;
   /** what the automatic lookup searched for (prefills the search box) */
   lyricsQuery: { title?: string; artist?: string };
@@ -93,6 +100,8 @@ export interface StudioState extends LookState {
   /** hand-drawn finish over every scene */
   hand: HandStyle;
   popups: PopupMode;
+  /** shot pacing for video plans */
+  pace: Pace;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -158,7 +167,11 @@ function loadPersisted(): Partial<StudioState> {
       directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
       hand: cleanHand(j.hand),
       popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
-      lyricStyle: j.lyricStyle === 'off' || j.lyricStyle === 'subtitle' || j.lyricStyle === 'big' ? j.lyricStyle : undefined,
+      pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
+      // a style only sticks once the user has picked one; before that every song gets Auto
+      lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
+      lyricStylePicked: j.lyricStylePicked === true,
+      lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
     };
   } catch {
     return {};
@@ -179,8 +192,11 @@ function persist(s: StudioState) {
         directorOpen: s.directorOpen,
         directorHeight: s.directorHeight,
         lyricStyle: s.lyricStyle,
+        lyricStylePicked: s.lyricStylePicked,
+        lyricsOnBoards: s.lyricsOnBoards,
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
+        pace: s.pace,
       }),
     );
   } catch {
@@ -249,13 +265,16 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyrics: null,
   lyricsStatus: 'idle',
   lyricsNote: '',
-  lyricStyle: persisted.lyricStyle ?? 'subtitle',
+  lyricStyle: persisted.lyricStyle ?? 'auto',
+  lyricStylePicked: persisted.lyricStylePicked ?? false,
+  lyricsOnBoards: persisted.lyricsOnBoards ?? 'hide',
   lyricsSync: null,
   lyricsQuery: {},
   lyricsMatched: null,
   tapSync: false,
   hand: persisted.hand ?? HAND_DEFAULT,
   popups: persisted.popups ?? 'video',
+  pace: persisted.pace ?? 'song',
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -350,7 +369,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'hand' in patch || 'popups' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);
