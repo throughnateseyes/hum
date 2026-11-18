@@ -16,7 +16,7 @@ import { getScene, registerScene } from '../scenes';
 import { makeCustomShaderScene } from '../scenes/custom';
 import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { uid } from './modulation';
-import { live } from './live';
+import type { VideoPlan } from './plan';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
@@ -25,7 +25,7 @@ export interface ChatMsg {
   id: string;
   role: 'user' | 'director';
   text: string;
-  mode: 'preset' | 'shader';
+  mode: 'preset' | 'shader' | 'plan';
   at: number;
   /** what the director made, so it can be re-applied from the history */
   presetId?: string;
@@ -62,16 +62,16 @@ export interface StudioState extends LookState {
   shaderError: string | null;
   toast: string | null;
   recording: boolean;
-  /** id of the look being previewed on hover (null when not previewing) */
-  previewId: string | null;
   chat: ChatMsg[];
   directorOpen: boolean;
   directorHeight: number;
+  /** the song's video plan: a look per section */
+  plan: VideoPlan | null;
+  /** switch looks along the song map while playing */
+  planOn: boolean;
+  planning: boolean;
 
   applyPreset: (p: Preset) => void;
-  previewPreset: (p: Preset) => void;
-  previewScene: (id: string) => void;
-  endPreview: (commit: boolean) => void;
   setScene: (id: string) => void;
   setSceneParam: (id: string, v: ParamValue) => void;
   addEffect: (effectId: string) => void;
@@ -150,7 +150,7 @@ for (const spec of persisted.customShaders ?? []) {
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** a scene with its default params; keeps effect routings, swaps in the scene's own suggested routings */
-function sceneLook(id: string, mods: Modulation[]) {
+export function sceneLook(id: string, mods: Modulation[]) {
   const def = getScene(id);
   if (!def) return null;
   const sceneParams: Record<string, ParamValue> = {};
@@ -165,16 +165,6 @@ function sceneLook(id: string, mods: Modulation[]) {
   }));
   return { sceneId: id, sceneParams, modulations: [...keep, ...seeds] };
 }
-
-/* hover preview: the look to go back to, and a short delay so moving card to card doesn't flicker */
-type LookSnap = Pick<StudioState, 'sceneId' | 'sceneParams' | 'effects' | 'modulations' | 'palette' | 'presetId'>;
-let previewSnap: LookSnap | null = null;
-let restoreTimer: ReturnType<typeof setTimeout> | undefined;
-const PREVIEW_FADE_MS = 250;
-const dropPreview = () => {
-  clearTimeout(restoreTimer);
-  previewSnap = null;
-};
 
 export const useStudio = create<StudioState>((set, get) => ({
   sceneId: '',
@@ -200,60 +190,24 @@ export const useStudio = create<StudioState>((set, get) => ({
   shaderError: null,
   toast: null,
   recording: false,
-  previewId: null,
   chat: persisted.chat ?? [],
   directorOpen: persisted.directorOpen ?? true,
   directorHeight: persisted.directorHeight ?? 320,
+  plan: null,
+  planOn: false,
+  planning: false,
 
   applyPreset: (p) => {
     const look = presetToLook(p);
     if (!getScene(look.sceneId)) return;
-    dropPreview();
-    set({ ...look, presetId: p.id, shaderError: null, previewId: null });
-  },
-
-  previewPreset: (p) => {
-    clearTimeout(restoreTimer);
-    const look = presetToLook(p);
-    if (!getScene(look.sceneId)) return;
-    const s = get();
-    if (!previewSnap) previewSnap = { sceneId: s.sceneId, sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette, presetId: s.presetId };
-    if (live.stage) live.stage.nextFadeMs = PREVIEW_FADE_MS;
-    set({ ...look, presetId: p.id, previewId: p.id, shaderError: null });
-  },
-  endPreview: (commit) => {
-    clearTimeout(restoreTimer);
-    if (!previewSnap) return;
-    if (commit) {
-      previewSnap = null;
-      set({ previewId: null });
-      return;
-    }
-    restoreTimer = setTimeout(() => {
-      const snap = previewSnap;
-      if (!snap) return;
-      previewSnap = null;
-      if (live.stage) live.stage.nextFadeMs = PREVIEW_FADE_MS;
-      set({ ...snap, previewId: null, shaderError: null });
-    }, 160);
+    set({ ...look, presetId: p.id, shaderError: null });
   },
 
   setScene: (id) => {
     const look = sceneLook(id, get().modulations);
     if (!look) return;
-    dropPreview();
-    set({ ...look, presetId: null, shaderError: null, previewId: null });
+    set({ ...look, presetId: null, shaderError: null });
   },
-  previewScene: (id) => {
-    clearTimeout(restoreTimer);
-    const s = get();
-    const look = sceneLook(id, (previewSnap ?? s).modulations);
-    if (!look) return;
-    if (!previewSnap) previewSnap = { sceneId: s.sceneId, sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette, presetId: s.presetId };
-    if (live.stage) live.stage.nextFadeMs = PREVIEW_FADE_MS;
-    set({ ...look, presetId: null, previewId: `scene:${id}`, shaderError: null });
-  },
-
   setSceneParam: (id, v) => set((s) => ({ sceneParams: { ...s.sceneParams, [id]: v } })),
 
   addEffect: (effectId) => {

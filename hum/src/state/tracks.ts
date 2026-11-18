@@ -12,7 +12,7 @@ let loadToken = 0;
 export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean } = {}) {
   const token = ++loadToken;
   const st = useStudio.getState();
-  st.set({ track: info, analysis: null, analyzing: true });
+  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false });
   const ctx = audioEngine.ensureContext();
   try {
     await audioEngine.loadFile(blob, null);
@@ -57,7 +57,7 @@ export async function loadDemo(id: string) {
 export async function useMic() {
   try {
     await audioEngine.startMic();
-    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false });
+    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false });
   } catch {
     useStudio.getState().flash('Microphone permission was denied');
   }

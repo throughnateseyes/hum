@@ -14,7 +14,7 @@ export function autopilotTick(a: AudioFrame) {
   const s = useStudio.getState();
   const dropEdge = a.drop > 0.95 && prevDrop <= 0.95;
   prevDrop = a.drop;
-  if (!s.autoPilot || !a.playing) {
+  if (!s.autoPilot || s.planOn || !a.playing) {
     lastSwitchBeat = a.beatCount;
     return;
   }

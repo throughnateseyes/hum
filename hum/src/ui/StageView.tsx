@@ -17,7 +17,6 @@ export function StageView() {
   const quality = useStudio((s) => s.quality);
   const track = useStudio((s) => s.track);
   const recording = useStudio((s) => s.recording);
-  const previewing = useStudio((s) => s.previewId !== null);
   const [size, setSize] = useState({ w: 800, h: 450 });
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -68,7 +67,6 @@ export function StageView() {
               <i /> Recording
             </span>
           )}
-          {previewing && !recording && <span className="hud-pill">Previewing · click to keep</span>}
         </div>
         {!track && (
           <div className="empty">

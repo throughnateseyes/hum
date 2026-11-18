@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Preset, SceneCategory } from '../core/types';
 import { PRESETS } from '../presets';
 import { allScenes, getScene } from '../scenes';
+import { presetToLook } from '../presets/apply';
 import { live } from '../state/live';
-import { useStudio } from '../state/store';
+import { pickLook, pickScene } from '../state/plan';
+import { sceneLook, useStudio } from '../state/store';
 import { handleFiles } from '../state/tracks';
 import { Cube, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
+import { hidePeek, peekHandlers } from './Peek';
 
 type Tab = 'looks' | 'scenes' | 'photos';
 
@@ -47,8 +50,11 @@ const CAT_LABEL: Record<SceneCategory, string> = {
   code: 'Generated',
 };
 
+/** drag a look card onto a song-map section */
+export const LOOK_MIME = 'application/x-hum-look';
+
 /* thumbnails rendered from each built-in look (src/dev/thumbs.ts makes them) */
-const STATIC_THUMBS: Record<string, string> = Object.fromEntries(
+export const STATIC_THUMBS: Record<string, string> = Object.fromEntries(
   Object.entries(import.meta.glob<string>('../assets/thumbs/*.jpg', { eager: true, import: 'default', query: '?url' })).map(([path, url]) => [
     path.split('/').pop()!.replace(/\.jpg$/, ''),
     url,
@@ -120,7 +126,6 @@ function Looks() {
   const presetId = useStudio((s) => s.presetId);
   const custom = useStudio((s) => s.customPresets);
   const analysis = useStudio((s) => s.analysis);
-  const applyPreset = useStudio((s) => s.applyPreset);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
   const [mood, setMood] = useState('all');
   const suggested = analysis?.suggestedPresets ?? [];
@@ -163,7 +168,7 @@ function Looks() {
           <div className="cards">
             {custom.map((p) => (
               <div key={p.id} style={{ position: 'relative' }}>
-                <PresetCard p={p} on={presetId === p.id} onClick={() => applyPreset(p)} />
+                <PresetCard p={p} on={presetId === p.id} onClick={() => pickLook(p)} />
                 <button
                   className="btn icon sm ghost card-del"
                   onClick={() => deleteCustomPreset(p.id)}
@@ -182,58 +187,62 @@ function Looks() {
       </div>
       <div className="cards">
         {list.map((p) => (
-          <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => applyPreset(p)} />
+          <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => pickLook(p)} />
         ))}
       </div>
     </>
   );
 }
 
-let hoverTimer: ReturnType<typeof setTimeout> | undefined;
-const HOVER_INTENT_MS = 260;
-
-/** hover to preview a scene on the stage, click to keep it */
-function hoverPreview(sceneId: string, pick: () => void) {
+/** hover a scene row to preview it (current colours and effects), click to switch */
+function sceneRowProps(id: string, name: string, pick: () => void) {
   return {
-    onMouseEnter: () => {
-      clearTimeout(hoverTimer);
-      const s = useStudio.getState();
-      if (s.recording || (s.sceneId === sceneId && !s.previewId)) return;
-      hoverTimer = setTimeout(() => useStudio.getState().previewScene(sceneId), HOVER_INTENT_MS);
-    },
-    onMouseLeave: () => {
-      clearTimeout(hoverTimer);
-      useStudio.getState().endPreview(false);
-    },
+    ...peekHandlers({
+      key: `scene:${id}`,
+      title: name,
+      hint: 'Click to switch to this scene',
+      getLook: () => {
+        const s = useStudio.getState();
+        if (s.sceneId === id) return null;
+        const look = sceneLook(id, s.modulations);
+        return look && { ...look, effects: s.effects, palette: s.palette };
+      },
+    }),
     onClick: () => {
-      clearTimeout(hoverTimer);
-      const s = useStudio.getState();
-      if (s.previewId === `scene:${sceneId}`) s.endPreview(true);
-      else pick();
+      hidePeek();
+      pick();
     },
   };
 }
 
+/* preset looks keep stable effect ids so the preview doesn't recompile shaders on every hover */
+const peekLooks = new Map<string, ReturnType<typeof presetToLook>>();
+function presetPeekLook(p: Preset) {
+  let l = peekLooks.get(p.id);
+  if (!l) peekLooks.set(p.id, (l = presetToLook(p)));
+  return l;
+}
+
 function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; suggested?: boolean; onClick: () => void }) {
-  const previewing = useStudio((s) => s.previewId === p.id);
   return (
     <button
-      className={`card ${on && !previewing ? 'on' : ''} ${previewing ? 'previewing' : ''}`}
-      onMouseEnter={() => {
-        clearTimeout(hoverTimer);
-        const s = useStudio.getState();
-        if (s.recording || s.presetId === p.id) return;
-        hoverTimer = setTimeout(() => useStudio.getState().previewPreset(p), HOVER_INTENT_MS);
+      className={`card ${on ? 'on' : ''}`}
+      draggable
+      onDragStart={(e) => {
+        hidePeek();
+        e.dataTransfer.setData(LOOK_MIME, p.id);
+        e.dataTransfer.effectAllowed = 'copy';
       }}
-      onMouseLeave={() => {
-        clearTimeout(hoverTimer);
-        useStudio.getState().endPreview(false);
-      }}
+      {...peekHandlers({
+        key: p.id,
+        title: p.name,
+        hint: 'Click to use this look',
+        poster: STATIC_THUMBS[p.id],
+        getLook: () => (useStudio.getState().presetId === p.id ? null : presetPeekLook(p)),
+      })}
       onClick={() => {
-        clearTimeout(hoverTimer);
-        const s = useStudio.getState();
-        if (s.previewId === p.id) s.endPreview(true);
-        else onClick();
+        hidePeek();
+        onClick();
       }}
     >
       <div className="thumb">
@@ -250,7 +259,6 @@ function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; sug
 
 function Scenes() {
   const sceneId = useStudio((s) => s.sceneId);
-  const setScene = useStudio((s) => s.setScene);
   useStudio((s) => s.customShaders.length); // re-render when AI scenes are added
   const scenes = allScenes();
   const cats: SceneCategory[] = ['board', 'form', 'field', 'photo', 'code'];
@@ -266,7 +274,7 @@ function Scenes() {
               <span className="label">{list.length}</span>
             </div>
             {list.map((s) => (
-              <button key={s.id} className={`scene-row ${sceneId === s.id ? 'on' : ''}`} {...hoverPreview(s.id, () => setScene(s.id))}>
+              <button key={s.id} className={`scene-row ${sceneId === s.id ? 'on' : ''}`} {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
                 <Glyph c={s.category} />
                 <span style={{ minWidth: 0 }}>
                   <div className="t">{s.name}</div>
@@ -284,7 +292,6 @@ function Scenes() {
 function Photos() {
   const photos = useStudio((s) => s.photos);
   const removePhoto = useStudio((s) => s.removePhoto);
-  const setScene = useStudio((s) => s.setScene);
   const input = useRef<HTMLInputElement>(null);
   const photoScenes = allScenes().filter((s) => s.usesPhotos);
   return (
@@ -318,7 +325,7 @@ function Photos() {
         <span className="label">Photo scenes</span>
       </div>
       {photoScenes.map((s) => (
-        <button key={s.id} className="scene-row" {...hoverPreview(s.id, () => setScene(s.id))}>
+        <button key={s.id} className="scene-row" {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
           <Glyph c="photo" />
           <span style={{ minWidth: 0 }}>
             <div className="t">{s.name}</div>

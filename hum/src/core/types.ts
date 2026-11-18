@@ -75,7 +75,9 @@ export interface TrackSection {
   end: number;
   /** mean energy 0..1 */
   energy: number;
-  label: 'intro' | 'verse' | 'build' | 'drop' | 'break' | 'outro';
+  label: 'intro' | 'verse' | 'chorus' | 'bridge' | 'build' | 'drop' | 'break' | 'outro';
+  /** sections that sound alike share a group (0, 1, 2…), so a returning chorus can return to its look */
+  group: number;
 }
 
 export interface MoodProfile {

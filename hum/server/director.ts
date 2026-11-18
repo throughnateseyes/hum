@@ -32,7 +32,7 @@ export interface DirectorResult {
 
 /** what a local backend gets: one system prompt, one user prompt, and the JSON schema to answer in */
 export interface LocalRequest {
-  mode: 'preset' | 'shader';
+  mode: 'preset' | 'shader' | 'plan';
   system: string;
   prompt: string;
   schema: Record<string, unknown>;
@@ -146,6 +146,22 @@ You write a brand-new fragment shader that becomes a live scene. Follow the auth
 - Suggest 2–5 modulations (source layer → one of your number params).
 - Answer by calling the write_shader tool exactly once. note: one or two plain sentences on the idea, addressed to the user.`;
 
+const PLAN_SYSTEM = `You are the director of music videos inside Hum, a browser-based audio-reactive visual playground. A song has been split into sections (intro, verse, chorus, bridge, build, drop, break, outro). Sections that sound alike share a group letter. You choose one look for each section from the list of looks, so the visuals follow the song's story.
+
+Every look already reacts to the music on its own (kicks, bass, builds and drops), so your job is the arc: which picture belongs to which part of the song.
+
+## How to direct
+- Repetition is structure. Sections in the same group should usually share a look, so a returning chorus returns to its look. You may escalate the final chorus or the last drop to a stronger look on purpose.
+- Contrast between parts. Verses and choruses should look clearly different; drops should be the most intense look in the plan; intros, breaks and outros calm and spacious.
+- Builds usually keep the look of the section before them (the tension is added automatically) or move to something tighter; the drop is the release.
+- Use 2 to 5 different looks for the whole song. Fewer, stronger choices beat a slideshow.
+- Honour the track's mood and genre: a sad piano song should never get a rave look; a dubstep track deserves heavy, glitchy drops.
+- If the person adds a wish (for example "keep it dreamy" or "use the photo looks"), follow it.
+- Use only look ids from the list.
+
+## Answer
+Return the plan by calling the plan_video tool exactly once. title: a name for the video, at most 5 words. note: one or two plain sentences to the person about the idea. sections: one entry per section index, each with the lookId and a short reason (at most 12 words).`;
+
 /* ───────────────────────── tools ───────────────────────── */
 
 const hex = { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' };
@@ -254,6 +270,32 @@ const WRITE_SHADER_TOOL = {
   },
 };
 
+const PLAN_TOOL = {
+  name: 'plan_video',
+  description: 'Return the video plan: one look per song section.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Name for the video, at most 5 words.' },
+      note: { type: 'string', description: 'One or two sentences to the person explaining the idea.' },
+      sections: {
+        type: 'array',
+        maxItems: 40,
+        items: {
+          type: 'object',
+          properties: {
+            index: { type: 'integer', description: 'Section index from the list.' },
+            lookId: { type: 'string', description: 'A look id from the list.' },
+            why: { type: 'string', description: 'Short reason, at most 12 words.' },
+          },
+          required: ['index', 'lookId', 'why'],
+        },
+      },
+    },
+    required: ['title', 'note', 'sections'],
+  },
+};
+
 /* ───────────────────────── request parsing ───────────────────────── */
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -288,6 +330,37 @@ function describeTrack(track: unknown): string {
     if (tags.length) lines.push(`Tags: ${tags.join(', ')}`);
   }
   return lines.join('\n');
+}
+
+const fmtT = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+/** sections: [{ index, label, group, start, end, energy }] → one line each */
+function describeSections(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  return raw
+    .slice(0, 40)
+    .filter(isObj)
+    .map((x, i) => {
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+      const label = typeof x.label === 'string' ? x.label.slice(0, 12) : 'section';
+      const group = String.fromCharCode(65 + (Math.max(0, Math.floor(num(x.group))) % 26));
+      return `#${i}  ${fmtT(num(x.start))}–${fmtT(num(x.end))}  ${label}  group ${group}  energy ${num(x.energy).toFixed(2)}`;
+    })
+    .join('\n');
+}
+
+/** looks: [{ id, name, description, tags, category }] → one line each */
+function describeLooks(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  const lines = raw
+    .slice(0, 80)
+    .filter(isObj)
+    .map((x) => {
+      const s = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').slice(0, n) : '');
+      const tags = Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string').slice(0, 8).join(', ') : '';
+      return `${s(x.id, 48)} — ${s(x.name, 40)} [${s(x.category, 12)}] ${tags ? `(${tags}) ` : ''}${s(x.description, 140)}`;
+    });
+  return capBytes(lines.join('\n'), 14_000);
 }
 
 function describeCurrent(current: unknown): string {
@@ -360,9 +433,12 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   if (!key && !useLocal) return { status: 501, json: { error: 'no_key', note: 'No ANTHROPIC_API_KEY is configured on the server.' } };
 
   if (!isObj(body)) return { status: 400, json: { error: 'bad_request', note: 'Expected a JSON object.' } };
-  const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : null;
+  const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : body.mode === 'plan' ? 'plan' : null;
   const promptRaw = typeof body.prompt === 'string' ? body.prompt.trim() : '';
-  if (!mode) return { status: 400, json: { error: 'bad_request', note: 'mode must be "preset" or "shader".' } };
+  if (!mode) return { status: 400, json: { error: 'bad_request', note: 'mode must be "preset", "shader" or "plan".' } };
+  if (mode === 'plan' && (!Array.isArray(body.sections) || !body.sections.length || !Array.isArray(body.looks))) {
+    return { status: 400, json: { error: 'bad_request', note: 'A plan needs the song’s sections and the looks to choose from.' } };
+  }
   if (!promptRaw && !body.current && !body.track) return { status: 400, json: { error: 'bad_request', note: 'Empty prompt.' } };
 
   const code = env.HUM_ACCESS_CODE?.trim();
@@ -386,17 +462,25 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   const current = describeCurrent(body.current);
 
   const system: Record<string, unknown>[] =
-    mode === 'preset'
+    mode === 'plan'
+      ? [{ type: 'text', text: PLAN_SYSTEM }]
+      : mode === 'preset'
       ? [
           { type: 'text', text: `${PERSONA}\n\n${PRESET_RULES}` },
           { type: 'text', text: `## Catalog\n${catalog || '(catalog missing — use common sense ids sparingly)'}`, cache_control: { type: 'ephemeral' } },
         ]
       : [{ type: 'text', text: `${PERSONA}\n\n${SHADER_RULES}\n\n## Shader authoring guide\n${SHADER_AUTHORING_GUIDE}`, cache_control: { type: 'ephemeral' } }];
 
-  const parts = [`Request: ${prompt || '(no words — design from the track)'}`];
+  const parts =
+    mode === 'plan'
+      ? [`Wish: ${prompt || '(none — direct it from the music)'}`]
+      : [`Request: ${prompt || '(no words — design from the track)'}`];
   if (track) parts.push(`Track analysis:\n${track}`);
-  if (current) parts.push(`Current preset (edit from this when the request asks for a change):\n${current}`);
-  const tool = mode === 'preset' ? MAKE_PRESET_TOOL : WRITE_SHADER_TOOL;
+  if (mode === 'plan') {
+    parts.push(`Sections (index, time, label, group, energy 0..1):\n${describeSections(body.sections)}`);
+    parts.push(`Looks (id — name [kind] (tags) description):\n${describeLooks(body.looks)}`);
+  } else if (current) parts.push(`Current preset (edit from this when the request asks for a change):\n${current}`);
+  const tool = mode === 'plan' ? PLAN_TOOL : mode === 'preset' ? MAKE_PRESET_TOOL : WRITE_SHADER_TOOL;
   const model = env.HUM_MODEL?.trim() || DEFAULT_MODEL;
   const effort = env.HUM_EFFORT?.trim() || (mode === 'shader' ? 'medium' : 'low');
 
@@ -404,7 +488,7 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     parts.push(`Answer with the structured output: ${tool.description}`);
     const r = await opts.local({
       mode,
-      system: system.map((b) => String(b.text)).join('\n\n').replace(/calling the (make_preset|write_shader) tool exactly once/g, 'returning the structured output'),
+      system: system.map((b) => String(b.text)).join('\n\n').replace(/calling the (make_preset|write_shader|plan_video) tool exactly once/g, 'returning the structured output'),
       prompt: parts.join('\n\n'),
       schema: tool.input_schema as Record<string, unknown>,
       effort,
@@ -416,7 +500,7 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   parts.push(`Call the ${tool.name} tool with your answer.`);
   const messages: Record<string, unknown>[] = [{ role: 'user', content: parts.join('\n\n') }];
   const payload: Record<string, unknown> = {
-    max_tokens: mode === 'shader' ? 16_000 : 8_000,
+    max_tokens: mode === 'shader' ? 16_000 : mode === 'plan' ? 6_000 : 8_000,
     system,
     tools: [tool],
     // Current models (Sonnet 5.5, Opus 5.5, Fable 5.x) reject forced tool_choice, so offer exactly
@@ -452,8 +536,14 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   return finishOutput(mode, toolInput, 'api');
 }
 
-function finishOutput(mode: 'preset' | 'shader', toolInput: unknown, via: 'api' | 'subscription'): DirectorResult {
+function finishOutput(mode: 'preset' | 'shader' | 'plan', toolInput: unknown, via: 'api' | 'subscription'): DirectorResult {
   if (!isObj(toolInput)) return { status: 502, json: { error: 'no_tool_call', note: 'Claude didn’t return a structured answer.' } };
+  if (mode === 'plan') {
+    if (!Array.isArray(toolInput.sections)) return { status: 502, json: { error: 'bad_output', note: 'Claude’s plan had no sections.' } };
+    const note = typeof toolInput.note === 'string' ? toolInput.note.trim().slice(0, 400) : '';
+    const title = typeof toolInput.title === 'string' ? toolInput.title.trim().slice(0, 60) : '';
+    return { status: 200, json: { plan: { title, sections: toolInput.sections.slice(0, 40) }, note: note || 'Directed by Claude.', source: 'claude', via } };
+  }
 
   const { note, ...rest } = toolInput;
   const noteText = typeof note === 'string' && note.trim() ? note.trim().slice(0, 400) : 'Directed by Claude.';

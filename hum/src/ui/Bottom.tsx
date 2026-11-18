@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
 import { onFrame } from '../state/live';
+import { assignLook, findLook, makeVideo, sectionIndexAt, sectionNames } from '../state/plan';
+import { presetToLook } from '../presets/apply';
 import { useStudio } from '../state/store';
-import { LAYER_MIME, Slider } from './controls';
-import { Pause, Play } from './Icons';
+import { LAYER_MIME, Slider, Toggle } from './controls';
+import { Pause, Play, Sparkle } from './Icons';
+import { LOOK_MIME, STATIC_THUMBS } from './Library';
+import { peekHandlers } from './Peek';
 
 const fmtTime = (t: number) => {
   if (!isFinite(t)) return '0:00';
@@ -81,6 +85,116 @@ function Transport() {
       <button className="btn sm has-tip tip-left" data-tip="Tap along 4+ times to set the tempo" onClick={onTap}>
         Tap
       </button>
+      {analysis && analysis.sections.length > 0 && <SongMap />}
+    </div>
+  );
+}
+
+/* group tints: sections that sound alike share a colour */
+const GROUP_TINT = ['#dfe5ff', '#ffe2cc', '#d8efe1', '#ecdff5', '#f4ecc6', '#e4e2dc', '#d4ecf4', '#f5d9d9'];
+const GROUP_INK = ['#2f4bff', '#e2620b', '#2b8a55', '#8f47c4', '#9a7f00', '#77756e', '#1b86a8', '#c94040'];
+
+/**
+ * The song map: the song's parts under the waveform, each with the look it gets. Click a part to
+ * jump there, drag a look onto it to change it, hover to preview its look.
+ */
+function SongMap() {
+  const analysis = useStudio((s) => s.analysis)!;
+  const plan = useStudio((s) => s.plan);
+  const planOn = useStudio((s) => s.planOn);
+  const planning = useStudio((s) => s.planning);
+  useStudio((s) => s.customPresets.length);
+  const [over, setOver] = useState(-1);
+  const blocks = useRef<(HTMLButtonElement | null)[]>([]);
+  const head = useRef<HTMLDivElement>(null);
+  const secs = analysis.sections;
+  const names = sectionNames(secs);
+  const hasPlan = !!plan && plan.looks.length === secs.length;
+
+  useEffect(
+    () =>
+      onFrame(() => {
+        const t = audioEngine.currentTime;
+        const i = sectionIndexAt(secs, t);
+        blocks.current.forEach((el, j) => el?.classList.toggle('now', j === i));
+        if (head.current) head.current.style.left = `${(t / analysis.duration) * 100}%`;
+      }),
+    [secs, analysis.duration],
+  );
+
+  return (
+    <div className="sm-row">
+      <button
+        className="btn sm primary sm-make has-tip"
+        disabled={planning}
+        onClick={() => void makeVideo()}
+        data-tip="Claude gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top."
+      >
+        {planning ? <span className="spin" /> : <Sparkle width={13} height={13} />}
+        {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
+      </button>
+      <div className="songmap">
+        {secs.map((sec, i) => {
+          const look = hasPlan ? findLook(plan!.looks[i]) : undefined;
+          const g = sec.group % GROUP_TINT.length;
+          const narrow = (sec.end - sec.start) / analysis.duration < 0.07;
+          const why = hasPlan ? plan!.why[i] : '';
+          return (
+            <button
+              key={i}
+              ref={(el) => {
+                blocks.current[i] = el;
+              }}
+              className={`sm-sec ${narrow ? 'narrow' : ''} ${over === i ? 'over' : ''}`}
+              style={{ flexGrow: sec.end - sec.start, background: GROUP_TINT[g], ['--g' as string]: GROUP_INK[g] }}
+              title={`${names[i]} · ${fmtTime(sec.start)}–${fmtTime(sec.end)}${look ? ` · ${look.name}` : ''}${why ? ` — ${why}` : ''}`}
+              onClick={() => audioEngine.seek(sec.start + 0.01)}
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes(LOOK_MIME)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                setOver(i);
+              }}
+              onDragLeave={() => setOver(-1)}
+              onDrop={(e) => {
+                setOver(-1);
+                const id = e.dataTransfer.getData(LOOK_MIME);
+                if (id) assignLook(i, id, !e.altKey);
+              }}
+              {...(look
+                ? peekHandlers({
+                    key: `sec:${i}:${look.id}`,
+                    title: `${names[i]} · ${look.name}`,
+                    hint: why || 'Click to jump here, drag a look on to change it',
+                    poster: STATIC_THUMBS[look.id],
+                    place: 'above',
+                    getLook: () => (useStudio.getState().presetId === look.id ? null : presetToLook(look)),
+                  })
+                : {})}
+            >
+              {look && STATIC_THUMBS[look.id] && !narrow && <img src={STATIC_THUMBS[look.id]} alt="" />}
+              {look && !STATIC_THUMBS[look.id] && !narrow && <i className="sm-swatch" style={{ background: look.palette.accent }} />}
+              {!narrow && (
+                <span className="sm-txt">
+                  <b>{names[i]}</b>
+                  {look && <em>{look.name}</em>}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        <div className="sm-head" ref={head} />
+      </div>
+      <label className="sm-follow has-tip tip-left" data-tip="When on, the looks change with the song’s parts as it plays. Picking a look while it plays puts it into that part.">
+        {hasPlan ? (
+          <>
+            <Toggle on={planOn} onChange={(v) => useStudio.getState().set({ planOn: v, autoPilot: v ? false : useStudio.getState().autoPilot })} />
+            Follow
+          </>
+        ) : (
+          <span className="sm-hint">Drag looks onto parts</span>
+        )}
+      </label>
     </div>
   );
 }
@@ -99,15 +213,6 @@ function ImpactKnob() {
   );
 }
 
-const SECTION_COLORS: Record<string, string> = {
-  intro: '#c9c6bd',
-  verse: '#9db4ff',
-  build: '#ffb36b',
-  drop: '#2f4bff',
-  break: '#b6d6c4',
-  outro: '#c9c6bd',
-};
-
 function drawScrubber(c: HTMLCanvasElement | null, a: ReturnType<typeof useStudio.getState>['analysis'], t: number, d: number) {
   if (!c) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -122,23 +227,9 @@ function drawScrubber(c: HTMLCanvasElement | null, a: ReturnType<typeof useStudi
   g.clearRect(0, 0, w, h);
   const prog = d > 0 ? t / d : 0;
   if (a) {
-    // sections
-    for (const s of a.sections) {
-      const x0 = (s.start / a.duration) * w;
-      const x1 = (s.end / a.duration) * w;
-      g.fillStyle = SECTION_COLORS[s.label] ?? '#ccc';
-      g.globalAlpha = 0.9;
-      g.fillRect(x0, h - 3, x1 - x0 - 1, 3);
-      g.globalAlpha = 1;
-      if (x1 - x0 > 40) {
-        g.fillStyle = '#98958c';
-        g.font = '500 10px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
-        g.fillText(s.label[0].toUpperCase() + s.label.slice(1), x0 + 5, 12);
-      }
-    }
     // waveform overview
     const ov = a.overview;
-    const mid = h / 2 + 3;
+    const mid = h / 2;
     for (let x = 0; x < w; x++) {
       const i = Math.floor((x / w) * ov.length);
       const v = ov[i] ?? 0;

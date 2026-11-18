@@ -3,13 +3,14 @@ import { audioEngine } from '../audio/engine';
 import { FULLSCREEN_VERT } from '../core/glsl';
 import { resolvePalette } from '../core/palettes';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
-import type { AudioFrame, EffectDef, EffectInstance, FrameContext, LayerId, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
+import type { AudioFrame, EffectDef, EffectInstance, FrameContext, LayerId, Modulation, Palette, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
 import { getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { useStudio } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
+import { planTick } from '../state/plan';
 import { FxChain } from './fxChain';
 import { live as liveState } from '../state/live';
 
@@ -67,6 +68,15 @@ void main(){
 /** layers the Impact amount shapes (time signals like beat phase and sway stay as they are) */
 const SHAPED: (keyof AudioFrame & LayerId)[] = ['level', 'sub', 'bass', 'lowMid', 'mid', 'highMid', 'air', 'kick', 'snare', 'hat', 'energy', 'flux', 'build', 'drop'];
 
+/** a look shown in the small hover preview window, rendered alongside the main stage */
+export interface PeekLook {
+  sceneId: string;
+  sceneParams: ParamValues;
+  effects: EffectInstance[];
+  modulations: Modulation[];
+  palette: Palette;
+}
+
 interface Live {
   id: string;
   def: SceneDef;
@@ -90,7 +100,7 @@ export class Stage {
   private prev: Live | null = null;
   private fadeStart = 0;
   private fadeDur = 900;
-  /** set before a scene change to use a different crossfade length once (hover previews use a quick one) */
+  /** set before a look change to use a different crossfade length once (1 = a hard cut) */
   nextFadeMs: number | null = null;
   private raf = 0;
   private last = performance.now();
@@ -106,6 +116,17 @@ export class Stage {
   private impactQuad: ReturnType<typeof createFullscreenQuad>;
   private shaped = {} as AudioFrame;
   private shapedLayers = {} as Record<LayerId, number>;
+  /** the next section's scene, created and drawn once ahead of time so a cut lands without a compile stall */
+  private warm: Live | null = null;
+  private warmFresh = false;
+  private peekLook: PeekLook | null = null;
+  private peekOut: HTMLCanvasElement | null = null;
+  private peekCss = { w: 256, h: 160 };
+  private peekLive: Live | null = null;
+  private peekRT: THREE.WebGLRenderTarget;
+  private peekFx: FxChain;
+  private peekFxParams = new Map<string, ParamValues>();
+  private peekPalette: ResolvedPalette;
   width = 2;
   height = 2;
   fps = 60;
@@ -178,6 +199,9 @@ export class Stage {
     this.mixRT = makeRenderTarget(2, 2);
     this.fx = new FxChain(this.shared);
     this.palette = resolvePalette(useStudio.getState().palette);
+    this.peekRT = makeRenderTarget(2, 2, sceneOpts);
+    this.peekFx = new FxChain(this.shared);
+    this.peekPalette = resolvePalette(useStudio.getState().palette);
 
     renderer.debug.onShaderError = (gl, program, vs, fs) => {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s) || '';
@@ -210,6 +234,7 @@ export class Stage {
     this.fx.setSize(w, h);
     this.current?.inst.resize?.(w, h);
     this.prev?.inst.resize?.(w, h);
+    this.warm?.inst.resize?.(w, h);
   }
 
   start() {
@@ -230,6 +255,101 @@ export class Stage {
   }
 
   /**
+   * Show a look in a small window (`out`, sized cssW×cssH) without touching the main stage. Each frame
+   * the look is drawn into a corner of the stage canvas, copied out, then covered by the main frame.
+   */
+  setPeek(look: PeekLook | null, out: HTMLCanvasElement | null, cssW = 256, cssH = 160) {
+    this.peekLook = look;
+    this.peekOut = look ? out : null;
+    this.peekCss = { w: cssW, h: cssH };
+  }
+
+  private renderPeek(base: Omit<FrameContext, 'params'>, impact: number, now: number) {
+    const look = this.peekLook;
+    const out = this.peekOut;
+    if (!look || !out) return;
+    const r = this.renderer;
+    const pr = r.getPixelRatio();
+    const cw = Math.min(this.peekCss.w, this.width / pr);
+    const ch = Math.min(this.peekCss.h, this.height / pr);
+    const w = Math.max(2, Math.round(cw * pr));
+    const h = Math.max(2, Math.round(ch * pr));
+    if (this.peekRT.width !== w || this.peekRT.height !== h) {
+      this.peekRT.setSize(w, h);
+      this.peekLive?.inst.resize?.(w, h);
+    }
+    this.peekFx.setSize(w, h);
+
+    if (this.peekLive?.id !== look.sceneId) {
+      const def = getScene(look.sceneId);
+      if (!def) return;
+      this.peekLive?.inst.dispose();
+      this.peekLive = null;
+      try {
+        this.peekLive = { id: look.sceneId, def, inst: def.create({ renderer: r, width: w, height: h, shared: this.shared }), born: now, params: {} };
+      } catch (e) {
+        console.warn('[hum] preview failed', e);
+        return;
+      }
+    }
+    const pl = this.peekLive;
+    resolvePalette(look.palette, this.peekPalette);
+    const ctx = { ...base, width: w, height: h, aspect: w / h, palette: this.peekPalette };
+    const params = resolveParams(pl.def.params, look.sceneParams, look.modulations, 'scene', base.audio.layers, pl.params);
+    r.setRenderTarget(this.peekRT);
+    r.setClearColor(this.peekPalette.c.bg, 1);
+    r.clear(true, true, false);
+    try {
+      pl.inst.render({ ...ctx, params }, this.peekRT);
+    } catch (e) {
+      console.warn(e);
+    }
+
+    const chain: { inst: EffectInstance; def: EffectDef; params: ParamValues }[] = [];
+    const ids = new Set<string>();
+    for (const inst of look.effects) {
+      ids.add(inst.instanceId);
+      const def = getEffect(inst.effectId);
+      if (!def) continue;
+      let p = this.peekFxParams.get(inst.instanceId);
+      if (!p) this.peekFxParams.set(inst.instanceId, (p = {}));
+      resolveParams(def.params, inst.params, look.modulations, `fx.${inst.instanceId}`, base.audio.layers, p);
+      chain.push({ inst, def, params: p });
+    }
+    this.peekFx.prune(ids);
+    for (const k of this.peekFxParams.keys()) if (!ids.has(k)) this.peekFxParams.delete(k);
+    const tex = this.peekFx.run(r, this.peekRT.texture, chain, { width: w, height: h, time: base.time, audio: base.audio, palette: this.peekPalette });
+
+    // draw into the bottom-left corner of the canvas, then copy that region out
+    const size = r.getSize(new THREE.Vector2());
+    r.setViewport(0, 0, w / pr, h / pr);
+    if (impact > 0.001) {
+      this.setImpactUniforms(tex, base.audio, base.time, impact, w / h);
+      this.impactQuad.render(r, null);
+    } else {
+      this.shared.blit(tex, null);
+    }
+    r.setViewport(0, 0, size.x, size.y);
+    if (out.width !== w || out.height !== h) {
+      out.width = w;
+      out.height = h;
+    }
+    out.getContext('2d')?.drawImage(this.canvas, 0, this.canvas.height - h, w, h, 0, 0, w, h);
+  }
+
+  private setImpactUniforms(tex: THREE.Texture, audio: AudioFrame, time: number, amt: number, aspect: number) {
+    const u = this.impactMat.uniforms;
+    u.tMap.value = tex;
+    u.uKick.value = audio.kick;
+    u.uSnare.value = audio.snare;
+    u.uDrop.value = audio.drop;
+    u.uBuild.value = audio.build;
+    u.uTime.value = time;
+    u.uAmt.value = amt;
+    u.uAspect.value = aspect;
+  }
+
+  /**
    * Render a frame now and copy it, centre-cropped, into a small 2D canvas. Synchronous, so it works
    * without preserveDrawingBuffer (and without image decoding, which stalls in hidden tabs).
    */
@@ -244,13 +364,31 @@ export class Stage {
     return c;
   }
 
+  /** Create a scene now (shaders compile, buffers allocate) so switching to it later is instant. */
+  prewarm(id: string) {
+    if (this.current?.id === id || this.warm?.id === id || this.width <= 2) return;
+    const def = getScene(id);
+    if (!def) return;
+    this.warm?.inst.dispose();
+    this.warm = null;
+    try {
+      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared }), born: performance.now(), params: {} };
+      this.warmFresh = true;
+    } catch (e) {
+      console.warn('[hum] prewarm failed', e);
+    }
+  }
+
   private ensureScene(id: string, now: number) {
     if (this.current?.id === id) return;
     const def = getScene(id);
     if (!def) return;
     let inst: SceneInstance;
     try {
-      inst = def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared });
+      if (this.warm?.id === id) {
+        inst = this.warm.inst;
+        this.warm = null;
+      } else inst = def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared });
     } catch (e) {
       console.error(e);
       useStudio.getState().set({ shaderError: String(e) });
@@ -259,7 +397,7 @@ export class Stage {
     if (this.prev) this.prev.inst.dispose();
     this.prev = this.current;
     this.fadeStart = now;
-    this.fadeDur = this.nextFadeMs ?? 900;
+    this.fadeDur = Math.max(1, this.nextFadeMs ?? 900);
     this.nextFadeMs = null;
     this.current = { id, def, inst, born: now, params: {} };
   }
@@ -274,6 +412,7 @@ export class Stage {
     audioEngine.sensitivity = s.sensitivity;
     const raw = audioEngine.update(dt);
     autopilotTick(raw);
+    planTick(raw);
     const audio = this.shape(raw, s.impact);
 
     // shared audio textures
@@ -287,6 +426,7 @@ export class Stage {
     resolvePalette(s.palette, this.palette);
     if (!s.sceneId || this.width <= 2) return; // wait for the first real layout size
     this.ensureScene(s.sceneId, now);
+    this.nextFadeMs = null; // only for a change made this frame
     if (!this.current) return;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
@@ -321,6 +461,14 @@ export class Stage {
       }
       this.compilingScene = false;
     };
+
+    // draw a prewarmed scene once (into the spare buffer) so its shaders are compiled before the cut
+    if (this.warm && this.warmFresh && !this.prev) {
+      this.warmFresh = false;
+      const defaults: ParamValues = {};
+      for (const d of this.warm.def.params) defaults[d.id] = d.default;
+      drawScene(this.warm, this.prevRT, defaults);
+    }
 
     const curParams = resolveParams(this.current.def.params, s.sceneParams, s.modulations, 'scene', audio.layers, this.current.params);
     liveState.scene = curParams;
@@ -364,17 +512,11 @@ export class Stage {
     }
     this.fx.prune(ids);
     const finalTex = this.fx.run(r, sceneTex, live, { width: this.width, height: this.height, time, audio, palette: this.palette });
+    // the hover preview borrows a corner of the canvas before the main frame covers it
+    this.renderPeek(base, s.impact, now);
 
-    const u = this.impactMat.uniforms;
     if (s.impact > 0.001) {
-      u.tMap.value = finalTex;
-      u.uKick.value = audio.kick;
-      u.uSnare.value = audio.snare;
-      u.uDrop.value = audio.drop;
-      u.uBuild.value = audio.build;
-      u.uTime.value = time;
-      u.uAmt.value = s.impact;
-      u.uAspect.value = this.width / this.height;
+      this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
       this.impactQuad.render(r, this.impactRT);
       this.shared.blit(this.impactRT.texture, null);
     } else {
@@ -404,6 +546,10 @@ export class Stage {
   dispose() {
     this.stop();
     this.impactRT.dispose();
+    this.peekLive?.inst.dispose();
+    this.warm?.inst.dispose();
+    this.peekFx.dispose();
+    this.peekRT.dispose();
     this.current?.inst.dispose();
     this.prev?.inst.dispose();
     this.fx.dispose();

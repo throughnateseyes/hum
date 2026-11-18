@@ -7,7 +7,8 @@
  * Pipeline (all on a ~22 kHz decimated copy):
  *   1024-pt STFT, hop 512 (~23 ms) → per-frame rms, band powers, centroid, log-flux, L1 flux
  *   → onset envelope → tempo (autocorrelation, 70–180 BPM) + beat phase
- *   → 2 Hz energy/band series → novelty → sections → labels; energy jumps → drops
+ *   → 2 Hz harmony/timbre/energy features → self-similarity → sections (bar-aligned) → repeats grouped → labels
+ *   → energy jumps → drops
  *   → sparse 4096-pt chroma → major/minor lean
  *   → MoodProfile → tags (+ genre guesses) → preset suggestions → summary
  */
@@ -364,6 +365,7 @@ export function computeAnalysis(channel: Float32Array, sampleRate: number, prese
   const logFlux = new Float32Array(nFrames);
   const l1Flux = new Float32Array(nFrames);
   const bandTotals = new Float64Array(6);
+  const bands6 = new Float32Array(nFrames * 6);
 
   const mag = new Float64Array(half);
   const prevLog = new Float64Array(half);
@@ -395,6 +397,7 @@ export function computeAnalysis(channel: Float32Array, sampleRate: number, prese
       if (b >= 0) {
         const p = m * m;
         bandTotals[b] += p;
+        bands6[f * 6 + b] += p;
         if (b <= 1) lp += p;
         else if (b <= 3) mp += p;
         else hp += p;
@@ -570,7 +573,9 @@ export function computeAnalysis(channel: Float32Array, sampleRate: number, prese
   }
 
   /* sections */
-  const sections = findSections(E2, L2, H2, R, duration, tempo.beats, drops);
+  const feats = structureFeatures(x, xLen, sr, HOP, nFrames, bands6, E2, S, R);
+  const bars = downbeats(tempo.beats, lowP, fr);
+  const sections = findSections(E2, L2, H2, R, duration, tempo.beats, bars, drops, feats);
 
   /* mood */
   const totalBand = bandTotals.reduce((a, b) => a + b, 0) || 1;
@@ -617,6 +622,131 @@ export function computeAnalysis(channel: Float32Array, sampleRate: number, prese
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
+/* ───────────────────────── structure ───────────────────────── */
+
+/**
+ * One feature vector per 0.5 s for finding sections that sound alike: harmony (12 pitch classes),
+ * timbre (the shape of six bands, loudness removed) and energy. Each part is centred over the track
+ * and scaled to unit length, so the cosine between two moments says "same chords, same sound".
+ */
+function structureFeatures(
+  x: Float32Array,
+  xLen: number,
+  sr: number,
+  hop: number,
+  nFrames: number,
+  bands6: Float32Array,
+  E2: Float32Array,
+  S: number,
+  R: number,
+): Float32Array[] {
+  const CN = 4096;
+  const fft = new FFT(CN);
+  const win = hann(CN);
+  const cbin = sr / CN;
+  const pcOf = new Int8Array(CN / 2).fill(-1);
+  for (let k = 1; k < CN / 2; k++) {
+    const f = k * cbin;
+    if (f < 60 || f > 4200) continue;
+    const midi = 12 * Math.log2(f / 440) + 69;
+    pcOf[k] = ((Math.round(midi) % 12) + 12) % 12;
+  }
+  const chroma: Float64Array[] = [];
+  const timbre: Float64Array[] = [];
+  for (let i = 0; i < S; i++) {
+    const c = new Float64Array(12);
+    for (const dt of [-0.125, 0.125]) {
+      const off = Math.round(((i + 0.5) / R + dt) * sr) - CN / 2;
+      if (off < 0 || off + CN > xLen) continue;
+      for (let j = 0; j < CN; j++) {
+        fft.re[j] = x[off + j] * win[j];
+        fft.im[j] = 0;
+      }
+      fft.run();
+      for (let k = 1; k < CN / 2; k++) {
+        const pc = pcOf[k];
+        if (pc >= 0) c[pc] += Math.hypot(fft.re[k], fft.im[k]);
+      }
+    }
+    let tot = 0;
+    for (let k = 0; k < 12; k++) tot += c[k];
+    if (tot > 0) for (let k = 0; k < 12; k++) c[k] = Math.sqrt(c[k] / tot);
+    chroma.push(c);
+
+    const t = new Float64Array(6);
+    const fa = Math.floor((i / R) * (sr / hop));
+    const fb = Math.min(nFrames, Math.max(fa + 1, Math.floor(((i + 1) / R) * (sr / hop))));
+    for (let f = fa; f < fb; f++) for (let b = 0; b < 6; b++) t[b] += bands6[f * 6 + b];
+    let mean = 0;
+    for (let b = 0; b < 6; b++) {
+      t[b] = Math.log(1e-9 + t[b] / Math.max(1, fb - fa));
+      mean += t[b] / 6;
+    }
+    for (let b = 0; b < 6; b++) t[b] -= mean;
+    timbre.push(t);
+  }
+
+  // smooth over ±1 s, centre each part, scale to unit length, join
+  const smooth = (arr: Float64Array[], d: number) =>
+    arr.map((_, i) => {
+      const o = new Float64Array(d);
+      let n = 0;
+      for (let j = Math.max(0, i - 2); j <= Math.min(arr.length - 1, i + 2); j++, n++) for (let k = 0; k < d; k++) o[k] += arr[j][k];
+      for (let k = 0; k < d; k++) o[k] /= n;
+      return o;
+    });
+  const C = smooth(chroma, 12);
+  const T = smooth(timbre, 6);
+  const centre = (arr: Float64Array[], d: number) => {
+    const m = new Float64Array(d);
+    for (const v of arr) for (let k = 0; k < d; k++) m[k] += v[k] / arr.length;
+    for (const v of arr) {
+      let n = 0;
+      for (let k = 0; k < d; k++) {
+        v[k] -= m[k];
+        n += v[k] * v[k];
+      }
+      n = Math.sqrt(n) || 1;
+      for (let k = 0; k < d; k++) v[k] /= n;
+    }
+  };
+  centre(C, 12);
+  centre(T, 6);
+  let eMean = 0;
+  for (let i = 0; i < S; i++) eMean += E2[i] / S;
+  let eVar = 0;
+  for (let i = 0; i < S; i++) eVar += (E2[i] - eMean) ** 2 / S;
+  const eSd = Math.sqrt(eVar) || 1;
+
+  const out: Float32Array[] = [];
+  for (let i = 0; i < S; i++) {
+    const v = new Float32Array(19);
+    for (let k = 0; k < 12; k++) v[k] = C[i][k] * 1.0;
+    for (let k = 0; k < 6; k++) v[12 + k] = T[i][k] * 0.8;
+    v[18] = Math.max(-2, Math.min(2, (E2[i] - eMean) / eSd)) * 0.3;
+    let n = 0;
+    for (let k = 0; k < 19; k++) n += v[k] * v[k];
+    n = Math.sqrt(n) || 1;
+    for (let k = 0; k < 19; k++) v[k] /= n;
+    out.push(v);
+  }
+  return out;
+}
+
+/** every 4th beat, starting on the beat with the heaviest low end (a good guess at the downbeat) */
+function downbeats(beats: number[], lowP: Float32Array, fr: number): number[] {
+  if (beats.length < 8) return beats;
+  const score = [0, 0, 0, 0];
+  beats.forEach((t, k) => {
+    const f = Math.round(t * fr);
+    let m = 0;
+    for (let j = Math.max(0, f - 2); j <= Math.min(lowP.length - 1, f + 2); j++) m = Math.max(m, lowP[j]);
+    score[k % 4] += m;
+  });
+  const phase = score.indexOf(Math.max(...score));
+  return beats.filter((_, k) => k % 4 === phase);
+}
+
 function findSections(
   E2: Float32Array,
   L2: Float32Array,
@@ -624,21 +754,56 @@ function findSections(
   R: number,
   duration: number,
   beats: number[],
+  bars: number[],
   drops: number[],
+  feats: Float32Array[],
 ): TrackSection[] {
   const S = E2.length;
   if (duration < 20 || S < 24) {
-    return [{ start: 0, end: duration, energy: round3(meanRange(E2, 0, S)), label: 'verse' }];
+    return [{ start: 0, end: duration, energy: round3(meanRange(E2, 0, S)), label: 'verse', group: 0 }];
   }
-  // novelty: difference of means across a sliding split
+
+  // self-similarity: how alike every half-second is to every other
+  const M = new Float32Array(S * S);
+  for (let i = 0; i < S; i++) {
+    M[i * S + i] = 1;
+    for (let j = i + 1; j < S; j++) {
+      let d = 0;
+      const a = feats[i];
+      const b = feats[j];
+      for (let k = 0; k < a.length; k++) d += a[k] * b[k];
+      M[i * S + j] = M[j * S + i] = d;
+    }
+  }
+
+  // novelty 1: where the sound changes (checkerboard kernel slid along the diagonal)
+  const K = 12;
+  const foote = new Float32Array(S);
+  for (let i = K; i < S - K; i++) {
+    let v = 0;
+    for (let u = -K; u < K; u++) {
+      for (let w = -K; w < K; w++) {
+        const g = Math.exp(-4 * (((u + 0.5) / K) ** 2 + ((w + 0.5) / K) ** 2));
+        const sign = u < 0 === w < 0 ? 1 : -1;
+        v += sign * g * M[(i + u) * S + (i + w)];
+      }
+    }
+    foote[i] = Math.max(0, v);
+  }
+  // novelty 2: where the energy steps up or down
   const W = 6 * R;
-  const nov = new Float32Array(S);
+  const enov = new Float32Array(S);
   for (let i = W; i < S - W; i++) {
-    nov[i] =
+    enov[i] =
       Math.abs(meanRange(E2, i, i + W) - meanRange(E2, i - W, i)) +
       0.5 * Math.abs(meanRange(L2, i, i + W) - meanRange(L2, i - W, i)) +
       0.5 * Math.abs(meanRange(H2, i, i + W) - meanRange(H2, i - W, i));
   }
+  const fMax = percentile(foote, 0.98) || 1;
+  const eMax = percentile(enov, 0.98) || 1;
+  const nov = new Float32Array(S);
+  for (let i = 0; i < S; i++) nov[i] = 0.6 * Math.min(1.2, foote[i] / fMax) + 0.4 * Math.min(1.2, enov[i] / eMax);
+
   let m = 0;
   let s2 = 0;
   let cnt = 0;
@@ -649,10 +814,10 @@ function findSections(
   }
   m /= Math.max(1, cnt);
   const sd = Math.sqrt(Math.max(0, s2 / Math.max(1, cnt) - m * m));
-  const thr = m + 0.5 * sd;
+  const thr = m + 0.4 * sd;
   const peaks: { t: number; v: number }[] = [];
   const nb = 4 * R;
-  for (let i = W; i < S - W; i++) {
+  for (let i = Math.min(W, K); i < S - Math.min(W, K); i++) {
     if (nov[i] < thr) continue;
     let isMax = true;
     for (let j = Math.max(0, i - nb); j <= Math.min(S - 1, i + nb); j++) {
@@ -663,55 +828,111 @@ function findSections(
     }
     if (isMax) peaks.push({ t: i / R, v: nov[i] });
   }
-  // drops are always boundaries
-  for (const d of drops) if (!peaks.some((p) => Math.abs(p.t - d) < 4)) peaks.push({ t: d, v: Infinity });
+  // drops are always boundaries, exactly on the drop
+  for (const d of drops) {
+    for (let k = peaks.length - 1; k >= 0; k--) if (Math.abs(peaks[k].t - d) < 4) peaks.splice(k, 1);
+    peaks.push({ t: d, v: Infinity });
+  }
   peaks.sort((a, b) => b.v - a.v);
   const chosen: number[] = [];
-  const maxSections = Math.max(2, Math.min(14, Math.round(duration / 14)));
+  const maxSections = Math.max(2, Math.min(16, Math.round(duration / 12)));
   for (const p of peaks) {
     if (chosen.length >= maxSections - 1) break;
     if (p.t < 6 || p.t > duration - 6) continue;
     if (chosen.every((c) => Math.abs(c - p.t) >= 8)) chosen.push(p.t);
   }
-  const bounds = [0, ...chosen.map((t) => snapToBeat(t, beats, 0.35)).sort((a, b) => a - b), duration];
+  // land boundaries on bar lines (drops stay on their beat)
+  const barLen = beats.length > 1 ? (beats[beats.length - 1] - beats[0]) / (beats.length - 1) : 0.5;
+  const snapped = chosen.map((t) => (drops.some((d) => Math.abs(d - t) < 0.01) ? t : snapToBeat(snapToBeat(t, bars, barLen * 2.1), beats, 0.35)));
+  const bounds = [0, ...[...new Set(snapped)].sort((a, b) => a - b), duration];
 
-  const raw = [] as { start: number; end: number; energy: number; slope: number }[];
+  const raw = [] as { start: number; end: number; energy: number; slope: number; a: number; b: number }[];
   for (let i = 0; i < bounds.length - 1; i++) {
-    const a = bounds[i] * R;
-    const b = bounds[i + 1] * R;
+    const a = Math.round(bounds[i] * R);
+    const b = Math.max(a + 1, Math.round(bounds[i + 1] * R));
     const len = Math.max(1, b - a);
     raw.push({
       start: bounds[i],
       end: bounds[i + 1],
       energy: meanRange(E2, a, b),
       slope: meanRange(E2, b - len / 4, b) - meanRange(E2, a, a + len / 4),
+      a,
+      b: Math.min(S, b),
     });
   }
-  let eMin = Infinity;
-  let eMax = -Infinity;
+
+  // group sections that sound alike (a chorus that comes back joins its first appearance)
+  const block = (p: (typeof raw)[number], q: (typeof raw)[number]) => {
+    let v = 0;
+    let n = 0;
+    for (let i = p.a; i < p.b; i++) for (let j = q.a; j < q.b; j++, n++) v += M[i * S + j];
+    return n ? v / n : 0;
+  };
+  const self = raw.map((r) => Math.max(0.05, block(r, r)));
+  const sim = (i: number, j: number) => block(raw[i], raw[j]) / Math.sqrt(self[i] * self[j]);
+  const groups: number[][] = [];
+  const groupOf: number[] = [];
+  raw.forEach((r, i) => {
+    let best = -1;
+    let bestV = -Infinity;
+    groups.forEach((g, gi) => {
+      const v = g.reduce((acc, j) => acc + sim(i, j), 0) / g.length;
+      const eGap = Math.abs(r.energy - g.reduce((acc, j) => acc + raw[j].energy, 0) / g.length);
+      if (eGap < 0.22 && v > bestV) {
+        bestV = v;
+        best = gi;
+      }
+    });
+    if (best >= 0 && bestV >= 0.55) {
+      groups[best].push(i);
+      groupOf.push(best);
+    } else {
+      groups.push([i]);
+      groupOf.push(groups.length - 1);
+    }
+  });
+
+  let eLo = Infinity;
+  let eHi = -Infinity;
   for (const r of raw) {
-    eMin = Math.min(eMin, r.energy);
-    eMax = Math.max(eMax, r.energy);
+    eLo = Math.min(eLo, r.energy);
+    eHi = Math.max(eHi, r.energy);
   }
-  const span = Math.max(0.08, eMax - eMin);
+  const span = Math.max(0.08, eHi - eLo);
   const n = raw.length;
-  const out: TrackSection[] = raw.map((r, i) => {
-    const rel = (r.energy - eMin) / span;
+  const labels: TrackSection['label'][] = raw.map((r, i) => {
+    const rel = (r.energy - eLo) / span;
     const next = raw[i + 1];
     const startsAtDrop = drops.some((d) => Math.abs(d - r.start) < 2.5);
     const nextIsDrop = next ? drops.some((d) => Math.abs(d - next.start) < 2.5) : false;
-    let label: TrackSection['label'];
-    if (startsAtDrop && rel > 0.45) label = 'drop';
-    else if (i === 0 && rel < 0.5 && n > 2) label = 'intro';
-    else if (i === n - 1 && rel < 0.5 && n > 2) label = 'outro';
-    else if (nextIsDrop && (r.slope > 0.03 || rel < 0.7)) label = 'build';
-    else if (rel >= 0.75) label = 'drop';
-    else if (r.slope > 0.12 && next && next.energy > r.energy) label = 'build';
-    else if (rel < 0.3) label = 'break';
-    else label = 'verse';
-    return { start: round3(r.start), end: round3(r.end), energy: round3(r.energy), label };
+    if (startsAtDrop && rel > 0.45) return 'drop';
+    if (i === 0 && rel < 0.5 && n > 2) return 'intro';
+    if (i === n - 1 && rel < 0.5 && n > 2) return 'outro';
+    if (nextIsDrop && (r.slope > 0.03 || rel < 0.7)) return 'build';
+    if (rel >= 0.75) return 'drop';
+    if (r.slope > 0.12 && next && next.energy > r.energy) return 'build';
+    if (rel < 0.3) return 'break';
+    return 'verse';
   });
-  return out;
+
+  // songs without drops: the loudest part that comes back is the chorus, a one-off later on is a bridge
+  if (!drops.length) {
+    const groupEnergy = groups.map((g) => g.reduce((acc, j) => acc + raw[j].energy, 0) / g.length);
+    const recurring = groups.map((g, gi) => ({ gi, g })).filter(({ g }) => g.length >= 2);
+    const chorus = recurring.sort((p, q) => groupEnergy[q.gi] - groupEnergy[p.gi])[0];
+    // it's only a chorus if something else in the body of the song sounds different
+    const bodyGroups = new Set(raw.map((_, i) => i).filter((i) => labels[i] === 'verse' || labels[i] === 'drop').map((i) => groupOf[i]));
+    if (chorus && bodyGroups.size >= 2 && (groupEnergy[chorus.gi] - eLo) / span > 0.45) {
+      for (const j of chorus.g) if (labels[j] === 'verse' || labels[j] === 'drop') labels[j] = 'chorus';
+    }
+    const firstChorus = labels.indexOf('chorus');
+    labels.forEach((l, i) => {
+      if (l === 'drop') labels[i] = firstChorus >= 0 ? 'chorus' : 'verse';
+      else if (l === 'verse' && firstChorus >= 0 && i > firstChorus && i < n - 1 && groups[groupOf[i]].length === 1) labels[i] = 'bridge';
+    });
+  }
+
+  return raw.map((r, i) => ({ start: round3(r.start), end: round3(r.end), energy: round3(r.energy), label: labels[i], group: groupOf[i] }));
 }
 
 /* ───────────────────────── tags / genres ───────────────────────── */

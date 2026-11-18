@@ -13,7 +13,7 @@ POST /api/director                    server/vitePlugin.ts (dev) · api/director
 handleDirector(body, ip)              server/director.ts
        │  access code → rate limit → caps (prompt ≤ 600 chars, catalog ≤ 20 kB)
        ▼
-Claude Messages API (plain fetch)     one tool per mode: make_preset | write_shader
+Claude Messages API (plain fetch)     one tool per mode: make_preset | write_shader | plan_video
        ▼
 { preset | shader, note, source: 'claude' }
        ▼
@@ -23,6 +23,7 @@ validatePreset / validateShader       clamp numbers to ranges, drop unknown ids,
 
 - **Preset mode.** The system prompt is an art-director persona. It covers how music maps to visuals and what each layer means (sub is the low end you feel, kick/snare/hat are hit envelopes, energy/build/drop shape whole sections), plus the house taste and the catalog. Claude answers through the `make_preset` tool.
 - **Shader mode.** Same persona, plus `SHADER_AUTHORING_GUIDE` (`src/scenes/shader/guide.ts`). Claude answers through `write_shader`. The client returns a `CustomShaderSpec`, which the app compiles with `makeCustomShaderScene(spec)` and registers with `registerScene`. If WebGL fails to compile it, show the error and offer a retry.
+- **Plan mode.** For *Make a video*. The request carries the song's sections (label, group, time, energy) and the looks to choose from; a short director-of-music-videos prompt asks for one look per section through `plan_video` (same group → same look, contrast between verse and chorus, the strongest look on drops). `requestPlan()` keeps only known look ids, and `makeVideo()` (`src/state/plan.ts`) fills any gaps from the offline `localPlan()`, which is also used when Claude isn't reachable.
 - **Structured output.** The current models (Sonnet 5.5, Opus 5.5) reject forced `tool_choice`. So the request offers exactly one tool with `tool_choice: auto` and tells Claude to call it. If no call comes back, the server asks once more.
 - **Refusals.** With `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-fable-5-x`, the server sends `fallbacks: "default"` with the `server-side-fallback-2026-07-01` beta. A safety decline is then retried on a fallback model inside the same call.
 - **Offline fallback.** `direct()` never throws for server trouble. It switches to `localDirect()` (keyword and mood heuristics, seeded from the prompt) on 501 (no key), 429 (rate limit), 403 (access code), network errors or output that fails validation. The reason goes at the start of `note`, and the response has `source: 'local'`. In offline shader mode, a built-in GLSL template is adapted to the prompt.

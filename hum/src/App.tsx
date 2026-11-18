@@ -12,6 +12,8 @@ import { Camera, Expand, Mic, Rec, Shuffle, Upload, X } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
+import { PeekWindow } from './ui/Peek';
+import { pickLook } from './state/plan';
 import { StageView } from './ui/StageView';
 
 const recorder = new Recorder();
@@ -48,7 +50,7 @@ export default function App() {
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
         const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + PRESETS.length) % PRESETS.length;
-        if (PRESETS[j]) s.applyPreset(PRESETS[j]);
+        if (PRESETS[j]) pickLook(PRESETS[j]);
       } else if (e.key === '/') {
         e.preventDefault();
         s.set({ directorOpen: true });
@@ -87,6 +89,7 @@ export default function App() {
     >
       <Topbar />
       <Library />
+      <PeekWindow />
       <main className="center">
         <StageView />
         <Bottom />
@@ -108,7 +111,7 @@ export default function App() {
 function shuffle() {
   const s = useStudio.getState();
   const pool = PRESETS.filter((p) => p.id !== s.presetId);
-  if (pool.length) s.applyPreset(pool[Math.floor(Math.random() * pool.length)]);
+  if (pool.length) pickLook(pool[Math.floor(Math.random() * pool.length)]);
 }
 
 function Topbar() {

@@ -296,6 +296,11 @@ export class AudioEngine {
     return this.kind === 'mic' || (this.kind === 'file' && !this.el.paused);
   }
 
+  /** the player's position right now (frame.time is only as fresh as the last rendered frame) */
+  get currentTime() {
+    return this.kind === 'file' ? this.el.currentTime : this.frame.time;
+  }
+
   private resetState(full = true) {
     Object.values(this.onsets).forEach((o) => o.reset());
     this.onsetTimes = [];

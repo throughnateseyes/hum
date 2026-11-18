@@ -466,3 +466,68 @@ export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Pr
   if (warnings.length && import.meta.env?.DEV) console.info('[director] sanitised:', warnings);
   return { preset, note, source: 'claude', via };
 }
+
+/* ───────────────────────── video plan ───────────────────────── */
+
+export interface PlanRequest {
+  wish?: string;
+  track: DirectorRequest['track'];
+  sections: { label: string; group: number; start: number; end: number; energy: number }[];
+  looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
+}
+export type PlanReply =
+  | { ok: true; title: string; note: string; looks: (string | null)[]; why: string[]; via: 'api' | 'subscription' }
+  | { ok: false; reason: string };
+
+/**
+ * Ask Claude for a look per section. Never throws for server trouble: returns { ok: false, reason }
+ * so the caller can use the offline plan. Unknown look ids and missing sections come back as null.
+ */
+export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): Promise<PlanReply> {
+  let res: Response;
+  try {
+    res = await fetch(opts.endpoint ?? '/api/director', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'plan', prompt: req.wish ?? '', track: req.track, sections: req.sections, looks: req.looks, accessCode: opts.accessCode }),
+      signal: opts.signal,
+    });
+  } catch (err) {
+    if (opts.signal?.aborted) throw err;
+    return { ok: false, reason: 'Couldn’t reach the AI director (offline?).' };
+  }
+  let json: unknown = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+  const serverNote = isObj(json) ? str(json.note ?? json.error, 200) : '';
+  if (!res.ok) {
+    if (res.status === 501) return { ok: false, reason: 'No Claude connection is set up.' };
+    if (res.status === 429) return { ok: false, reason: serverNote || 'The AI director is rate limited right now.' };
+    if (res.status === 403) return { ok: false, reason: 'The AI director needs a valid access code.' };
+    return { ok: false, reason: `AI director error (${res.status}${serverNote ? `: ${serverNote}` : ''}).` };
+  }
+  if (!isObj(json) || !isObj(json.plan) || !Array.isArray(json.plan.sections)) return { ok: false, reason: 'The AI director sent an unreadable plan.' };
+  const known = new Set(req.looks.map((l) => l.id));
+  const looks: (string | null)[] = req.sections.map(() => null);
+  const why: string[] = req.sections.map(() => '');
+  for (const e of json.plan.sections) {
+    if (!isObj(e)) continue;
+    const i = toNum(e.index);
+    const id = str(e.lookId, 60);
+    if (i === null || i < 0 || i >= looks.length || !Number.isInteger(i) || !known.has(id)) continue;
+    looks[i] = id;
+    why[i] = str(e.why, 120);
+  }
+  if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
+  return {
+    ok: true,
+    title: str(json.plan.title, 60) || 'Your video',
+    note: str(json.note, 400),
+    looks,
+    why,
+    via: json.via === 'subscription' ? 'subscription' : 'api',
+  };
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { direct } from '../director/client';
 import { lookToPreset } from '../presets/apply';
 import { getScene } from '../scenes';
+import { pickLook, pickScene } from '../state/plan';
 import { useStudio, type ChatMsg } from '../state/store';
 import { Arrow, Chevron, Redo, Sparkle, Trash } from './Icons';
 
@@ -84,12 +85,12 @@ export function DirectorPanel() {
       const st = useStudio.getState();
       if (res.shader) {
         st.addCustomShader(res.shader);
-        st.setScene(res.shader.id);
+        pickScene(res.shader.id);
         st.pushChat({ role: 'director', text: res.note, mode, shaderId: res.shader.id, title: res.shader.name, source: res.source, via: res.via });
       } else if (res.preset) {
         const preset = { ...res.preset, custom: true };
         st.addCustomPreset(preset);
-        st.applyPreset(preset);
+        pickLook(preset);
         st.pushChat({ role: 'director', text: res.note, mode, presetId: preset.id, title: preset.name, source: res.source, via: res.via });
       } else {
         st.pushChat({ role: 'director', text: res.note || 'Nothing came back.', mode, error: true });
@@ -231,9 +232,8 @@ function BotMsg({ m }: { m: ChatMsg }) {
   const active = (m.presetId && presetId === m.presetId) || (m.shaderId && sceneId === m.shaderId && !presetId);
   const canApply = !active && (preset || (m.shaderId && getScene(m.shaderId)));
   const apply = () => {
-    const s = useStudio.getState();
-    if (preset) s.applyPreset(preset);
-    else if (m.shaderId) s.setScene(m.shaderId);
+    if (preset) pickLook(preset);
+    else if (m.shaderId) pickScene(m.shaderId);
   };
   return (
     <div className={`msg bot ${m.error ? 'err' : ''}`}>

@@ -22,7 +22,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Drop photos** anywhere — photo scenes and the instrument boards dissolve, mosh and rebuild them
   (a new photo every 4 bars).
 - **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any
-  look or scene to preview it live on the stage with your track; click to keep it.
+  look or scene to preview it live in a small window beside the list; click to use it.
+- **Song map** (under the timeline): the song's parts (intro, verse, chorus, bridge, build, drop,
+  break, outro). Parts that sound alike share a colour, so a returning chorus is easy to spot.
+  **Make a video** asks Claude to give every part a look (offline plan if Claude isn't reachable) and
+  plays the song from the top. While **Follow** is on, looks change at each part: dissolves into
+  calm parts, hard cuts on drops and choruses. To edit, drag a look onto a part (hold ⌥ to change
+  only that one), or pick a look while a part plays. Picking a scene pauses the song map.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -44,7 +50,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 ```
 audio file / mic
   → AudioEngine (src/audio/engine.ts)      real-time: 6 bands, onset envelopes, beat phase, energy, build, drop
-  → analyzeTrack (src/audio/analysis*.ts)  offline worker: bpm, sections, drops, mood, tags, preset ranking
+  → analyzeTrack (src/audio/analysis*.ts)  offline worker: bpm, sections (harmony/timbre self-similarity,
+                                           bar-aligned, repeats grouped), drops, mood, tags, preset ranking
+  → video plan (src/state/plan.ts)         a look per section; switches looks along the song
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)

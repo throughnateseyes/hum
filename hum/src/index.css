@@ -374,10 +374,6 @@ button {
 .card.on {
   background: var(--sel);
 }
-.card.previewing {
-  background: var(--panel-2);
-  box-shadow: inset 0 0 0 1px var(--line-2);
-}
 .card .thumb {
   width: 40px;
   height: 40px;
@@ -1504,4 +1500,159 @@ textarea.txt {
   .split-handle {
     display: none;
   }
+}
+
+/* hover preview: a small live window beside the library */
+.peek {
+  position: fixed;
+  z-index: 60;
+  width: 256px;
+  background: var(--panel);
+  border-radius: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.07),
+    0 10px 30px rgba(0, 0, 0, 0.16);
+  animation: peek-in 0.14s ease-out;
+}
+.peek canvas {
+  display: block;
+  background: #111 center / cover no-repeat;
+}
+.peek-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 10px 9px;
+}
+.peek-cap b {
+  font-weight: 550;
+  font-size: 12px;
+}
+.peek-cap span {
+  color: var(--ink-3, var(--ink-2));
+  font-size: 11px;
+}
+@keyframes peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.98);
+  }
+}
+
+/* ───────── song map (second row of the transport grid) ───────── */
+.sm-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.sm-make {
+  flex: none;
+  height: 30px;
+  padding: 0 11px;
+}
+.songmap {
+  flex: 1 1 auto;
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 38px;
+  min-width: 0;
+}
+.sm-sec {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 7px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  overflow: hidden;
+  color: var(--ink);
+  opacity: 0.78;
+  transition: opacity 0.15s, box-shadow 0.15s;
+}
+.sm-sec:hover,
+.sm-sec.now {
+  opacity: 1;
+}
+.sm-sec.now {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.sm-sec.over {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px var(--accent, #2f4bff);
+}
+.sm-sec.narrow {
+  padding: 0;
+}
+.sm-sec img,
+.sm-swatch {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  object-fit: cover;
+  display: block;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.sm-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.sm-txt b,
+.sm-txt em {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sm-txt b {
+  font-weight: 550;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+.sm-txt b::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin: 0 5px 1px 2px;
+  background: var(--g, #77756e);
+  vertical-align: middle;
+}
+.sm-txt em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.sm-head {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1.5px;
+  margin-left: -0.75px;
+  background: #ff3b30;
+  pointer-events: none;
+}
+.sm-follow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-weight: 500;
+  cursor: pointer;
+}
+.sm-hint {
+  color: var(--ink-3);
+  font-weight: 400;
 }
