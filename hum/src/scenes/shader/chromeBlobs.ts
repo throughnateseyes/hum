@@ -1,5 +1,5 @@
 import type { ClockDef } from './lib';
-import { HM_LIB, defineClockedShaderScene, kickCountClock, speedClock } from './lib';
+import { HM_LIB, defineClockedShaderScene, kickCountClock, sinceKickClock, speedClock } from './lib';
 
 const fragment = /* glsl */ `
 ${HM_LIB}
@@ -7,6 +7,14 @@ vec3 gB[6];
 float gR[6];
 vec4 gD[3];
 float gK;
+float gRipA;   // kick ripple amplitude
+float gRipT;   // seconds since the kick
+float gTrem;   // build tremble amplitude
+vec3 gCen;     // cluster centre (ripples radiate from it)
+
+// 0 → ~1 in ~0.15 s after a drop, then a slow ~1.5 s fall
+float cbBurst(float s) { return clamp((1.0 - exp(-s * 16.0)) * exp(-s * 1.5) * 1.35, 0.0, 1.0); }
+float cbBand(float x) { return (spectrum(x - 0.03) + spectrum(x) + spectrum(x + 0.03)) / 3.0; }
 
 float hmSmin(float a, float b, float k) {
   float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
@@ -22,6 +30,14 @@ float mapBlobs(vec3 p) {
   for (int j = 0; j < 3; j++) {
     if (gD[j].w > 0.002) d = hmSmin(d, length(p - gD[j].xyz) - gD[j].w, gK * 0.6);
   }
+  // kick: a ring of ripples runs across the skin, out from the cluster centre
+  if (gRipA > 0.001) {
+    float rr = length(p - gCen);
+    float x = rr - gRipT * 2.2;
+    d += gRipA * sin(x * 18.0) * exp(-x * x * 9.0);
+  }
+  // build: a fine, nervous tremble on the surface
+  if (gTrem > 0.001) d += gTrem * sin(p.x * 31.0 + uTime * 23.0) * sin(p.y * 29.0 - uTime * 19.0) * sin(p.z * 27.0 + uTime * 17.0);
   return d;
 }
 
@@ -53,17 +69,34 @@ void main() {
   vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
   float t = u_clk;
 
-  // sub swells and merges the blobs
-  float swell = 1.0 + 0.35 * uSub * u_swell + 0.12 * uBass + 0.06 * uKick;
-  gK = u_merge * (0.25 + 0.45 * uSub * u_swell);
+  float burst = u_burst * cbBurst(u_sinceDrop);
+  float tens = clamp(uBuild * u_tension, 0.0, 1.0);
+  float kick = uKick * u_punch;
+
+  // sub swells and merges the blobs; kicks punch them fat and shove them apart (they snap back
+  // together through the smooth-min); build-ups squeeze them into one tight, merged knot;
+  // the drop shatters the cluster into separate beads that fly out, then re-gather
+  float swell = 1.0 + 0.35 * uSub * u_swell + 0.12 * uBass + 0.3 * kick;
+  gK = u_merge * (0.25 + 0.45 * uSub * u_swell + 0.35 * tens) * (1.0 - 0.85 * burst);
+  float spread = u_spread * (1.0 - 0.45 * tens) * (1.0 + 0.3 * kick + 1.3 * burst);
+  gCen = vec3(0.0);
   for (int i = 0; i < 6; i++) {
     float fi = float(i);
     vec3 h = vec3(hash11(fi * 1.7 + 0.3), hash11(fi * 2.9 + 1.1), hash11(fi * 4.3 + 2.7));
     gB[i] = vec3(sin(t * (0.5 + h.x * 0.6) + h.y * TAU) * 0.75,
                  cos(t * (0.4 + h.y * 0.5) + h.z * TAU) * 0.45,
-                 sin(t * (0.3 + h.z * 0.4) + h.x * TAU) * 0.4) * u_spread;
-    gR[i] = (0.28 + 0.16 * h.z) * u_size * swell;
+                 sin(t * (0.3 + h.z * 0.4) + h.x * TAU) * 0.4) * spread;
+    gB[i].y *= 1.0 - 0.35 * uSnare * u_punch; // snare: the cluster squashes flat for a moment
+    // each blob swells with its own slice of the spectrum (low → high, highs boosted)
+    float bx = 0.05 + 0.75 * fi / 5.0;
+    float band = cbBand(bx) * (1.0 + 1.2 * bx);
+    gR[i] = (0.28 + 0.16 * h.z) * u_size * swell * (1.0 + u_bands * 0.55 * band) * (1.0 - 0.15 * tens) * (1.0 - 0.35 * burst);
+    if (float(i) < u_count) gCen += gB[i];
   }
+  gCen /= max(u_count, 1.0);
+  gRipA = 0.024 * u_ripple * u_kickAmp * exp(-u_sinceKick * 3.0);
+  gRipT = u_sinceKick;
+  gTrem = 0.006 * tens;
   // kick droplets: three slots, each launched by one of the last three kicks
   for (int j = 0; j < 3; j++) {
     float age = u_age0;
@@ -75,7 +108,7 @@ void main() {
                               (hash11(seed * 7.3 + 0.9) - 0.5) * 0.6) + vec3(0.0001, 0.0, 0.0));
     float life = clamp(1.0 - age / 1.4, 0.0, 1.0);
     vec3 pos = dir * (0.35 + age * 1.6) * u_spread + vec3(0.0, -0.7 * age * age, 0.0);
-    gD[j] = vec4(pos, 0.14 * u_droplets * life * life);
+    gD[j] = vec4(pos, 0.14 * u_droplets * life * life * (1.0 + 0.6 * burst));
   }
 
   // camera, with a slow bar-locked orbit
@@ -88,11 +121,11 @@ void main() {
   float tt = 0.0;
   float minD = 10.0;
   bool hit = false;
-  for (int i = 0; i < 56; i++) {
+  for (int i = 0; i < 64; i++) {
     float d = mapBlobs(ro + rd * tt);
     minD = min(minD, d);
     if (d < 0.0015) { hit = true; break; }
-    tt += d * 0.9;
+    tt += d * 0.8;
     if (tt > 7.0) break;
   }
 
@@ -122,6 +155,20 @@ void main() {
 }
 `;
 
+/** Seconds since the drop fired (rising edge of the drop envelope). */
+const sinceDropClock: ClockDef = {
+  init: 100,
+  step: (v, f, _s, mem) => {
+    const d = f.audio.drop;
+    const fired = d > 0.6 && (mem.sdPrev ?? 0) <= 0.6;
+    mem.sdPrev = d;
+    return fired ? 0 : Math.min(v + f.dt, 100);
+  },
+};
+
+/** Strength of the last kick (already shaped by Impact), held until the next one. */
+const kickAmpClock: ClockDef = { step: (v, f) => (f.audio.kickHit ? f.audio.kick : v) };
+
 /** age of the droplet launched by the kick `slot` kicks ago */
 const ageClock = (from: string | null): ClockDef => ({
   init: 99,
@@ -133,7 +180,7 @@ export const chromeBlobs = defineClockedShaderScene(
     id: 'chrome-blobs',
     name: 'Chrome Blobs',
     description:
-      'Raymarched liquid-chrome metaballs reflecting a fake studio built from the palette. Sub swells and merges the blobs, every kick flings off a droplet that pinches away, a drop swirls the reflections.',
+      'Raymarched liquid-chrome metaballs reflecting a fake studio built from the palette. Sub swells and merges the blobs and each blob swells with its own frequency band; every kick puffs them up, shoves them apart, runs a ring of ripples across the chrome and flings off a droplet; build-ups squeeze them into one trembling knot; a drop shatters the cluster into flying beads and swirls the reflections.',
     category: 'field',
     fragment,
     tags: ['glossy', 'futuristic', 'playful', 'liquid', 'y2k', 'bouncy', 'heavy', 'sleek'],
@@ -142,8 +189,13 @@ export const chromeBlobs = defineClockedShaderScene(
       { id: 'size', label: 'Size', group: 'Shape', type: 'number', min: 0.5, max: 1.6, step: 0.01, default: 1 },
       { id: 'spread', label: 'Spread', group: 'Shape', type: 'number', min: 0.3, max: 1.5, step: 0.01, default: 1 },
       { id: 'merge', label: 'Merge', group: 'Shape', type: 'number', min: 0.1, max: 1.2, step: 0.01, default: 0.55 },
-      { id: 'swell', label: 'Sub swell', group: 'Motion', type: 'number', min: 0, max: 2, step: 0.01, default: 1 },
-      { id: 'droplets', label: 'Kick droplets', group: 'Motion', type: 'number', min: 0, max: 1.5, step: 0.01, default: 1 },
+      { id: 'swell', label: 'Sub swell', group: 'Reactivity', type: 'number', min: 0, max: 2, step: 0.01, default: 1 },
+      { id: 'droplets', label: 'Kick droplets', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 1 },
+      { id: 'punch', label: 'Kick punch', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 0.8, hint: 'Kicks puff the blobs up and shove them apart' },
+      { id: 'ripple', label: 'Kick ripple', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 0.8, hint: 'A ring of ripples runs across the chrome on each kick' },
+      { id: 'bands', label: 'Spectrum swell', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 0.7, hint: 'Each blob swells with its own frequency band' },
+      { id: 'burst', label: 'Drop shatter', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.8 },
+      { id: 'tension', label: 'Build tension', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.7, hint: 'Build-ups squeeze the blobs into one tight, trembling knot' },
       { id: 'speed', label: 'Speed', group: 'Motion', type: 'number', min: 0, max: 1.5, step: 0.01, default: 0.35 },
       { id: 'tint', label: 'Accent tint', group: 'Color', type: 'number', min: 0, max: 1, step: 0.01, default: 0.45 },
       { id: 'grain', label: 'Grain', group: 'Color', type: 'number', min: 0, max: 0.2, step: 0.005, default: 0.035 },
@@ -155,11 +207,14 @@ export const chromeBlobs = defineClockedShaderScene(
     ],
   },
   {
-    clk: speedClock('speed', 0.35, (f) => 0.6 + 0.8 * f.audio.energy + 0.4 * f.audio.bass),
+    clk: speedClock('speed', 0.35, (f) => 0.6 + 0.8 * f.audio.energy + 0.4 * f.audio.bass + 0.9 * f.audio.build),
     // stepped in this order so each slot inherits the previous slot's age on a kick
     age2: ageClock('age1'),
     age1: ageClock('age0'),
     age0: ageClock(null),
     kickN: kickCountClock,
+    sinceKick: sinceKickClock,
+    kickAmp: kickAmpClock,
+    sinceDrop: sinceDropClock,
   },
 );

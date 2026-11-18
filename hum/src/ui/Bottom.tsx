@@ -3,7 +3,7 @@ import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
 import { onFrame } from '../state/live';
 import { useStudio } from '../state/store';
-import { LAYER_MIME } from './controls';
+import { LAYER_MIME, Slider } from './controls';
 import { Pause, Play } from './Icons';
 
 const fmtTime = (t: number) => {
@@ -39,7 +39,7 @@ function Transport() {
         const f = audioEngine.frame;
         if (timeRef.current) {
           timeRef.current.textContent =
-            audioEngine.kind === 'mic' ? 'LIVE' : `${fmtTime(f.time)} / ${fmtTime(f.duration)}`;
+            audioEngine.kind === 'mic' ? 'Live' : `${fmtTime(f.time)} / ${fmtTime(f.duration)}`;
         }
         drawScrubber(canvas.current, analysis, f.time, f.duration);
       }),
@@ -73,21 +73,28 @@ function Transport() {
       </span>
       <div className="scrubber" onPointerDown={seek} onPointerMove={(e) => e.buttons & 1 && seek(e)}>
         <canvas ref={canvas} />
-        {!track && (
-          <span className="label" style={{ position: 'absolute', left: 12, top: 15 }}>
-            Drop a song anywhere · or pick a demo
-          </span>
-        )}
-        {analyzing && (
-          <span className="label" style={{ position: 'absolute', right: 10, top: 15, color: 'var(--accent)' }}>
-            listening…
-          </span>
-        )}
+        {!track && <span className="scrub-note">Drop a song anywhere, or pick a demo</span>}
+        {analyzing && <span className="scrub-note right">Listening…</span>}
       </div>
-      <span className="time">{analysis ? `${Math.round(analysis.bpm)} BPM` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} BPM` : '— BPM'}</span>
-      <button className="btn sm" onClick={onTap} title="Tap 4+ times to set the tempo">
+      <ImpactKnob />
+      <span className="time">{analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}</span>
+      <button className="btn sm has-tip tip-left" data-tip="Tap along 4+ times to set the tempo" onClick={onTap}>
         Tap
       </button>
+    </div>
+  );
+}
+
+function ImpactKnob() {
+  const impact = useStudio((s) => s.impact);
+  const set = useStudio((s) => s.set);
+  return (
+    <div className="impact has-tip" data-tip="How hard the visuals react to the music. 0% is still, 100% is normal, 200% is wild.">
+      <span className="impact-l">Impact</span>
+      <div className="impact-s">
+        <Slider value={impact} min={0} max={2} step={0.05} onChange={(v) => set({ impact: v })} />
+      </div>
+      <span className="impact-v">{Math.round(impact * 100)}%</span>
     </div>
   );
 }
@@ -125,8 +132,8 @@ function drawScrubber(c: HTMLCanvasElement | null, a: ReturnType<typeof useStudi
       g.globalAlpha = 1;
       if (x1 - x0 > 40) {
         g.fillStyle = '#98958c';
-        g.font = '9px "IBM Plex Mono", monospace';
-        g.fillText(s.label.toUpperCase(), x0 + 4, 10);
+        g.font = '500 10px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+        g.fillText(s.label[0].toUpperCase() + s.label.slice(1), x0 + 5, 12);
       }
     }
     // waveform overview
@@ -214,7 +221,7 @@ function LayerStrip() {
             e.dataTransfer.setData(LAYER_MIME, l.id);
             e.dataTransfer.effectAllowed = 'link';
           }}
-          title={`${l.label} — ${l.hint}. Drag onto a slider to route it.`}
+          title={`${l.label}: ${l.hint}. Drag onto a slider to route it.`}
         >
           <div className="fill" style={{ height: '100%', transform: 'scaleY(0)' }} />
           <div className="bar" style={{ bottom: 0 }} />

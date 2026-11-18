@@ -7,6 +7,8 @@
  *   plugins: [react(), directorDevPlugin()]
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadEnv, type Plugin } from 'vite';
 import { cliBackend } from './cliDirector';
 import { handleDirector, type DirectorEnv, type LocalBackend } from './director';
@@ -55,6 +57,24 @@ export function directorDevPlugin(options: { path?: string } = {}): Plugin {
       config.logger.info(`  hum director → ${mode}`);
     },
     configureServer(server) {
+      // dev-only: save a look thumbnail captured in the browser (see src/dev/thumbs.ts)
+      server.middlewares.use('/__hum/thumb', (req, res) => {
+        const id = new URL(req.url ?? '', 'http://x').searchParams.get('id') ?? '';
+        if (req.method !== 'POST' || !/^[a-z0-9-]{1,48}$/.test(id)) {
+          send(res, 400, { error: 'bad_request' });
+          return;
+        }
+        void readBody(req)
+          .then((dataUrl) => {
+            const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl.trim());
+            if (!m) throw new Error('not a jpeg data url');
+            const dir = join(server.config.root, 'src/assets/thumbs');
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, `${id}.jpg`), Buffer.from(m[1], 'base64'));
+            send(res, 200, { ok: true });
+          })
+          .catch((e) => send(res, 400, { error: String(e) }));
+      });
       server.middlewares.use(route, (req, res) => {
         if (req.method !== 'POST') {
           res.setHeader('allow', 'POST');

@@ -9,6 +9,7 @@ import { handleFiles, loadDemo, useMic } from './state/tracks';
 import { Recorder, download } from './render/recorder';
 import { Bottom } from './ui/Bottom';
 import { Camera, Expand, Mic, Rec, Shuffle, Upload, X } from './ui/Icons';
+import { DirectorPanel, focusDirector } from './ui/Director';
 import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
 import { StageView } from './ui/StageView';
@@ -48,6 +49,10 @@ export default function App() {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
         const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + PRESETS.length) % PRESETS.length;
         if (PRESETS[j]) s.applyPreset(PRESETS[j]);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        s.set({ directorOpen: true });
+        requestAnimationFrame(focusDirector);
       } else if (e.key === 'r' && !e.metaKey) {
         shuffle();
       }
@@ -86,7 +91,10 @@ export default function App() {
         <StageView />
         <Bottom />
       </main>
-      <Inspector />
+      <div className="right">
+        <Inspector />
+        <DirectorPanel />
+      </div>
       {perform && (
         <button className="btn perform-exit" onClick={() => useStudio.getState().set({ perform: false })}>
           <X width={13} height={13} /> Exit (esc)
@@ -139,15 +147,15 @@ function Topbar() {
     <header className="topbar">
       <div className="brand">
         <span className="brand-mark" />
-        hum <small>sound → sight</small>
+        hum
       </div>
       {track ? (
         <div className="trackpill">
-          <span className="dot">{track.source === 'mic' ? <Mic width={11} height={11} /> : <span style={{ fontSize: 9 }}>♪</span>}</span>
+          <span className="dot">{track.source === 'mic' ? <Mic width={10} height={10} /> : <span style={{ fontSize: 8 }}>♪</span>}</span>
           <span className="name">{track.name}</span>
           {analysis && (
             <span className="meta">
-              {Math.round(analysis.bpm)} bpm · {analysis.tags.slice(0, 3).join(' · ')}
+              {Math.round(analysis.bpm)} bpm · {analysis.tags.slice(0, 3).join(', ')}
             </span>
           )}
         </div>
@@ -164,11 +172,11 @@ function Topbar() {
           </button>
         ))}
       </div>
-      <button className="btn icon ghost" title="Open audio or photos" onClick={() => input.current?.click()}>
-        <Upload />
+      <button className="btn icon ghost has-tip tip-below" data-tip="Open audio or photos" onClick={() => input.current?.click()}>
+        <Upload width={15} height={15} />
       </button>
-      <button className="btn icon ghost" title="Microphone" onClick={() => void useMic()}>
-        <Mic />
+      <button className="btn icon ghost has-tip tip-below" data-tip="Listen to the microphone" onClick={() => void useMic()}>
+        <Mic width={15} height={15} />
       </button>
       <input
         ref={input}
@@ -182,18 +190,18 @@ function Topbar() {
         }}
       />
       <div className="spacer" />
-      <button className="btn icon ghost" title="Shuffle look (R)" onClick={shuffle}>
-        <Shuffle />
+      <button className="btn icon ghost has-tip tip-below" data-tip="Shuffle look  R" onClick={shuffle}>
+        <Shuffle width={15} height={15} />
       </button>
-      <button className="btn icon ghost" title="Save still (PNG)" onClick={() => void still()}>
-        <Camera />
+      <button className="btn icon ghost has-tip tip-below" data-tip="Save a still image" onClick={() => void still()}>
+        <Camera width={15} height={15} />
       </button>
       <button className={`btn rec ${recording ? 'on' : ''}`} onClick={() => void toggleRec()} title="Record video with audio">
-        <Rec width={12} height={12} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
+        <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
         {recording ? 'Stop' : 'Record'}
       </button>
       <button className="btn primary" onClick={() => set({ perform: true })} title="Full-bleed perform mode (F)">
-        <Expand width={14} height={14} /> Perform
+        <Expand width={13} height={13} /> Perform
       </button>
     </header>
   );

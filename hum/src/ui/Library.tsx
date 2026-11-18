@@ -5,7 +5,7 @@ import { allScenes, getScene } from '../scenes';
 import { live } from '../state/live';
 import { useStudio } from '../state/store';
 import { handleFiles } from '../state/tracks';
-import { Plus, X } from './Icons';
+import { Cube, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 
 type Tab = 'looks' | 'scenes' | 'photos';
 
@@ -26,20 +26,19 @@ function useThumb(id: string) {
 async function captureThumb(id: string) {
   const stage = live.stage;
   if (!stage || thumbs.has(id)) return;
-  const url = await stage.snapshot();
-  const img = new Image();
-  img.src = url;
-  await img.decode().catch(() => {});
-  const c = document.createElement('canvas');
-  c.width = c.height = 120;
-  const g = c.getContext('2d')!;
-  const s = Math.min(img.width, img.height);
-  g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 120, 120);
-  thumbs.set(id, c.toDataURL('image/jpeg', 0.8));
+  thumbs.set(id, stage.capture(120, 120).toDataURL('image/jpeg', 0.8));
   thumbListeners.forEach((f) => f());
 }
 
-const CAT_GLYPH: Record<SceneCategory, string> = { form: '3D', field: 'GL', photo: 'PH', board: 'UI', code: 'AI' };
+const CAT_GLYPH: Record<SceneCategory, typeof Cube> = { form: Cube, field: Layers, photo: ImageIcon, board: Grid, code: Sparkle };
+const Glyph = ({ c }: { c: SceneCategory }) => {
+  const I = CAT_GLYPH[c];
+  return (
+    <span className="glyph">
+      <I width={14} height={14} />
+    </span>
+  );
+};
 const CAT_LABEL: Record<SceneCategory, string> = {
   board: 'Instrument boards',
   form: '3D forms',
@@ -48,8 +47,17 @@ const CAT_LABEL: Record<SceneCategory, string> = {
   code: 'Generated',
 };
 
+/* thumbnails rendered from each built-in look (src/dev/thumbs.ts makes them) */
+const STATIC_THUMBS: Record<string, string> = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('../assets/thumbs/*.jpg', { eager: true, import: 'default', query: '?url' })).map(([path, url]) => [
+    path.split('/').pop()!.replace(/\.jpg$/, ''),
+    url,
+  ]),
+);
+
 function Thumb({ p }: { p: Preset }) {
-  const url = useThumb(p.id);
+  const captured = useThumb(p.id);
+  const url = STATIC_THUMBS[p.id] ?? captured;
   if (url) return <img src={url} alt="" />;
   const cat = getScene(p.sceneId)?.category ?? 'field';
   const { bg, fg, accent, accent2 } = p.palette;
@@ -73,7 +81,7 @@ function Thumb({ p }: { p: Preset }) {
         </g>
       )}
       {cat === 'code' && (
-        <text x="27" y="32" textAnchor="middle" fontFamily="IBM Plex Mono" fontSize="12" fill={accent}>
+        <text x="27" y="32" textAnchor="middle" fontFamily="ui-monospace, monospace" fontSize="12" fill={accent}>
           {'{ }'}
         </text>
       )}
@@ -143,7 +151,7 @@ function Looks() {
       <div className="filter-row">
         {MOODS.map((m) => (
           <button key={m} className={`chip ${mood === m ? 'on' : ''}`} onClick={() => setMood(m)}>
-            {m}
+            {m[0].toUpperCase() + m.slice(1)}
           </button>
         ))}
       </div>
@@ -157,10 +165,9 @@ function Looks() {
               <div key={p.id} style={{ position: 'relative' }}>
                 <PresetCard p={p} on={presetId === p.id} onClick={() => applyPreset(p)} />
                 <button
-                  className="btn icon sm ghost"
-                  style={{ position: 'absolute', right: 4, bottom: 4 }}
+                  className="btn icon sm ghost card-del"
                   onClick={() => deleteCustomPreset(p.id)}
-                  title="Delete"
+                  title="Delete look"
                 >
                   <X width={12} height={12} />
                 </button>
@@ -182,9 +189,53 @@ function Looks() {
   );
 }
 
+let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+const HOVER_INTENT_MS = 260;
+
+/** hover to preview a scene on the stage, click to keep it */
+function hoverPreview(sceneId: string, pick: () => void) {
+  return {
+    onMouseEnter: () => {
+      clearTimeout(hoverTimer);
+      const s = useStudio.getState();
+      if (s.recording || (s.sceneId === sceneId && !s.previewId)) return;
+      hoverTimer = setTimeout(() => useStudio.getState().previewScene(sceneId), HOVER_INTENT_MS);
+    },
+    onMouseLeave: () => {
+      clearTimeout(hoverTimer);
+      useStudio.getState().endPreview(false);
+    },
+    onClick: () => {
+      clearTimeout(hoverTimer);
+      const s = useStudio.getState();
+      if (s.previewId === `scene:${sceneId}`) s.endPreview(true);
+      else pick();
+    },
+  };
+}
+
 function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; suggested?: boolean; onClick: () => void }) {
+  const previewing = useStudio((s) => s.previewId === p.id);
   return (
-    <button className={`card ${on ? 'on' : ''}`} onClick={onClick}>
+    <button
+      className={`card ${on && !previewing ? 'on' : ''} ${previewing ? 'previewing' : ''}`}
+      onMouseEnter={() => {
+        clearTimeout(hoverTimer);
+        const s = useStudio.getState();
+        if (s.recording || s.presetId === p.id) return;
+        hoverTimer = setTimeout(() => useStudio.getState().previewPreset(p), HOVER_INTENT_MS);
+      }}
+      onMouseLeave={() => {
+        clearTimeout(hoverTimer);
+        useStudio.getState().endPreview(false);
+      }}
+      onClick={() => {
+        clearTimeout(hoverTimer);
+        const s = useStudio.getState();
+        if (s.previewId === p.id) s.endPreview(true);
+        else onClick();
+      }}
+    >
       <div className="thumb">
         <Thumb p={p} />
       </div>
@@ -192,7 +243,7 @@ function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; sug
         <div className="title">{p.name}</div>
         <div className="desc">{p.description}</div>
       </div>
-      {suggested && <span className="suggested">fits</span>}
+      {suggested && <span className="suggested">Fits</span>}
     </button>
   );
 }
@@ -215,8 +266,8 @@ function Scenes() {
               <span className="label">{list.length}</span>
             </div>
             {list.map((s) => (
-              <button key={s.id} className={`scene-row ${sceneId === s.id ? 'on' : ''}`} onClick={() => setScene(s.id)}>
-                <span className="glyph">{CAT_GLYPH[s.category]}</span>
+              <button key={s.id} className={`scene-row ${sceneId === s.id ? 'on' : ''}`} {...hoverPreview(s.id, () => setScene(s.id))}>
+                <Glyph c={s.category} />
                 <span style={{ minWidth: 0 }}>
                   <div className="t">{s.name}</div>
                   <div className="d">{s.description}</div>
@@ -267,8 +318,8 @@ function Photos() {
         <span className="label">Photo scenes</span>
       </div>
       {photoScenes.map((s) => (
-        <button key={s.id} className="scene-row" onClick={() => setScene(s.id)}>
-          <span className="glyph">PH</span>
+        <button key={s.id} className="scene-row" {...hoverPreview(s.id, () => setScene(s.id))}>
+          <Glyph c="photo" />
           <span style={{ minWidth: 0 }}>
             <div className="t">{s.name}</div>
             <div className="d">{s.description}</div>

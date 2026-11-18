@@ -9,6 +9,8 @@ import { ParamControl, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
 import { readAccessCode } from './Director';
 
+const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director' };
+
 export function Inspector() {
   const tab = useStudio((s) => s.inspectorTab);
   const set = useStudio((s) => s.set);
@@ -52,16 +54,9 @@ function ScenePanel() {
   return (
     <>
       <div className="insp-head">
-        <div className="label">{def.category}</div>
+        <div className="eyebrow">{CAT_NAME[def.category] ?? def.category}</div>
         <h3>{def.name}</h3>
         <p>{def.description}</p>
-        <div className="tags">
-          {def.tags.slice(0, 6).map((t) => (
-            <span key={t} className="tag">
-              {t}
-            </span>
-          ))}
-        </div>
       </div>
       {shaderError && (
         <div className="group">
@@ -90,11 +85,7 @@ function ScenePanel() {
           ))}
         </div>
       ))}
-      <p className="label" style={{ textAlign: 'center', margin: '14px 0 0', lineHeight: 1.6 }}>
-        Drag a layer meter from the bottom strip
-        <br />
-        onto any slider to make it react
-      </p>
+      <p className="hint">Drag a meter from the strip under the stage onto any slider to make it move with that part of the music.</p>
       {spec && (
         <div className="group" style={{ marginTop: 14 }}>
           <div className="group-title">
@@ -132,20 +123,19 @@ function FxPanel() {
   return (
     <>
       <div className="section-h">
-        <span className="label">Stack · top runs first</span>
+        <span className="label">Applied top to bottom</span>
         <button className="btn sm" onClick={() => setAdding(!adding)}>
           <Plus width={13} height={13} /> Add
         </button>
       </div>
       {effects.length === 0 && !adding && <p style={{ color: 'var(--ink-3)' }}>No effects. The raw scene is showing.</p>}
-      {effects.map((e, i) => {
+      {effects.map((e) => {
         const def = getEffect(e.effectId);
         if (!def) return null;
         const isOpen = open === e.instanceId;
         return (
           <div key={e.instanceId} className={`fx-item ${e.enabled ? '' : 'off'}`}>
             <div className="fx-head">
-              <span className="idx">{String(i + 1).padStart(2, '0')}</span>
               <span className="n" onClick={() => setOpen(isOpen ? null : e.instanceId)}>
                 {def.name}
               </span>
@@ -266,7 +256,7 @@ function RoutingPanel() {
             >
               {LAYERS.map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.short}
+                  {l.label}
                 </option>
               ))}
             </select>
@@ -312,9 +302,6 @@ function RoutingPanel() {
         {LAYERS.map((l) => (
           <div key={l.id} className="kv" style={{ padding: '3px 0' }}>
             <span style={{ fontSize: 12 }}>
-              <span className="tag" style={{ marginRight: 6 }}>
-                {l.short}
-              </span>
               {l.label}
             </span>
             <span style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'right' }}>{l.hint}</span>

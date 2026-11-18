@@ -7,6 +7,9 @@ const N = 160_000;
 const FOV = 35;
 const CAM_Z = 5;
 const SAMPLE_SIDE = 512;
+const NSHOCK = 4;
+/** seconds a kick shockwave stays alive */
+const SHOCK_LIFE = 1.6;
 
 interface Sampled {
   /** u, v (0..1, v up), luminance, 0 — per point */
@@ -93,7 +96,10 @@ attribute vec4 aB;
 attribute vec3 aColB;
 uniform float uTime, uMorph, uScatter, uDust, uSlice, uSliceSeed, uBands, uDepth;
 uniform float uBass, uKick, uDrift, uSize, uScale, uInk, uColorMode, uGlow;
-uniform vec2 uHalfA, uHalfB;
+uniform float uErode, uTension, uBuild, uLevel;
+uniform vec4 uShock[${NSHOCK}]; // xy = origin (world units), z = age (s), w = strength (0 = off)
+uniform sampler2D uSpec, uWave;
+uniform vec2 uHalfA, uHalfB, uView;
 uniform vec3 uAccent, uFg;
 varying vec3 vCol;
 varying float vAlpha;
@@ -105,6 +111,7 @@ vec3 flow(vec3 p, float t) {
     sin(p.z * 2.9 + t * 0.63 + sin(p.x * 2.1 - t * 0.20) * 1.5),
     sin(p.x * 2.7 + t * 0.52 + sin(p.y * 1.9 + t * 0.40) * 1.5));
 }
+mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 
 void main() {
   vec3 seed = position; // three random numbers 0..1 per point
@@ -119,6 +126,10 @@ void main() {
   vec3 col = mix(aColA, aColB, mm);
   float w = mix(lum, 1.0 - lum, uInk); // visual weight: bright grains glow on dark, dark grains print on paper
 
+  // where this grain sits on screen (0..1), before anything moves it
+  float su = clamp(pos.x / (2.0 * uView.x) + 0.5, 0.0, 1.0);
+  float sv = clamp(pos.y / (2.0 * uView.y) + 0.5, 0.0, 1.0);
+
   // glitch scanlines: horizontal bands slide sideways on snare
   vec2 half_ = mix(uHalfA, uHalfB, mm);
   float v01 = clamp(pos.y / (2.0 * half_.y) + 0.5, 0.0, 1.0);
@@ -127,24 +138,67 @@ void main() {
   float off = h11(band * 3.71 + uSliceSeed * 5.3) - 0.5;
   pos.x += off * slideOn * uSlice * 1.2 * half_.x;
 
+  // build-up tension: grains collapse onto a coarsening grid (the photo pixelates), separate in
+  // depth and tremble; all of it lets go when the build releases into the drop
+  float tq = smoothstep(0.12, 1.0, uBuild * uTension);
+  float cell = mix(0.014, 0.085, tq);
+  vec2 snapped = (floor(pos.xy / cell) + 0.5) * cell;
+  pos.xy = mix(pos.xy, snapped, tq * 0.82);
+  pos.z += (seed.z - 0.5) * 0.8 * tq;
+  float tf = floor(uTime * 24.0);
+  pos.xy += (vec2(h11(seed.x * 91.7 + tf), h11(seed.y * 57.3 + tf * 1.31)) - 0.5) * 0.03 * tq * tq;
+
   // bass relief (bright parts lift toward the camera) + kick pulse from the centre
   float r = length(pos.xy);
   pos.z += (lum - 0.4) * uDepth * (0.12 + uBass * 1.2);
   pos.z += uKick * uDepth * 0.45 * exp(-r * 0.9) * (0.6 + 0.4 * seed.y);
 
+  // kick shockwaves: each kick bursts grains out of an impact point and sends a ring outward
+  // that shoves the photo sideways and toward the camera as it passes
+  float ring = 0.0;
+  for (int i = 0; i < ${NSHOCK}; i++) {
+    vec4 s = uShock[i];
+    if (s.w <= 0.0) continue;
+    vec2 dv = pos.xy - s.xy;
+    float d = length(dv) + 1e-4;
+    vec2 dir = dv / d;
+    float x = d - s.z * 3.2;
+    float env = exp(-x * x * 14.0) * exp(-s.z * 2.6) * s.w;
+    float core = exp(-d * d * 3.0) * exp(-s.z * 9.0) * s.w;
+    pos.xy += dir * (env * 0.16 + core * 0.4 * seed.y);
+    pos.z += env * 0.55 * (0.4 + seed.y) + core * 1.1 * (seed.z - 0.15);
+    ring += env;
+  }
+
+  // spectrum skyline: the photo evaporates from the top edge wherever its column's frequency
+  // is loud (lows on the left), the front wobbling with the live waveform; quiet → intact photo
+  float sp = texture2D(uSpec, vec2(0.02 + su * 0.8, 0.5)).r;
+  float wv = texture2D(uWave, vec2(su, 0.5)).r * 2.0 - 1.0;
+  float eat = (sp * 1.1 + uBuild * uTension * 0.3) * uErode;
+  float front = 1.0 - eat * 0.75 - wv * 0.06 * uErode * clamp(uLevel * 2.0, 0.0, 1.0);
+  float jit = (h11(seed.x * 71.3 + seed.y * 13.1) - 0.5) * 0.09;
+  float gone = smoothstep(front - 0.015, front + 0.05, sv + jit) * smoothstep(0.0, 0.04, eat);
+  vec3 sw = flow(vec3(pos.xy * 2.0, seed.z * 4.0), uTime * 0.6);
+  float lift = 0.06 + 0.6 * max(sv + jit - front, 0.0) + 0.25 * seed.y;
+  pos += vec3(sw.x * 0.12, lift + abs(sw.y) * 0.08, sw.z * 0.2) * gone;
+
   // idle shimmer
   pos += flow(pos * 1.3 + seed * 2.0, uTime * 0.5) * 0.006 * (0.3 + uDrift * 2.0);
 
-  // dust: drop blows the image apart, morph swirls it in between photos
+  // dust: drop blows the image outward into a swirling cloud, morph swirls it in between photos;
+  // grains come home in seed order as it decays
   float scatter = uDust + sin(clamp(uMorph, 0.0, 1.0) * 3.14159265) * uScatter;
-  vec3 dir = normalize(seed - 0.5 + vec3(1e-3, 2e-3, 3e-3));
-  vec3 dustOff = (flow(seed * 6.0 + pos * 0.4, uTime * 0.35) * 0.55 + dir * 1.1) * scatter * (0.35 + seed.z);
-  pos += dustOff;
+  vec3 rnd = seed - 0.5 + vec3(1e-3, 2e-3, 3e-3);
+  vec3 dir = normalize(vec3(pos.xy * 0.6, 0.0) + rnd * vec3(1.0, 1.0, 1.6));
+  float sc = scatter * (0.35 + seed.z);
+  pos.xy = rot(sc * 0.7 * (seed.y - 0.35)) * pos.xy;
+  pos += (flow(seed * 6.0 + pos * 0.4, uTime * 0.35) * 0.55 + dir * 1.25) * sc;
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mv;
-  float size = uSize * uScale * (0.25 + 1.1 * w) * (1.0 + uKick * 0.35);
+  float size = uSize * uScale * (0.25 + 1.1 * w) * (1.0 + uKick * 0.35 + min(ring, 1.5) * 0.7);
   size *= 1.0 - min(scatter, 1.0) * 0.35 * seed.y;
+  size *= 1.0 - gone * 0.35;
   gl_PointSize = max(size * (${CAM_Z.toFixed(1)} / max(-mv.z, 0.1)), 0.5);
 
   vec3 duo = mix(
@@ -156,6 +210,7 @@ void main() {
   else if (uColorMode > 1.5) c = uFg;
   vCol = c;
   vAlpha = (0.12 + 0.88 * w) * uGlow * (1.0 - min(scatter, 1.0) * 0.3);
+  vAlpha *= (1.0 - gone * 0.55) * (1.0 + min(ring, 1.0) * 0.35) * (1.0 - tq * 0.6);
 }
 `;
 
@@ -177,7 +232,7 @@ export const photoDissolve: SceneDef = defineThreeScene({
   id: 'photo-dissolve',
   name: 'Point Dissolve',
   description:
-    'Your photo rebuilt from 160k glowing grains (ink dots on light palettes). Snares slide horizontal slices sideways, bass lifts the bright parts toward you, kicks pulse the centre, and a drop blows the image into drifting dust that re-forms. Photos morph grain by grain every 16 beats.',
+    'Your photo rebuilt from 160k glowing grains (ink dots on light palettes). Every kick bursts grains out of an impact point and sends a shockwave rolling across the picture; the top edge evaporates into rising dust in the shape of the live spectrum; snares slide horizontal slices sideways; build-ups pixelate the photo and pull it apart in depth; a drop blows it into a swirling cloud that re-forms grain by grain. Quiet passages leave the photo intact. Photos morph every 16 beats.',
   category: 'photo',
   usesPhotos: true,
   tags: ['dreamy', 'ethereal', 'cinematic', 'glitch', 'spacious', 'nostalgic'],
@@ -202,13 +257,17 @@ export const photoDissolve: SceneDef = defineThreeScene({
     { id: 'depth', label: 'Bass depth', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, group: 'Motion' },
     { id: 'dust', label: 'Drop dust', type: 'number', min: 0, max: 1, step: 0.01, default: 0.75, group: 'Motion', hint: 'How hard a drop scatters the image' },
     { id: 'drift', label: 'Idle drift', type: 'number', min: 0, max: 1, step: 0.01, default: 0.35, group: 'Motion' },
+    { id: 'shock', label: 'Kick shockwave', type: 'number', min: 0, max: 1, step: 0.01, default: 0.75, group: 'Reactivity', hint: 'Kicks burst grains from an impact point and roll a ring across the photo' },
+    { id: 'erode', label: 'Spectrum erosion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, group: 'Reactivity', hint: 'The top edge evaporates in the shape of the spectrum' },
+    { id: 'tension', label: 'Build tension', type: 'number', min: 0, max: 1, step: 0.01, default: 0.65, group: 'Reactivity', hint: 'Build-ups pixelate the photo and pull it apart' },
   ],
   modulations: [
     { source: 'air', param: 'pointSize', amount: 0.08 },
     { source: 'build', param: 'drift', amount: 0.5 },
     { source: 'energy', param: 'glow', amount: 0.15 },
+    { source: 'snare', param: 'slices', amount: 0.2 },
   ],
-  build() {
+  build(init) {
     const scene = new THREE.Scene();
     const bg = new THREE.Color();
     scene.background = bg;
@@ -250,6 +309,14 @@ export const photoDissolve: SceneDef = defineThreeScene({
       uHalfB: { value: new THREE.Vector2(1, 1) },
       uAccent: { value: new THREE.Color() },
       uFg: { value: new THREE.Color() },
+      uView: { value: new THREE.Vector2(1, 1) },
+      uErode: { value: 0.5 },
+      uTension: { value: 0.65 },
+      uBuild: { value: 0 },
+      uLevel: { value: 0 },
+      uShock: { value: Array.from({ length: NSHOCK }, () => new THREE.Vector4(0, 0, 0, 0)) },
+      uSpec: { value: init.shared.spectrumTex as THREE.Texture },
+      uWave: { value: init.shared.waveformTex as THREE.Texture },
     };
     const material = new THREE.ShaderMaterial({
       uniforms,
@@ -278,6 +345,9 @@ export const photoDissolve: SceneDef = defineThreeScene({
     let dust = 0;
     let bass = 0;
     let sliceSeed = 0;
+    // kick shockwave ring buffer: origin (world units), birth time, strength
+    const shocks = Array.from({ length: NSHOCK }, () => ({ x: 0, y: 0, t: -100, s: 0 }));
+    let shockHead = 0;
     const viewHalfH = CAM_Z * Math.tan(((FOV / 2) * Math.PI) / 180);
 
     const coverHalf = (out: THREE.Vector2, p: PhotoAsset, aspect: number) => {
@@ -336,6 +406,25 @@ export const photoDissolve: SceneDef = defineThreeScene({
         bass += (a.bass - bass) * (1 - Math.exp(-dt * 12));
         if (a.snareHit) sliceSeed = (sliceSeed + 1) % 977;
 
+        // kicks: a new shockwave from a random point in the middle of the frame
+        const vw = viewHalfH * frame.aspect;
+        uniforms.uView.value.set(vw, viewHalfH);
+        if (a.kickHit) {
+          const sh = shocks[shockHead];
+          sh.x = (Math.random() * 2 - 1) * vw * 0.45;
+          sh.y = (Math.random() * 2 - 1) * viewHalfH * 0.45;
+          sh.t = frame.time;
+          sh.s = 0.55 + 0.6 * Math.min(1, a.kick);
+          shockHead = (shockHead + 1) % NSHOCK;
+        }
+        const shockAmt = num(p, 'shock', 0.75);
+        for (let i = 0; i < NSHOCK; i++) {
+          const sh = shocks[i];
+          const age = frame.time - sh.t;
+          const live = age >= 0 && age < SHOCK_LIFE ? sh.s * shockAmt : 0;
+          uniforms.uShock.value[i].set(sh.x, sh.y, Math.max(0, age), live);
+        }
+
         const drift = num(p, 'drift', 0.35);
         uniforms.uTime.value = frame.time;
         uniforms.uDust.value = dust;
@@ -347,6 +436,10 @@ export const photoDissolve: SceneDef = defineThreeScene({
         uniforms.uBass.value = bass;
         uniforms.uKick.value = a.kick;
         uniforms.uDrift.value = drift;
+        uniforms.uErode.value = num(p, 'erode', 0.5);
+        uniforms.uTension.value = num(p, 'tension', 0.65);
+        uniforms.uBuild.value = a.build;
+        uniforms.uLevel.value = a.level;
         uniforms.uSize.value = num(p, 'pointSize', 1.6);
         uniforms.uScale.value = (frame.height / 1080) * 1.5;
         uniforms.uGlow.value = num(p, 'glow', 0.8);
@@ -359,7 +452,7 @@ export const photoDissolve: SceneDef = defineThreeScene({
         camera.position.set(
           Math.sin(t * 0.11) * 0.35 * drift + a.sway * 0.12,
           Math.cos(t * 0.083) * 0.18 * drift,
-          CAM_Z + dust * 0.6 - a.kick * 0.1,
+          CAM_Z + dust * 0.6,
         );
         camera.lookAt(0, 0, 0);
       },

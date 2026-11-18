@@ -12,8 +12,13 @@ const params: ParamDef[] = [
   { id: 'spread', label: 'Spread', group: 'Shape', type: 'number', min: 0.3, max: 2, step: 0.01, default: 1 },
   { id: 'flow', label: 'Flow speed', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.35 },
   { id: 'curl', label: 'Curl', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, hint: 'Field frequency / tangle' },
-  { id: 'burst', label: 'Kick burst', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.55 },
-  { id: 'explode', label: 'Drop explode', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.8 },
+  { id: 'burst', label: 'Kick burst', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.65 },
+  { id: 'explode', label: 'Drop explode', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.85 },
+  { id: 'shock', label: 'Kick shockwave', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.7, hint: 'A bright shell that tears outward through the cloud on each kick' },
+  { id: 'twist', label: 'Snare twist', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, hint: 'Snares wring the swarm into a corkscrew that springs back' },
+  { id: 'spectrum', label: 'Spectrum shape', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, hint: 'Bands push the cloud out by latitude: bass bulges the equator, highs the poles' },
+  { id: 'tension', label: 'Build tension', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'Build-ups crush the swarm into a tight, spinning, trembling core' },
+  { id: 'heave', label: 'Sub swell', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.45, hint: 'Sub slowly breathes the whole cloud in and out' },
   { id: 'hue', label: 'Accent mix', group: 'Color', type: 'number', min: 0, max: 1, step: 0.01, default: 0.45 },
   { id: 'orbit', label: 'Camera orbit', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.25 },
 ];
@@ -21,9 +26,12 @@ const params: ParamDef[] = [
 const VERT = /* glsl */ `
 attribute vec4 aSeed;
 uniform float uFlowT, uKickE, uDropE, uSpreadE, uPx, uLight;
+uniform float uSnareE, uTension, uTrem, uSpecAmt;
+uniform vec4 uShockT, uShockA;
 varying float vAlpha;
 varying float vHue;
 varying float vSpeed;
+varying float vHot;
 
 // divergence-free ABC flow, slowly phase-shifted over time
 vec3 field(vec3 p, float t) {
@@ -56,23 +64,65 @@ void main() {
   vec3 q = p * 0.7 + uTime * 0.05;
   p += vec3(snoise(q), snoise(q + 19.1), snoise(q + 37.7)) * 0.12;
 
-  // keep the swarm in a soft ball
-  float R = 2.4 * uSpreadE;
+  // keep the swarm in a soft ball (build-ups crush it smaller)
+  float R = 2.4 * uSpreadE * (1.0 - uTension * 0.6);
   float len = length(p) + 1e-4;
   p *= R * (1.0 - exp(-len / R)) / len;
 
   vec3 dir = p / (length(p) + 1e-4);
-  p *= 1.0 + uKickE * u_burst * (0.15 + 0.85 * aSeed.x) * 0.55;
-  p += dir * uDropE * u_explode * (0.6 + aSeed.y * 3.4);
+  float rr = length(p);
+
+  // spectrum by latitude: equator = bass … poles = highs
+  if (uSpecAmt > 0.001) {
+    float bin = abs(dir.y) * 0.85 + 0.03;
+    float sp = (spectrum(bin - 0.02) + spectrum(bin) + spectrum(bin + 0.02)) / 3.0;
+    p *= 1.0 + sp * uSpecAmt * (0.25 + 0.75 * aSeed.x) * 0.7;
+  }
+
+  // build: tremble
+  if (uTension > 0.001) {
+    vec3 j = vec3(sin(uTrem * 1.7 + aSeed.x * 40.0), sin(uTrem * 2.3 + aSeed.y * 40.0), sin(uTrem * 1.9 + aSeed.z * 40.0));
+    p += j * uTension * 0.05;
+  }
+
+  // snare: corkscrew twist around the vertical axis, springs back
+  p.xz = rot2(uSnareE * u_twist * p.y * 0.55) * p.xz;
+
+  // kick: radial punch (spring overshoot makes it inhale after)
+  p *= 1.0 + uKickE * u_burst * (0.25 + 0.75 * aSeed.x) * 0.85;
+
+  // kick shockwaves: a shell that shoves points outward as it passes
+  float hot = 0.0;
+  for (int i = 0; i < 4; i++) {
+    float t = uShockT[i];
+    if (t < 2.5) {
+      float rs = t * 7.0;
+      float x = (rr - rs) / 0.45;
+      float w = exp(-x * x) * exp(-t * 2.2) * uShockA[i] * u_shock;
+      p += dir * w * 0.95;
+      hot += w;
+    }
+  }
+
+  // drop: blow apart — radial plus each point's own direction, swirling as it flies
+  if (uDropE > 0.001) {
+    vec3 own = normalize(vec3(aSeed.x, aSeed.y, aSeed.z) - 0.5 + 1e-3);
+    vec3 fly = normalize(dir * 1.4 + own);
+    float dist = uDropE * u_explode * (1.0 + aSeed.y * 4.2);
+    p += fly * dist;
+    p.xz = rot2(uDropE * u_explode * (0.9 + 0.6 * aSeed.z) * 1.6 / (1.0 + rr)) * p.xz;
+    hot += uDropE * u_explode * 0.45;
+  }
 
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  float sz = u_size * (1.2 + aSeed.z * 2.4) * (1.0 + uKickE * 0.4 * aSeed.x);
+  float sz = u_size * (1.2 + aSeed.z * 2.4) * (1.0 + uKickE * 0.5 * aSeed.x + hot * 1.4);
   gl_PointSize = clamp(sz * uPx * 7.0 / max(-mv.z, 0.1), 1.0, 64.0);
 
-  vAlpha = pow(max(sin(life * PI), 0.0), 0.6);
+  vAlpha = pow(max(sin(life * PI), 0.0), 0.6) * (1.0 + hot * 1.2);
   vHue = aSeed.y;
   vSpeed = clamp(length(v) / 2.2, 0.0, 1.0);
+  vHot = clamp(hot, 0.0, 1.0);
 }
 `;
 
@@ -81,6 +131,7 @@ uniform float uGain;
 varying float vAlpha;
 varying float vHue;
 varying float vSpeed;
+varying float vHot;
 void main() {
   vec2 c = gl_PointCoord - 0.5;
   float d = length(c);
@@ -89,6 +140,7 @@ void main() {
   vec3 base = uFg;
   vec3 acc = mix(uAccent, uAccent2, smoothstep(0.3, 1.0, vSpeed));
   vec3 col = mix(base, acc, step(1.0 - u_hue, vHue) * 0.85 + vSpeed * 0.15 * u_hue);
+  col = mix(col, uAccent, vHot * 0.5);
   gl_FragColor = vec4(col, a * uGain);
 }
 `;
@@ -97,14 +149,14 @@ export const pointSwarm = defineThreeScene({
   id: 'point-swarm',
   name: 'Point Swarm',
   description:
-    '110k GPU points streaming through a divergence-free flow field. Kicks push a radial burst, energy widens the swarm, and a drop blows it apart before it re-forms. Glows additively on dark palettes.',
+    '110k GPU points streaming through a divergence-free flow field. Kicks punch the cloud outward and send a bright shockwave shell through it, snares wring it into a corkscrew, the spectrum sculpts its silhouette, builds crush it into a spinning core and a drop blows it apart before it re-forms. Glows additively on dark palettes.',
   category: 'form',
   tags: ['ethereal', 'flowing', 'cosmic', 'electronic', 'hypnotic', 'energetic', 'dreamy'],
   params,
   modulations: [
-    { source: 'energy', param: 'flow', amount: 0.3 },
+    { source: 'energy', param: 'flow', amount: 0.2 },
     { source: 'air', param: 'size', amount: 0.12 },
-    { source: 'build', param: 'curl', amount: 0.3 },
+    { source: 'build', param: 'curl', amount: 0.15 },
   ],
   build(init) {
     const scene = new THREE.Scene();
@@ -144,6 +196,12 @@ export const pointSwarm = defineThreeScene({
         uFlowT: { value: 0 },
         uKickE: { value: 0 },
         uDropE: { value: 0 },
+        uSnareE: { value: 0 },
+        uTension: { value: 0 },
+        uTrem: { value: 0 },
+        uSpecAmt: { value: 0 },
+        uShockT: { value: new THREE.Vector4(99, 99, 99, 99) },
+        uShockA: { value: new THREE.Vector4(0, 0, 0, 0) },
         uSpreadE: { value: 1 },
         uPx: { value: 1 },
         uLight: { value: 0 },
@@ -154,11 +212,19 @@ export const pointSwarm = defineThreeScene({
     points.frustumCulled = false;
     scene.add(points);
 
-    const kick = new Spring(160, 11);
+    const kick = new Spring(260, 13);
+    const snare = new Spring(140, 7);
+    const sub = new Spring(8, 4);
     let flowT = 0;
     let spread = 1;
     let drop = 0;
     let orbit = 0;
+    let tension = 0;
+    let trem = 0;
+    let spin = 0;
+    let shockI = 0;
+    const shockT = mat.uniforms.uShockT.value as THREE.Vector4;
+    const shockA = mat.uniforms.uShockA.value as THREE.Vector4;
 
     return {
       scene,
@@ -172,10 +238,27 @@ export const pointSwarm = defineThreeScene({
         bg.copy(frame.palette.c.bg);
         setAdaptiveBlending(mat, light);
 
-        flowT += dt * (0.25 + num(p, 'flow', 0.35) * 3.0) * (0.6 + a.energy * 0.9 + a.mid * 0.3);
+        const tens = num(p, 'tension', 0.6);
+        tension = approach(tension, a.build * (1 - a.drop) * tens, 2.5, dt);
+        // integrated flow: calm in silence, faster in builds, a rush on the drop
+        flowT += dt * (0.25 + num(p, 'flow', 0.35) * 3.0) * (0.5 + a.energy * 0.8 + a.mid * 0.25 + tension * 1.2 + drop * 1.5);
         kick.step(a.kick, dt);
-        spread = approach(spread, num(p, 'spread', 1) * (0.85 + a.energy * 0.55 + a.bass * 0.12), 2.5, dt);
+        snare.step(a.snare, dt);
+        sub.step(a.sub, dt);
+        const swell = 1 + Math.max(-0.1, sub.value) * num(p, 'heave', 0.45) * 0.35;
+        spread = approach(spread, num(p, 'spread', 1) * (0.85 + a.energy * 0.4) * swell, 2.5, dt);
         drop = a.drop > drop ? approach(drop, a.drop, 30, dt) : approach(drop, a.drop, 1.6, dt);
+        trem += dt * (4 + tension * 30);
+        // build: the swarm starts to spin (integrated rotation, eases off after)
+        spin += dt * (tension * 2.2 + drop * 1.2);
+        points.rotation.y = spin;
+
+        for (let i = 0; i < 4; i++) shockT.setComponent(i, Math.min(99, shockT.getComponent(i) + dt));
+        if (a.kickHit) {
+          shockT.setComponent(shockI, 0);
+          shockA.setComponent(shockI, 0.55 + Math.min(1, a.kick) * 0.45);
+          shockI = (shockI + 1) % 4;
+        }
 
         const density = num(p, 'density', 0.75);
         geo.setDrawRange(0, Math.floor(COUNT * Math.min(1, Math.max(0.05, density))));
@@ -184,6 +267,10 @@ export const pointSwarm = defineThreeScene({
         u.uFlowT.value = flowT;
         u.uKickE.value = Math.max(0, kick.value);
         u.uDropE.value = drop;
+        u.uSnareE.value = snare.value;
+        u.uTension.value = tension;
+        u.uTrem.value = trem % (Math.PI * 200); // 20π-periodic for every multiplier used in the shader
+        u.uSpecAmt.value = num(p, 'spectrum', 0.5);
         u.uSpreadE.value = spread;
         u.uPx.value = frame.height / 1080;
         u.uLight.value = light ? 1 : 0;

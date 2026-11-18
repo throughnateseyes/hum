@@ -3,6 +3,7 @@ import { defineThreeScene } from '../../core/sceneHelpers';
 import { num } from '../../core/uniforms';
 import type { ParamDef } from '../../core/types';
 import {
+  approach,
   beatsPerSecond,
   dataGeometry,
   floatTexture,
@@ -23,19 +24,28 @@ const SPACING = 0.55;
 const params: ParamDef[] = [
   { id: 'speed', label: 'Rings / beat', group: 'Motion', type: 'number', min: 0.25, max: 4, step: 0.05, default: 2 },
   { id: 'radius', label: 'Radius', group: 'Shape', type: 'number', min: 0.4, max: 2, step: 0.01, default: 1 },
-  { id: 'wave', label: 'Waveform', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, hint: 'How much the waveform shapes each ring' },
-  { id: 'spectrum', label: 'Spectrum', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.3 },
+  { id: 'wave', label: 'Waveform', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'How much the waveform shapes each ring' },
+  { id: 'spectrum', label: 'Spectrum', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.45 },
   { id: 'weight', label: 'Line weight', group: 'Style', type: 'number', min: 0.5, max: 5, step: 0.05, default: 1.4, hint: 'px at 1080p' },
   { id: 'curve', label: 'Tunnel bend', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.4 },
   { id: 'twist', label: 'Twist', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.3 },
   { id: 'roll', label: 'Camera roll', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5 },
   { id: 'flash', label: 'Kick flash', group: 'Color', type: 'number', min: 0, max: 1, step: 0.01, default: 0.8 },
+  { id: 'surge', label: 'Kick surge', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'Each kick lurches you forward through the tunnel' },
+  { id: 'pulse', label: 'Kick pulse', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.65, hint: 'Kicks dilate the rings around you and send a bulge down the tunnel' },
+  { id: 'squeeze', label: 'Snare squeeze', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, hint: 'Snares pinch the tunnel into an ellipse that springs back' },
+  { id: 'warp', label: 'Drop warp', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.75, hint: 'The drop blasts the tunnel open and hurls you forward' },
+  { id: 'dropRoll', label: 'Drop roll', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'Barrel roll on each drop' },
+  { id: 'tension', label: 'Build tension', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'Build-ups narrow the tunnel, quicken the rings and make them tremble' },
+  { id: 'heave', label: 'Sub breathe', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.45, hint: 'Sub slowly swells the tunnel walls' },
 ];
 
 const VERT = /* glsl */ `
 ${GLSL_RIBBON}
 uniform sampler2D uShape;
 uniform float uHead, uFrac, uTotal, uKickE, uCamBorn;
+uniform float uPulseE, uSnareE, uSqAng, uRadMul, uStretch, uTrem, uShake;
+uniform vec4 uShockD, uShockA;
 const float K = ${K.toFixed(1)};
 const float SPACING = ${SPACING.toFixed(3)};
 varying float vSide;
@@ -61,11 +71,23 @@ vec3 ringPos(float slot, float rowAge, float t) {
   float born = uTotal - rowAge;
   float theta = t * TAU + born * 0.06 * u_twist + PI * 0.5;
   vec2 cs = vec2(cos(t * TAU), sin(t * TAU));
-  float wob = 0.035 * snoise(cs * 1.3 + born * 0.21);
+  float wob = (0.035 + uShake * 0.09) * snoise(cs * 1.3 + vec2(born * 0.21 + uTrem, uTrem * 0.7));
   float rad = u_radius * (1.0 + u_wave * 0.5 * sh.r + u_spectrum * 0.55 * sh.g + wob);
-  vec2 c = center(born) - center(uCamBorn);
   float age = rowAge + uFrac;
-  float z = -(K - age) * SPACING;
+  float dist = (K - age) * SPACING; // distance in front of the camera
+  // global swell: build contraction, sub breathing, drop blast
+  rad *= uRadMul;
+  // kick: rings near you dilate, and a bulge travels away down the tunnel
+  float bump = uPulseE * u_pulse * 0.38 * exp(-dist / 9.0);
+  for (int i = 0; i < 4; i++) {
+    float x = (dist - uShockD[i]) / 2.4;
+    bump += uShockA[i] * u_pulse * 0.5 * exp(-x * x);
+  }
+  rad *= 1.0 + bump;
+  // snare: pinch into an ellipse along a random axis
+  rad *= 1.0 + uSnareE * u_squeeze * 0.3 * cos(2.0 * (theta - uSqAng));
+  vec2 c = center(born) - center(uCamBorn);
+  float z = -dist * uStretch;
   return vec3(cos(theta) * rad + c.x, sin(theta) * rad + c.y, z);
 }
 
@@ -119,13 +141,12 @@ export const ringTunnel = defineThreeScene({
   id: 'ring-tunnel',
   name: 'Ring Tunnel',
   description:
-    'Hairline rings fly toward the camera, each one shaped by the waveform and spectrum at the moment it was born, spawned in time with the tempo. Kicks flash the newest ring and the camera rolls with the bar.',
+    'Hairline rings fly toward the camera, each one shaped by the waveform and spectrum at the moment it was born, spawned in time with the tempo. Kicks lurch you forward and send a bulge down the tunnel, snares pinch it, builds narrow and quicken it, and a drop blasts it open with a barrel roll.',
   category: 'form',
   tags: ['hypnotic', 'driving', 'techno', 'trance', 'dark', 'futuristic', 'tunnel', 'energetic'],
   params,
   modulations: [
-    { source: 'energy', param: 'speed', amount: 0.15 },
-    { source: 'bass', param: 'radius', amount: 0.1 },
+    { source: 'energy', param: 'speed', amount: 0.1 },
     { source: 'build', param: 'twist', amount: 0.4 },
   ],
   build(init) {
@@ -172,6 +193,15 @@ export const ringTunnel = defineThreeScene({
         uKickE: { value: 0 },
         uCamBorn: { value: 0 },
         uLight: { value: 0 },
+        uPulseE: { value: 0 },
+        uSnareE: { value: 0 },
+        uSqAng: { value: 0 },
+        uRadMul: { value: 1 },
+        uStretch: { value: 1 },
+        uTrem: { value: 0 },
+        uShake: { value: 0 },
+        uShockD: { value: new THREE.Vector4(999, 999, 999, 999) },
+        uShockA: { value: new THREE.Vector4(0, 0, 0, 0) },
       },
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -183,6 +213,18 @@ export const ringTunnel = defineThreeScene({
     let clock = 0;
     const kick = new Spring(200, 14);
     const roll = new Spring(8, 4);
+    const pulse = new Spring(240, 12);
+    const snare = new Spring(160, 8);
+    const sub = new Spring(8, 4);
+    const radMul = new Spring(30, 7, 1);
+    let tension = 0;
+    let trem = 0;
+    let dropRoll = 0;
+    let rollDir = 1;
+    let dropPrev = 0;
+    let shockI = 0;
+    const shockAge = new Float32Array([99, 99, 99, 99]);
+    const shockAmp = new Float32Array(4);
 
     const writeRing = (slot: number, wave: Float32Array, spec: Float32Array, kickV: number, level: number) => {
       const base = slot * SW * 4;
@@ -210,7 +252,11 @@ export const ringTunnel = defineThreeScene({
         bg.copy(frame.palette.c.bg);
         setAdaptiveBlending(mat, light);
 
-        clock += dt * beatsPerSecond(frame) * num(p, 'speed', 2);
+        // travel: integrated, so kicks / builds / the drop read as real lurches through space
+        tension = approach(tension, a.build * (1 - a.drop) * num(p, 'tension', 0.6), 2.5, dt);
+        const warp = num(p, 'warp', 0.75);
+        const travel = 1 + a.kick * num(p, 'surge', 0.6) * 3 + a.drop * warp * 3 + tension * 1.2;
+        clock += dt * beatsPerSecond(frame) * num(p, 'speed', 2) * travel;
         let wrote = false;
         while (clock >= 1) {
           clock -= 1;
@@ -221,8 +267,42 @@ export const ringTunnel = defineThreeScene({
         }
         if (wrote) shapeTex.needsUpdate = true;
         kick.step(a.kick, dt);
+        pulse.step(a.kick, dt);
+        snare.step(a.snare, dt);
+        sub.step(a.sub, dt);
+        trem += dt * (0.3 + tension * 9);
+        radMul.step((1 - tension * 0.38) * (1 + Math.max(0, sub.value) * num(p, 'heave', 0.45) * 0.25) * (1 + a.drop * warp * 0.45), dt);
+
+        // kick shockwave travelling away from the camera
+        for (let i = 0; i < 4; i++) {
+          shockAge[i] = Math.min(99, shockAge[i] + dt);
+        }
+        if (a.kickHit) {
+          shockAge[shockI] = 0;
+          shockAmp[shockI] = 0.55 + Math.min(1, a.kick) * 0.45;
+          shockI = (shockI + 1) % 4;
+        }
+        const sd = mat.uniforms.uShockD.value as THREE.Vector4;
+        const sa = mat.uniforms.uShockA.value as THREE.Vector4;
+        for (let i = 0; i < 4; i++) {
+          const t = shockAge[i];
+          sd.setComponent(i, t * 24);
+          sa.setComponent(i, t < 3 ? shockAmp[i] * Math.exp(-t * 1.3) * Math.min(1, t * 12) : 0);
+        }
+        if (a.snareHit) mat.uniforms.uSqAng.value = Math.random() * Math.PI;
+
+        // drop: barrel roll (alternating direction), integrated so it eases out
+        if (a.drop > 0.6 && dropPrev <= 0.6) rollDir = -rollDir;
+        dropPrev = a.drop;
+        dropRoll += dt * a.drop * num(p, 'dropRoll', 0.6) * 2.8 * rollDir;
 
         const u = mat.uniforms;
+        u.uPulseE.value = pulse.value;
+        u.uSnareE.value = snare.value;
+        u.uRadMul.value = radMul.value;
+        u.uStretch.value = 1 + a.drop * warp * 0.5;
+        u.uTrem.value = trem % 1000;
+        u.uShake.value = tension;
         u.uHead.value = head;
         u.uFrac.value = clock;
         u.uTotal.value = total;
@@ -232,7 +312,7 @@ export const ringTunnel = defineThreeScene({
 
         const r = num(p, 'roll', 0.5);
         roll.step(a.sway * r * 0.45 + Math.sin(frame.time * 0.09) * r * 0.25, dt);
-        camera.rotation.set(0, 0, roll.value);
+        camera.rotation.set(0, 0, roll.value + dropRoll);
       },
       dispose() {
         shapeTex.dispose();

@@ -15,6 +15,10 @@ const params: ParamDef[] = [
   { id: 'chroma', label: 'Chroma split', type: 'number', min: 0, max: 1, step: 0.01, default: 0.5, group: 'Optics' },
   { id: 'refraction', label: 'Refraction', type: 'number', min: 0, max: 1, step: 0.01, default: 0.3, group: 'Optics', hint: 'Slow liquid warp, deepened by mids' },
   { id: 'gloss', label: 'Gloss', type: 'number', min: 0, max: 1, step: 0.01, default: 0.4, group: 'Optics' },
+  { id: 'impact', label: 'Kick impact', type: 'number', min: 0, max: 1, step: 0.01, default: 0.7, group: 'Reactivity', hint: 'How hard each kick splashes: a crater plus a tall first wave' },
+  { id: 'shatter', label: 'Drop shatter', type: 'number', min: 0, max: 1, step: 0.01, default: 0.75, group: 'Reactivity', hint: 'A drop breaks the print into floating shards that drift back together' },
+  { id: 'cymatics', label: 'Spectrum rings', type: 'number', min: 0, max: 1, step: 0.01, default: 0.4, group: 'Reactivity', hint: 'Standing rings from the centre, each radius driven by one frequency' },
+  { id: 'tension', label: 'Build tension', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, group: 'Reactivity', hint: 'Build-ups chop the surface and crack the print' },
 ];
 
 const fragment = /* glsl */ `
@@ -29,6 +33,30 @@ vec3 photoAt(vec2 q, vec2 hb, float mixB) {
   return mix(a, b, mixB);
 }
 
+// voronoi shards (q space): id, centre, distance to the nearest edge
+void shardCell(vec2 q, float sc, out vec2 cid, out vec2 cpt, out float edge) {
+  vec2 p = q * sc;
+  vec2 ip = floor(p);
+  vec2 fp = fract(p);
+  float d1 = 8.0;
+  float d2 = 8.0;
+  cid = vec2(0.0);
+  vec2 bp = vec2(0.0);
+  for (int j = -1; j <= 1; j++) {
+    for (int i = -1; i <= 1; i++) {
+      vec2 g = vec2(float(i), float(j));
+      vec2 id = ip + g;
+      vec2 o = 0.5 + (hash22(id + 7.3) - 0.5) * 0.85;
+      vec2 r = g + o - fp;
+      float d = dot(r, r);
+      if (d < d1) { d2 = d1; d1 = d; cid = id; bp = id + o; }
+      else if (d < d2) { d2 = d; }
+    }
+  }
+  cpt = bp / sc;
+  edge = (sqrt(d2) - sqrt(d1)) / sc;
+}
+
 void main() {
   vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
   float px = 1.0 / uResolution.y;
@@ -36,30 +64,49 @@ void main() {
   vec2 hb = max(vec2(uAspect * 0.5 - m, 0.5 - m), vec2(0.05));
   float hasMargin = step(0.001, m);
   float t = uTime;
-  vec2 q = p * (1.0 - uKick * 0.006);
+  vec2 q = p;
+  float tens = uBuild * u_tension;
 
   // slow refraction (always on a little, mids deepen it)
   vec2 disp = vec2(fbm(q * 1.8 + vec2(t * 0.04, 1.7), 3), fbm(q * 1.8 + vec2(-3.1, t * 0.035), 3));
   disp *= 0.003 + u_refraction * (0.008 + uMid * 0.03 + uLowMid * 0.01);
 
-  // travelling ripple packets
+  // build-up: the surface starts to chop
+  disp += vec2(snoise(q * 22.0 + t * 3.0), snoise(q * 22.0 - t * 3.0 + 9.0)) * tens * tens * 0.006;
+
+  // travelling ripple packets; a kick lands as a crater with a tall first wave
   float front = 0.0;
   float slope = 0.0;
+  float dent = 0.0;
   for (int i = 0; i < NRIP; i++) {
     vec4 rp = uRip[i];
     float age = t - rp.z;
     if (rp.w <= 0.0 || age < 0.0 || age > 14.0) continue;
     vec2 dv = q - rp.xy;
     float d = length(dv);
+    vec2 dir = dv / max(d, 1e-4);
     float x = d - age * u_speed;
     float k = 140.0 / (1.0 + age * 1.5);
     float env = exp(-x * x * k) * exp(-age * u_decay) * rp.w * smoothstep(0.0, 0.04, d);
     float ph = x * u_freq;
     float w = sin(ph) * env;
-    disp += (dv / max(d, 1e-4)) * w * 0.018 * u_strength;
-    front += abs(w);
-    slope += cos(ph) * env;
+    float imp = u_impact * exp(-age * 5.0);
+    disp += dir * w * (0.018 * u_strength + 0.045 * imp);
+    front += abs(w) * (1.0 + imp * 2.0);
+    slope += cos(ph) * env * (1.0 + imp * 2.5);
+    // the crater: the surface punches in at the impact point, then springs back
+    float cr = exp(-d * d * 70.0) * exp(-age * 7.0) * min(rp.w, 1.1) * u_impact;
+    disp += dv * cr * 0.9;
+    dent += cr;
   }
+
+  // spectrum rings (cymatics): standing rings out of the centre, each radius driven by a frequency
+  float dc = length(q);
+  float spc = spectrum(0.03 + clamp(dc / length(hb), 0.0, 1.0) * 0.75);
+  spc *= spc;
+  float cph = dc * 120.0 - t * 3.0;
+  disp += (q / max(dc, 1e-4)) * sin(cph) * spc * 0.008 * u_cymatics;
+  slope += cos(cph) * spc * u_cymatics * 1.2;
 
   // next photo is revealed inside an expanding liquid front from the centre
   float tt = smoothstep(0.72, 1.0, fract(uPhotoIndex));
@@ -72,6 +119,27 @@ void main() {
   disp += (q / max(length(q), 1e-4)) * tf * 0.012;
   front += tf * 0.8;
 
+  // drop: the print breaks into shards that drift apart on the water, tilt, and float back
+  // together as the drop decays; build-ups already crack it a little
+  float crack = max(tens * 0.2, uDrop * u_shatter);
+  float shardGap = 0.0;
+  float shardTilt = 0.0;
+  if (crack > 0.003) {
+    vec2 cid, cpt;
+    float ce;
+    shardCell(q, 4.5, cid, cpt, ce);
+    vec2 h = hash22(cid + 3.1);
+    vec2 away = cpt / max(length(cpt), 1e-3);
+    vec2 off = (away * (0.3 + 0.7 * h.x) * 0.09 + (h - 0.5) * 0.04) * crack;
+    off += vec2(sin(t * 1.3 + h.x * TAU), cos(t * 1.1 + h.y * TAU)) * 0.006 * crack;
+    float ra = (h.y - 0.5) * 0.6 * crack;
+    vec2 loc = rot2(ra) * (q - cpt - off);
+    disp += (cpt + loc) - q;
+    float gw = 0.002 + crack * 0.022 * (0.6 + 0.4 * h.y);
+    shardGap = 1.0 - smoothstep(gw, gw + px * 1.5, ce);
+    shardTilt = dot(q - cpt, vec2(cos(h.x * TAU), sin(h.x * TAU))) * crack * 2.5;
+  }
+
   // chromatic split along the ripple fronts
   float dl = length(disp);
   vec2 dn = dl > 1e-5 ? disp / dl : vec2(1.0, 0.0);
@@ -82,7 +150,10 @@ void main() {
   col.g = photoAt(sq, hb, mixB).g;
   col.b = photoAt(sq - dn * ca, hb, mixB).b;
   col += slope * u_gloss * 0.1;
+  col *= 1.0 - min(dent, 1.0) * 0.22 + shardTilt;
   col = clamp(col, 0.0, 1.0);
+  // water shows between the shards
+  col = mix(col, mix(uBg, uMuted, 0.55), shardGap);
 
   // paper margin: soft drop shadow, faint water rings, hairline edge
   float sd = sdBox(p, hb);
@@ -102,7 +173,7 @@ export const photoRipple: SceneDef = {
   id: 'photo-ripple',
   name: 'Ripple Print',
   description:
-    'The photo as a print on a liquid surface, inset on paper. Every kick drops a ripple that travels across it with a chromatic split along the wavefront, snares add smaller rings, mids deepen a slow refraction, and a drop sends one huge ring from the centre. In silence, soft ripples still fall every few seconds. The next photo is revealed inside an expanding front.',
+    'The photo as a print on a liquid surface, inset on paper. Every kick lands as a crater with a tall wave that rolls across the print, splitting the colour along its front; the live spectrum stands as rings around the centre, each radius one frequency; build-ups chop the surface and crack the print; a drop sends one huge ring and breaks the print into floating shards that drift back together. Snares add smaller rings, mids deepen a slow refraction. In silence, soft ripples still fall every few seconds.',
   category: 'photo',
   usesPhotos: true,
   light: true,
@@ -111,6 +182,7 @@ export const photoRipple: SceneDef = {
   modulations: [
     { source: 'mid', param: 'refraction', amount: 0.25 },
     { source: 'highMid', param: 'chroma', amount: 0.2 },
+    { source: 'kick', param: 'gloss', amount: 0.2 },
   ],
   create(init) {
     const rip = Array.from({ length: NRIP }, () => new THREE.Vector4(0, 0, -100, 0));

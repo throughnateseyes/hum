@@ -4,7 +4,6 @@ import { Stage } from '../render/stage';
 import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
 import { handleFiles, loadDemo, useMic } from '../state/tracks';
-import { Director } from './Director';
 import { Mic, Upload } from './Icons';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
@@ -18,6 +17,7 @@ export function StageView() {
   const quality = useStudio((s) => s.quality);
   const track = useStudio((s) => s.track);
   const recording = useStudio((s) => s.recording);
+  const previewing = useStudio((s) => s.previewId !== null);
   const [size, setSize] = useState({ w: 800, h: 450 });
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -62,17 +62,23 @@ export function StageView() {
     <div className="stage-wrap" ref={wrap}>
       <div className="stage-frame" ref={frame} style={{ width: size.w, height: size.h }}>
         <canvas ref={canvas} />
-        <div className="stage-hud">{recording && <span className="hud-pill rec">● REC</span>}</div>
+        <div className="stage-hud">
+          {recording && (
+            <span className="hud-pill rec">
+              <i /> Recording
+            </span>
+          )}
+          {previewing && !recording && <span className="hud-pill">Previewing · click to keep</span>}
+        </div>
         {!track && (
           <div className="empty">
             <div className="empty-card">
-              <div className="label">Sound → sight</div>
               <h2>Drop a song to begin</h2>
               <p>Hum listens for the sub, the kick, the air and the drop, then paints with them.</p>
               <div className="row" style={{ marginBottom: 10 }}>
                 {DEMO_TRACKS.map((d) => (
                   <button key={d.id} className="demo-btn" onClick={() => void loadDemo(d.id)}>
-                    <b>▶ {d.name}</b>
+                    <b>{d.name}</b>
                     <span>{d.description}</span>
                   </button>
                 ))}
@@ -99,7 +105,6 @@ export function StageView() {
             </div>
           </div>
         )}
-        {track && !perform && <Director />}
       </div>
     </div>
   );

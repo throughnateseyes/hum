@@ -3,7 +3,7 @@ import { audioEngine } from '../audio/engine';
 import { FULLSCREEN_VERT } from '../core/glsl';
 import { resolvePalette } from '../core/palettes';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
-import type { EffectDef, EffectInstance, FrameContext, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
+import type { AudioFrame, EffectDef, EffectInstance, FrameContext, LayerId, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
 import { getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
@@ -36,6 +36,37 @@ varying vec2 vUv;
 uniform sampler2D tMap;
 void main(){ gl_FragColor = vec4(texture2D(tMap, vUv).rgb, 1.0); }`;
 
+/**
+ * The impact pass runs after every look's own effects, so every look hits: a punch on kicks, a split
+ * on snares, a hit on the drop (zoom, shake, a brief inversion flash) and tension during build-ups
+ * (a slow push-in while the edges close in). uAmt is the Impact amount (0..2).
+ */
+const IMPACT_FRAG = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D tMap;
+uniform float uKick, uSnare, uDrop, uBuild, uTime, uAmt, uAspect;
+float h(float x){ return fract(sin(x * 91.17) * 43758.5453); }
+void main(){
+  float a = min(uAmt, 1.6);
+  float hit = smoothstep(0.62, 1.0, uDrop);            // strongest in the first ~0.4 s of a drop
+  vec2 c = vUv - 0.5;
+  float zoom = (0.028 * uKick + 0.07 * hit + 0.025 * uBuild) * a;
+  float f = floor(uTime * 30.0);
+  vec2 shake = (vec2(h(f), h(f + 7.31)) - 0.5) * (0.005 * uBuild + 0.012 * hit) * a;
+  vec2 uv = c * (1.0 - zoom) + 0.5 + shake;
+  vec2 dir = normalize(c + 1e-4) * (0.0018 * uSnare + 0.006 * hit) * a;
+  vec3 col = vec3(texture2D(tMap, uv + dir).r, texture2D(tMap, uv).g, texture2D(tMap, uv - dir).b);
+  col *= 1.0 + 0.1 * uKick * a;
+  col = mix(col, 1.0 - col, smoothstep(0.86, 1.0, uDrop) * min(uAmt, 1.0) * 0.85);
+  vec2 q = c * vec2(max(uAspect, 1.0), max(1.0 / uAspect, 1.0));
+  col *= 1.0 - smoothstep(0.3, 0.85, length(q) * 1.25) * uBuild * 0.38 * a;
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+/** layers the Impact amount shapes (time signals like beat phase and sway stay as they are) */
+const SHAPED: (keyof AudioFrame & LayerId)[] = ['level', 'sub', 'bass', 'lowMid', 'mid', 'highMid', 'air', 'kick', 'snare', 'hat', 'energy', 'flux', 'build', 'drop'];
+
 interface Live {
   id: string;
   def: SceneDef;
@@ -58,6 +89,9 @@ export class Stage {
   private current: Live | null = null;
   private prev: Live | null = null;
   private fadeStart = 0;
+  private fadeDur = 900;
+  /** set before a scene change to use a different crossfade length once (hover previews use a quick one) */
+  nextFadeMs: number | null = null;
   private raf = 0;
   private last = performance.now();
   private t0 = performance.now();
@@ -67,6 +101,11 @@ export class Stage {
   private fxParams = new Map<string, ParamValues>();
   private compilingScene = false;
   private snapshotResolvers: ((url: string) => void)[] = [];
+  private impactRT: THREE.WebGLRenderTarget;
+  private impactMat: THREE.ShaderMaterial;
+  private impactQuad: ReturnType<typeof createFullscreenQuad>;
+  private shaped = {} as AudioFrame;
+  private shapedLayers = {} as Record<LayerId, number>;
   width = 2;
   height = 2;
   fps = 60;
@@ -106,6 +145,24 @@ export class Stage {
       depthWrite: false,
     });
     this.mixQuad = createFullscreenQuad(this.mixMat);
+    this.impactMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tMap: { value: null },
+        uKick: { value: 0 },
+        uSnare: { value: 0 },
+        uDrop: { value: 0 },
+        uBuild: { value: 0 },
+        uTime: { value: 0 },
+        uAmt: { value: 1 },
+        uAspect: { value: 1 },
+      },
+      vertexShader: FULLSCREEN_VERT,
+      fragmentShader: IMPACT_FRAG,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.impactQuad = createFullscreenQuad(this.impactMat);
+    this.impactRT = makeRenderTarget(2, 2);
 
     this.shared = {
       spectrumTex,
@@ -149,6 +206,7 @@ export class Stage {
     this.sceneRT.setSize(w, h);
     this.prevRT.setSize(w, h);
     this.mixRT.setSize(w, h);
+    this.impactRT.setSize(w, h);
     this.fx.setSize(w, h);
     this.current?.inst.resize?.(w, h);
     this.prev?.inst.resize?.(w, h);
@@ -171,6 +229,21 @@ export class Stage {
     return new Promise((res) => this.snapshotResolvers.push(res));
   }
 
+  /**
+   * Render a frame now and copy it, centre-cropped, into a small 2D canvas. Synchronous, so it works
+   * without preserveDrawingBuffer (and without image decoding, which stalls in hidden tabs).
+   */
+  capture(w: number, h: number): HTMLCanvasElement {
+    this.tick();
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const src = this.canvas;
+    const s = Math.min(src.width / w, src.height / h);
+    c.getContext('2d')!.drawImage(src, (src.width - w * s) / 2, (src.height - h * s) / 2, w * s, h * s, 0, 0, w, h);
+    return c;
+  }
+
   private ensureScene(id: string, now: number) {
     if (this.current?.id === id) return;
     const def = getScene(id);
@@ -186,6 +259,8 @@ export class Stage {
     if (this.prev) this.prev.inst.dispose();
     this.prev = this.current;
     this.fadeStart = now;
+    this.fadeDur = this.nextFadeMs ?? 900;
+    this.nextFadeMs = null;
     this.current = { id, def, inst, born: now, params: {} };
   }
 
@@ -197,8 +272,9 @@ export class Stage {
     this.frameNo++;
     const s = useStudio.getState();
     audioEngine.sensitivity = s.sensitivity;
-    const audio = audioEngine.update(dt);
-    autopilotTick(audio);
+    const raw = audioEngine.update(dt);
+    autopilotTick(raw);
+    const audio = this.shape(raw, s.impact);
 
     // shared audio textures
     const sd = this.shared.spectrumTex.image.data as Float32Array;
@@ -258,7 +334,7 @@ export class Stage {
     }
 
     let sceneTex: THREE.Texture = this.sceneRT.texture;
-    const fade = (now - this.fadeStart) / 900;
+    const fade = (now - this.fadeStart) / this.fadeDur;
     if (this.prev) {
       if (fade >= 1) {
         this.prev.inst.dispose();
@@ -289,7 +365,21 @@ export class Stage {
     this.fx.prune(ids);
     const finalTex = this.fx.run(r, sceneTex, live, { width: this.width, height: this.height, time, audio, palette: this.palette });
 
-    this.shared.blit(finalTex, null);
+    const u = this.impactMat.uniforms;
+    if (s.impact > 0.001) {
+      u.tMap.value = finalTex;
+      u.uKick.value = audio.kick;
+      u.uSnare.value = audio.snare;
+      u.uDrop.value = audio.drop;
+      u.uBuild.value = audio.build;
+      u.uTime.value = time;
+      u.uAmt.value = s.impact;
+      u.uAspect.value = this.width / this.height;
+      this.impactQuad.render(r, this.impactRT);
+      this.shared.blit(this.impactRT.texture, null);
+    } else {
+      this.shared.blit(finalTex, null);
+    }
 
     if (this.snapshotResolvers.length) {
       const url = this.canvas.toDataURL('image/png');
@@ -297,8 +387,23 @@ export class Stage {
     }
   }
 
+  /** Impact shaping: v → 1 − (1 − v)^k keeps 0..1, lifts and lengthens hits for k > 1, softens them for k < 1, k = 0 is still. */
+  private shape(a: AudioFrame, k: number): AudioFrame {
+    const o = Object.assign(this.shaped, a);
+    o.layers = Object.assign(this.shapedLayers, a.layers);
+    if (Math.abs(k - 1) < 1e-3) return o;
+    for (const key of SHAPED) {
+      const v = Math.min(1, Math.max(0, a[key] as number));
+      const s = k <= 0.001 ? 0 : 1 - Math.pow(1 - v, k);
+      (o as unknown as Record<string, number>)[key] = s;
+      o.layers[key] = s;
+    }
+    return o;
+  }
+
   dispose() {
     this.stop();
+    this.impactRT.dispose();
     this.current?.inst.dispose();
     this.prev?.inst.dispose();
     this.fx.dispose();

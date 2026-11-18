@@ -106,3 +106,43 @@ export const Wave = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3 12h2l2-6 3 12 3-9 2 6 2-3h4" />
   </svg>
 );
+export const Chevron = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+export const Trash = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 7h16M9 7V5h6v2M6.5 7l1 12h9l1-12" />
+  </svg>
+);
+export const Redo = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M20 8h-9a5 5 0 0 0 0 10h3M20 8l-4-4M20 8l-4 4" />
+  </svg>
+);
+/* scene category glyphs for the Scenes list */
+export const Cube = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+    <path d="m4 7.5 8 4.5 8-4.5M12 12v9" />
+  </svg>
+);
+export const Layers = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M3 9c3-3 6 3 9 0s6 3 9 0M3 15c3-3 6 3 9 0s6 3 9 0" />
+  </svg>
+);
+export const Image = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="m4 17 5-5 4 4 2.5-2.5L20 18" />
+    <circle cx="15.5" cy="9" r="1.5" />
+  </svg>
+);
+export const Grid = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="2" />
+    <path d="M3.5 12h17M12 12v8.5" />
+  </svg>
+);

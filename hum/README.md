@@ -21,14 +21,21 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   halftime bass with a build and a drop; *Driftwood* — 72 bpm rain and piano), or use the mic.
 - **Drop photos** anywhere — photo scenes and the instrument boards dissolve, mosh and rebuild them
   (a new photo every 4 bars).
-- **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits").
+- **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any
+  look or scene to preview it live on the stage with your track; click to keep it.
+- **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
+  look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
+  tension during build-ups.
 - **Scenes** (left) are the raw visual engines; **Inspector** (right) has the scene's sliders, the
   **Effects** stack, **Routing** (the modulation matrix) and **Look** (palette, lyric text, frame
   aspect for 9:16 reels / 4:5 / 1:1, quality, auto-pilot, save look).
 - **Drag a layer meter** from the bottom strip onto any slider to make it react to that layer. The
   blue tick on a slider shows its live, modulated value.
-- **Director** (bottom of the stage): describe a feeling → a look; switch to *Shader* → Claude writes
-  a new GLSL scene that's compiled live (errors show in the Scene tab).
+- **Director** (bottom of the right column, `/` to focus): a chat with history. Describe a feeling →
+  a *Look*; switch to *New scene* → Claude writes a brand-new GLSL scene that's compiled live (errors
+  show in the Scene tab).
+- **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
+  them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
 - Keys: `space` play/pause · `←/→` previous/next look · `R` shuffle · `F` perform mode · `esc` exit.
 

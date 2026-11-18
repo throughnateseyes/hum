@@ -1,4 +1,12 @@
-import { HM_LIB, defineClockedShaderScene, rateClock } from './lib';
+import { HM_LIB, defineClockedShaderScene, rateClock, sinceKickClock, type ClockDef } from './lib';
+
+/** Per-frame share of a kick's lurch: k·e^(−k·t)·dt sums to ≈ kick strength over ~0.25 s. */
+const lurchClock = (k: number): ClockDef => ({
+  step: (_v, f, s, mem) => {
+    if (f.audio.kickHit) mem.kickAmp = Math.max(0.5, Math.min(1, f.audio.kick));
+    return (mem.kickAmp ?? 1) * k * Math.exp(-k * s.sk) * f.dt;
+  },
+});
 
 const fragment = /* glsl */ `
 ${HM_LIB}
@@ -12,24 +20,38 @@ void main() {
   vec2 mg = vec2(30.0, 26.0) * px;
   bool inPlot = fc.x > mg.x && fc.x < res.x - mg.x && fc.y > mg.y && fc.y < res.y - mg.y;
   float y = clamp((fc.y - mg.y) / (res.y - 2.0 * mg.y), 0.0, 1.0);
+  float tens = uBuild * u_tension;
 
-  // scan line, bent by the live waveform (plus a slow idle sway)
-  float bendPx = u_bend * res.x * (0.1 * waveform(y) * (0.35 + 1.2 * uLevel) + 0.012 * sin(y * 5.0 + t * 0.8));
-  float xs = mix(mg.x, res.x - mg.x, u_scan) + bendPx;
+  // scan line, bent by the live waveform (plus a slow idle sway); builds and drops bend it harder
+  float bendGain = 1.0 + tens * 1.5 + uDrop * u_split * 1.5;
+  float bendPx = u_bend * res.x * (0.1 * waveform(y) * (0.35 + 1.2 * uLevel) * bendGain + 0.012 * sin(y * 5.0 + t * 0.8));
+  float xs0 = mix(mg.x, res.x - mg.x, u_scan) + bendPx;
+  // drop: the slit splits into three that fly apart and slowly converge again (builds hint at it)
+  float spread = max(uDrop * u_split, tens * 0.12) * (res.x - 2.0 * mg.x) * 0.3;
+  float xs = xs0;
+  if (spread > 1.0) {
+    float xl = xs0 - spread - bendPx * 0.6;
+    float xr = xs0 + spread + bendPx * 0.4;
+    if (abs(fc.x - xl) < abs(fc.x - xs)) xs = xl;
+    if (abs(fc.x - xr) < abs(fc.x - xs)) xs = xr;
+  }
 
-  // whole-pixel shift per frame keeps the streaks crisp; energy speeds it up
-  float shift = floor(u_speed * px * (1.0 + 4.0 * uEnergy) + 0.5);
+  // whole-pixel shift per frame keeps the streaks crisp; energy speeds it up, and every kick
+  // makes the whole history lurch away from the slit (~90 px at the default strength)
+  float shift = floor(u_speed * px * (1.0 + 4.0 * uEnergy) + u_lurch * u_shv * 140.0 * px + 0.5);
 
   // snare tears: random horizontal bands jump further this frame
   float bandH = px * 4.0 * (1.0 + floor(hash11(floor(uTime * 12.0)) * 8.0));
   float band = floor(fc.y / bandH);
   float tearSeed = hash21(vec2(band, floor(uTime * 14.0)));
-  float tear = step(1.0 - 0.35 * u_tear, tearSeed) * smoothstep(0.12, 0.55, uSnare) * u_tear;
+  float tear = step(1.0 - 0.35 * u_tear, tearSeed) * max(smoothstep(0.12, 0.55, uSnare), tens * 0.45) * u_tear;
   float tearShift = floor(tear * (16.0 + 70.0 * tearSeed) * px);
 
   // history flows away from the scan line on both sides
   float side = fc.x >= xs ? 1.0 : -1.0;
   vec2 src = fc - vec2(side * (shift + tearShift), 0.0);
+  // drop: column groups also slip vertically, so the history shears into diagonals
+  src.y -= floor((hash11(floor(fc.x / (6.0 * px)) + 3.0) - 0.5) * 7.0 * uDrop * u_split * px + 0.5);
   vec4 prev = texture2D(tPrev, src / res);
   vec3 hist = prev.a > 0.5 ? prev.rgb : uBg;
   hist = mix(uBg, hist, u_persist);
@@ -41,8 +63,11 @@ void main() {
   float n = fbm(vec2(y * u_detail, t * 0.8), 4) * 0.5 + 0.5;
   float lines = 0.6 + 0.4 * hash11(row + floor(t * 0.5) * 13.0);
   float spec = spectrum(y) * (0.35 + uMid);
+  // kick print: rows where the spectrum is loud stamp solid on every kick, so the stream
+  // carries away a spectrum barcode per hit
+  float kprint = u_spectro * clamp(uKick * 1.3, 0.0, 1.0) * smoothstep(0.06, 0.35, spectrum(y));
   float sparks = uHat * step(0.93, hash11(row * 1.3 + floor(uTime * 30.0)));
-  float subj = clamp(smoothstep(0.38, 0.78, n + body * 0.45) * lines + spec * 0.55 + sparks, 0.0, 1.0);
+  float subj = clamp(smoothstep(0.38, 0.78, n + body * 0.45) * lines + spec * 0.55 + sparks + kprint, 0.0, 1.0);
 
   vec3 col = uBg;
   float bw = shift + px;
@@ -110,7 +135,7 @@ export const slitSmear = defineClockedShaderScene(
     id: 'slit-smear',
     name: 'Slit Smear',
     description:
-      'Monochrome slit-scan time smear (TouchDesigner look): a moving noise subject is sampled along a scan line bent by the waveform, and the history streams away on both sides. Energy speeds the smear, snares tear horizontal bands. Tiny tick marks and numeric readouts in the margins.',
+      'Monochrome slit-scan time smear (TouchDesigner look): a moving noise subject is sampled along a scan line bent by the waveform, and the history streams away on both sides. Every kick makes the stream lurch and stamps a spectrum barcode into it; snares tear horizontal bands; build-ups bend the slit harder and start tearing on their own; a drop splits the slit into three that fly apart and shear the history into diagonals. Tiny tick marks and numeric readouts in the margins.',
     category: 'field',
     fragment,
     tags: ['monochrome', 'techno', 'glitch', 'experimental', 'cold', 'minimal', 'data', 'hypnotic'],
@@ -123,6 +148,10 @@ export const slitSmear = defineClockedShaderScene(
       { id: 'bend', label: 'Waveform bend', group: 'Shape', type: 'number', min: 0, max: 2, step: 0.01, default: 0.8 },
       { id: 'detail', label: 'Subject detail', group: 'Shape', type: 'number', min: 1, max: 14, step: 0.1, default: 5 },
       { id: 'labels', label: 'Labels', group: 'Overlay', type: 'bool', default: true },
+      { id: 'lurch', label: 'Kick lurch', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.65, hint: 'Each kick shoves the whole stream away from the slit' },
+      { id: 'spectro', label: 'Kick spectrum print', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.6, hint: 'Kicks stamp the loud frequencies into the stream' },
+      { id: 'split', label: 'Drop split', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.7, hint: 'A drop splits the slit into three and shears the history' },
+      { id: 'tension', label: 'Build tension', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.55, hint: 'Build-ups bend the slit and tear the stream' },
     ],
     modulations: [
       { source: 'energy', param: 'speed', amount: 0.15 },
@@ -132,5 +161,7 @@ export const slitSmear = defineClockedShaderScene(
   },
   {
     clk: rateClock((f) => 0.5 + 1.0 * f.audio.energy + 0.5 * f.audio.mid),
+    sk: sinceKickClock,
+    shv: lurchClock(14),
   },
 );

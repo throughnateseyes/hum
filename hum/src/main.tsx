@@ -6,9 +6,17 @@ import App from './App';
 createRoot(document.getElementById('root')!).render(<App />);
 
 if (import.meta.env.DEV) {
-  void Promise.all([import('./state/store'), import('./presets'), import('./fx'), import('./scenes'), import('./state/live'), import('./audio/engine')]).then(
-    ([store, presets, fx, scenes, live, engine]) => {
-      (window as unknown as Record<string, unknown>).__hum = { useStudio: store.useStudio, PRESETS: presets.PRESETS, fx, scenes, live: live.live, engine: engine.audioEngine };
+  void Promise.all([import('./state/store'), import('./presets'), import('./fx'), import('./scenes'), import('./state/live'), import('./audio/engine'), import('./dev/thumbs')]).then(
+    ([store, presets, fx, scenes, live, engine, thumbs]) => {
+      (window as unknown as Record<string, unknown>).__hum = {
+        useStudio: store.useStudio,
+        PRESETS: presets.PRESETS,
+        fx,
+        scenes,
+        live: live.live,
+        engine: engine.audioEngine,
+        makeThumbs: thumbs.makeThumbs,
+      };
     },
   );
 }
