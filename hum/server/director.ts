@@ -21,9 +21,9 @@
  *   ANTHROPIC_BASE_URL  optional API base URL override
  */
 import type { LayerId } from '../src/core/types';
-import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide';
-import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList';
-import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits';
+import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide.js';
+import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
+import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
 
 export type DirectorEnv = Record<string, string | undefined>;
 

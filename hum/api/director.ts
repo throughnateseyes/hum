@@ -4,7 +4,7 @@
  * HUM_CODE_DAILY_BUDGET, HUM_RATE_LIMIT, the Upstash Redis variables and HUM_ALLOWED_ORIGIN; see
  * server/limits.ts) in the Vercel project's environment variables.
  */
-import { handleDirector } from '../server/director';
+import { handleDirector } from '../server/director.js';
 
 const MAX_BODY_BYTES = 64_000;
 
