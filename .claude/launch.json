@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hum",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "hum", "run", "dev", "--", "--port", "5178", "--strictPort"],
+      "port": 5178
+    }
+  ]
+}

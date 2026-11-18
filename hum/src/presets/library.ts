@@ -1,0 +1,316 @@
+import { getPalette } from '../core/palettes';
+import type { Preset } from '../core/types';
+
+/**
+ * Built-in looks. Tags drive both the mood filter in the library and the track analysis
+ * matcher (it scores these tags against what it hears), so keep them honest.
+ */
+const P = (p: Omit<Preset, 'palette'> & { palette: string }): Preset => ({ ...p, palette: getPalette(p.palette) });
+
+export const PRESETS: Preset[] = [
+  /* ───────── instrument boards (the reference look) ───────── */
+  P({
+    id: 'orbit-board',
+    name: 'Orbit Board',
+    description: 'Photo-led instrument sheet: block-dissolve photo, spectrogram, stacked bands, radial meter.',
+    tags: ['minimal', 'photo', 'lofi', 'pop', 'tender', 'dreamy', 'indie', 'calm', 'melancholic'],
+    sceneId: 'board-orbit',
+    effects: [{ effectId: 'grain', params: { amount: 0.18 } }],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+  P({
+    id: 'lab-notes',
+    name: 'Lab Notes',
+    description: 'A cream lab sheet of instruments — topo lines, Tetris on the kick, voronoi, step sequencer.',
+    tags: ['minimal', 'driving', 'techno', 'hypnotic', 'electronic', 'house', 'bouncy'],
+    sceneId: 'board-lab',
+    effects: [{ effectId: 'grain', params: { amount: 0.16 } }],
+    modulations: [],
+    palette: 'cream-violet',
+  }),
+  P({
+    id: 'oto-sketch',
+    name: 'Oto Sketch',
+    description: 'Combed-hair flow sculpture over a row of glowing knobs, scope and vector minis.',
+    tags: ['dreamy', 'tender', 'calm', 'romantic', 'piano', 'minimal', 'spacious'],
+    sceneId: 'board-oto',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.14 } },
+      { effectId: 'vignette', params: { amount: 0.25 } },
+    ],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+
+  /* ───────── heavy / bass ───────── */
+  P({
+    id: 'sub-pressure',
+    name: 'Sub Pressure',
+    description: 'Built for dubstep: bars that blomp with every wobble, screen-shake kicks, inversion on the drop.',
+    tags: ['heavy', 'dubstep', 'bass', 'aggressive', 'dark', 'intense', 'glitch'],
+    sceneId: 'sub-pressure',
+    effects: [
+      { effectId: 'glitch', params: { amount: 0.35 } },
+      { effectId: 'chroma', params: { amount: 0.35 } },
+      { effectId: 'flash', params: { mode: 'invert', trigger: 'drop', amount: 0.9 } },
+    ],
+    modulations: [{ source: 'snare', target: 'fx.0.amount', amount: 0.35 }],
+    palette: 'acid',
+  }),
+  P({
+    id: 'blomp-grid',
+    name: 'Blomp Grid',
+    description: 'An isometric city of monoliths, shockwaves on every kick, dithered to two inks.',
+    tags: ['heavy', 'bass', 'driving', 'techno', 'dubstep', 'minimal', 'glitch'],
+    sceneId: 'monolith-grid',
+    effects: [
+      { effectId: 'dither', params: { colorMode: 'duo', pixelSize: 2 } },
+      { effectId: 'zoom-punch', params: { amount: 0.4 } },
+    ],
+    modulations: [{ source: 'sub', target: 'scene.amp', amount: 0.25 }],
+    palette: 'paper-blue',
+  }),
+  P({
+    id: 'chrome-warehouse',
+    name: 'Chrome Warehouse',
+    description: 'Liquid chrome metaballs merging with the sub, droplets on kicks, cold monochrome.',
+    tags: ['techno', 'dark', 'driving', 'aggressive', 'heavy', 'hypnotic'],
+    sceneId: 'chrome-blobs',
+    effects: [
+      { effectId: 'bloom', params: { strength: 0.5 } },
+      { effectId: 'grain', params: { amount: 0.2 } },
+    ],
+    modulations: [],
+    palette: 'mono',
+  }),
+  P({
+    id: 'tunnel-vision',
+    name: 'Tunnel Vision',
+    description: 'Rings born from the waveform rush at you, tempo-locked; the drop flashes the void.',
+    tags: ['euphoric', 'techno', 'trance', 'driving', 'intense', 'energetic', 'heavy'],
+    sceneId: 'ring-tunnel',
+    effects: [
+      { effectId: 'bloom', params: { strength: 0.7 } },
+      { effectId: 'chroma', params: { amount: 0.3 } },
+      { effectId: 'flash', params: { mode: 'white', trigger: 'drop', amount: 0.7 } },
+    ],
+    modulations: [],
+    palette: 'bruise',
+  }),
+
+  /* ───────── sad / tender ───────── */
+  P({
+    id: 'rain-window',
+    name: 'Rain Window',
+    description: 'Slow colour fields behind wet glass. For the 3am songs.',
+    tags: ['sad', 'melancholic', 'ambient', 'rain', 'spacious', 'piano', 'slow', 'calm'],
+    sceneId: 'aura',
+    sceneParams: { speed: 0.3, count: 4, softness: 0.42, drift: 0.9, saturation: 1.4, bloom: 0.6 },
+    effects: [
+      { effectId: 'smear', params: { mode: 'smear', angle: 270, length: 0.7, hold: 0.6 } },
+      { effectId: 'grain', params: { amount: 0.3 } },
+      { effectId: 'vignette', params: { amount: 0.3, color: 'black' } },
+    ],
+    modulations: [],
+    palette: 'rain',
+  }),
+  P({
+    id: 'silk-mourning',
+    name: 'Silk Mourning',
+    description: 'A sheet of silk folding in the dark, catching light on the high notes.',
+    tags: ['sad', 'melancholic', 'tender', 'romantic', 'slow', 'dreamy', 'piano'],
+    sceneId: 'silk',
+    effects: [
+      { effectId: 'bloom', params: { strength: 0.45 } },
+      { effectId: 'grain', params: { amount: 0.25 } },
+    ],
+    modulations: [],
+    palette: 'midnight',
+  }),
+  P({
+    id: 'paper-ghost',
+    name: 'Paper Ghost',
+    description: 'Silk drawn in ink on paper — quiet, graphic, a little lonely.',
+    tags: ['sad', 'minimal', 'calm', 'tender', 'ambient', 'melancholic'],
+    sceneId: 'silk',
+    effects: [
+      { effectId: 'halftone', params: { mode: 'mono', size: 4 } },
+      { effectId: 'grain', params: { amount: 0.18 } },
+    ],
+    modulations: [],
+    palette: 'bone-ink',
+  }),
+  P({
+    id: 'ink-dissolve',
+    name: 'Ink Dissolve',
+    description: 'Your photo rebuilt from glowing points; snares slice it, the drop blows it to dust.',
+    tags: ['photo', 'dreamy', 'melancholic', 'tender', 'dark', 'spacious'],
+    sceneId: 'photo-dissolve',
+    effects: [
+      { effectId: 'bloom', params: { strength: 0.55 } },
+      { effectId: 'grain', params: { amount: 0.2 } },
+    ],
+    modulations: [],
+    palette: 'midnight',
+  }),
+
+  /* ───────── dreamy / calm ───────── */
+  P({
+    id: 'marble-dream',
+    name: 'Marble Dream',
+    description: 'Ultramarine and gold folding into itself — liquid marble that breathes with the bass.',
+    tags: ['dreamy', 'hypnotic', 'psychedelic', 'euphoric', 'spacious', 'romantic'],
+    sceneId: 'liquid-marble',
+    sceneParams: { scale: 1.2, detail: 4, warp: 1.6 },
+    effects: [{ effectId: 'grain', params: { amount: 0.22 } }],
+    modulations: [],
+    palette: 'marble',
+  }),
+  P({
+    id: 'combed-light',
+    name: 'Combed Light',
+    description: 'Thousands of blue hairlines combed by the mids; kicks send a wave through the fur.',
+    tags: ['dreamy', 'tender', 'calm', 'romantic', 'minimal', 'piano', 'ambient'],
+    sceneId: 'flow-hair',
+    effects: [{ effectId: 'grain', params: { amount: 0.12 } }],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+  P({
+    id: 'contours',
+    name: 'Contours',
+    description: 'A topographic map of the song — the bass lifts the terrain, kicks drop ripples.',
+    tags: ['calm', 'minimal', 'ambient', 'spacious', 'hypnotic', 'driving'],
+    sceneId: 'topo',
+    effects: [{ effectId: 'grain', params: { amount: 0.14 } }],
+    modulations: [],
+    palette: 'cream-violet',
+  }),
+  P({
+    id: 'clay-pulse',
+    name: 'Clay Pulse',
+    description: 'A soft clay blob on a studio sweep. The sub inflates it, kicks dent it.',
+    tags: ['calm', 'minimal', 'bouncy', 'pop', 'warm', 'tender', 'lofi'],
+    sceneId: 'clay-orb',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.16 } },
+      { effectId: 'vignette', params: { amount: 0.3 } },
+    ],
+    modulations: [],
+    palette: 'clay',
+  }),
+  P({
+    id: 'ridgeline-press',
+    name: 'Ridgeline Press',
+    description: 'The spectrum stacked over time like mountain ridges, printed in halftone ink.',
+    tags: ['minimal', 'driving', 'rock', 'indie', 'electronic', 'dark'],
+    sceneId: 'ridgeline',
+    effects: [
+      { effectId: 'halftone', params: { mode: 'mono', size: 3 } },
+      { effectId: 'grain', params: { amount: 0.12 } },
+    ],
+    modulations: [],
+    palette: 'bone-ink',
+  }),
+
+  /* ───────── euphoric ───────── */
+  P({
+    id: 'swarm-bloom',
+    name: 'Swarm Bloom',
+    description: '110k particles in a flow field — kicks burst them, the drop explodes the cloud.',
+    tags: ['euphoric', 'electronic', 'house', 'spacious', 'energetic', 'driving'],
+    sceneId: 'point-swarm',
+    effects: [
+      { effectId: 'trails', params: { decay: 0.82 } },
+      { effectId: 'bloom', params: { strength: 0.6 } },
+    ],
+    modulations: [],
+    palette: 'midnight',
+  }),
+  P({
+    id: 'kaleido-candy',
+    name: 'Kaleido Candy',
+    description: 'Liquid marble through a tempo-locked kaleidoscope, mapped onto a blush palette.',
+    tags: ['euphoric', 'psychedelic', 'pop', 'happy', 'bouncy', 'dreamy'],
+    sceneId: 'liquid-marble',
+    sceneParams: { scale: 1.1, detail: 4 },
+    effects: [
+      { effectId: 'kaleido', params: { segments: 6, tempoLock: true } },
+      { effectId: 'grain', params: { amount: 0.15 } },
+    ],
+    modulations: [],
+    palette: 'blush',
+  }),
+  P({
+    id: 'ripple-postcard',
+    name: 'Ripple Postcard',
+    description: 'A photo on paper; every kick drops a ripple that splits the colour along its front.',
+    tags: ['photo', 'euphoric', 'pop', 'tender', 'summer', 'bouncy', 'happy'],
+    sceneId: 'photo-ripple',
+    effects: [{ effectId: 'grain', params: { amount: 0.16 } }],
+    modulations: [],
+    palette: 'cream-violet',
+  }),
+
+  /* ───────── glitch ───────── */
+  P({
+    id: 'datamosh',
+    name: 'Datamosh',
+    description: 'Corrupted macroblocks smear the old photo into the new one; kicks pixel-sort it.',
+    tags: ['photo', 'glitch', 'aggressive', 'dark', 'experimental', 'heavy'],
+    sceneId: 'photo-mosh',
+    effects: [
+      { effectId: 'crt', params: { scanlines: 0.35 } },
+      { effectId: 'grain', params: { amount: 0.2 } },
+    ],
+    modulations: [],
+    palette: 'mono',
+  }),
+  P({
+    id: 'slit-archive',
+    name: 'Slit Archive',
+    description: 'Monochrome slit-scan smears with tiny data labels, like a found TouchDesigner tape.',
+    tags: ['glitch', 'hypnotic', 'dark', 'ambient', 'experimental', 'spacious'],
+    sceneId: 'slit-smear',
+    effects: [{ effectId: 'grain', params: { amount: 0.22 } }],
+    modulations: [],
+    palette: 'mono',
+  }),
+  P({
+    id: 'terminal-swarm',
+    name: 'Terminal',
+    description: 'The ring tunnel rendered as green-screen ASCII. Hats make it shimmer.',
+    tags: ['glitch', 'techno', 'dark', 'hypnotic', 'experimental', 'driving'],
+    sceneId: 'ring-tunnel',
+    effects: [
+      { effectId: 'ascii', params: { colorMode: 'accent' } },
+      { effectId: 'crt', params: { scanlines: 0.4 } },
+    ],
+    modulations: [],
+    palette: 'acid',
+  }),
+  P({
+    id: 'one-bit-orb',
+    name: '1-bit Orb',
+    description: 'The clay orb crushed to Bayer dither, two inks on bone paper.',
+    tags: ['glitch', 'minimal', 'lofi', 'bouncy', 'calm'],
+    sceneId: 'clay-orb',
+    effects: [{ effectId: 'dither', params: { colorMode: 'duo', pixelSize: 3, contrast: 1.4 } }],
+    modulations: [],
+    palette: 'bone-ink',
+  }),
+  P({
+    id: 'blue-mosaic',
+    name: 'Blue Mosaic',
+    description: 'Your photo posterized into voronoi cells, ultramarine on paper; hats flip cells back to the source.',
+    tags: ['photo', 'minimal', 'calm', 'dreamy', 'indie', 'lofi'],
+    sceneId: 'photo-mosaic',
+    effects: [
+      { effectId: 'grain', params: { amount: 0.14 } },
+      { effectId: 'vignette', params: { amount: 0.2 } },
+    ],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+];
