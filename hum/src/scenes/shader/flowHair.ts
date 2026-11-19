@@ -252,6 +252,7 @@ export const flowHair = defineClockedShaderScene(
     description:
       'Thousands of hairline strokes combed through a slowly evolving flow field (line-integral convolution) — ultramarine on paper over soft locks of tint. The spectrum lifts strands from the bottom edge like grass, kicks send an eased surge and a ring through the fur, snares flick the comb, build-ups draw the hair inward and a drop blows a slow gust out of the centre that re-combs everything.',
     category: 'field',
+    style: 'light',
     fragment,
     tags: ['organic', 'editorial', 'calm', 'textured', 'flowing', 'minimal', 'delicate', 'hypnotic'],
     light: true,

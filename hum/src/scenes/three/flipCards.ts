@@ -106,6 +106,7 @@ export const flipCards: SceneDef = {
   description:
     'A grid of rounded colour cards, each with one big bold word turned in 90° steps. Cards flip on the beat to new words and colour pairings, skew into perspective on snares and bounce on kicks; sections deal new colours and drops flip them all. Words come from the lyrics being sung, else the title and artist.',
   category: 'form',
+  style: 'type',
   tags: ['playful', 'bold', 'pop', 'upbeat', 'energetic', 'bouncy', 'graphic', 'typographic'],
   showsLyrics: true,
   params,

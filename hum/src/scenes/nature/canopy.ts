@@ -463,6 +463,7 @@ export const canopy: SceneDef = {
   description:
     'Lying on the forest floor looking straight up through backlit leaves at a blue sky with white clouds. The mids sway the branches, the hats flutter the leaves so the sun winks through the gaps, snares and highs flare the sun and its rays, a build draws the canopy in and the drop parts it to flood the frame with light. The open sky in the middle keeps lyrics readable.',
   category: 'form',
+  style: 'world',
   tags: ['dreamy', 'calm', 'hopeful', 'uplifting', 'tender', 'nostalgic', 'acoustic', 'indie', 'folk', 'nature', 'organic', 'realistic', 'warm', 'bright'],
   light: true,
   params,

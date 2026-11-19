@@ -106,6 +106,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
   first four bars.
+- **Scene windows.** Pop-ups can also be other looks: framed windows (a title bar with the look's
+  name, a plain card, or a round cut-out) each playing a different look live over the picture, so
+  looks combine like a desktop stacked with programs. They open on new parts and phrases, bump on
+  kicks, stamp a cascade of copies on snares, huddle and tremble through a build, slam shut on the
+  drop and burst back open a beat later. *Windows show* (Look tab → Video) picks Instruments, Looks
+  or Both (the default); the Pop-ups switch turns all of them on or off.
+- **Song colours.** A video cut from many looks still reads as one piece: every look leans toward
+  the colours of the look the song uses most (choruses and drops count double), and scene windows
+  wear them too. Only hue moves, so each look keeps its own lights and darks and stays readable.
+  *Song colours* (Look tab → Video): *Blend* (the default) meets halfway, *Match* puts every look on
+  the main look's colours, *Off* leaves them alone. See `docs/song-colours.jpg`.
 - **Text wall, particle columns, glass planes, tracking HUD.** **Text Wall** (*Redacted*,
   *Highlighter*) fills the page with the song's lyrics, knocks words out and snaps red, yellow,
   blue and cyan boxes onto them on the beat; the sung line lights up wherever it appears and drops
@@ -124,6 +135,31 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   the beat, it solves itself back, drops make it tumble. **Flip Cards** (*Flip Cards*, *Flip Cards
   Paper*) deals big turned words from the lyrics (else the title) onto colour cards that flip on the
   beat and skew on snares.
+- **Worlds.** Places and living things that follow the song's arc. **Willow** is a woodblock willow
+  lake where wind is the music and the drop blows the curtain open to let the sun in. **Night
+  Windows** is a picture-book tower whose floors are frequency bands, so the facade is an equaliser
+  made of people's evenings. **Signal Forest** reads a night glade as contour lines and spectral
+  rings round each trunk. **Wing** is a butterfly wing in close-up whose veins carry each kick out
+  to its eyespots. **Shoal** puts you inside about 2,000 fish that wind into a bait ball before a
+  drop and burst on it; **Jellies** is a tank of jellyfish that pulse on the beat. **Night Train**
+  is a dithered pixel-art subway car that bursts out of the tunnel on the drop. **Retro Desktop**
+  types the lyrics into a notes window and crashes in a cascade of error dialogs; **Observer** is a
+  wall of little windows full of eyes and skies that switches off like a CRT before the drop.
+  **Orrery** turns rings of watching eyes over a sea of cloud.
+- **Print.** **Bead Fire** (hot-rod flames in beadwork), **Halftone Flow** (poured paint printed as a
+  grid of dots), **Confetti** (a pointillist field that falls into rings in a build and bursts on
+  the drop) and **Specimen Tiles** (a sheet of tiles, each a plate resonating to one part of the song).
+- **Type.** **Ribbon Type** snakes ribbons of type through a gig poster with the sung line on the
+  ribbon in focus, and deals a new poster on every drop. **Word Drop** drops every sung word as a
+  colour tag that falls, bounces and piles up.
+- **Light, particles, forms, data.** **Prism** (light through cut crystal), **Soft Orbs** (each orb
+  a voice of the mix), **Neurones** (a branching organism that grows with the song and fires root to
+  tip on kicks), **Dot Assembly** (dots pack into the song's title, a few more docking on each kick),
+  **Gradient Cubes** (a toy box that rolls with the beat) and **Signal Scan** (the last seconds of
+  the song as a black-and-white line-scan recording).
+- **Style chips** at the top of the Looks list filter by family (Worlds, Light, Particles, Forms,
+  Print, Type, Data, Photo, Boards) alongside the mood chips; with no song loaded the list is grouped
+  by family. The Scenes tab is grouped the same way.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -155,20 +191,46 @@ audio file / mic
   → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
   → taste memory (src/state/taste.ts)      Keep / Skip and hand picks, in context; biases every pick
+AudioFrame + analysis → Feel (src/core/feel.ts)       the song's emotional state and a shared world, the same for every look
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
-  → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo})
+  → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo,nature,worlds,print,type})
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
   → transition (src/render/transitions.ts) blends the outgoing look (still playing) into the new one;
                                            picked by src/state/transitionPick.ts
   → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
+  → scene windows (src/render/sceneWindows.ts)  other looks, each rendered at its window's size, framed over the picture
   → screen / MediaRecorder
 ```
 
 - `src/core/` — the contracts (`types.ts`), the shared GLSL header + function library (`glsl.ts`),
   and helpers to define scenes (`defineShaderScene`, `defineCanvasScene`, `defineThreeScene`).
-- **Adding a scene:** write a `SceneDef` with params and drop it in one of the `src/scenes/*/index.ts`
-  arrays. A shader scene is only a `void main()` — see `src/scenes/shader/guide.ts` (this is also the
-  guide the AI reads).
+- **Feel** (`src/core/feel.ts`, `frame.feel`, `uFeel*` in shaders) is what keeps looks in agreement.
+  The audio layers say what is sounding now; Feel says what it means: `intensity` (how big this
+  part is), `tension` (winding up, including the last seconds before a drop the analysis already
+  knows is coming, so a look can wind up before the hit), `release` (the afterglow of a drop) and
+  `warmth`. It also carries a small shared world: wind direction, gusts and a time of day that runs
+  from dawn to dusk over the song. Looks with wind, weather or a light source read them from there,
+  so a cut between looks keeps the same weather and light.
+- **Style families** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
+  `form`, `print`, `type`, `data`, `photo`, `board`). The library filters and groups by them, and the
+  video planner keeps a part's shots inside one family.
+- **Shared engines for scenes:** `tnoise` / `tfbm` read a shared noise texture (several times cheaper
+  than computed noise; `src/core/noise.ts`), and `Flock` (`src/core/flock.ts`) steers a few thousand
+  bodies for anything made of a crowd.
+- **Song palette** (`src/core/songPalette.ts`): `harmonize(look, key, strength)` rotates a palette's
+  hues onto a key palette's in OKLCH, keeping lightness exactly. Colours far round the wheel commit
+  to the key's hue rather than stopping halfway in mud; greys take a breath of the key's ground. The
+  plan applies it as looks come on screen (`songTinted` in `src/state/plan.ts`).
+- **Adding a scene:** write a `SceneDef` with params and a `style`, and drop it in one of the
+  `src/scenes/*/index.ts` arrays. A shader scene is only a `void main()` — see
+  `src/scenes/shader/guide.ts` (this is also the guide the AI reads).
+- **Seeing a scene while you build it:** `/solo.html` (dev only; `src/dev/solo.ts`) plays one scene
+  against a scripted 64-second test song (`src/dev/testSong.ts`: intro, verse, build, a drop at
+  0:32, break, outro) with no audio to load. With `npm run dev` running
+  (and `npm i -D playwright-core` done once, which drives your installed Chrome),
+  `node scripts/look-shot.mjs --preset willow-print --out sheet.png` renders a contact sheet of the
+  song's key moments in a headless browser and prints shader errors and the frame cost
+  (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
 - **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
 

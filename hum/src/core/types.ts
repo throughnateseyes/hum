@@ -9,6 +9,8 @@
  *            Effect chain (GLSL passes)           → screen / recorder
  */
 import type * as THREE from 'three';
+import type { Feel } from './feel';
+import type { StyleId } from './styles';
 
 /* ───────────────────────── Audio ───────────────────────── */
 
@@ -259,6 +261,8 @@ export interface SharedResources {
   spectrumTex: THREE.DataTexture;
   /** 512×1 float texture of the waveform (red channel, -1..1 mapped to 0..1) */
   waveformTex: THREE.DataTexture;
+  /** 256×256 random values for cheap shader noise (`uNoiseTex`; see core/noise.ts) */
+  noiseTex: THREE.DataTexture;
   /** full-screen quad helpers */
   blit: (texture: THREE.Texture, target: THREE.WebGLRenderTarget | null) => void;
 }
@@ -274,6 +278,8 @@ export interface FrameContext {
   height: number;
   aspect: number;
   audio: AudioFrame;
+  /** where the song is emotionally (tension, release, intensity, warmth) and the shared world (wind, time of day); see core/feel.ts */
+  feel: Feel;
   /** scene params with modulation already applied */
   params: ParamValues;
   palette: ResolvedPalette;
@@ -315,6 +321,8 @@ export interface SceneDef {
   name: string;
   description: string;
   category: SceneCategory;
+  /** the style family it belongs to (see core/styles.ts); falls back on the category when missing */
+  style?: StyleId;
   /** mood words this scene expresses well */
   tags: string[];
   params: ParamDef[];
@@ -390,6 +398,8 @@ export interface Preset {
   /** mood / genre words, e.g. ['dubstep', 'heavy', 'aggressive'] */
   tags: string[];
   sceneId: string;
+  /** style family, when the look reads differently from its scene (otherwise the scene's) */
+  style?: StyleId;
   sceneParams?: ParamValues;
   effects: PresetEffect[];
   modulations: PresetModulation[];

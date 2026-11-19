@@ -152,6 +152,7 @@ export const paperVisualizer: SceneDef = {
   description:
     'Red cut-paper shapes standing up off white card stock in soft daylight: spectrum bars, a smooth curve, a waterfall of line slices and a radial ring, folding into each other on section changes and drops. Paper type, a scrubber and dots that hop on kicks.',
   category: 'form',
+  style: 'print',
   tags: ['tactile', 'minimal', 'editorial', 'clean', 'pop', 'indie', 'calm', 'playful'],
   light: true,
   params,

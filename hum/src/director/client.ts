@@ -478,7 +478,7 @@ export interface PlanRequest {
   sections: { label: string; group: number; start: number; end: number; energy: number; busy?: number; lyrics?: string; drop?: { strength: number; why: string } }[];
   /** whole lyrics when they have no timing */
   lyrics?: string;
-  looks: { id: string; name: string; description: string; tags: string[]; category: string }[];
+  looks: { id: string; name: string; description: string; tags: string[]; category: string; style?: string }[];
   /** taste memory: what the person tends to keep or skip, and the last plan's looks (ids, tags and counts only) */
   taste?: import('../state/taste').TasteSummary;
   /** lyric video: how overlay lyrics fit each look (one short line per look id) and words sung per second per section */

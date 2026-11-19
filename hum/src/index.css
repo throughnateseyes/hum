@@ -714,6 +714,15 @@ div:hover > .card-del {
   gap: var(--s-1);
   margin: var(--s-3) 0 var(--s-1);
 }
+.filter-row + .filter-row {
+  margin-top: 0;
+}
+.filter-name {
+  flex: 0 0 34px;
+  align-self: center;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+}
 .chip {
   border: 0;
   background: var(--panel-2);

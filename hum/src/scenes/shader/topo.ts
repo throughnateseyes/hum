@@ -140,6 +140,7 @@ export const topo = defineClockedShaderScene(
     description:
       'Topographic contour lines of an evolving noise terrain — hairline strokes on cream, every Nth line in the accent colour. Bass lifts a wandering hill and the spectrum carves lobes into it, each kick pops a mound and sends a ridge running outward (with a tiny crosshair), builds wind the map into a tightening whirl and a drop shatters it into plates.',
     category: 'field',
+    style: 'data',
     fragment,
     tags: ['minimal', 'editorial', 'calm', 'scientific', 'clean', 'map', 'instrument', 'focused'],
     light: true,

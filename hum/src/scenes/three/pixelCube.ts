@@ -266,6 +266,7 @@ export const pixelCube: SceneDef = {
   description:
     'A chunky 3×3 puzzle cube on a pastel poster. Each face is pixel art drawn from the music; layers turn on the beat, scrambling the pictures, then the cube solves itself so they read again. Drops send it tumbling.',
   category: 'form',
+  style: 'form',
   tags: ['playful', 'bouncy', 'pop', 'graphic', 'upbeat', 'house', 'energetic', 'tactile'],
   light: true,
   params,

@@ -114,6 +114,7 @@ export const aura = defineClockedShaderScene(
     description:
       'Soft, slow gradient-mesh colour fields with film grain — for sad, ambient or romantic music. Each blob breathes with its own slice of the spectrum, kicks breathe the field out and send a soft pressure ring through it, snares twist it, build-ups draw the blobs into a tight, shivering knot and a drop blows them apart. Pastel on paper palettes, glowing on dark ones.',
     category: 'field',
+    style: 'light',
     fragment,
     tags: ['ambient', 'sad', 'romantic', 'dreamy', 'calm', 'soft', 'melancholic', 'warm', 'minimal'],
     light: true,

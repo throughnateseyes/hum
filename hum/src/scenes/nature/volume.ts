@@ -494,7 +494,10 @@ export function dirFromAngles(elevDeg: number, azDeg: number, out = new THREE.Ve
   return out.set(Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e)).normalize();
 }
 
-/** Seconds since the drop fired, tracked across frames. */
+/**
+ * Seconds since the drop fired, tracked across frames. It also takes the stage's shared reading
+ * (`frame.feel.sinceDrop`), so a look that cuts in a second after a drop still shows its afterglow.
+ */
 export class DropTimer {
   since = 100;
   private prev = 0;
@@ -502,6 +505,7 @@ export class DropTimer {
     const d = frame.audio.drop;
     if (d > 0.6 && this.prev <= 0.6) this.since = 0;
     else this.since = Math.min(this.since + Math.max(frame.dt, 0), 100);
+    this.since = Math.min(this.since, frame.feel.sinceDrop);
     this.prev = d;
     return this.since;
   }

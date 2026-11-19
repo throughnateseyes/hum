@@ -143,6 +143,7 @@ export const ringTunnel = defineThreeScene({
   description:
     'Hairline rings fly toward the camera, each one shaped by the waveform and spectrum at the moment it was born, spawned in time with the tempo. Kicks lurch you forward and send a bulge down the tunnel, snares pinch it, builds narrow and quicken it, and a drop blasts it open with a barrel roll.',
   category: 'form',
+  style: 'form',
   tags: ['hypnotic', 'driving', 'techno', 'trance', 'dark', 'futuristic', 'tunnel', 'energetic'],
   params,
   modulations: [

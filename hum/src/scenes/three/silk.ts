@@ -179,6 +179,7 @@ export const silk = defineThreeScene({
   description:
     'A large sheet of silk drifting in slow layered folds with an anisotropic sheen. Kicks snap the cloth up and send rings across it, the spectrum rides over the sheet as soft ridges, sub heaves it, builds pull it taut and a drop sends a great wave rolling through. Made for sad, ambient and romantic tracks.',
   category: 'form',
+  style: 'light',
   tags: ['sad', 'ambient', 'romantic', 'dreamy', 'slow', 'elegant', 'emotional', 'soft', 'luxurious'],
   params,
   modulations: [

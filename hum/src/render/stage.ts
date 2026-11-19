@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { audioEngine } from '../audio/engine';
+import { FeelTracker } from '../core/feel';
 import { FULLSCREEN_VERT } from '../core/glsl';
+import { createNoiseTexture } from '../core/noise';
 import { resolvePalette } from '../core/palettes';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
 import type { AudioFrame, EffectDef, EffectInstance, FrameContext, LayerId, Modulation, Palette, ParamValues, PhotoAsset, ResolvedPalette, SceneDef, SceneInstance, SharedResources } from '../core/types';
@@ -13,11 +15,12 @@ import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { useStudio, type StudioState } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
-import { planTick } from '../state/plan';
+import { planTick, popLevelAt } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
 import { HandPass } from './handPass';
 import { PopupLayer } from './popups';
+import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
 
@@ -134,6 +137,8 @@ export class Stage {
   private impactMat: THREE.ShaderMaterial;
   private impactQuad: ReturnType<typeof createFullscreenQuad>;
   private shaped = {} as AudioFrame;
+  /** the song's emotional state and the shared world, the same for every look on this stage */
+  private feel = new FeelTracker();
   private shapedLayers = {} as Record<LayerId, number>;
   /** the next section's scene, created and drawn once ahead of time so a cut lands without a compile stall */
   private warm: Live | null = null;
@@ -141,6 +146,8 @@ export class Stage {
   private lyricLayer = new LyricLayer();
   /** little board windows that pop in over the picture (after effects, under lyrics) */
   private popups = new PopupLayer();
+  /** windows that play other looks live, under the instrument pop-ups */
+  private sceneWindows = new SceneWindows();
   private peekLook: PeekLook | null = null;
   private peekOut: HTMLCanvasElement | null = null;
   private peekCss = { w: 256, h: 160 };
@@ -210,6 +217,7 @@ export class Stage {
     this.shared = {
       spectrumTex,
       waveformTex,
+      noiseTex: createNoiseTexture(),
       blit: (texture, target) => {
         this.blitMat.uniforms.tMap.value = texture;
         this.blitQuad.render(this.renderer, target);
@@ -537,6 +545,7 @@ export class Stage {
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
     const s = useStudio.getState();
     const audio = this.shape(raw, s.impact);
+    const feel = this.feel.update(raw, s.analysis, dt);
 
     // shared audio textures
     const sd = this.shared.spectrumTex.image.data as Float32Array;
@@ -575,6 +584,7 @@ export class Stage {
       height: this.height,
       aspect: this.width / this.height,
       audio,
+      feel,
       palette: this.palette,
       photos,
       shared: this.shared,
@@ -629,11 +639,14 @@ export class Stage {
       live.push({ inst, def, params: out });
     }
     this.fx.prune(ids);
-    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.width, height: this.height, time, audio, palette: this.palette });
+    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.width, height: this.height, time, audio, feel, palette: this.palette });
     finalTex = this.runTransition(finalTex, base, audio, time, dt, now);
     // the hover preview borrows a corner of the canvas before the main frame covers it
     this.renderPeek(base, s.impact, now);
 
+    // how busy each kind of pop-up window is right now, split by the "Windows show" setting
+    const pops = windowLevels(popLevelAt(audio.time), s.windowKind, this.current.def.category === 'board');
+    const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
     if (s.hand.on) {
@@ -646,7 +659,8 @@ export class Stage {
       }
       // the lyric legibility guard looks at the picture before pop-ups and lyrics go over it
       if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
-      this.popups.render(r, base, this.impactRT);
+      this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT });
+      this.popups.render(r, base, this.impactRT, pops.instruments);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
@@ -663,7 +677,8 @@ export class Stage {
         this.shared.blit(finalTex, null);
         if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
-      this.popups.render(r, base);
+      this.sceneWindows.render(r, base, winOpts);
+      this.popups.render(r, base, null, pops.instruments);
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
@@ -772,6 +787,7 @@ export class Stage {
     this.warm?.inst.dispose();
     this.lyricLayer.dispose();
     this.popups.dispose();
+    this.sceneWindows.dispose();
     this.peekFx.dispose();
     this.peekRT.dispose();
     this.endTransition();

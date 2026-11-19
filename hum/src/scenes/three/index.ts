@@ -11,8 +11,14 @@ import { trackingHud } from './trackingHud';
 import { paperVisualizer } from './paperVisualizer';
 import { pixelCube } from './pixelCube';
 import { flipCards } from './flipCards';
+import { gradientCubes } from './gradientCubes';
+import { neurones } from './neurones';
+import { dotAssembly } from './dotAssembly';
 
 export const scenes: SceneDef[] = [clayOrb, pointSwarm, ridgeline, ringTunnel, monolithGrid, silk, paperVisualizer, pixelCube, flipCards];
 
 // inspo looks: particle columns, glass planes, tracking HUD
 scenes.push(particleColumns, glassPlanes, trackingHud);
+
+// looks built from the reference boards
+scenes.push(gradientCubes, neurones, dotAssembly);

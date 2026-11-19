@@ -69,7 +69,7 @@ interface Win {
 }
 
 /** on a dark palette the windows land as light paper sheets, so they pop off the picture */
-function paperInk(ink: Ink): Ink {
+export function paperInk(ink: Ink): Ink {
   if (ink.light) return ink;
   const bg = mix(ink.fg, [250, 247, 238], 0.55);
   const fg = mix(ink.bg, [0, 0, 0], 0.4);
@@ -104,10 +104,9 @@ export class PopupLayer {
     this.tex.generateMipmaps = false;
   }
 
-  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, target: THREE.WebGLRenderTarget | null = null) {
-    const a = base.audio;
+  /** `level` overrides popLevelAt() (the stage passes 0 when the windows are set to show looks only) */
+  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, target: THREE.WebGLRenderTarget | null = null, level = popLevelAt(base.audio.time)) {
     const t = base.time;
-    let level = popLevelAt(a.time);
     // a board look is already busy: keep it to the odd window
     const s = useStudio.getState();
     if (getScene(s.sceneId)?.category === 'board') level = Math.min(level, 1);

@@ -4,7 +4,7 @@ import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types'
 import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
-import { useStudio, type InspectorTab, type Pace, type PopupMode } from '../state/store';
+import { useStudio, type InspectorTab, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
 import { TRANSITIONS } from '../core/transitionList';
 import { Clamp, Field, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
@@ -365,6 +365,18 @@ const POPUP_MODES: { v: PopupMode; label: string }[] = [
   { v: 'always', label: 'Always' },
 ];
 
+const WINDOW_KINDS: { v: WindowKind; label: string }[] = [
+  { v: 'instruments', label: 'Instruments' },
+  { v: 'looks', label: 'Looks' },
+  { v: 'both', label: 'Both' },
+];
+
+const SONG_COLORS: { v: SongColors; label: string }[] = [
+  { v: 'off', label: 'Off' },
+  { v: 'blend', label: 'Blend' },
+  { v: 'match', label: 'Match' },
+];
+
 const PACES: { v: Pace; label: string }[] = [
   { v: 'slow', label: 'Slow' },
   { v: 'song', label: 'Song-driven' },
@@ -386,6 +398,8 @@ function VideoGroup() {
   const transition = useStudio((s) => s.transition);
   const beats = useStudio((s) => s.transitionBeats);
   const popups = useStudio((s) => s.popups);
+  const windowKind = useStudio((s) => s.windowKind);
+  const songColors = useStudio((s) => s.songColors);
   const autoPilot = useStudio((s) => s.autoPilot);
   const set = useStudio((s) => s.set);
   const info = TRANSITIONS.find((t) => t.id === transition);
@@ -416,10 +430,23 @@ function VideoGroup() {
         <Seg value={beats} options={LENGTHS} onChange={(v) => set({ transitionBeats: v })} disabled={transition === 'cut'} />
       </Field>
       <Field
+        label="Song colours"
+        value={songColors === 'off' ? 'Each look keeps its own' : songColors === 'blend' ? 'Leans toward the main look' : "Uses the main look's colours"}
+        tip="Makes a video made of many looks feel like one piece. Every look leans toward the colours of the look the song uses most, keeping its own light and dark so nothing gets hard to read. Blend meets halfway; Match puts every look on the main look's colours."
+      >
+        <Seg value={songColors} options={SONG_COLORS} onChange={(v) => set({ songColors: v })} />
+      </Field>
+      <Field
         label="Pop-up windows"
         tip="Busy little windows (radar, terminal, Pong…) pop in on drops and new parts. In videos: while a video plan plays, busier on choruses and drops. Always: a few keep coming whatever is playing."
       >
         <Seg value={popups} options={POPUP_MODES} onChange={(v) => set({ popups: v })} />
+      </Field>
+      <Field
+        label="Windows show"
+        tip="Instruments: the little radar, terminal and Pong windows. Looks: other looks play live in little windows over the picture, stacking up on snares and bursting open after a drop. Both: a mix of the two."
+      >
+        <Seg value={windowKind} options={WINDOW_KINDS} onChange={(v) => set({ windowKind: v })} disabled={popups === 'off'} />
       </Field>
       <div className="row-switch">
         <span>

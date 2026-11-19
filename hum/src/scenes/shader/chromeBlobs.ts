@@ -182,6 +182,7 @@ export const chromeBlobs = defineClockedShaderScene(
     description:
       'Raymarched liquid-chrome metaballs reflecting a fake studio built from the palette. Sub swells and merges the blobs and each blob swells with its own frequency band; every kick puffs them up, shoves them apart, runs a ring of ripples across the chrome and flings off a droplet; build-ups squeeze them into one trembling knot; a drop shatters the cluster into flying beads and swirls the reflections.',
     category: 'field',
+    style: 'light',
     fragment,
     tags: ['glossy', 'futuristic', 'playful', 'liquid', 'y2k', 'bouncy', 'heavy', 'sleek'],
     params: [

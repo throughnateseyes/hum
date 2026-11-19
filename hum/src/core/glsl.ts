@@ -16,6 +16,13 @@
  *   uniform sampler2D uWaveform;           // 512×1, .r = 0..1   → waveform(x) returns -1..1
  *   // palette
  *   uniform vec3 uBg, uFg, uAccent, uAccent2, uMuted;
+ *   // feel: the song's emotional state and the shared world (see core/feel.ts)
+ *   uniform float uFeelIntensity, uFeelTension, uFeelRelease, uFeelWarmth;   // 0..1
+ *   uniform float uFeelToDrop, uFeelSinceDrop;     // seconds (99 = none)
+ *   uniform float uFeelSectionT, uFeelSongT;       // 0..1 through the part / the song
+ *   uniform vec2  uFeelWind;                       // unit wind direction, shared by every look
+ *   uniform float uFeelGust, uFeelWindPhase;       // wind strength 0..1, and its travel (integrated)
+ *   uniform float uFeelDay, uFeelLight;            // time of day 0..1 (0.5 = noon), light angle (radians)
  *   // + one uniform per param:  u_<paramId>  (number/bool/select-index → float, color → vec3)
  *
  * Effects additionally get:  uniform sampler2D tInput;  uniform sampler2D tPrev;
@@ -30,6 +37,11 @@
  *   float vnoise(vec2);              // value noise 0..1
  *   float snoise(vec2); float snoise(vec3);   // simplex noise -1..1
  *   float fbm(vec2 p, int oct);  float fbm3(vec3 p, int oct);   // ~ -1..1
+ *   // the same from the shared noise texture: one texture read each, several times cheaper. Use these
+ *   // for clouds, water, smoke, grain and anything with many octaves; keep snoise for a few hero calls.
+ *   float tnoise(vec2);  float tnoise3(vec3);          // smooth value noise 0..1 (repeats every 256 units)
+ *   vec4  tnoise4(vec2);                               // four independent channels at once
+ *   float tfbm(vec2 p, int oct);  float tfbm3(vec3 p, int oct);   // ~ -1..1, oct <= 8
  *   float luma(vec3);
  *   mat2  rot2(float a);
  *   vec3  cosPalette(float t, vec3 a, vec3 b, vec3 c, vec3 d);
@@ -77,7 +89,12 @@ uniform float uKick, uSnare, uHat, uEnergy, uBrightness, uFlux;
 uniform float uBeatPhase, uBuild, uDrop, uSway, uBeat, uBeatCount, uBpm;
 uniform sampler2D uSpectrum;
 uniform sampler2D uWaveform;
+uniform sampler2D uNoiseTex;
 uniform vec3 uBg, uFg, uAccent, uAccent2, uMuted;
+uniform float uFeelIntensity, uFeelTension, uFeelRelease, uFeelWarmth;
+uniform float uFeelToDrop, uFeelSinceDrop, uFeelSectionT, uFeelSongT;
+uniform float uFeelGust, uFeelWindPhase, uFeelDay, uFeelLight;
+uniform vec2 uFeelWind;
 `;
 
 export const GLSL_COMMON = /* glsl */ `
@@ -175,8 +192,36 @@ float fbm3(vec3 p, int oct) {
   return s;
 }
 
-float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+
+float tnoise(vec2 x) {
+  vec2 i = floor(x); vec2 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return texture2D(uNoiseTex, (i + f + 0.5) / 256.0).r;
+}
+vec4 tnoise4(vec2 x) {
+  vec2 i = floor(x); vec2 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return texture2D(uNoiseTex, (i + f + 0.5) / 256.0);
+}
+float tnoise3(vec3 x) {
+  vec3 i = floor(x); vec3 f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  vec2 rg = texture2D(uNoiseTex, (i.xy + vec2(37.0, 17.0) * i.z + f.xy + 0.5) / 256.0).rg;
+  return mix(rg.x, rg.y, f.z);
+}
+float tfbm(vec2 p, int oct) {
+  float a = 0.5; float s = 0.0;
+  for (int i = 0; i < 8; i++) { if (i >= oct) break; s += a * (tnoise(p) * 2.0 - 1.0); p = rot2(0.6) * p * 2.02 + 17.1; a *= 0.5; }
+  return s;
+}
+float tfbm3(vec3 p, int oct) {
+  float a = 0.5; float s = 0.0;
+  for (int i = 0; i < 8; i++) { if (i >= oct) break; s += a * (tnoise3(p) * 2.0 - 1.0); p = p * 2.02 + vec3(17.1, 9.2, 5.3); a *= 0.5; }
+  return s;
+}
+
+float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 vec3 cosPalette(float t, vec3 a, vec3 b, vec3 c, vec3 d) { return a + b * cos(TAU * (c * t + d)); }
 vec3 paletteRamp(float t) {
   t = clamp(t, 0.0, 1.0);

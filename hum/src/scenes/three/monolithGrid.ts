@@ -117,6 +117,7 @@ export const monolithGrid = defineThreeScene({
   description:
     'A 48×48 field of hairline-edged boxes in isometric view. Heights ripple out from the centre (loudness history and spectrum by radius), kicks send a shockwave ring, snares invert a random row.',
   category: 'form',
+  style: 'form',
   tags: ['architectural', 'minimal', 'editorial', 'techno', 'precise', 'rhythmic', 'clean'],
   light: true,
   params,

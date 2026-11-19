@@ -11,6 +11,8 @@
  */
 import { audioEngine } from '../audio/engine';
 import { textBetween } from '../audio/lyrics';
+import { harmonize } from '../core/songPalette';
+import { lookStyle } from '../core/styles';
 import type { AudioFrame, Lyrics, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
 import { live } from './live';
@@ -262,7 +264,8 @@ function poolSize(drive: number, pace: Pace, given?: number): number {
 
 /**
  * Looks that sit well next to `mainId` in one section, best first: shared tags, what the analysis
- * suggested for this song, a similar intensity, and preferably another scene so the change shows.
+ * suggested for this song, the same style family, a similar intensity, and preferably another scene so
+ * the change shows.
  * Looks that are other sections' main looks rank lower so the parts stay distinct. Never boards.
  */
 export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | null)[] = [], bias?: (id: string) => number): string[] {
@@ -275,7 +278,8 @@ export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | 
     .map((p) => {
       const r = sug.indexOf(p.id);
       const overlap = p.tags.filter((t) => m.tags.includes(t)).length;
-      const score = overlap + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0) + (bias ? bias(p.id) : 0);
+      const family = lookStyle(p) === lookStyle(m) ? 0.8 : 0;
+      const score = overlap + family + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0) + (bias ? bias(p.id) : 0);
       return { id: p.id, score };
     })
     .sort((x, y) => y.score - x.score || (x.id < y.id ? -1 : 1))
@@ -517,11 +521,14 @@ export function planTick(f: AudioFrame) {
     hold = null;
   }
   const look = findLook(sh.lookId);
-  if (!look || look.id === s.presetId) return;
+  const tint = tintState();
+  if (!look || (look.id === s.presetId && tint === lastTint)) return;
+  const recolour = look.id === s.presetId;
+  lastTint = tint;
   const since = t - (sh.t - early(sh, k));
   // a shot reached by seeking or pausing gets a short crossfade instead of its own transition
-  if (live.stage) live.stage.nextTransition = f.playing && since < 0.35 ? resolved(sh, k) : { id: 'crossfade', ms: f.playing ? 400 : 250, seed: k };
-  s.applyPreset(look);
+  if (live.stage) live.stage.nextTransition = recolour ? { id: 'crossfade', ms: 600, seed: k } : f.playing && since < 0.35 ? resolved(sh, k) : { id: 'crossfade', ms: f.playing ? 400 : 250, seed: k };
+  s.applyPreset(songTinted(look));
 }
 
 /** how long a board interlude plays at the top of a section: 4 bars, at most ~45% of the section */
@@ -529,6 +536,55 @@ export function interludeLength(sec: TrackSection, bpm: number): number {
   const bars4 = (16 * 60) / Math.max(40, bpm || 120);
   return Math.max(2.5, Math.min(bars4, (sec.end - sec.start) * 0.45));
 }
+
+/* ───────────────────────── song colours ───────────────────────── */
+
+/**
+ * The look a video's colours come from: the one on screen for most of the song (choruses and drops
+ * count double, since that's what people remember). Null when there's no plan to follow.
+ */
+export function keyLookOf(plan: VideoPlan | null, a: TrackAnalysis | null): Preset | undefined {
+  if (!plan || !a || !validPlan(plan, a)) return undefined;
+  const time = new Map<string, number>();
+  a.sections.forEach((sec, i) => {
+    const id = plan.looks[i];
+    if (!id) return;
+    const w = sec.label === 'chorus' || sec.label === 'drop' ? 2 : 1;
+    time.set(id, (time.get(id) ?? 0) + w * (sec.end - sec.start));
+  });
+  let best: string | null = null;
+  for (const [id, t] of time) if (!best || t > time.get(best)!) best = id;
+  return findLook(best);
+}
+
+const tinted = new Map<string, Preset>();
+
+/**
+ * A look with its colours pulled toward the video's main look (the Song colours setting). The main
+ * look itself, and every look when the setting is off or no plan is playing, comes back unchanged.
+ */
+export function songTinted(p: Preset): Preset {
+  const s = useStudio.getState();
+  if (s.songColors === 'off' || !s.planOn) return p;
+  const key = keyLookOf(s.plan, s.analysis);
+  if (!key || key.id === p.id) return p;
+  const strength = s.songColors === 'match' ? 1 : 0.55;
+  const k = `${p.id}|${key.id}|${strength}|${p.palette.bg}${p.palette.accent}${key.palette.accent}${key.palette.accent2}`;
+  let out = tinted.get(k);
+  if (!out) {
+    if (tinted.size > 200) tinted.clear();
+    out = { ...p, palette: { ...harmonize(p.palette, key.palette, strength), id: p.palette.id, name: p.palette.name } };
+    tinted.set(k, out);
+  }
+  return out;
+}
+
+/** which colours were last put on screen, so changing the setting recolours the look that's showing */
+let lastTint = '';
+const tintState = () => {
+  const s = useStudio.getState();
+  return `${s.songColors}|${s.songColors === 'off' ? '' : (keyLookOf(s.plan, s.analysis)?.id ?? '')}`;
+};
 
 /* ───────────────────────── pop-up windows ───────────────────────── */
 
@@ -575,7 +631,7 @@ export function pickLook(p: Preset) {
       hold = { plan: now.plan, from: t, until: shots[k + 1]?.t ?? Infinity };
     }
   }
-  s.applyPreset(p);
+  s.applyPreset(songTinted(p));
 }
 
 /** Put a look into section i (and its look-alikes when `spread`). */
@@ -729,7 +785,7 @@ export async function makeVideo(wish = '') {
           };
         }),
         ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
-        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '' })),
+        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p) })),
         // taste memory: a short anonymous summary (look ids, tags, counts) and the last plan's looks
         ...(() => {
           const taste = tasteSummary(a);

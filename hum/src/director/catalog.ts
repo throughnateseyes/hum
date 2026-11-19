@@ -5,6 +5,7 @@
  */
 import type { EffectDef, ParamDef, SceneDef } from '../core/types';
 import { LAYERS, PALETTES, isLightPalette } from '../core/palettes';
+import { sceneStyle } from '../core/styles';
 import { allScenes } from '../scenes';
 import { allEffects } from '../fx';
 
@@ -32,7 +33,7 @@ export function formatParam(p: ParamDef): string {
 }
 
 function sceneLine(s: SceneDef, detail: number): string {
-  const flags = [s.category, s.light ? 'light' : '', s.usesPhotos ? 'photos' : ''].filter(Boolean).join(',');
+  const flags = [s.category, `style:${sceneStyle(s)}`, s.light ? 'light' : '', s.usesPhotos ? 'photos' : ''].filter(Boolean).join(',');
   const head = `${s.id} [${flags}] ${s.tags.slice(0, 6).join(',')}`;
   const desc = detail >= 1 ? ` — ${trim(s.description, detail >= 2 ? 110 : 60)}` : '';
   const params = s.params.map(formatParam).join('; ');

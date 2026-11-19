@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <title>Hum — solo look (dev)</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #111;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Dev only (not part of the build): plays one scene against a scripted test song. See src/dev/solo.ts -->
+    <canvas id="solo"></canvas>
+    <script type="module" src="/src/dev/solo.ts"></script>
+  </body>
+</html>
