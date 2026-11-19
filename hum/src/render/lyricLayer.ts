@@ -285,6 +285,7 @@ export class LyricLayer {
   private guard = new Guard();
   private probed = -1;
   private clock = 0;
+  private devClock = 0;
   /** fades the line out when a shot cuts to a look that shows the words itself */
   private standDown = 0;
   /** look + scene the guard last saw, to notice cuts */
@@ -316,10 +317,12 @@ export class LyricLayer {
   }
 
   /** draw the lyrics for time t over whatever is on the screen */
-  render(r: THREE.WebGLRenderer, o: { lines: LyricLine[]; t: number; style: LyricStyle; palette: Palette; width: number; height: number; audio: AudioFrame }, target: THREE.WebGLRenderTarget | null = null) {
+  render(r: THREE.WebGLRenderer, o: { lines: LyricLine[]; t: number; style: LyricStyle; palette: Palette; width: number; height: number; audio: AudioFrame; dt?: number }, target: THREE.WebGLRenderTarget | null = null) {
     if (o.style === 'off' || !o.lines.length) return;
-    const now = performance.now() / 1000;
-    const dt = Math.min(0.1, Math.max(0, now - (this.clock || now)));
+    // the dev harness steps song time faster than real time: it passes its step and runs on its own clock
+    const now = o.dt !== undefined ? (this.devClock += o.dt) : performance.now() / 1000;
+    // the dev harness steps song time faster than real time and passes its own step
+    const dt = o.dt ?? Math.min(0.1, Math.max(0, now - (this.clock || now)));
     this.clock = now;
     const t = o.t + LEAD;
     const st = useStudio.getState();

@@ -83,6 +83,46 @@ export function testLyrics(): Lyrics {
   };
 }
 
+/**
+ * Lyrics sung across every part of the test song, with a real rhythm: words on the 120 bpm grid,
+ * some held long (so type that reacts to held notes can be checked). Used by the solo harness's
+ * `lyrics=` option to look at lyric type; the scenes keep testLyrics().
+ * Each word is [text, beats until the next word]; it's sung for 92% of that.
+ */
+const SUNG: [number, [string, number][]][] = [
+  [2, [['the', 0.5], ['city', 1], ['hums', 3.5]]],
+  [8, [['Streetlights', 1.5], ['hum', 0.5], ['a', 0.5], ['quiet', 1], ['tune', 2.5]]],
+  [12, [['I', 0.5], ['keep', 0.5], ['the', 0.5], ['window', 1], ['open', 1], ['wide', 2.5]]],
+  [16, [['Every', 1], ['colour', 1], ['sounds', 1], ['like', 0.5], ['you', 2.5]]],
+  [20, [['Hold', 1], ['the', 0.5], ['note', 1], ['and', 0.5], ['let', 0.5], ['it', 0.5], ['ride', 3.5]]],
+  [24.5, [['closer,', 1.5], ['closer', 2.5]]],
+  [28, [['here', 1], ['it', 0.5], ['comes', 6]]],
+  [32, [['We', 0.5], ['are', 0.5], ['louder', 1.5], ['than', 0.5], ['the', 0.5], ['dark', 3.5]]],
+  [36, [['Turn', 1], ['the', 0.5], ['feeling', 1.5], ['into', 1], ['light', 3]]],
+  [40, [['We', 0.5], ['are', 0.5], ['louder', 1.5], ['than', 0.5], ['the', 0.5], ['dark', 3.5]]],
+  [44, [['Sing', 1], ['it', 0.5], ['till', 0.5], ['the', 0.5], ['morning', 1.5], ['comes', 3]]],
+  [50, [['breathe', 6]]],
+  [56, [['Streetlights', 1.5], ['hum', 0.5], ['a', 0.5], ['quiet', 1], ['tune', 3]]],
+];
+
+export function testLyricsSung(): Lyrics {
+  return {
+    synced: true,
+    source: 'pasted',
+    title: TEST_SONG.title,
+    artist: TEST_SONG.artist,
+    lines: SUNG.map(([t0, ws]) => {
+      let t = t0;
+      const words = ws.map(([text, beats]) => {
+        const w = { t, end: t + beats * BEAT * 0.92, text };
+        t += beats * BEAT;
+        return w;
+      });
+      return { t: t0, end: words[words.length - 1].end, text: words.map((w) => w.text).join(' '), words };
+    }),
+  };
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);

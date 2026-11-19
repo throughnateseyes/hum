@@ -247,10 +247,17 @@ export function mergeLyricPlan(local: LyricPlan, claude: { family?: TypeFamily |
 
 const localCache = new WeakMap<TrackAnalysis, { lyrics: Lyrics | null; plan: LyricPlan }>();
 
+/** a fixed plan for the dev harness (solo.html `lyrics=`), so type can be compared shot for shot */
+let override: LyricPlan | null = null;
+export function setLyricPlanOverride(p: LyricPlan | null) {
+  override = p;
+}
+
 /** the lyric plan in force: the playing video plan's, else one made up for this song (once per load) */
 export function lyricPlanNow(o: { analysis: TrackAnalysis | null; lyrics: Lyrics | null; plan: VideoPlan | null; planOn: boolean }): LyricPlan | null {
   const a = o.analysis;
   if (!a?.sections.length) return null;
+  if (override && override.parts.length === a.sections.length) return override;
   const p = o.plan;
   if (p?.lyricPlan && o.planOn && p.looks.length === a.sections.length && Math.abs(p.duration - a.duration) < 0.5) return p.lyricPlan;
   const hit = localCache.get(a);

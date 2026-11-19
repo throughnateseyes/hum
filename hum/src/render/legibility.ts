@@ -59,19 +59,20 @@ export class FrameProbe {
   private buf = new Uint8Array(PROBE_W * PROBE_H * 4);
   private n = 0;
   private busy = false;
-  private async = true;
+  /** read back without waiting a frame where the browser allows it (off in the dev harness: it steps faster than real time) */
+  readAsync = true;
 
   /** shrink `tex` into the probe every `every` frames and read it back (asynchronously where possible) */
   sample(r: THREE.WebGLRenderer, tex: THREE.Texture, blit: (t: THREE.Texture, target: THREE.WebGLRenderTarget | null) => void, every = 2) {
     if (this.busy || this.n++ % every) return;
     blit(tex, this.rt);
     const ar = r as THREE.WebGLRenderer & { readRenderTargetPixelsAsync?: (...a: unknown[]) => Promise<unknown> };
-    if (this.async && ar.readRenderTargetPixelsAsync) {
+    if (this.readAsync && ar.readRenderTargetPixelsAsync) {
       this.busy = true;
       ar.readRenderTargetPixelsAsync(this.rt, 0, 0, PROBE_W, PROBE_H, this.buf)
         .then(() => this.ingest())
         .catch(() => {
-          this.async = false;
+          this.readAsync = false;
         })
         .finally(() => {
           this.busy = false;
