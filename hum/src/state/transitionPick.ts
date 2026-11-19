@@ -18,7 +18,7 @@ export interface TransitionSpec {
 }
 
 /** what a look change lands on */
-export type TransitionMoment = 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'manual' | 'auto';
+export type TransitionMoment = 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'resolve' | 'manual' | 'auto';
 
 /** moods that want slow dissolves and longer shots */
 const SOFT_MOODS = ['melancholic', 'heartbroken', 'tender', 'dreamy', 'wistful', 'calm', 'bittersweet', 'spacious', 'warm', 'brooding'];
@@ -172,6 +172,12 @@ function pickFor(a: TrackAnalysis | null, c: PickContext): TransitionSpec {
     if (label === 'drop' || label === 'chorus' || (c.energy ?? 0) > 0.7) return fit(choose({ cut: 4, push: 1, slit: 1, glyph: 1, mosaic: 1 }, rand, c.prev), vary(0.15, 0.3));
     if (calm) return fit(choose({ cut: 2, push: 1, iris: 1, wipe: 1, noise: 1 }, rand, c.prev), vary(0.4, 0.8));
     return fit(choose({ cut: 3, push: 2, mosaic: 1, slit: 1 }, rand, c.prev), vary(0.2, 0.35));
+  }
+
+  // the harmony coming home: the picture settles into the new look rather than snapping to it
+  if (c.on === 'resolve') {
+    const w: Weights = mood === 'hard' ? { push: 2, iris: 2, cut: 1, luma: 1 } : { luma: 3, crossfade: 2, 'fade-bg': 1, ripple: 1 };
+    return fit(choose(w, rand, c.prev), mood === 'soft' ? vary(1.6, 2.6) : mood === 'mid' ? vary(0.8, 1.4) : vary(0.3, 0.5));
   }
 
   if (c.on === 'vocal' || c.on === 'lyric') {
