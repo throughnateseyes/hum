@@ -69,7 +69,7 @@ export function Volume({ dark = false }: { dark?: boolean }) {
       }}
     >
       <button
-        className="vol-btn has-tip tip-below"
+        className="vol-btn has-tip"
         data-tip={muted || volume === 0 ? 'Unmute  M' : 'Mute  M'}
         aria-label={muted || volume === 0 ? 'Unmute' : 'Mute'}
         aria-pressed={muted || volume === 0}

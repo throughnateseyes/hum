@@ -4,6 +4,7 @@ import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
 import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
+import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
@@ -17,6 +18,7 @@ export function StageView() {
   const quality = useStudio((s) => s.quality);
   const recording = useStudio((s) => s.recording);
   const clip = useStudio((s) => s.clip);
+  const hasTrack = useStudio((s) => !!s.track);
   const [size, setSize] = useState({ w: 800, h: 450 });
 
   useEffect(() => {
@@ -62,6 +64,12 @@ export function StageView() {
         <canvas ref={canvas} />
         <LoadingStage />
         <TasteHud />
+        {/* volume over the picture, shown while the pointer is on it (phones keep it in the play row) */}
+        {hasTrack && !clip && (
+          <div className="stage-vol">
+            <Volume dark />
+          </div>
+        )}
         <div className="stage-hud">
           {clip && (
             <span className="hud-pill rec">

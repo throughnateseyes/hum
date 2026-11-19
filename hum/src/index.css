@@ -3805,3 +3805,61 @@ html.perform-idle * {
     width: 56px;
   }
 }
+
+/* volume on the stage: fades in with the pointer over the picture, the slider slides out from the speaker */
+.stage-vol {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.stage-frame:hover .stage-vol,
+.stage-vol:focus-within {
+  opacity: 1;
+}
+.stage-vol .volume {
+  height: 32px;
+  padding: 0;
+  gap: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(20, 20, 18, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.stage-vol .vol-btn {
+  border-radius: 50%;
+}
+.stage-vol .vol-s {
+  width: 0;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
+  transition:
+    width 0.2s,
+    margin 0.2s,
+    opacity 0.15s;
+}
+.stage-vol .volume:hover .vol-s,
+.stage-vol .volume:focus-within .vol-s {
+  width: 76px;
+  margin: 0 12px 0 2px;
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Perform has its own bar; a touch screen can't hover, so the play row keeps it there */
+.perform .stage-vol {
+  display: none;
+}
+@media (hover: none) {
+  .stage-vol {
+    display: none;
+  }
+}
+@media (hover: hover) {
+  .bt-row .volume {
+    display: none;
+  }
+}
