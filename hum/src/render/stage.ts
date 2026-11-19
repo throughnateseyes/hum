@@ -243,13 +243,36 @@ export class Stage {
     };
   }
 
+  private css = { w: 2, h: 2 };
+  private outSize: { w: number; h: number } | null = null;
+
+  /**
+   * Render at exactly w×h pixels whatever the stage's size on screen (clip export), or null to go back
+   * to following the screen. The canvas keeps its on-screen CSS size; only the drawing buffer changes.
+   */
+  setOutputSize(size: { w: number; h: number } | null) {
+    this.outSize = size;
+    this.width = 0;
+    this.setSize(this.css.w, this.css.h);
+  }
+
   setSize(cssW: number, cssH: number) {
-    const q = useStudio.getState().quality;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2) * q;
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.setSize(cssW, cssH, false);
-    const w = Math.max(2, Math.round(cssW * dpr));
-    const h = Math.max(2, Math.round(cssH * dpr));
+    this.css = { w: cssW, h: cssH };
+    let w: number;
+    let h: number;
+    if (this.outSize) {
+      w = this.outSize.w;
+      h = this.outSize.h;
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(w, h, false);
+    } else {
+      const q = useStudio.getState().quality;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2) * q;
+      this.renderer.setPixelRatio(dpr);
+      this.renderer.setSize(cssW, cssH, false);
+      w = Math.max(2, Math.round(cssW * dpr));
+      h = Math.max(2, Math.round(cssH * dpr));
+    }
     if (w === this.width && h === this.height) return;
     this.width = w;
     this.height = h;

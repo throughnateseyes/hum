@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type SVGProps } from 'react';
 import { audioEngine } from './audio/engine';
 import { DEMO_TRACKS } from './audio/demoTracks';
 import { PRESETS } from './presets';
@@ -7,6 +7,7 @@ import { live } from './state/live';
 import { useStudio } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
 import { Recorder, download } from './render/recorder';
+import { clipBlocker, exportClip } from './render/clipExport';
 import { Bottom, toggleHand } from './ui/Bottom';
 import { BrowserTab, Camera, Chevron, Expand, Mic, Rec, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
@@ -48,6 +49,8 @@ export default function App() {
       const t = e.target as HTMLElement;
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
       const s = useStudio.getState();
+      // a clip export owns the song and the stage until it's done (its own handler takes Esc)
+      if (s.clip) return;
       if (e.code === 'Space') {
         e.preventDefault();
         audioEngine.toggle();
@@ -207,11 +210,61 @@ function Topbar() {
           <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
           <span className="lbl-wide">{recording ? 'Stop' : 'Record'}</span>
         </button>
+        <ClipButton />
         <button className="btn primary has-tip tip-below tip-end" onClick={enterPerform} data-tip="Fullscreen, controls hide  F">
           <Expand width={13} height={13} /> Perform
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * One click: a vertical 1080×1920 clip of the song's best 15–30 s, with sound, in the current look.
+ * While it records the button fills up left to right; clicking it again (or Esc) cancels.
+ */
+function ClipButton() {
+  const clip = useStudio((s) => s.clip);
+  const recording = useStudio((s) => s.recording);
+  const blocked = useStudio((s) => clipBlocker(s));
+  const flash = useStudio((s) => s.flash);
+  const len = clip ? clip.end - clip.start : 0;
+  const tip = clip
+    ? 'Recording the clip. Esc or click to cancel'
+    : blocked ?? 'A vertical 1080×1920 clip of the best 15–30 s, ready for TikTok or Reels';
+  const label = !clip
+    ? 'Clip for TikTok'
+    : clip.phase === 'prep'
+      ? 'Finding the drop…'
+      : clip.phase === 'save'
+        ? 'Saving…'
+        : `${Math.floor(clip.frac * len)} / ${Math.round(len)} s`;
+  return (
+    <button
+      className={`btn clip has-tip tip-below ${clip ? 'on' : ''} ${blocked && !clip ? 'off' : ''}`}
+      style={clip ? ({ '--p': clip.phase === 'prep' ? 0 : clip.frac } as CSSProperties) : undefined}
+      onClick={() => {
+        if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        else if (recording) flash('Stop the recording first');
+        else if (blocked) flash(blocked);
+        else void exportClip();
+      }}
+      data-tip={tip}
+      aria-label={clip ? `Recording clip, ${label}. Click to cancel` : 'Clip for TikTok or Reels'}
+      aria-disabled={!!blocked && !clip}
+    >
+      <ClipIcon width={13} height={13} />
+      <span className="lbl-wide">{label}</span>
+    </button>
+  );
+}
+
+function ClipIcon(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path d="M10.5 9.5v5l4-2.5z" fill="currentColor" stroke="none" />
+    </svg>
   );
 }
 
