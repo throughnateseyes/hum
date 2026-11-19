@@ -39,7 +39,8 @@ import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyri
  *
  * Every style is guarded (legibility.ts): the frame under the text is sampled every few frames and
  * the ink and backing (shadow, soft scrim, full-width scrim, paper strip) are eased to whatever
- * clears the contrast target there. Lines a scene hosts look after their own legibility. Display,
+ * clears the contrast target there. Lines a scene hosts get no scrim: the layer reads the picture
+ * under them and the host answers in its own terms (lyricHosts.ts). Display,
  * collage and auto lyrics stand down on looks that show the words themselves (scenes with
  * `showsLyrics`) unless the user picks "Show anyway".
  */
@@ -297,6 +298,9 @@ export class LyricLayer {
   private line: LineState | null = null;
   private guard = new Guard();
   private probed = -1;
+  /** a hosted line's own light-touch guard: how much help the picture under it asks for, eased */
+  private hostNeed = 0;
+  private hostNeedTo = 0;
   private clock = 0;
   private devClock = 0;
   /** fades the line out when a shot cuts to a look that shows the words itself */
@@ -417,6 +421,17 @@ export class LyricLayer {
       this.accentOK = this.accentReads(L, o.palette);
     }
     this.guard.step(dt, now);
+    // a hosted line skips the scrims but still reads the picture under it: the host answers in its
+    // own world's terms (a darker wall behind a neon sign, a soft dark in the water)
+    if (L.host) {
+      if (this.probe.version > 0 && this.probe.version !== this.probed) {
+        this.probed = this.probe.version;
+        L.stats = regionStats(this.probe, L.rect);
+        this.hostNeedTo = Math.max(0, Math.min(1, L.host.need(L.stats)));
+        if (t - line.t < FADE_IN + 0.12) this.hostNeed = this.hostNeedTo;
+      }
+      this.hostNeed += (this.hostNeedTo - this.hostNeed) * Math.min(1, dt * 3);
+    }
     if (o.style === 'auto') this.report(L, st.analysis);
 
     const fadeOut = Math.max(0, (t - line.end) / FADE_OUT);
@@ -447,7 +462,7 @@ export class LyricLayer {
         // quick soft exit: the line lifts a little as it fades
         if (fadeOut > 0) g.translate(0, -fadeOut * H * 0.012);
         if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
-        else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio);
+        else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio, this.hostNeed);
         else if (L.type) {
           const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
           drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);

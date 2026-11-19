@@ -6,12 +6,12 @@ import { applyLrclibRecord, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, re
 import { LYRIC_FONT_NAME, previewFamily } from '../render/lyricFonts';
 import { Slider } from './controls';
 
-const STYLES: { id: LyricStyle; label: string }[] = [
-  { id: 'auto', label: 'Auto' },
-  { id: 'subtitle', label: 'Subtitles' },
-  { id: 'big', label: 'Big' },
-  { id: 'cutout', label: 'Cutouts' },
-  { id: 'off', label: 'Off' },
+const STYLES: { id: LyricStyle; label: string; tip: string }[] = [
+  { id: 'auto', label: 'Auto', tip: 'Directs the words like a lyric video: each part of the song gets its own way of showing them' },
+  { id: 'subtitle', label: 'Subtitles', tip: 'A quiet caption low in the picture' },
+  { id: 'big', label: 'Big', tip: 'One line at a time, set large, each word revealed as it’s sung' },
+  { id: 'cutout', label: 'Collage', tip: 'Each word on its own scrap of printed paper, laid down as it’s sung' },
+  { id: 'off', label: 'Off', tip: 'No lyrics on the video' },
 ];
 
 const ON_BOARDS: { id: LyricsOnBoards; label: string }[] = [
@@ -185,7 +185,7 @@ export function LyricsChip() {
                     <span className="lyr-label">Style</span>
                     <div className="seg lyr-seg">
                       {STYLES.map((s) => (
-                        <button key={s.id} className={style === s.id ? 'on' : ''} onClick={() => useStudio.getState().set({ lyricStyle: s.id, lyricStylePicked: true })}>
+                        <button key={s.id} className={style === s.id ? 'on' : ''} title={s.tip} onClick={() => useStudio.getState().set({ lyricStyle: s.id, lyricStylePicked: true })}>
                           {s.label}
                         </button>
                       ))}
