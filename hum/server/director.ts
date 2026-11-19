@@ -23,6 +23,7 @@
 import type { LayerId } from '../src/core/types';
 import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide.js';
 import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
+import { DIRECTION_RULE, FINISH_IDS, TRANSITION_SET_IDS } from '../src/core/direction.js';
 import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
 
 export type DirectorEnv = Record<string, string | undefined>;
@@ -394,6 +395,16 @@ Object.assign(PLAN_TOOL.input_schema.properties, {
   lyricType: { type: 'string', enum: [...LYRIC_TYPES], description: 'Optional (songs with lyrics): one type family for the whole lyric video.' },
 });
 
+// the plan tool also carries the video's direction (a finish and a transition set for the whole video)
+Object.assign(PLAN_TOOL.input_schema.properties, {
+  direction: {
+    type: 'object',
+    description: 'One direction for the whole video.',
+    properties: { finish: { type: 'string', enum: [...FINISH_IDS] }, transitions: { type: 'string', enum: [...TRANSITION_SET_IDS] }, type: { type: 'string', description: 'Optional lyric type pairing, a few words.' } },
+    required: ['finish', 'transitions'],
+  },
+});
+
 /* ───────────────────────── request parsing ───────────────────────── */
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -579,7 +590,7 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
 
   const system: Record<string, unknown>[] =
     mode === 'plan'
-      ? [{ type: 'text', text: PLAN_SYSTEM }]
+      ? [{ type: 'text', text: `${PLAN_SYSTEM}\n\n${DIRECTION_RULE}` }]
       : mode === 'preset'
       ? [
           { type: 'text', text: `${PERSONA}\n\n${PRESET_RULES}` },
@@ -685,7 +696,9 @@ function finishOutput(mode: 'preset' | 'shader' | 'plan', toolInput: unknown, vi
     const note = typeof toolInput.note === 'string' ? toolInput.note.trim().slice(0, 400) : '';
     const title = typeof toolInput.title === 'string' ? toolInput.title.trim().slice(0, 60) : '';
     const lyricType = typeof toolInput.lyricType === 'string' && (LYRIC_TYPES as readonly string[]).includes(toolInput.lyricType) ? toolInput.lyricType : undefined;
-    return { status: 200, json: { plan: { title, sections: toolInput.sections.slice(0, 40), ...(lyricType ? { lyricType } : {}) }, note: note || 'Directed by Claude.', source: 'claude', via } };
+    // the client cleans it (core/direction.ts cleanDirection); only a plain object goes through
+    const direction = isObj(toolInput.direction) ? toolInput.direction : undefined;
+    return { status: 200, json: { plan: { title, sections: toolInput.sections.slice(0, 40), ...(lyricType ? { lyricType } : {}), ...(direction ? { direction } : {}) }, note: note || 'Directed by Claude.', source: 'claude', via } };
   }
 
   const { note, ...rest } = toolInput;

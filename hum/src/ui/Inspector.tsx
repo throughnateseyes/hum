@@ -10,6 +10,8 @@ import { Clamp, Field, ParamControl, Section, Slider, Toggle, groupParams } from
 import { Down, Plus, Up, X } from './Icons';
 import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
 import { TasteGroup } from './Taste';
+import { FINISHES, finishName, type FinishId } from '../core/direction';
+import { activeFinish, playingDirection, setFinish } from '../state/direction';
 
 const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director' };
 
@@ -329,6 +331,7 @@ function Seg<T extends string | number>({ value, options, onChange, disabled }: 
 /** the hand-drawn finish: frame rate, inks from the palette, wobble, paper, misprint, pencil */
 function HandGroup() {
   const hand = useStudio((s) => s.hand);
+  const on = useStudio((s) => activeFinish(s) === 'hand');
   const set = useStudio((s) => s.set);
   const put = (patch: Partial<HandStyle>) => set({ hand: { ...useStudio.getState().hand, ...patch } });
   const slider = (key: 'wobble' | 'paper' | 'misprint' | 'lines', name: string, hint: string) => (
@@ -337,8 +340,8 @@ function HandGroup() {
     </Field>
   );
   return (
-    <Section id="look.hand" title="Hand-drawn" sub="Choppy frames, wobbly lines, ink on paper (H)" right={<Toggle on={hand.on} onChange={(v) => put({ on: v })} label="Hand-drawn" />}>
-      {hand.on && (
+    <Section id="look.hand" title="Hand-drawn" sub="Choppy frames, wobbly lines, ink on paper (H)" right={<Toggle on={on} onChange={(v) => setFinish(v ? 'hand' : 'clean')} label="Hand-drawn" />}>
+      {on && (
         <>
           <Field
             label="Frames"
@@ -370,6 +373,34 @@ const WINDOW_KINDS: { v: WindowKind; label: string }[] = [
   { v: 'looks', label: 'Looks' },
   { v: 'both', label: 'Both' },
 ];
+
+/**
+ * The finish: one surface over every look (core/direction.ts). Auto follows the video's Direction;
+ * outside a video it's Hand-drawn when that's switched on, else Clean.
+ */
+function FinishField() {
+  const finish = useStudio((s) => s.finish);
+  const now = useStudio(activeFinish);
+  const dir = useStudio(playingDirection);
+  const info = FINISHES.find((f) => f.id === (finish === 'auto' ? now : finish));
+  const note = finish === 'auto' ? (dir ? `This video: ${finishName(dir.finish)}. ${info?.tip ?? ''}` : `No video playing, so ${finishName(now)}. Each video picks its own.`) : (info?.tip ?? '');
+  return (
+    <Field
+      label="Finish"
+      tip="One surface over every look in a video, like shooting it all on the same film stock. Auto lets each video choose (Claude or the offline planner picks one to fit the song). Pick one to use it everywhere."
+    >
+      <select className="sel" value={finish} onChange={(e) => setFinish(e.target.value as 'auto' | FinishId)}>
+        <option value="auto">Auto (from the video)</option>
+        {FINISHES.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.name}
+          </option>
+        ))}
+      </select>
+      <p className="field-note">{note}</p>
+    </Field>
+  );
+}
 
 const SONG_COLORS: { v: SongColors; label: string }[] = [
   { v: 'off', label: 'Off' },
@@ -429,6 +460,7 @@ function VideoGroup() {
       <Field label="Transition length" value="beats" tip="How long a transition takes, locked to the song's tempo. Auto: longer in calm parts, short and punchy in loud ones.">
         <Seg value={beats} options={LENGTHS} onChange={(v) => set({ transitionBeats: v })} disabled={transition === 'cut'} />
       </Field>
+      <FinishField />
       <Field
         label="Song colours"
         value={songColors === 'off' ? 'Each look keeps its own' : songColors === 'blend' ? 'Leans toward the main look' : "Uses the main look's colours"}

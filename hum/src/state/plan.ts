@@ -22,6 +22,8 @@ import { moodOf, pickTransition, resolveTransition, type PickContext, type Trans
 import { affinityIn, contextFor, EXPLORE, planSignature, recentPlans, rememberPlan, record, rng, setTransitionProbe, tasteSummary } from './taste';
 import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type LyricPart, type LyricPlan, type TypeFamily } from './lyricPlan';
 import { profileFor } from '../render/lyricProfiles';
+import type { Direction } from '../core/direction';
+import { localDirection, preferredTransitions } from './direction';
 
 export interface VideoPlan {
   title: string;
@@ -46,6 +48,8 @@ export interface VideoPlan {
   transitions?: (PlanTransition | null)[];
   /** lyric video: how the words appear in each section, its type family and seed (missing → made up per song, see lyricPlan.ts) */
   lyricPlan?: LyricPlan;
+  /** the video's Direction: one finish and one transition set for the whole video, plus a type hint (core/direction.ts) */
+  direction?: Direction;
 }
 
 export const LABEL_NAME: Record<TrackSection['label'], string> = {
@@ -455,9 +459,10 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   // transitions, now that every shot's neighbours are known: picked from the music, or the plan's own
   // choice for that section; strong drops always cut
   let prev: TransitionId | undefined;
+  const prefer = preferredTransitions(plan);
   out.forEach((sh, k) => {
     const room = Math.min(sh.t - (out[k - 1]?.t ?? -1e9), (out[k + 1]?.t ?? a.duration) - sh.t);
-    const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room });
+    const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room, prefer });
     const own = plan.transitions?.[sh.section];
     const ownId = sh.on === 'section' || sh.on === 'interlude' ? own?.into : own?.within;
     if (ownId && !sh.strongDrop && k > 0) {
@@ -730,11 +735,14 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number } = {}): Video
     return pools.get(key)!;
   });
   const names = sectionNames(a.sections);
+  // one direction for the whole video: a finish and a motion vocabulary that fit its looks and the song
+  const direction = localDirection(a, looks.map((id) => findLook(id)), opts.seed ?? Math.round(a.duration * 7));
   return ensureDropCuts({
     title: 'Song map',
     note: `Calm sections lean on “${calm.name}”, the body on “${main.name}”, and the big moments on “${peak.name}”, each rotating through a few related looks in time with the music. Parts that sound alike share their looks.${
       boardPick && interludes[at] ? ` ${names[at]} opens with “${boardPick.name}” for a few bars, and little windows pop up on the big moments.` : ''
-    }`,
+    } ${direction.why ?? ''}`.trim(),
+    direction,
     looks,
     why: [],
     source: 'local',
@@ -813,6 +821,8 @@ export async function makeVideo(wish = '') {
         rotate: r.rotate,
         shotBars: r.shotBars,
         transitions: r.transitions,
+        // Claude's direction, else one picked offline around Claude's looks
+        direction: r.direction ?? localDirection(a, r.looks.map((id, i) => findLook(id ?? offline.looks[i])), lyricSeed),
       }, a);
     } else reason = r.reason;
   } catch (e) {
