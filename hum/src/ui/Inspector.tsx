@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { LADDER, quality as governor } from '../render/quality';
 import { LAYERS, PALETTES } from '../core/palettes';
 import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types';
 import { allEffects, getEffect } from '../fx';
@@ -463,6 +464,11 @@ function LookPanel() {
   const palette = useStudio((s) => s.palette);
   const text = useStudio((s) => s.text);
   const quality = useStudio((s) => s.quality);
+  // the quality governor (src/render/quality.ts) easing off right now; re-renders only when that changes
+  const easing = useSyncExternalStore(
+    (f) => governor.subscribe(f),
+    () => governor.current() !== LADDER[0],
+  );
   const { setPalette, setPaletteColor, set, saveCurrentAsPreset, flash } = useStudio.getState();
   const [name, setName] = useState('');
   const save = () => {
@@ -514,7 +520,11 @@ function LookPanel() {
         <textarea className="txt" placeholder="are you still there" value={text} onChange={(e) => set({ text: e.target.value })} aria-label="Title text" />
       </Section>
       <Section id="look.advanced" title="Advanced" collapsible defaultOpen={false}>
-        <Field label="Render quality" value={`${Math.round(quality * 100)}%`} tip="Lower it if the picture stutters on a slower computer.">
+        <Field
+          label="Render quality"
+          value={`${Math.round(quality * 100)}%${easing ? ' · easing off' : ''}`}
+          tip="The most detail Hum draws. When frames run late it eases off by itself (fewer pop-up windows first, then a softer main picture) and brings the detail back when there’s room. Lower this if it still stutters."
+        >
           <Slider value={quality} min={0.4} max={1} step={0.05} onChange={(v) => set({ quality: v })} />
         </Field>
         <AccessCodeRow />

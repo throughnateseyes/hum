@@ -38,8 +38,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   drop. Dissolves step forward on kicks. **Transition** (Look tab) pins one for everything (videos,
   auto-pilot and your own picks) or Cut, and **Length** sets it in beats.
   **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
-  a part (hold ⌥ to change only that one), or pick a look while a part plays. Picking a scene
+  a part (hold ⌥ to change only that one), or pick a look while a part plays, or ask in words in the
+  Director's **Video** mode ("calmer chorus", "something brighter on the drop", "fewer pop-ups"):
+  only the parts you mention change, on the small model, for a fraction of a cent. Picking a scene
   pauses the song map.
+  **Saved videos:** the last video Claude made for a song stays in this browser (24 songs), edits
+  included, so **Make a video** on a song you've done before plays it straight away with no new
+  request. **Remake video** (or typing a wish) always asks Claude for a fresh take.
 - **Your taste.** Hum learns what you like as you use it. While a video plays (or any look is on
   screen), hover the stage and press **♥ Keep** (`K`) on looks you love or **✕ Skip** (`X`) on ones
   you don't; Skip also takes that look out of the part and moves on. Looks you pick from the list
@@ -175,7 +180,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   blue tick on a slider shows its live, modulated value.
 - **Director** (bottom of the right column, `/` to focus): a chat with history. Describe a feeling →
   a *Look*; switch to *New scene* → Claude writes a brand-new GLSL scene that's compiled live (errors
-  show in the Scene tab).
+  show in the Scene tab); with a video made, *Video* changes it in plain words. A short tweak of the
+  look on screen ("warmer", "less busy", "more grain") goes to the small model with a shorter catalog.
+- **Render quality** (Look tab → Advanced) is the most detail Hum draws. When frames run late Hum
+  eases off by itself, cheapest first: fewer pop-up scene windows, then the main picture drawn a
+  little smaller, then effects at that size, then a lighter hand-drawn finish. It tries the detail
+  back when there's room, and waits longer after each try that didn't hold, so it settles instead of
+  flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
@@ -231,6 +242,15 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   `node scripts/look-shot.mjs --preset willow-print --out sheet.png` renders a contact sheet of the
   song's key moments in a headless browser and prints shader errors and the frame cost
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
+- **Smooth frames:** the quality governor (`src/render/quality.ts`) watches frame times from the
+  stage's own loop and steps detail down and back up (see Render quality above). Anything that renders
+  frame by frame for export must call `quality.freeze(true)` first (and `freeze(false)` after) so
+  every frame gets full detail; the stage also ignores the governor while `setOutputSize` pins an
+  output size. `quality.force(n)` pins a rung to look at it. Shaders for the song map's next look,
+  its effects and the next pop-up window compile in the background ahead of the cut
+  (`src/render/warmup.ts`, `renderer.compileAsync` with KHR_parallel_shader_compile), so cuts don't
+  stall on a compile. Dev console: `await __hum.perf.moments()`, `__hum.perf.rungs()`,
+  `__hum.perf.hitch(ids, 'async')` time frames at 1080p (`src/dev/perfProbe.ts`).
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
 - **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
 
@@ -256,9 +276,10 @@ Limits (all in `server/limits.ts`, every one optional):
 
 Spend is counted from each response's real token usage at the model's price. A request is refused
 once today's total has reached the cap, so a cap can go over by at most the calls already running
-(about $0.04 each for Make a video). Refused requests fall back to the offline director. If Redis
+(about $0.03 each for Make a video). Refused requests fall back to the offline director. If Redis
 can't be reached, the counts drop to memory for that request instead of failing. Each call is logged
-as `[hum-director] plan for sam: $0.0410 (today $0.53)` in the function logs. Your Claude
+as `[hum-director] plan on claude-sonnet-5-5 for sam: $0.0213 (today $0.53) · …tokens…` in the
+function logs. Your Claude
 subscription in `npm run dev` skips the limits and the access codes (it only answers your own computer).
 
 In the app, an AI action that comes back needing a code opens a small box (`src/ui/AccessGate.tsx`,
@@ -266,6 +287,28 @@ logic in `src/director/access.ts`): the code is checked with the free `mode: "ch
 Claude call, same rule as a real request), saved, and the action retries. Closing it keeps the offline
 result. On a site with no key the box explains how to run Hum yourself instead.
 
-Rough costs on Sonnet 5.5: Make a video ≈ $0.04, describe a feeling → look ≈ $0.02–0.03, a new
-GLSL scene ≈ $0.05–0.10. `HUM_MODEL=claude-haiku-5-5` is about 20× cheaper. Also set a monthly spend
-limit for the key in the Anthropic Console as the hard backstop.
+What each action costs (a 12-part song with lyrics; "warm" = the fixed rules were read from the
+prompt cache because someone asked within the last 5 minutes):
+
+| Action | Model | Tokens in / out | Cost |
+|---|---|---|---|
+| Make a video | Sonnet 5.5 | ~9,400 (4,200 cacheable) / ~1,050 | ≈ $0.031 cold, $0.021 warm |
+| Make a video again on the same song | — | none (saved in the browser) | $0 |
+| Change the video in words (*Video* mode) | Haiku 5.5 | ~4,200 (3,500 cacheable) / ~900 | ≈ $0.001 |
+| Describe a feeling → look | Sonnet 5.5 | ~14,400 (13,000 cacheable) / ~800 | ≈ $0.044 cold, $0.011 warm |
+| Tweak the look on screen ("warmer") | Haiku 5.5 | ≤ 14,400 / ~800 | ≈ $0.002 |
+| A new GLSL scene | Sonnet 5.5 | ~7,000 (mostly cacheable) / up to 16,000 | ≈ $0.05–0.10 |
+
+Which model does what (all optional, `server/models.ts`):
+
+| Setting | Used for | Default |
+|---|---|---|
+| `HUM_MODEL` | everything below unless set | `claude-sonnet-5-5` |
+| `HUM_PLAN_MODEL` | Make a video | `HUM_MODEL` |
+| `HUM_SHADER_MODEL` | New scene | `HUM_MODEL` |
+| `HUM_EDIT_MODEL` | small edits: changing a video in words, tweaking the look on screen (`main` = use `HUM_MODEL`) | `claude-haiku-5-5` |
+| `HUM_CLI_MODEL` / `HUM_CLI_EDIT_MODEL` | the same split for your subscription in `npm run dev` | `sonnet` / `haiku` |
+
+`HUM_MODEL=claude-haiku-5-5` makes everything about 20× cheaper, at some cost to the plans. Each
+call is logged with its tokens (`… · 5236 in, 4170 from cache, 0 into cache, 1045 out`). Also set a
+monthly spend limit for the key in the Anthropic Console as the hard backstop.

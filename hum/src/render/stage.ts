@@ -23,6 +23,9 @@ import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
+import type { HandStyle } from '../core/types';
+import { FULL, quality, type QualityRung } from './quality';
+import { dryRun, warmEffects } from './warmup';
 
 THREE.ColorManagement.enabled = false;
 
@@ -281,26 +284,63 @@ export class Stage {
       w = Math.max(2, Math.round(cssW * dpr));
       h = Math.max(2, Math.round(cssH * dpr));
     }
-    if (w === this.width && h === this.height) return;
+    // quality governor: the main look (and maybe its effects) can draw smaller than the output
+    const sw = Math.max(2, Math.round(w * this.rung.sceneScale));
+    const sh = Math.max(2, Math.round(h * this.rung.sceneScale));
+    const fw = this.rung.fxAtSceneScale ? sw : w;
+    const fh = this.rung.fxAtSceneScale ? sh : h;
+    if (w === this.width && h === this.height && sw === this.sceneW && sh === this.sceneH && fw === this.fxW && fh === this.fxH) return;
     this.width = w;
     this.height = h;
-    this.sceneRT.setSize(w, h);
-    this.prevRT.setSize(w, h);
+    this.sceneW = sw;
+    this.sceneH = sh;
+    this.fxW = fw;
+    this.fxH = fh;
+    this.sceneRT.setSize(sw, sh);
+    this.prevRT.setSize(sw, sh);
     this.mixRT.setSize(w, h);
     this.stillRT.setSize(w, h);
-    this.fxOut.setSize(w, h);
+    this.fxOut.setSize(fw, fh);
     this.impactRT.setSize(w, h);
     this.holdRT.setSize(w, h);
     this.holdReady = false;
-    this.fx.setSize(w, h);
-    this.current?.inst.resize?.(w, h);
-    this.out?.live?.inst.resize?.(w, h);
-    this.warm?.inst.resize?.(w, h);
+    this.fx.setSize(fw, fh);
+    this.current?.inst.resize?.(sw, sh);
+    this.out?.live?.inst.resize?.(sw, sh);
+    this.warm?.inst.resize?.(sw, sh);
+  }
+
+  /* ── quality governor (src/render/quality.ts) ── */
+  private rung: QualityRung = FULL;
+  private sceneW = 2;
+  private sceneH = 2;
+  private fxW = 2;
+  private fxH = 2;
+  private handLite: HandStyle | null = null;
+
+  /** take the governor's rung for this frame (full detail while rendering at a fixed output size) */
+  private applyRung() {
+    const want = this.outSize && quality.forced === null ? FULL : quality.current();
+    if (want === this.rung) return;
+    const resize = want.sceneScale !== this.rung.sceneScale || want.fxAtSceneScale !== this.rung.fxAtSceneScale;
+    this.rung = want;
+    this.sceneWindows.cap = want.windows;
+    this.sceneWindows.effects = want.windowFx;
+    if (resize) this.setSize(this.css.w, this.css.h);
+  }
+
+  /** the hand-drawn style to draw with: the person's, or a lighter copy when the governor asks */
+  private handStyle(style: HandStyle): HandStyle {
+    if (!this.rung.handLite || style.misprint === 0) return style;
+    if (this.handLite?.wobble !== style.wobble || this.handLite.inks !== style.inks || this.handLite.paper !== style.paper || this.handLite.lines !== style.lines) this.handLite = { ...style, misprint: 0 };
+    return this.handLite;
   }
 
   start() {
-    const loop = () => {
+    const loop = (now: number) => {
       this.raf = requestAnimationFrame(loop);
+      // only frames shown on screen teach the quality governor (not captures or offline renders)
+      quality.sample(now);
       this.tick();
     };
     this.raf = requestAnimationFrame(loop);
@@ -425,19 +465,34 @@ export class Stage {
     return c;
   }
 
-  /** Create a scene now (shaders compile, buffers allocate) so switching to it later is instant. */
-  prewarm(id: string) {
+  /**
+   * Create a scene now (buffers allocate, shaders compile in the background, see warmup.ts) so
+   * switching to it later is instant. `effects`: the look's effects, compiled ahead too.
+   */
+  prewarm(id: string, effects: readonly { effectId: string }[] = []) {
+    this.prewarmEffects(effects);
     if (this.warm?.id === id || this.width <= 2) return;
     const def = getScene(id);
     if (!def) return;
     this.warm?.inst.dispose();
     this.warm = null;
     try {
-      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared }), born: performance.now(), params: {} };
+      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared }), born: performance.now(), params: {} };
       this.warmFresh = true;
     } catch (e) {
       console.warn('[hum] prewarm failed', e);
     }
+  }
+
+  private fxWarm: { key: string; dispose: () => void } | null = null;
+
+  /** compile the next look's effects in the background (kept until the next look's are warmed) */
+  private prewarmEffects(effects: readonly { effectId: string }[]) {
+    const defs = effects.map((e) => getEffect(e.effectId)).filter((d): d is EffectDef => !!d);
+    const key = defs.map((d) => d.id).join(',');
+    if (this.fxWarm?.key === key) return;
+    this.fxWarm?.dispose();
+    this.fxWarm = defs.length ? { key, dispose: warmEffects(this.renderer, this.shared, defs, this.mixRT).dispose } : null;
   }
 
   /** a new instance of scene `id` (the prewarmed one when it matches) */
@@ -449,7 +504,7 @@ export class Stage {
       if (this.warm?.id === id) {
         inst = this.warm.inst;
         this.warm = null;
-      } else inst = def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared });
+      } else inst = def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared });
     } catch (e) {
       console.error(e);
       useStudio.getState().set({ shaderError: String(e) });
@@ -557,6 +612,7 @@ export class Stage {
 
     resolvePalette(s.palette, this.palette);
     if (!s.sceneId || this.width <= 2) return; // wait for the first real layout size
+    this.applyRung();
     this.syncLook(s, audio, now);
     this.seen = { sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette };
     if (!this.current) return;
@@ -600,19 +656,22 @@ export class Stage {
       r.clear(true, true, false);
       this.compilingScene = live === this.current;
       try {
-        live.inst.render({ ...base, palette, params }, target);
+        live.inst.render({ ...base, width: this.sceneW, height: this.sceneH, palette, params }, target);
       } catch (e) {
         console.error(e);
       }
       this.compilingScene = false;
     };
 
-    // draw a prewarmed scene once (into the spare buffer) so its shaders are compiled before the cut
-    if (this.warm && this.warmFresh && !this.out) {
+    // compile a prewarmed scene's shaders in the background before its cut: it goes through one
+    // render that draws nothing (warmup.ts), so this frame doesn't wait for the compile either
+    if (this.warm && this.warmFresh) {
       this.warmFresh = false;
+      const warm = this.warm;
       const defaults: ParamValues = {};
-      for (const d of this.warm.def.params) defaults[d.id] = d.default;
-      drawScene(this.warm, this.prevRT, defaults);
+      for (const d of warm.def.params) defaults[d.id] = d.default;
+      r.setRenderTarget(this.prevRT);
+      void dryRun(r, () => warm.inst.render({ ...base, width: this.sceneW, height: this.sceneH, params: defaults }, this.prevRT));
     }
 
     const curParams = resolveParams(this.current.def.params, s.sceneParams, s.modulations, 'scene', audio.layers, this.current.params);
@@ -639,7 +698,7 @@ export class Stage {
       live.push({ inst, def, params: out });
     }
     this.fx.prune(ids);
-    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.width, height: this.height, time, audio, feel, palette: this.palette });
+    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.fxW, height: this.fxH, time, audio, feel, palette: this.palette });
     finalTex = this.runTransition(finalTex, base, audio, time, dt, now);
     // the hover preview borrows a corner of the canvas before the main frame covers it
     this.renderPeek(base, s.impact, now);
@@ -664,7 +723,7 @@ export class Stage {
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
-      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: s.hand, palette: this.palette, width: this.width, height: this.height, drawing });
+      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else {
@@ -707,7 +766,7 @@ export class Stage {
       r.setClearColor(out.pal.c.bg, 1);
       r.clear(true, true, false);
       try {
-        out.live.inst.render({ ...base, palette: out.pal, params }, this.prevRT);
+        out.live.inst.render({ ...base, width: this.sceneW, height: this.sceneH, palette: out.pal, params }, this.prevRT);
       } catch (e) {
         console.error(e);
       }
@@ -720,7 +779,7 @@ export class Stage {
         resolveParams(def.params, inst.params, look.modulations, `fx.${inst.instanceId}`, audio.layers, o);
         chain.push({ inst, def, params: o });
       }
-      outTex = this.fxOut.run(r, this.prevRT.texture, chain, { width: this.width, height: this.height, time, audio, palette: out.pal });
+      outTex = this.fxOut.run(r, this.prevRT.texture, chain, { width: this.fxW, height: this.fxH, time, audio, palette: out.pal });
     }
     const t = Math.min(1, Math.max(0, (p - 0.3) / 0.4));
     this.trPass.render(r, tr.id, outTex, inTex, this.mixRT, {
@@ -785,6 +844,7 @@ export class Stage {
     this.hand.dispose();
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
+    this.fxWarm?.dispose();
     this.lyricLayer.dispose();
     this.popups.dispose();
     this.sceneWindows.dispose();

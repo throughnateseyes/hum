@@ -22,6 +22,7 @@ import { moodOf, pickTransition, resolveTransition, type PickContext, type Trans
 import { affinityIn, contextFor, EXPLORE, planSignature, recentPlans, rememberPlan, record, rng, setTransitionProbe, tasteSummary } from './taste';
 import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type LyricPart, type LyricPlan, type TypeFamily } from './lyricPlan';
 import { profileFor } from '../render/lyricProfiles';
+import { planKey, savedPlan, savePlan, watchPlan } from './planCache';
 
 export interface VideoPlan {
   title: string;
@@ -514,7 +515,7 @@ export function planTick(f: AudioFrame) {
   const next = shots[k + 1];
   if (next && f.playing && next.t - t < 2.5) {
     const nl = findLook(next.lookId);
-    if (nl && nl.id !== s.presetId) live.stage?.prewarm(nl.sceneId);
+    if (nl && nl.id !== s.presetId) live.stage?.prewarm(nl.sceneId, nl.effects);
   }
   if (hold) {
     if (hold.plan === s.plan && t >= hold.from - 0.5 && t < hold.until) return;
@@ -751,15 +752,33 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number } = {}): Video
  * Plan a video for the loaded song: Claude picks a look per section (offline plan if Claude isn't
  * reachable), then the song restarts from the top with the song map on.
  */
-export async function makeVideo(wish = '') {
+export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
   const s = useStudio.getState();
   const a = s.analysis;
   if (!a || s.planning) return;
+  // cost: a song that already has a plan from Claude plays it again without a new request
+  // ("Remake video" and typed wishes always ask again), see planCache.ts
+  const cacheKey = s.track ? planKey(s.track.name, a, s.lyrics) : null;
+  if (cacheKey && !wish.trim() && !opts.fresh) {
+    const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
+    if (saved) {
+      startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim());
+      watchPlan(cacheKey, saved, a);
+      return;
+    }
+  }
   s.set({ planning: true });
   const { requestPlan } = await import('../director/client');
+  const { shortlistLooks } = await import('../director/shortlist');
   const { getScene } = await import('../scenes');
-  const looks = allLooks().filter((p) => getScene(p.sceneId));
   const lyr = s.lyrics;
+  const taste = tasteSummary(a);
+  // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
+  const looks = shortlistLooks(
+    allLooks().filter((p) => getScene(p.sceneId)),
+    a,
+    { wish, keep: taste ? [...taste.liked.map((x) => x.id), ...taste.avoid] : [], categoryOf: (p) => getScene(p.sceneId)?.category ?? '' },
+  );
   const offline = freshLocalPlan(a);
   let plan: VideoPlan = offline;
   let reason = '';
@@ -785,12 +804,9 @@ export async function makeVideo(wish = '') {
           };
         }),
         ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
-        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p) })),
+        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p), ...(p.custom ? { custom: true } : {}) })),
         // taste memory: a short anonymous summary (look ids, tags, counts) and the last plan's looks
-        ...(() => {
-          const taste = tasteSummary(a);
-          return taste ? { taste } : {};
-        })(),
+        ...(taste ? { taste } : {}),
         // lyric video: how overlay lyrics fit each look, and how wordy each section is
         ...lyricRequest(a, lyr, looks, getScene, lyricSeed),
       },
@@ -825,16 +841,20 @@ export async function makeVideo(wish = '') {
     now.set({ planning: false });
     return;
   }
+  if (cacheKey && plan.source === 'claude') {
+    savePlan(cacheKey, plan);
+    watchPlan(cacheKey, plan, a);
+  }
+  now.set({ planning: false });
+  startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim());
+}
+
+/** put a plan on, say so in the chat and play the song from the top */
+function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string) {
+  const now = useStudio.getState();
   rememberPlan(a, planSignature(plan));
-  now.set({ plan, planOn: true, autoPilot: false, planning: false });
-  now.pushChat({
-    role: 'director',
-    mode: 'plan',
-    title: plan.title,
-    text: plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim(),
-    source: plan.source,
-    via: plan.via,
-  });
+  now.set({ plan, planOn: true, autoPilot: false });
+  now.pushChat({ role: 'director', mode: 'plan', title: plan.title, text, source: plan.source, via: plan.via });
   audioEngine.seek(0);
   void audioEngine.play().catch(() => {});
 }

@@ -9,10 +9,14 @@ import { Arrow, Chevron, Redo, Sparkle, Trash } from './Icons';
 /** the saved access code now lives with the access gate */
 export { readAccessCode } from '../director/access';
 
-type Mode = 'preset' | 'shader';
+type Mode = 'preset' | 'shader' | 'plan';
 
-/** Plain-language help for the two director modes. */
+/** Plain-language help for the director modes. */
 export const MODE_HELP: Record<Mode, { label: string; tip: string }> = {
+  plan: {
+    label: 'Video',
+    tip: 'Change the video you made in plain words: “calmer chorus”, “something brighter on the drop”, “fewer pop-ups”. Only the parts you mention change. Quick and cheap.',
+  },
   preset: {
     label: 'Look',
     tip: 'Mixes the pieces Hum already has — a scene, effects, colours and what reacts to the music — into a new combination. Quick, and every slider stays tweakable.',
@@ -39,8 +43,12 @@ export function DirectorPanel() {
   const height = useStudio((s) => s.directorHeight);
   const chat = useStudio((s) => s.chat);
   const analysis = useStudio((s) => s.analysis);
+  const hasPlan = useStudio((s) => !!s.plan && !!s.analysis && s.plan.looks.length === s.analysis.sections.length);
   const [prompt, setPrompt] = useState('');
-  const [mode, setMode] = useState<Mode>('preset');
+  const [picked, setMode] = useState<Mode>('preset');
+  // "Video" only makes sense while there's a video plan to change
+  const mode: Mode = picked === 'plan' && !hasPlan ? 'preset' : picked;
+  const modes: Mode[] = hasPlan ? ['preset', 'shader', 'plan'] : ['preset', 'shader'];
   const [busy, setBusy] = useState<Mode | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -67,6 +75,17 @@ export function DirectorPanel() {
     s.pushChat({ role: 'user', text: p, mode });
     setPrompt('');
     setBusy(mode);
+    if (mode === 'plan') {
+      try {
+        const { editVideo } = await import('../director/planEdit');
+        const r = await editVideo(p);
+        useStudio.getState().pushChat({ role: 'director', text: r.note, mode, title: r.ok && r.changed ? 'Video changed' : undefined, source: 'claude', via: r.via, error: !r.ok });
+      } catch (e) {
+        useStudio.getState().pushChat({ role: 'director', text: `Couldn’t change the video: ${String(e)}`, mode, error: true });
+      }
+      setBusy(null);
+      return;
+    }
     try {
       // the saved code is sent by the client; a missing or wrong one opens the access gate
       const res = await direct({
@@ -160,7 +179,7 @@ export function DirectorPanel() {
                   <i />
                   <i />
                 </span>
-                {busy === 'shader' ? 'Drawing a new scene… this one takes a bit' : 'Building a look…'}
+                {busy === 'shader' ? 'Drawing a new scene… this one takes a bit' : busy === 'plan' ? 'Changing the video…' : 'Building a look…'}
               </div>
             </div>
           )}
@@ -180,7 +199,7 @@ export function DirectorPanel() {
           rows={1}
           value={prompt}
           maxLength={600}
-          placeholder={mode === 'preset' ? 'Describe a feeling…' : 'Describe something new to draw…'}
+          placeholder={mode === 'preset' ? 'Describe a feeling…' : mode === 'plan' ? 'What should change in the video?' : 'Describe something new to draw…'}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -193,7 +212,7 @@ export function DirectorPanel() {
         />
         <div className="dir-row">
           <div className="seg">
-            {(['preset', 'shader'] as Mode[]).map((m) => (
+            {modes.map((m) => (
               <button key={m} type="button" className={`has-tip ${mode === m ? 'on' : ''}`} onClick={() => setMode(m)} data-tip={MODE_HELP[m].tip}>
                 {MODE_HELP[m].label}
               </button>
@@ -214,6 +233,7 @@ function UserMsg({ m }: { m: ChatMsg }) {
     <div className="msg user">
       <div className="bubble">{m.text}</div>
       {m.mode === 'shader' && <div className="msg-meta">New scene</div>}
+      {m.mode === 'plan' && <div className="msg-meta">Video</div>}
     </div>
   );
 }
