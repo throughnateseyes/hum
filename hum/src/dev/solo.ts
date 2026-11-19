@@ -165,7 +165,7 @@ async function boot() {
   const withWindows = q.get('windows') === '1';
   if (withWindows) useStudio.setState({ popups: 'always', windowKind: 'looks' });
   useStudio.setState({ track: { name: `${TEST_SONG.artist} - ${TEST_SONG.title}`, source: 'file' }, lyrics: testLyrics(), analysis: testAnalysis() });
-  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable'].map((f) => document.fonts.load(`16px "${f}"`).catch(() => null)));
+  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable', 'Instrument Serif', 'italic 16px "Instrument Serif', 'Fraunces Variable', 'italic 16px "Fraunces Variable', 'Inter Tight Variable', 'Archivo Variable'].map((f) => document.fonts.load(f.startsWith('italic') ? `${f}"` : `16px "${f}"`).catch(() => null)));
 
   const def = await loadScene();
   const look = buildLook(def);

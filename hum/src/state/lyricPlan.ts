@@ -1,13 +1,14 @@
 /**
  * Auto lyrics as a lyric video: a plan that says, per song part, which medium carries the words.
  *
- *   subtitle   the line low (or high) in the frame, sung words brightening: verses, dense parts
- *   big        the line huge, words landing one by one in the song's motion: choruses, drops
- *   cutout     ransom-note clippings: choruses and drops on loud songs, bridges
- *   sparse     only a word or two of each line, small, in a calm corner: builds, intros, breaks
+ *   subtitle   a quiet caption low in the frame, sung words brightening: verses, dense parts
+ *   big        a display line hung from a margin, words rising in as they're sung: choruses, drops
+ *   sparse     the line small and quiet in a margin: builds, intros, breaks
  *   own        the look shows the words itself (typewriter, lyric wall, word cards): overlay stands down
+ *   cutout     a paste-up collage. Never a part's medium any more: only the one-off "burst" moment on
+ *              a big drop (a plan that still asks for it gets display type instead)
  *
- * plus one-off moments: a single giant word on the biggest drop, a burst of cutouts on one chorus.
+ * plus one-off moments: a single giant word on the biggest drop, a collage on one other drop line.
  *
  * The local planner (`localLyricPlan`) decides from each part's label, energy, words per second and
  * the look planned there, seeded so every render is different but the song keeps one type family
@@ -46,18 +47,18 @@ export interface LyricPlan {
 export const MEDIUM_NAME: Record<LyricMedium, string> = {
   subtitle: 'Subtitles',
   big: 'Big words',
-  cutout: 'Cutouts',
+  cutout: 'Collage',
   sparse: 'A word or two',
   own: 'The look’s own lyrics',
 };
-export const MOMENT_NAME: Record<LyricMoment, string> = { giant: 'one giant word', burst: 'a cutout burst' };
+export const MOMENT_NAME: Record<LyricMoment, string> = { giant: 'one giant word', burst: 'a collage' };
 export const FAMILY_NAME: Record<TypeFamily, string> = {
   grotesk: 'grotesk',
   serif: 'display serif',
   condensed: 'condensed',
   mono: 'mono',
-  rounded: 'rounded',
-  typewriter: 'typewriter',
+  rounded: 'grotesk',
+  typewriter: 'mono',
 };
 
 /* ───────────────────────── helpers ───────────────────────── */
@@ -106,11 +107,12 @@ export function vocalDensity(lines: LyricLine[], sec: TrackSection): { wps: numb
   return { wps: time > 0 ? words / time : 0, lines: n };
 }
 
-/** type families that suit each motion, most fitting first */
+/** type families that suit each motion, most fitting first ('rounded' and 'typewriter' are only kept
+ * for plans that ask for them: lyric type sets them in Inter and IBM Plex Mono) */
 const FAMILIES_FOR: Record<Treatment, TypeFamily[]> = {
-  tender: ['serif', 'typewriter', 'grotesk'],
-  dreamy: ['serif', 'rounded', 'grotesk'],
-  punchy: ['grotesk', 'condensed', 'rounded'],
+  tender: ['serif', 'grotesk', 'mono'],
+  dreamy: ['serif', 'grotesk', 'serif'],
+  punchy: ['grotesk', 'condensed', 'serif'],
   aggressive: ['condensed', 'grotesk', 'mono'],
 };
 
@@ -170,15 +172,15 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
       const w: Partial<Record<Medium, number>> = (() => {
         switch (sec.label) {
           case 'verse':
-            return { subtitle: 3, sparse: dens.wps < 1.4 ? 1.2 : 0.3, big: e > 0.65 ? 0.9 : 0.3, cutout: 0.25 };
+            return { subtitle: 3, sparse: dens.wps < 1.4 ? 1.2 : 0.3, big: e > 0.65 ? 0.9 : 0.3 };
           case 'chorus':
-            return { big: 2.5, cutout: loud ? 2 : 0.8, subtitle: 0.4, sparse: 0.2 };
+            return { big: 2.5, subtitle: 0.6, sparse: 0.3 };
           case 'drop':
-            return { big: 2, cutout: loud ? 2 : 0.6, sparse: 0.3 };
+            return { big: 2.5, sparse: 0.3, subtitle: 0.3 };
           case 'build':
             return { sparse: 3, big: 1, subtitle: 0.4 };
           case 'bridge':
-            return { cutout: 1.2, sparse: 1.2, big: 0.8, subtitle: 0.6 };
+            return { sparse: 1.6, big: 1, subtitle: 0.8 };
           case 'break':
             return { sparse: 2, subtitle: 1.5 };
           default:
@@ -188,7 +190,6 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
       // lots of words fly by: slamming each one in is unreadable, subtitles carry it
       if (dens.wps > 2.6) {
         w.big = (w.big ?? 0) * 0.3;
-        w.cutout = (w.cutout ?? 0) * 0.3;
         w.subtitle = (w.subtitle ?? 0.5) * 2;
       } else if (dens.wps < 1) {
         w.big = (w.big ?? 0) * 1.3;
@@ -204,7 +205,8 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
     if (!byGroup.has(sec.group)) byGroup.set(sec.group, medium);
     let moment: LyricMoment | null = null;
     if (i === strongestDrop && (loud || R() < 0.6)) moment = 'giant';
-    else if (!burstUsed && sec.label === 'chorus' && (loud ? R() < 0.6 : R() < 0.3) && (!prof || prof.suits.cutout > 0.3)) {
+    // the collage is a rare one-off: only on another drop of a loud song, and not every time
+    else if (!burstUsed && loud && sec.label === 'drop' && R() < 0.35 && (!prof || prof.suits.cutout > 0.3)) {
       moment = 'burst';
       burstUsed = true;
     }
@@ -227,7 +229,7 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
         at = i;
       }
     });
-    if (at >= 0) parts[at] = { ...parts[at]!, medium: only === 'subtitle' ? (loud ? 'cutout' : 'big') : only === 'big' || only === 'cutout' ? 'subtitle' : 'big', why: 'contrast with the rest of the song' };
+    if (at >= 0) parts[at] = { ...parts[at]!, medium: only === 'subtitle' ? 'big' : only === 'big' ? 'subtitle' : 'big', why: 'contrast with the rest of the song' };
   }
   return { seed, family, motion, parts, source: 'local' };
 }
@@ -291,13 +293,18 @@ export function chooseForLine(plan: LyricPlan, a: TrackAnalysis, lines: LyricLin
   if (look.own === 'carries' && !show) return { ...base, medium: 'own', moment: null, why: 'this look shows the words itself' };
   let medium = part.medium;
   let why = part.why ?? '';
+  if (medium === 'cutout') {
+    // collage is a one-off moment now, never a whole part
+    medium = 'big';
+    why = why || 'display type (collage is kept for one moment on a drop)';
+  }
   if (medium === 'own') {
     // planned for a lyric look, but the shot rotated to one that doesn't show words
     medium = look.suits.subtitle >= look.suits.sparse ? 'subtitle' : 'sparse';
     why = 'the look on screen doesn’t show the words';
   }
   if (look.suits[medium as Medium] < 0.2) {
-    const order: Medium[] = medium === 'big' ? ['cutout', 'sparse', 'subtitle'] : medium === 'cutout' ? ['big', 'subtitle', 'sparse'] : medium === 'sparse' ? ['subtitle', 'big'] : ['sparse', 'big'];
+    const order: Medium[] = medium === 'big' ? ['sparse', 'subtitle'] : medium === 'sparse' ? ['subtitle', 'big'] : ['sparse', 'big'];
     const alt = order.find((m) => look.suits[m] >= 0.2) ?? 'subtitle';
     why = `${MEDIUM_NAME[medium]} would fight this look`;
     medium = alt;
@@ -314,7 +321,9 @@ export function chooseForLine(plan: LyricPlan, a: TrackAnalysis, lines: LyricLin
       }
     }
     const at = part.moment === 'giant' ? first : first + (count > 2 ? 1 + (plan.seed % Math.min(3, count - 1)) : 0);
-    if (li === at && (part.moment !== 'burst' || look.suits.cutout >= 0.2)) moment = part.moment;
+    // the collage only lands on a drop (a plan may still ask for it on a chorus)
+    const onDrop = sec.label === 'drop' || a.drops.some((d) => Math.abs(d - sec.start) < 2.5);
+    if (li === at && (part.moment !== 'burst' || (look.suits.cutout >= 0.2 && onDrop))) moment = part.moment;
   }
   return { ...base, medium, moment, why };
 }

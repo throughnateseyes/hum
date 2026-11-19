@@ -7,7 +7,7 @@ import type { Palette } from '../core/types';
  * Every other frame the finished picture (before pop-ups and lyrics) is shrunk into a tiny 96×54
  * buffer and read back. From that we know, for any box on screen, how bright the picture is there,
  * how much it varies and how busy (edgy) it is. `judge` then picks the lightest backing (none, a
- * soft shadow, a soft plate, a solid band, a paper strip) and the ink that clears a contrast target
+ * soft shadow, a feathered scrim, a full-width scrim, a paper strip) and the ink that clears a contrast target
  * against the pixels actually under the text, and `Guard` eases between its choices so nothing
  * flickers when the scene changes under a line.
  */
@@ -24,7 +24,7 @@ export interface Rect {
 
 export const LADDER: Backing[] = ['none', 'shadow', 'soft', 'band'];
 /** how much of the picture under the text each backing covers (in sRGB space, like canvas blending) */
-const COVER: Record<Backing, number> = { none: 0, shadow: 0.42, soft: 0.62, band: 0.86, paper: 1 };
+const COVER: Record<Backing, number> = { none: 0, shadow: 0.3, soft: 0.62, band: 0.86, paper: 1 };
 
 export const PROBE_W = 96;
 export const PROBE_H = 54;
@@ -350,22 +350,36 @@ export function drawBacking(g: CanvasRenderingContext2D, rows: { x: number; y: n
   const m = gd.mix;
   g.save();
   if (m.soft > 0.02) {
-    g.fillStyle = css(gd.plate, 0.62 * m.soft * alpha);
-    g.shadowColor = css(gd.plate, 0.62 * m.soft * alpha);
-    g.shadowBlur = size * 0.7;
-    for (const r of rows) {
-      const px = size * 0.38;
-      const py = size * 0.18;
-      roundRect(g, r.x - px, r.y - py, r.w + px * 2, r.h + py * 2, size * 0.32);
-      g.fill();
-    }
+    // a soft scrim: the picture darkens (or lightens) behind the block with no edge to see. Drawn as
+    // the blurred shadow of a box parked off-canvas, so only the feathered shadow lands here.
+    const x0 = Math.min(...rows.map((r) => r.x)) - size * 0.6;
+    const y0 = Math.min(...rows.map((r) => r.y)) - size * 0.45;
+    const x1 = Math.max(...rows.map((r) => r.x + r.w)) + size * 0.6;
+    const y1 = Math.max(...rows.map((r) => r.y + r.h)) + size * 0.45;
+    const off = W * 4;
+    g.shadowColor = css(gd.plate, 0.66 * m.soft * alpha);
+    g.shadowBlur = size * 1.1;
+    g.shadowOffsetX = off;
+    g.fillStyle = '#000';
+    g.fillRect(x0 - off, y0, x1 - x0, y1 - y0);
     g.shadowBlur = 0;
+    g.shadowOffsetX = 0;
+    g.shadowColor = 'transparent';
   }
   if (m.band > 0.02) {
-    const top = Math.min(...rows.map((r) => r.y)) - size * 0.28;
-    const bot = Math.max(...rows.map((r) => r.y + r.h)) + size * 0.28;
-    g.fillStyle = css(gd.plate, 0.86 * m.band * alpha);
-    g.fillRect(0, top, W, bot - top);
+    // a full-width scrim: a gradient across the frame, solid behind the rows, fading out above and below
+    const top = Math.min(...rows.map((r) => r.y)) - size * 0.4;
+    const bot = Math.max(...rows.map((r) => r.y + r.h)) + size * 0.4;
+    const fe = size * 1.6;
+    const a = 0.86 * m.band * alpha;
+    const grd = g.createLinearGradient(0, top - fe, 0, bot + fe);
+    const span = bot - top + fe * 2;
+    grd.addColorStop(0, css(gd.plate, 0));
+    grd.addColorStop(fe / span, css(gd.plate, a));
+    grd.addColorStop(1 - fe / span, css(gd.plate, a));
+    grd.addColorStop(1, css(gd.plate, 0));
+    g.fillStyle = grd;
+    g.fillRect(0, top - fe, W, span);
   }
   if (m.paper > 0.02) {
     // a torn strip of paper per row, a little crooked
@@ -406,19 +420,9 @@ export function applyShadow(g: CanvasRenderingContext2D, gd: Guard, size: number
     g.shadowColor = 'transparent';
     return;
   }
-  g.shadowColor = css(gd.plate, 0.85 * a);
-  g.shadowBlur = size * 0.42;
-}
-
-function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, h / 2, w / 2);
-  g.beginPath();
-  g.moveTo(x + rr, y);
-  g.arcTo(x + w, y, x + w, y + h, rr);
-  g.arcTo(x + w, y + h, x, y + h, rr);
-  g.arcTo(x, y + h, x, y, rr);
-  g.arcTo(x, y, x + w, y, rr);
-  g.closePath();
+  // wide and low rather than a tight dark halo round each letter
+  g.shadowColor = css(gd.plate, 0.8 * a);
+  g.shadowBlur = size * 0.5;
 }
 
 /** a colour that reads on the plate/picture: the accent when it clears `target`, else the ink */

@@ -339,15 +339,15 @@ const LYRIC_TYPES = ['grotesk', 'serif', 'condensed', 'mono', 'rounded', 'typewr
 
 const LYRIC_RULES = `## The lyrics: direct a lyric video
 When the song has timed lyrics, also decide how the words appear, per section, like an editor making a lyric video. Mix mediums across the song instead of one treatment for everything:
-- subtitle: the line small, low in the frame. For verses and dense, wordy parts (over ~2.5 words per second big type can't be read).
-- big: the line huge, word by word, in the song's motion. For choruses and drops, and slow, sparse lines that deserve weight.
-- cutout: ransom-note clippings on paper scraps. Loud choruses and drops, bridges, punk or playful songs; it is legible on any picture.
-- sparse: the line small and quiet, set to one side, its key words a little bigger. Builds, intros, breaks, the hush before a drop.
+- subtitle: a quiet caption low in the frame. For verses and dense, wordy parts (over ~2.5 words per second display type can't be read).
+- big: a display line hung from a margin, words revealed as they're sung. For choruses and drops, and slow, sparse lines that deserve weight.
+- sparse: the line small and quiet in a margin. Builds, intros, breaks, the hush before a drop.
+- cutout: don't use it as a section's medium (Hum sets it as display type). A collage is only the rare "burst" moment below.
 - own: the look shows the words itself (its lyric fit says "carries the words"): overlay text stands down there. Use it whenever that look leads a section with lyrics.
 Lyrics only ever sit in the middle or the lower third of the frame (the top stays clear), and every word of every line is shown; Hum places them, you only pick the medium.
 Respect each look's lyric fit (what it suits, where its calm zones are): never put big type on a look that suits it poorly; prefer the look's own lyrics when it carries them. Sections in the same group usually keep their medium, so a returning chorus looks like itself; the last chorus may escalate. Use at least two mediums in a song with three or more sung parts.
-- moment (optional, rare): "giant" sets the key word of the first line of the biggest drop or peak huge, the rest of the line around it; "burst" throws one chorus line down as a scatter of cutouts. At most one of each per song.
-- lyricType: one type family for the whole video (grotesk, serif, condensed, mono, rounded, typewriter) that fits the genre and mood: serif or typewriter for tender and intimate songs, condensed or grotesk for loud ones, mono for cold electronic ones, rounded for sweet pop.
+- moment (optional, rare): "giant" sets the key word of the first line of the biggest drop or peak huge, the rest of the line around it; "burst" lays one line of a big drop down as a paper collage (only on drops, and only for loud, punk or playful songs; most songs should have none). At most one of each per song.
+- lyricType: one type family for the whole video (grotesk, serif, condensed, mono, rounded, typewriter) that fits the genre and mood: serif for tender, intimate and cinematic songs, grotesk for pop and most loud ones, condensed (tracked capitals, used sparingly) for hard, driving ones, mono for cold electronic ones. (rounded and typewriter are still accepted and set as grotesk and mono.)
 Give each section with words a lyric entry; leave it out for sections without words.`;
 
 const LYRIC_PART_SCHEMA = {
@@ -355,7 +355,7 @@ const LYRIC_PART_SCHEMA = {
   description: 'Optional (sections with words): how the lyrics appear in this section.',
   properties: {
     medium: { type: 'string', enum: [...LYRIC_MEDIUMS] },
-    moment: { type: 'string', enum: [...LYRIC_MOMENTS], description: 'Optional one-off: giant (the key word huge on the drop) or burst (a scatter of cutouts).' },
+    moment: { type: 'string', enum: [...LYRIC_MOMENTS], description: 'Optional one-off: giant (the key word huge on the drop) or burst (a paper collage, on a drop only, rare).' },
   },
   required: ['medium'],
 };
