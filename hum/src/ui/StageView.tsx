@@ -16,6 +16,7 @@ export function StageView() {
   const perform = useStudio((s) => s.perform);
   const quality = useStudio((s) => s.quality);
   const recording = useStudio((s) => s.recording);
+  const clip = useStudio((s) => s.clip);
   const [size, setSize] = useState({ w: 800, h: 450 });
 
   useEffect(() => {
@@ -62,6 +63,11 @@ export function StageView() {
         <LoadingStage />
         <TasteHud />
         <div className="stage-hud">
+          {clip && (
+            <span className="hud-pill rec">
+              <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : 'Clip'} · 1080×1920 · Esc cancels
+            </span>
+          )}
           {recording && (
             <span className="hud-pill rec">
               <i /> Recording

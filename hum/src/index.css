@@ -363,6 +363,34 @@ textarea:focus-visible {
   border-color: var(--rec);
   color: white;
 }
+/* clip export: fills left to right while it records */
+.btn.clip {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.btn.clip.off {
+  color: var(--ink-3);
+}
+.btn.clip.on {
+  min-width: 120px;
+  color: #fff;
+  border-color: var(--ink);
+  background: var(--ink-2);
+}
+.btn.clip.on::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--rec);
+  transform-origin: left;
+  transform: scaleX(var(--p, 0));
+  transition: transform 0.2s linear;
+}
+.btn.clip.on .lbl-wide {
+  font-variant-numeric: tabular-nums;
+}
 .btn[disabled] {
   opacity: 0.45;
   pointer-events: none;
@@ -2518,7 +2546,8 @@ html.perform-idle * {
   .tb-right .lbl-wide {
     display: none;
   }
-  .tb-right .btn.rec {
+  .tb-right .btn.rec,
+  .tb-right .btn.clip:not(.on) {
     width: var(--h);
     padding: 0;
   }

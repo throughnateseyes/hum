@@ -199,7 +199,14 @@ export class AudioEngine {
   /** must be called from a user gesture the first time */
   ensureContext(): AudioContext {
     if (!this.ctx) {
-      const ctx = new AudioContext({ latencyHint: 'interactive' });
+      // 48 kHz whatever the output device runs at (a Bluetooth headset can sit at 24 kHz), so recordings
+      // and clips keep full-range sound; the browser resamples for the speakers
+      let ctx: AudioContext;
+      try {
+        ctx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 });
+      } catch {
+        ctx = new AudioContext({ latencyHint: 'interactive' });
+      }
       const analyser = ctx.createAnalyser();
       analyser.fftSize = FFT_SIZE;
       analyser.smoothingTimeConstant = 0;
@@ -327,6 +334,24 @@ export class AudioEngine {
     this.setAnalysis(this.analysis);
     this.resetState(false);
   }
+  private songTap: { gain: GainNode; dest: MediaStreamAudioDestinationNode } | null = null;
+  /**
+   * The loaded song alone, before the volume control, as a stream (clip export: the clip has sound even
+   * when the page is turned down). `gain` lets the caller fade it.
+   */
+  tapSong(): { gain: GainNode; dest: MediaStreamAudioDestinationNode } | null {
+    const ctx = this.ensureContext();
+    if (!this.elSource) return null;
+    if (!this.songTap) {
+      const gain = ctx.createGain();
+      const dest = ctx.createMediaStreamDestination();
+      this.elSource.connect(gain);
+      gain.connect(dest);
+      this.songTap = { gain, dest };
+    }
+    return this.songTap;
+  }
+
   setVolume(v: number) {
     if (this.outGain) this.outGain.gain.value = v;
     else this.el.volume = v;

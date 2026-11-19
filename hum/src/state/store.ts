@@ -34,6 +34,14 @@ export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | '
 /** progress while pasted lyrics are being synced to the song */
 export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: number } | null;
 
+export interface ClipProgress {
+  phase: 'prep' | 'rec' | 'save';
+  frac: number;
+  /** the stretch of the song being recorded (s) */
+  start: number;
+  end: number;
+}
+
 export interface ChatMsg {
   id: string;
   role: 'user' | 'director';
@@ -75,6 +83,8 @@ export interface StudioState extends LookState {
   shaderError: string | null;
   toast: string | null;
   recording: boolean;
+  /** a TikTok / Reels clip export in progress: getting ready, then recording (frac 0..1 of the clip) */
+  clip: ClipProgress | null;
   chat: ChatMsg[];
   directorOpen: boolean;
   directorHeight: number;
@@ -265,6 +275,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   shaderError: null,
   toast: null,
   recording: false,
+  clip: null,
   chat: persisted.chat ?? [],
   directorOpen: persisted.directorOpen ?? true,
   directorHeight: persisted.directorHeight ?? 320,

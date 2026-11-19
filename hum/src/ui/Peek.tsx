@@ -43,7 +43,8 @@ export function peekHandlers(opts: { key: string; title: string; hint: string; p
       clearTimeout(hideTimer);
       const el = e.currentTarget;
       const show = () => {
-        const look = useStudio.getState().recording ? null : opts.getLook();
+        const st = useStudio.getState();
+        const look = st.recording || st.clip ? null : opts.getLook();
         usePeek.setState({ target: look ? { key: opts.key, title: opts.title, hint: opts.hint, poster: opts.poster, look, rect: el.getBoundingClientRect(), place: opts.place ?? 'right' } : null });
       };
       // once a preview is open, moving to the next row switches straight away
