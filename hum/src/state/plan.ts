@@ -192,7 +192,7 @@ export interface Shot {
   pick?: Omit<PickContext, 'seed' | 'prev' | 'room'>;
   section: number;
   /** what the cut lands on */
-  on: 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric';
+  on: 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'resolve';
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -211,6 +211,35 @@ function busyness(a: TrackAnalysis, sec: TrackSection): number {
   const hits = countIn(L.kick, sec.start, sec.end) + countIn(L.snare, sec.start, sec.end) + 0.6 * countIn(L.hat, sec.start, sec.end);
   const notes = L.bass.filter((n) => n.t >= sec.start && n.t < sec.end).length + 0.5 * L.lead.filter((n) => n.t >= sec.start && n.t < sec.end).length;
   return clamp01((hits / len - 0.8) / 6 + notes / len / 8);
+}
+
+/* ───────────────────────── harmony ───────────────────────── */
+
+/** the nearest chord change to t within `within` seconds (t itself when there is none) */
+export function snapToChord(t: number, changes: number[], within: number): number {
+  let best = t;
+  let d = within;
+  for (const c of changes) {
+    const e = Math.abs(c - t);
+    if (e <= d) {
+      d = e;
+      best = c;
+    }
+    if (c > t + within) break;
+  }
+  return best;
+}
+
+/**
+ * Section i plays an earlier part again, turned up (a second chorus louder than the first), or sits
+ * in a key the song lifted into: either way it should feel bigger, so it cuts a little faster.
+ */
+export function turnedUp(a: TrackAnalysis, i: number): number {
+  const h = a.harmony?.sections[i];
+  if (!h) return 0;
+  let v = h.lift ? 0.1 : 0;
+  if (h.repeatOf !== undefined && a.sections[i].energy >= a.sections[h.repeatOf].energy - 0.02) v += 0.06;
+  return v;
 }
 
 const PACE_MUL: Record<Pace, number> = { slow: 1.6, song: 1, fast: 0.6 };
@@ -234,7 +263,7 @@ export function sectionPacing(plan: VideoPlan, a: TrackAnalysis, i: number, pace
   const sec = a.sections[i];
   const bar = 240 / Math.max(50, Math.min(200, a.bpm || 120));
   const mood = moodOf(a);
-  const drive = clamp01(0.6 * sec.energy + 0.4 * busyness(a, sec));
+  const drive = clamp01(0.6 * sec.energy + 0.4 * busyness(a, sec) + turnedUp(a, i));
   const cap = PACE_CAP[pace];
   let bars: number;
   const given = plan.shotBars?.[i];
@@ -324,6 +353,9 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   const L = a.layers;
   const kicks = L?.kick ?? [];
   const sd = sectionDrops(a);
+  // chord changes: phrase cuts slide onto one when it's within a beat, so the picture turns with the harmony
+  const chordChanges = a.harmony?.changes ?? [];
+  const resolutions = a.harmony?.resolutions ?? [];
   // the look on screen and when it came on, so a look carried over from the last section still counts
   let lastLook = '';
   let lastChange = 0;
@@ -396,7 +428,11 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       for (let j = Math.ceil(s0 / dt) + w; j < Math.floor(s1 / dt) - w; j++) {
         const rise = ec[j + w] - ec[j - w];
         const nextRise = ec[j + 1 + w] - ec[j + 1 - w];
-        if (rise > 0.2 && rise >= prevRise && rise >= nextRise && ec[j + w] > sec.energy) events.push({ t: snapBeat(j * dt), on: 'hit', pri: 3 });
+        // the loudness curve is coarse, so a new layer is placed by the chord change it comes in with when there's one close
+        if (rise > 0.2 && rise >= prevRise && rise >= nextRise && ec[j + w] > sec.energy) {
+          const at = snapToChord(j * dt, chordChanges, 1.5 * beat);
+          events.push({ t: at === j * dt ? snapBeat(at) : at, on: 'hit', pri: 3 });
+        }
         prevRise = rise;
       }
     }
@@ -406,10 +442,12 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       const t = lines[k].t;
       if (t > s0 && t < s1 && (k === 0 || t - lines[k - 1].end >= bar * 0.75)) events.push({ t: snapBeat(t), on: 'lyric', pri: 2 });
     }
-    // the phrase grid, nudged onto a lyric line when one starts nearby
+    // where the harmony comes home: a natural place for the picture to change or settle
+    for (const r of resolutions) if (r.t > s0 && r.t < s1 && r.strength >= 0.5) events.push({ t: r.t, on: 'resolve', pri: 2 });
+    // the phrase grid, nudged onto a lyric line when one starts nearby, else onto a chord change
     for (let t = s0 + P.shotLen; t < s1 - 0.5; t += P.shotLen) {
       const line = lines.find((l) => Math.abs(l.t - t) < Math.min(bar * 0.5, P.shotLen * 0.25));
-      events.push({ t: line ? snapBeat(line.t) : t, on: line ? 'lyric' : 'phrase', pri: 1 });
+      events.push({ t: line ? snapBeat(line.t) : snapToChord(t, chordChanges, beat), on: line ? 'lyric' : 'phrase', pri: 1 });
     }
     // keep the most meaningful cuts that are far enough apart
     events.sort((x, y) => y.pri - x.pri || x.t - y.t);
@@ -428,7 +466,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     for (const c of [...cuts, { t: s1, on: 'section' as const }]) {
       while (c.t - prev > budget) {
         const n = Math.ceil((c.t - prev) / budget);
-        const t = sec.start + Math.round((prev + (c.t - prev) / n - sec.start) / beat) * beat;
+        const t = snapToChord(sec.start + Math.round((prev + (c.t - prev) / n - sec.start) / beat) * beat, chordChanges, beat);
         if (t - prev < 1 || c.t - t < 1) break;
         filled.push({ t, on: 'phrase' });
         prev = t;

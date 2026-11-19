@@ -15,6 +15,7 @@
  */
 import type { MoodProfile, TrackAnalysis, TrackCharacter, TrackDrop, TrackSection } from '../core/types';
 import { FFT, hann, percentile } from './dsp';
+import { analyzeHarmony, chromagram, describeHarmony, type Chromagram } from './harmony';
 import { analyzeLayers, type LayerResult, type LayerStats } from './layers';
 
 export interface AnalysisRequest {
@@ -429,45 +430,9 @@ export function computeAnalysis(
   }
   const onsetRate = onsets / activeDuration;
 
-  /* chroma (sparse 4096-pt frames) */
-  const chroma = new Array<number>(12).fill(0);
-  {
-    const CN = 4096;
-    const cfft = new FFT(CN);
-    const cwin = hann(CN);
-    const cbin = sr / CN;
-    const pcOf = new Int8Array(CN / 2).fill(-1);
-    for (let k = 1; k < CN / 2; k++) {
-      const f = k * cbin;
-      if (f < 80 || f > 5000) continue;
-      const midi = 12 * Math.log2(f / 440) + 69;
-      pcOf[k] = ((Math.round(midi) % 12) + 12) % 12;
-    }
-    const step = Math.max(1, Math.round(nFrames / 1500));
-    const frame = new Float64Array(12);
-    for (let f = 0; f < nFrames; f += step) {
-      if (rms[f] <= silentThresh) continue;
-      const off = f * HOP;
-      if (off + CN > xLen) break;
-      for (let i = 0; i < CN; i++) {
-        cfft.re[i] = x[off + i] * cwin[i];
-        cfft.im[i] = 0;
-      }
-      cfft.run();
-      frame.fill(0);
-      let tot = 0;
-      for (let k = 1; k < CN / 2; k++) {
-        const pc = pcOf[k];
-        if (pc < 0) continue;
-        const m = Math.sqrt(cfft.re[k] * cfft.re[k] + cfft.im[k] * cfft.im[k]);
-        frame[pc] += m;
-        tot += m;
-      }
-      if (tot <= 0) continue;
-      for (let i = 0; i < 12; i++) chroma[i] += (frame[i] / tot) * rms[f];
-    }
-  }
-  const keyInfo = estimateMode(chroma);
+  /* chroma, 8 frames a second: harmony, the section finder's chords and the major/minor lean all read it */
+  const cg = chromagram(x, xLen, sr, 4 * Math.max(1, Math.ceil(duration * 2)), silentThresh);
+  const keyInfo = estimateMode(cg.lean);
 
   /* curves at overview resolution */
   const rmsN = normalize(rms);
@@ -525,15 +490,20 @@ export function computeAnalysis(
   const genreKind = GENRES[character.genre];
 
   /* sections (drops are always boundaries; songs that aren't dance music call their big parts choruses) */
-  const feats = structureFeatures(x, xLen, sr, HOP, nFrames, bands6, E2, S, R);
+  const feats = structureFeatures(cg, sr, HOP, nFrames, bands6, E2, S, R);
   const bars = downbeats(tempo.beats, lowP, fr);
   const sections = findSections(E2, L2, H2, R, duration, tempo.beats, bars, dropInfo, feats, genreKind?.dance ?? true);
+
+  /* harmony: chords, key and key changes, tension and resolutions; it also confirms which parts repeat */
+  const harm = analyzeHarmony(cg, { beats: tempo.beats, bars, bpm, duration, sections, points: POINTS });
+  if (harm) harm.groups.forEach((g, i) => (sections[i].group = g));
 
   const moodTags = focusTags(deriveTags(mood, bpm, subShare, drops.length, duration).moodTags, character);
   const genres = genreKind ? [...genreKind.tags] : [];
   const tags = [...moodTags, ...genres.filter((g) => !moodTags.includes(g))];
   const suggestedPresets = suggestPresets(presetTags, moodTags, genres, bpm);
-  const summary = summarize(mood, bpm, keyInfo, subShare, sections, dropInfo, moodTags, character, lay.stats, duration);
+  const harmonyLine = harm ? describeHarmony(harm.harmony, sections, fmtTime) : '';
+  const summary = summarize(mood, bpm, keyInfo, subShare, sections, dropInfo, moodTags, character, lay.stats, duration, harmonyLine);
 
   return {
     duration,
@@ -552,6 +522,7 @@ export function computeAnalysis(
     summary,
     layers: lay.layers,
     character,
+    ...(harm ? { harmony: harm.harmony } : {}),
   };
 }
 
@@ -741,8 +712,7 @@ function percentileOf(arr: Float32Array, a: number, b: number, q: number): numbe
  * and scaled to unit length, so the cosine between two moments says "same chords, same sound".
  */
 function structureFeatures(
-  x: Float32Array,
-  xLen: number,
+  cg: Chromagram,
   sr: number,
   hop: number,
   nFrames: number,
@@ -751,33 +721,15 @@ function structureFeatures(
   S: number,
   R: number,
 ): Float32Array[] {
-  const CN = 4096;
-  const fft = new FFT(CN);
-  const win = hann(CN);
-  const cbin = sr / CN;
-  const pcOf = new Int8Array(CN / 2).fill(-1);
-  for (let k = 1; k < CN / 2; k++) {
-    const f = k * cbin;
-    if (f < 60 || f > 4200) continue;
-    const midi = 12 * Math.log2(f / 440) + 69;
-    pcOf[k] = ((Math.round(midi) % 12) + 12) % 12;
-  }
   const chroma: Float64Array[] = [];
   const timbre: Float64Array[] = [];
+  // the chromagram runs at 8 Hz, so its frames 4i + 1 and 4i + 3 sit 0.125 s either side of step i's middle
+  const per = Math.round(cg.hz / R);
   for (let i = 0; i < S; i++) {
     const c = new Float64Array(12);
-    for (const dt of [-0.125, 0.125]) {
-      const off = Math.round(((i + 0.5) / R + dt) * sr) - CN / 2;
-      if (off < 0 || off + CN > xLen) continue;
-      for (let j = 0; j < CN; j++) {
-        fft.re[j] = x[off + j] * win[j];
-        fft.im[j] = 0;
-      }
-      fft.run();
-      for (let k = 1; k < CN / 2; k++) {
-        const pc = pcOf[k];
-        if (pc >= 0) c[pc] += Math.sqrt(fft.re[k] * fft.re[k] + fft.im[k] * fft.im[k]);
-      }
+    for (const j of [per * i + 1, per * i + 3]) {
+      if (j >= cg.n) continue;
+      for (let k = 0; k < 12; k++) c[k] += cg.plain[j * 12 + k];
     }
     let tot = 0;
     for (let k = 0; k < 12; k++) tot += c[k];
@@ -1338,10 +1290,12 @@ function summarize(
   c: TrackCharacter,
   st: LayerStats,
   duration: number,
+  harmonyLine = '',
 ): string {
   const tempoWord = bpm < 85 ? 'slow' : bpm < 110 ? 'mid-tempo' : bpm < 135 ? 'upbeat' : 'fast';
   const sure = c.confidence >= 0.7 ? '' : c.confidence >= 0.45 ? 'probably ' : 'maybe ';
-  const lean = key.confidence > 0.45 ? `, leaning ${key.minor ? 'minor' : 'major'} (maybe ${key.key})` : '';
+  // the harmony sentence names the key properly; without it, the old major/minor lean
+  const lean = harmonyLine ? '' : key.confidence > 0.45 ? `, leaning ${key.minor ? 'minor' : 'major'} (maybe ${key.key})` : '';
   const article = /^[aeiou]/.test(c.mood) && !/^(eu|uni|use)/.test(c.mood) ? 'An' : 'A';
   const s1 = `${article} ${c.mood}, ${tempoWord} track at about ${Math.round(bpm)} BPM — ${sure}${c.genre}${lean}.`;
   const s2 = c.instruments.length ? `Heard: ${c.instruments.join(', ')}.` : '';
@@ -1372,7 +1326,7 @@ function summarize(
   }
   const extra = moodTags.filter((t) => t !== c.mood && !['slow', 'mid-tempo', 'upbeat', 'fast', 'bright', 'dynamic', 'calm'].includes(t)).slice(0, 2);
   const s5 = extra.length ? `Also ${extra.join(' and ')}.` : '';
-  return [s1, s2, s3, s4, s5].filter(Boolean).join(' ');
+  return [s1, s2, s3, s4, s5, harmonyLine].filter(Boolean).join(' ');
 }
 
 function listWords(xs: string[]): string {
@@ -1404,6 +1358,7 @@ if (isWorkerScope) {
         analysis.lowCurve.buffer,
         analysis.midCurve.buffer,
         analysis.highCurve.buffer,
+        ...(analysis.harmony ? [analysis.harmony.tension.buffer] : []),
       ] as Transferable[]);
     } catch (err) {
       const reply: AnalysisReply = { ok: false, error: err instanceof Error ? err.message : String(err) };

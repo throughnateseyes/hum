@@ -22,6 +22,10 @@ export interface Feel {
   release: number;
   /** 0..1: cold and dark ↔ warm and bright. The song's own mood, nudged by how bright it sounds now */
   warmth: number;
+  /** 0..1: harmonic tension, how far the chord now is from home (0 on the home chord, high on a V or a clash), eased */
+  harmony: number;
+  /** 0..1: the song has lifted into a higher key (a last chorus up a step): eases in, stays while the lift lasts */
+  lift: number;
 
   /** seconds until the next drop the analysis found (99 when none is known) */
   toDrop: number;
@@ -57,6 +61,8 @@ export function emptyFeel(): Feel {
     tension: 0,
     release: 0,
     warmth: 0.5,
+    harmony: 0,
+    lift: 0,
     toDrop: 99,
     sinceDrop: 99,
     section: null,
@@ -170,9 +176,29 @@ export class FeelTracker {
       f.release *= Math.exp(-dt / AFTERGLOW);
     }
 
-    /* tension: the live build-up, or the approach to a known drop, whichever is further along */
+    /* harmony: how far from home the chords are, resolutions coming home, a lift into a higher key */
+    const H = analysis?.harmony;
+    let harmNow = 0;
+    let liftNow = 0;
+    let modeLean = 0;
+    if (H && dur > 0) {
+      const n = H.tension.length;
+      if (n) harmNow = H.tension[Math.min(n - 1, Math.max(0, Math.floor((t / dur) * n)))];
+      const sh = f.sectionIndex >= 0 ? H.sections[f.sectionIndex] : undefined;
+      liftNow = sh?.lift ? 1 : 0;
+      const k = sh?.key ?? H.key;
+      modeLean = (k.minor ? -1 : 1) * k.confidence;
+      // a chord coming home lets go a little (much less than a drop)
+      if (!jumped) for (const r of H.resolutions) if (prevT < r.t && t >= r.t) f.release = Math.max(f.release, 0.3 * r.strength);
+    }
+    f.harmony = jumped ? harmNow : ease(f.harmony, harmNow, 2.5, dt);
+    f.lift = jumped ? liftNow : ease(f.lift, liftNow, 0.8, dt);
+
+    /* tension: the live build-up, or the approach to a known drop, whichever is further along, plus a
+       little from the harmony (a dominant chord leans forward) */
     const approach = toDrop < ANTICIPATE ? Math.pow(1 - toDrop / ANTICIPATE, 1.6) * (0.5 + 0.5 * nextStrength) : 0;
-    const tensionNow = f.sinceDrop < 0.4 ? 0 : clamp01(Math.max(audio.build, approach));
+    const wound = Math.max(audio.build, approach);
+    const tensionNow = f.sinceDrop < 0.4 ? 0 : clamp01(wound + 0.2 * clamp01((f.harmony - 0.2) / 0.6) * (1 - wound));
     f.tension = jumped ? tensionNow : ease(f.tension, tensionNow, tensionNow > f.tension ? 6 : 12, dt);
 
     /* intensity: slow, but a drop lands at once */
@@ -181,7 +207,10 @@ export class FeelTracker {
 
     /* warmth */
     const mood = analysis?.mood;
-    const warm = clamp01(mood ? 0.15 + 0.5 * mood.valence + 0.2 * audio.brightness + 0.15 * f.release + 0.1 * (f.intensity - 0.5) : 0.5 + 0.4 * (audio.brightness - 0.5));
+    // a major key a touch warmer, a minor one a touch cooler; a key lift brightens it
+    const warm = clamp01(
+      (mood ? 0.15 + 0.5 * mood.valence + 0.2 * audio.brightness + 0.15 * f.release + 0.1 * (f.intensity - 0.5) : 0.5 + 0.4 * (audio.brightness - 0.5)) + 0.04 * modeLean + 0.12 * f.lift,
+    );
     f.warmth = jumped ? warm : ease(f.warmth, warm, 0.4, dt);
 
     /* the world */

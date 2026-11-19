@@ -31,6 +31,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays the song from the top. Each part is cut into short shots on musical phrases, rotating
   through 2–4 related looks: busy parts cut faster, calm parts hold longer, extra cuts land when the
   kick or bass comes back, a vocal starts or a lyric line begins, and every big drop is a hard cut.
+  Cuts follow the harmony too: a phrase cut slides onto a chord change when one is within a beat,
+  a chord coming home (V → I) is a place for the picture to settle with a soft dissolve, and a part
+  that repeats an earlier one louder, or sits in a key the song has lifted into, cuts a little faster.
   Transitions come from a library of 15 (crossfade, fades through the background colour or black,
   light and cloud dissolves, film burn, ink, soft wipe, iris, ripple, mosaic, glyphs, zoom push,
   slit-scan, cut), timed in beats and picked to fit the moment: long dissolves in calm parts, wipes
@@ -55,8 +58,10 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   (look ids, tags, section names and counts) with a plan you asked for.
 - **Breakdown** (button by the timeline, or `B`) shows how Hum took the song apart: its genre,
   mood and instruments, the parts, every drop with how big it is and why, the waveform, energy and
-  low / mid / high lanes, kick, snare and hat hits, a piano roll of the bass and lead notes, and
-  where the vocals are. Click anywhere to jump there.
+  low / mid / high lanes, the key and chords ("A minor · chords change every bar in the chorus", a box
+  per chord, a dot where the harmony comes home, and a tension lane for how far from home it is),
+  kick, snare and hat hits, a piano roll of the bass and lead notes, and where the vocals are. Click
+  anywhere to jump there.
 - **Overlays** (switch by the timeline) turns the pop-up windows off or back on.
 - **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
   (or its name, like `Artist - Title.mp3`; music-video rips work too, with "(Official Video)",
@@ -188,6 +193,7 @@ audio file / mic
   → AudioEngine (src/audio/engine.ts)      real-time: 6 bands, onset envelopes, beat phase, energy, build, drop
   → analyzeTrack (src/audio/analysis*.ts)  offline worker: bpm, sections (harmony/timbre self-similarity,
                                            bar-aligned, repeats grouped), drops, mood, tags, preset ranking
+  → harmony (src/audio/harmony.ts)         in the same worker: chroma, chords, key, key changes, tension
   → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
   → taste memory (src/state/taste.ts)      Keep / Skip and hand picks, in context; biases every pick
@@ -211,6 +217,26 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   `warmth`. It also carries a small shared world: wind direction, gusts and a time of day that runs
   from dawn to dusk over the song. Looks with wind, weather or a light source read them from there,
   so a cut between looks keeps the same weather and light.
+- **Harmony** (`src/audio/harmony.ts`, `analysis.harmony`) is music theory worked out on the device,
+  no AI. Eight times a second a 4096-point spectrum is folded onto the 12 notes (spectral peaks only,
+  placed by their exact frequency after the song's tuning is measured, so a track a little sharp or
+  flat still reads right), with a separate low-end chroma for the bass note. Averaged per beat, each
+  beat gets the major or minor chord that fits best, smoothed so chords don't flicker (changing chord
+  costs less on a bar line); each change is then placed from the 8 Hz frames and landed on the nearest
+  beat or half-beat. The key (song and per section, with a confidence) comes from key profiles over
+  the chords' notes, which chords belong to it, how much time sits on its home chord and V → I moves;
+  the relative major and minor share every note, so the song's first and last chords decide between
+  them. A section that clearly moves to another key is a key change, and up a half or whole step it
+  is a *lift* (`sections[i].lift`). Tension per beat is how far the chord is from home (I 0, IV 0.35,
+  V 0.75, outside the key 0.65) plus dissonance; resolutions are V → I, IV → I, bVII → I or tension
+  falling onto home. Sections whose chords repeat an earlier part with the same name (even
+  transposed) join its group (`repeatOf`, `transpose`). Feel reads it: harmonic tension adds a little
+  to `tension` (`feel.harmony`), a resolution gives a soft `release`, a major key is a touch warmer
+  and a minor one cooler, and a lift brightens `warmth` (`feel.lift`). The song summary the director
+  reads ends with one line, e.g. *Harmony: A minor; chords change about every bar; lifts up a whole
+  step at 2:41.* The same spectra feed the section finder, so analysis got about 20% faster, not
+  slower. Major and minor triads only (a G7 reads as G); busy, distorted mixes get chord qualities
+  wrong more often than the key.
 - **Style families** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
   `form`, `print`, `type`, `data`, `photo`, `board`). The library filters and groups by them, and the
   video planner keeps a part's shots inside one family.
