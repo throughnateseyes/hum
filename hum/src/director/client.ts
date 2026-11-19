@@ -26,6 +26,7 @@ import { LAYERS, PALETTES } from '../core/palettes';
 import { allScenes } from '../scenes';
 import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
+import { isTweak } from './editIntent';
 import { localDirect } from './local';
 import { postDirector } from './access';
 import { cleanPlanTransition, type PlanTransition } from '../core/transitionList';
@@ -420,12 +421,15 @@ function fallback(req: DirectorRequest, reason: string): DirectorResponse {
  * For shader mode, compile the returned spec with `makeCustomShaderScene(spec)`.
  */
 export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Promise<DirectorResponse> {
+  // cost: a small change to the look on screen ("warmer") goes to the small model with a shorter catalog
+  const edit = req.mode === 'preset' && isTweak(req.prompt, !!req.current);
   const body = {
     prompt: req.prompt,
     mode: req.mode,
     track: req.track ?? null,
     current: req.current ?? null,
-    catalog: buildCatalog(),
+    catalog: buildCatalog(edit && req.current ? { focusSceneId: req.current.sceneId } : {}),
+    ...(edit ? { edit: true } : {}),
   };
 
   let res: Response;
@@ -479,7 +483,8 @@ export interface PlanRequest {
   sections: { label: string; group: number; start: number; end: number; energy: number; busy?: number; lyrics?: string; drop?: { strength: number; why: string } }[];
   /** whole lyrics when they have no timing */
   lyrics?: string;
-  looks: { id: string; name: string; description: string; tags: string[]; category: string; style?: string }[];
+  /** `custom`: made by the person (the server lists these after the built-in looks) */
+  looks: { id: string; name: string; description: string; tags: string[]; category: string; style?: string; custom?: boolean }[];
   /** taste memory: what the person tends to keep or skip, and the last plan's looks (ids, tags and counts only) */
   taste?: import('../state/taste').TasteSummary;
   /** lyric video: how overlay lyrics fit each look (one short line per look id) and words sung per second per section */
@@ -563,11 +568,30 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   const transitions: (PlanTransition | null)[] = req.sections.map(() => null);
   const lyricParts: (LyricPart | null)[] = req.sections.map(() => null);
   const boards = new Set(req.looks.filter((l) => l.category === 'board').map((l) => l.id));
+  // an entry can also cover later sections that repeat it (`also`, to keep answers short): the
+  // section's own entry wins, otherwise it takes a copy
+  const own = new Set<number>();
+  const entries: [number, Record<string, unknown>][] = [];
   for (const e of json.plan.sections) {
     if (!isObj(e)) continue;
     const i = toNum(e.index);
+    if (i === null || !Number.isInteger(i) || i < 0 || i >= looks.length) continue;
+    own.add(i);
+    entries.push([i, e]);
+  }
+  for (const [i, e] of [...entries]) {
+    if (!Array.isArray(e.also)) continue;
+    for (const a of e.also.slice(0, 12)) {
+      const j = toNum(a);
+      if (j !== null && Number.isInteger(j) && j >= 0 && j < looks.length && !own.has(j) && j !== i) {
+        own.add(j);
+        entries.push([j, e]);
+      }
+    }
+  }
+  for (const [i, e] of entries) {
     const id = str(e.lookId, 60);
-    if (i === null || i < 0 || i >= looks.length || !Number.isInteger(i) || !known.has(id)) continue;
+    if (!known.has(id)) continue;
     looks[i] = id;
     why[i] = str(e.why, 120);
     const p = toNum(e.pops);
@@ -589,6 +613,12 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     }
   }
   if (!looks.some(Boolean)) return { ok: false, reason: 'Claude’s plan didn’t use any known looks.' };
+  // a section left without a reason borrows one from a section that sounds the same and shares its look
+  why.forEach((w, i) => {
+    if (w || !looks[i]) return;
+    const twin = req.sections.findIndex((s, j) => j !== i && why[j] && looks[j] === looks[i] && s.group === req.sections[i].group);
+    if (twin >= 0) why[i] = why[twin];
+  });
   return {
     ok: true,
     title: str(json.plan.title, 60) || 'Your video',

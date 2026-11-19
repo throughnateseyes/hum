@@ -14,7 +14,7 @@
  *
  * Env:
  *   ANTHROPIC_API_KEY   API backend; with no key and no local backend the handler answers 501
- *   HUM_MODEL           default 'claude-sonnet-5-5'
+ *   HUM_MODEL           default 'claude-sonnet-5-5'; HUM_PLAN_MODEL / HUM_SHADER_MODEL / HUM_EDIT_MODEL: see server/models.ts
  *   HUM_ACCESS_CODES    per-person codes ("sam=river-42, jo=blue-moon"); HUM_ACCESS_CODE = one shared code
  *   HUM_RATE_LIMIT, HUM_DAILY_BUDGET, HUM_CODE_DAILY_BUDGET, UPSTASH_REDIS_REST_*: see server/limits.ts
  *   HUM_EFFORT          optional effort override (low | medium | high | xhigh | max)
@@ -25,6 +25,8 @@ import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide.js';
 import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
 import { DIRECTION_RULE, FINISH_IDS, TRANSITION_SET_IDS } from '../src/core/direction.js';
 import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
+import { DEFAULT_MODEL, modelFor, tierOf, type Task, type Tier } from './models.js';
+import { compactLooks, cleanPlanEdit, describePlanForEdit, EDIT_PLAN_TOOL, LOOKS_HEADER, PLAN_EDIT_SYSTEM } from './planPrompt.js';
 
 export type DirectorEnv = Record<string, string | undefined>;
 
@@ -35,11 +37,13 @@ export interface DirectorResult {
 
 /** what a local backend gets: one system prompt, one user prompt, and the JSON schema to answer in */
 export interface LocalRequest {
-  mode: 'preset' | 'shader' | 'plan';
+  mode: 'preset' | 'shader' | 'plan' | 'planEdit';
   system: string;
   prompt: string;
   schema: Record<string, unknown>;
   effort: string;
+  /** main = the big model, small = the edit model (see server/models.ts) */
+  tier?: Tier;
 }
 export type LocalResult = { ok: true; output: unknown } | { ok: false; status: number; error: string; note: string };
 export type LocalBackend = (req: LocalRequest) => Promise<LocalResult>;
@@ -49,10 +53,12 @@ export interface DirectorOptions {
   local?: LocalBackend | null;
 }
 
-export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+export { DEFAULT_MODEL };
 export const MAX_PROMPT_CHARS = 600;
 export const MAX_CATALOG_BYTES = 20_000;
 const MAX_CURRENT_CHARS = 8_000;
+/** the look list in a plan request (every built-in look fits, with room for the person's own) */
+const MAX_LOOKS_BYTES = 24_000;
 const API_VERSION = '2026-10-21';
 
 const LAYER_IDS: LayerId[] = [
@@ -361,24 +367,6 @@ const LYRIC_PART_SCHEMA = {
   required: ['medium'],
 };
 
-/** lyrics never sit in the top of the frame, so a look's calm "top" zone isn't offered to the plan */
-const noTop = (fit: string) =>
-  fit.replace(/calm ([a-z/]+)/, (_, z: string) => {
-    const keep = z.split('/').filter((x) => x && x !== 'top');
-    return `calm ${keep.length ? keep.join('/') : 'bottom'}`;
-  });
-
-/** lyric fit per look: [{ id, fit }] → one line each */
-function describeLyricFit(raw: unknown, known: Set<string>): string {
-  if (!Array.isArray(raw)) return '';
-  const lines = raw
-    .slice(0, 80)
-    .filter(isObj)
-    .filter((x) => typeof x.id === 'string' && known.has(x.id) && typeof x.fit === 'string')
-    .map((x) => `${String(x.id).slice(0, 48)}: ${noTop(String(x.fit).replace(/\s+/g, ' ').slice(0, 90))}`);
-  return capBytes(lines.join('\n'), 6_000);
-}
-
 /** words per second per section: [n|null] → "#0 0.0, #1 2.4 …" */
 function describeWps(raw: unknown): string {
   if (!Array.isArray(raw)) return '';
@@ -388,6 +376,16 @@ function describeWps(raw: unknown): string {
     .filter(Boolean)
     .join(', ');
 }
+
+/* ───────────────────────── shorter answers (plan mode) ───────────────────────── */
+
+// a returning chorus can point at the entry it repeats instead of writing it out again
+const ALSO_RULE = `## Shorter answers
+- A section that takes exactly the same entry as an earlier one (a returning chorus, a second verse that should look like the first) goes in that entry's also list instead of getting an entry of its own. Give a section its own entry whenever anything about it differs (an escalated last chorus, a different rotation or pace).
+- Keep each why to at most 10 words.`;
+Object.assign(PLAN_TOOL.input_schema.properties.sections.items.properties, {
+  also: { type: 'array', items: { type: 'integer' }, maxItems: 12, description: 'Optional: other section indices that take exactly this same entry.' },
+});
 
 // the plan tool also carries the lyric plan (kept apart so the blocks above stay as they were)
 Object.assign(PLAN_TOOL.input_schema.properties.sections.items.properties, { lyric: LYRIC_PART_SCHEMA });
@@ -472,20 +470,6 @@ function describeSections(raw: unknown): string {
     .join('\n');
 }
 
-/** looks: [{ id, name, description, tags, category, style }] → one line each, the style family in brackets */
-function describeLooks(raw: unknown): string {
-  if (!Array.isArray(raw)) return '';
-  const lines = raw
-    .slice(0, 80)
-    .filter(isObj)
-    .map((x) => {
-      const s = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').slice(0, n) : '');
-      const tags = Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string').slice(0, 8).join(', ') : '';
-      return `${s(x.id, 48)} — ${s(x.name, 40)} [${s(x.style, 12) || s(x.category, 12)}] ${tags ? `(${tags}) ` : ''}${s(x.description, 140)}`;
-    });
-  return capBytes(lines.join('\n'), 14_000);
-}
-
 function describeCurrent(current: unknown): string {
   if (!isObj(current)) return '';
   const json = JSON.stringify(current);
@@ -568,12 +552,13 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     return { status: 200, json: { ok: true, via: useLocal ? 'subscription' : 'api' } };
   }
 
-  const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : body.mode === 'plan' ? 'plan' : null;
+  const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : body.mode === 'plan' ? 'plan' : body.mode === 'planEdit' ? 'planEdit' : null;
   const promptRaw = typeof body.prompt === 'string' ? body.prompt.trim() : '';
-  if (!mode) return { status: 400, json: { error: 'bad_request', note: 'mode must be "preset", "shader" or "plan".' } };
-  if (mode === 'plan' && (!Array.isArray(body.sections) || !body.sections.length || !Array.isArray(body.looks))) {
+  if (!mode) return { status: 400, json: { error: 'bad_request', note: 'mode must be "preset", "shader", "plan" or "planEdit".' } };
+  if ((mode === 'plan' || mode === 'planEdit') && (!Array.isArray(body.sections) || !body.sections.length || !Array.isArray(body.looks))) {
     return { status: 400, json: { error: 'bad_request', note: 'A plan needs the song’s sections and the looks to choose from.' } };
   }
+  if (mode === 'planEdit' && (!promptRaw || !isObj(body.plan))) return { status: 400, json: { error: 'bad_request', note: 'An edit needs the plan and what to change.' } };
   if (!promptRaw && !body.current && !body.track) return { status: 400, json: { error: 'bad_request', note: 'Empty prompt.' } };
 
   if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
@@ -588,9 +573,23 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   const track = describeTrack(body.track);
   const current = describeCurrent(body.current);
 
+  // small edits ("warmer", "make the chorus calmer") go to the small model, see server/models.ts
+  const task: Task = mode === 'preset' && body.edit === true && current ? 'presetEdit' : mode;
+  if (mode === 'planEdit') return planEdit(body, env, opts, useLocal, who, prompt, track);
+
   const system: Record<string, unknown>[] =
     mode === 'plan'
-      ? [{ type: 'text', text: `${PLAN_SYSTEM}\n\n${DIRECTION_RULE}` }]
+      ? // every rule block is always sent, in this order, so the whole prefix is the same text for every
+        // plan and every visitor and can be read back from the prompt cache at a twentieth of the price
+        [{ type: 'text', text: `${PLAN_SYSTEM}
+
+${ALSO_RULE}
+
+${TASTE_RULES}
+
+${LYRIC_RULES}
+
+${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
       : mode === 'preset'
       ? [
           { type: 'text', text: `${PERSONA}\n\n${PRESET_RULES}` },
@@ -608,20 +607,20 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     if (character) parts.push(character);
     parts.push(`Sections (index, time, label, group, energy 0..1, busy 0..1, DROP size and why when the section starts on a drop, words sung):\n${describeSections(body.sections)}`);
     if (typeof body.lyrics === 'string' && body.lyrics.trim()) parts.push(`Lyrics (not timed):\n${body.lyrics.slice(0, 1500)}`);
-    parts.push(`Looks (id — name [kind] (tags) description):\n${describeLooks(body.looks)}`);
-    // taste memory: its own block, after the looks it refers to
-    const known = new Set(Array.isArray(body.looks) ? body.looks.filter(isObj).map((l) => String(l.id)) : []);
-    const taste = describeTaste(body.taste, known);
-    if (taste) {
-      system.push({ type: 'text', text: TASTE_RULES });
-      parts.push(`Taste (from this person's Keep / Skip reactions; follow it, but vary):\n${taste}`);
-    }
-    // lyric video: its own block, only when the song has words
-    const fit = describeLyricFit(body.lyricFit, known);
+    // the looks to choose from, one short line each with its lyric fit folded in (all of them: the old
+    // 14 kB list cut the last ~30 off). The app sends a shortlist that fits the song unless the wish
+    // asks for something specific, see src/director/shortlist.ts
     const wps = describeWps(body.wps);
-    if (fit && (wps || (typeof body.lyrics === 'string' && body.lyrics.trim()))) {
-      system.push({ type: 'text', text: LYRIC_RULES });
-      parts.push(`Lyric fit per look (what overlay text suits it, calm zones, whether it carries the words itself):\n${fit}`);
+    const hasWords = !!wps || (typeof body.lyrics === 'string' && !!body.lyrics.trim());
+    const cat = compactLooks(body.looks, hasWords ? body.lyricFit : null);
+    const known = cat.known;
+    parts.push(`${LOOKS_HEADER}\n${capBytes([cat.builtin, cat.custom].filter(Boolean).join('\n'), MAX_LOOKS_BYTES)}`);
+    // taste memory, after the looks it refers to
+    const taste = describeTaste(body.taste, known);
+    if (taste) parts.push(`Taste (from this person's Keep / Skip reactions; follow it, but vary):\n${taste}`);
+    // lyric video, only when the song has words
+    if (!hasWords) parts.push('This song has no lyrics to show: leave lyric and lyricType out.');
+    if (hasWords) {
       if (wps) parts.push(`Words sung per second, per section: ${wps}`);
       // a seeded suggestion per render, so two videos of one song don't read the same
       const take = typeof body.lyricTake === 'string' && (LYRIC_TYPES as readonly string[]).includes(body.lyricTake) ? body.lyricTake : '';
@@ -629,7 +628,7 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     }
   } else if (current) parts.push(`Current preset (edit from this when the request asks for a change):\n${current}`);
   const tool = mode === 'plan' ? PLAN_TOOL : mode === 'preset' ? MAKE_PRESET_TOOL : WRITE_SHADER_TOOL;
-  const model = env.HUM_MODEL?.trim() || DEFAULT_MODEL;
+  const model = modelFor(env, task);
   const effort = env.HUM_EFFORT?.trim() || (mode === 'shader' ? 'medium' : 'low');
 
   if (useLocal && opts.local) {
@@ -640,15 +639,33 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
       prompt: parts.join('\n\n'),
       schema: tool.input_schema as Record<string, unknown>,
       effort,
+      tier: tierOf(task),
     });
     if (!r.ok) return { status: r.status, json: { error: r.error, note: r.note } };
     return finishOutput(mode, r.output, 'subscription');
   }
 
   parts.push(`Call the ${tool.name} tool with your answer.`);
-  const messages: Record<string, unknown>[] = [{ role: 'user', content: parts.join('\n\n') }];
+  const r = await callWithTool(env, who, task, model, effort, system, tool, parts.join('\n\n'), mode === 'shader' ? 16_000 : mode === 'plan' ? 6_000 : 8_000);
+  if ('status' in r) return r;
+  return finishOutput(mode, r.input, 'api');
+}
+
+/** one structured Claude call (with one nudge if the tool call is missing); counts what it cost */
+async function callWithTool(
+  env: DirectorEnv,
+  who: string,
+  label: string,
+  model: string,
+  effort: string,
+  system: Record<string, unknown>[],
+  tool: { name: string; input_schema: unknown },
+  prompt: string,
+  maxTokens: number,
+): Promise<DirectorResult | { input: unknown }> {
+  const messages: Record<string, unknown>[] = [{ role: 'user', content: prompt }];
   const payload: Record<string, unknown> = {
-    max_tokens: mode === 'shader' ? 16_000 : mode === 'plan' ? 6_000 : 8_000,
+    max_tokens: maxTokens,
     system,
     tools: [tool],
     // Current models (Sonnet 5.5, Opus 5.5, Fable 5.x) reject forced tool_choice, so offer exactly
@@ -665,7 +682,9 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
       const spent = costOf(data.model || model, data.usage);
       if (spent > 0) {
         const today = await recordSpend(env, who, spent).catch(() => 0);
-        console.info(`[hum-director] ${mode} for ${who}: $${spent.toFixed(4)} (today $${today.toFixed(2)})`);
+        const u = data.usage;
+        const tokens = u ? ` · ${u.input_tokens ?? 0} in, ${u.cache_read_input_tokens ?? 0} from cache, ${u.cache_creation_input_tokens ?? 0} into cache, ${u.output_tokens ?? 0} out` : '';
+        console.info(`[hum-director] ${label} on ${data.model || model} for ${who}: $${spent.toFixed(4)} (today $${today.toFixed(2)})${tokens}`);
       }
       if (status < 200 || status >= 300) return upstreamError(status, data);
       if (data.stop_reason === 'refusal') {
@@ -685,8 +704,50 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
     const timeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
     return { status: 504, json: { error: timeout ? 'timeout' : 'network', note: timeout ? 'Claude took too long to answer.' : 'Couldn’t reach the Claude API.' } };
   }
+  return { input: toolInput };
+}
 
-  return finishOutput(mode, toolInput, 'api');
+/* ───────────────────────── editing a plan (small model) ───────────────────────── */
+
+async function planEdit(body: Record<string, unknown>, env: DirectorEnv, opts: DirectorOptions, useLocal: boolean, who: string, prompt: string, track: string): Promise<DirectorResult> {
+  // the looks as ids, family and a few tags: enough to pick a calmer or brighter one, at a few tokens each
+  const known = new Set<string>();
+  const looks: string[] = [];
+  for (const x of (body.looks as unknown[]).slice(0, 120)) {
+    if (!isObj(x) || typeof x.id !== 'string' || known.has(x.id)) continue;
+    const id = x.id.slice(0, 48);
+    known.add(id);
+    const tags = Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string').slice(0, 4).join(',') : '';
+    looks.push(`${id} [${typeof x.style === 'string' ? x.style.slice(0, 12) : ''}] ${tags}`);
+  }
+  const system = [{ type: 'text', text: `${PLAN_EDIT_SYSTEM}\n\n## Looks (id [family] tags)\n${capBytes(looks.join('\n'), 9_000)}`, cache_control: { type: 'ephemeral' } }];
+  const planText = describePlanForEdit(body.sections, body.plan, known);
+  const firstLine = track.split('\n')[0]?.slice(0, 300) ?? '';
+  const userText = [`Request: ${prompt}`, firstLine ? `Song: ${firstLine}` : '', `The plan now (one line per section):\n${planText}`].filter(Boolean).join('\n\n');
+  const model = modelFor(env, 'planEdit');
+  const effort = env.HUM_EFFORT?.trim() || 'low';
+  const sections = (body.sections as unknown[]).length;
+  if (useLocal && opts.local) {
+    const r = await opts.local({
+      mode: 'planEdit',
+      system: system[0].text.replace('Call the edit_plan tool exactly once', 'Return the structured output once'),
+      prompt: `${userText}\n\nAnswer with the structured output: ${EDIT_PLAN_TOOL.description}`,
+      schema: EDIT_PLAN_TOOL.input_schema as Record<string, unknown>,
+      effort,
+      tier: 'small',
+    });
+    if (!r.ok) return { status: r.status, json: { error: r.error, note: r.note } };
+    return finishPlanEdit(r.output, known, sections, 'subscription');
+  }
+  const r = await callWithTool(env, who, 'planEdit', model, effort, system, EDIT_PLAN_TOOL, `${userText}\n\nCall the edit_plan tool with your answer.`, 2_500);
+  if ('status' in r) return r;
+  return finishPlanEdit(r.input, known, sections, 'api');
+}
+
+function finishPlanEdit(raw: unknown, known: Set<string>, sections: number, via: 'api' | 'subscription'): DirectorResult {
+  const edit = cleanPlanEdit(raw, known, sections);
+  if (!edit) return { status: 502, json: { error: 'no_tool_call', note: 'Claude didn’t return a structured answer.' } };
+  return { status: 200, json: { edit: { changes: edit.changes }, note: edit.note || 'Changed the plan.', source: 'claude', via } };
 }
 
 function finishOutput(mode: 'preset' | 'shader' | 'plan', toolInput: unknown, via: 'api' | 'subscription'): DirectorResult {

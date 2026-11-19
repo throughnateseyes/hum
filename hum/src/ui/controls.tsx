@@ -27,16 +27,19 @@ export function Slider({
 
   useEffect(() => {
     if (!liveValue) return;
+    // only touch the page when the marker actually moves (most sliders aren't modulated)
+    let shown = '';
+    let left = '';
     return onFrame(() => {
       const el = liveRef.current;
       if (!el) return;
       const v = liveValue();
-      if (v === undefined || Math.abs(v - value) < (max - min) * 0.004) {
-        el.style.opacity = '0';
-        return;
-      }
-      el.style.opacity = '1';
-      el.style.left = `${frac(v) * 100}%`;
+      const hide = v === undefined || Math.abs(v - value) < (max - min) * 0.004;
+      const op = hide ? '0' : '1';
+      if (op !== shown) el.style.opacity = shown = op;
+      if (hide) return;
+      const l = `${Math.round(frac(v) * 1000) / 10}%`;
+      if (l !== left) el.style.left = left = l;
     });
   });
 

@@ -18,6 +18,7 @@ import { downmix, OfflineAudioFrames } from '../audio/offlineFrames';
 import { pickClip, type ClipWindow } from '../audio/clipWindow';
 import { live } from '../state/live';
 import { planSequencerState, restorePlanSequencer } from '../state/plan';
+import { quality } from './quality';
 import { autopilotTick } from '../state/autopilot';
 import { useStudio, type StudioState } from '../state/store';
 import { songBuffer } from '../state/tracks';
@@ -317,6 +318,8 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
   const onScreen = live.stage;
   onScreen?.stop();
   onScreen?.setPeek(null, null);
+  // the quality governor sits still while frames are made (the busy GPU isn't the live stage lagging)
+  quality.freeze(true);
   audioEngine.pause();
   const saved: string[] = [];
   let failure: string | null = null;
@@ -357,6 +360,7 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
     useStudio.setState(before.look);
     restorePlanSequencer(before.seq);
     useStudio.getState().set({ clip: null });
+    quality.freeze(false);
     onScreen?.start();
     if (useStudio.getState().track === track) {
       audioEngine.seek(before.time);
