@@ -877,60 +877,9 @@ div:hover > .card-del {
   display: grid;
   place-items: center;
   pointer-events: none;
+  padding: var(--s-2);
+  container-type: size;
 }
-.empty-card {
-  pointer-events: auto;
-  width: min(420px, 86%);
-  padding: 20px;
-  border-radius: var(--r-lg);
-  background: rgba(251, 251, 249, 0.9);
-  backdrop-filter: blur(18px) saturate(1.2);
-  box-shadow: var(--shadow-lg);
-  text-align: center;
-}
-.empty-card h2 {
-  margin: 0 0 4px;
-  font-size: var(--fs-5);
-  font-weight: 600;
-}
-.empty-card p {
-  margin: 0 0 14px;
-  color: var(--ink-2);
-}
-.empty-card .row {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.empty-card p.empty-hint {
-  margin: var(--s-3) 0 0;
-  font-size: var(--fs-2);
-  color: var(--ink-3);
-}
-.demo-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 8px 11px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: #fff;
-  text-align: left;
-  min-width: 164px;
-}
-.demo-btn:hover {
-  border-color: var(--ink-3);
-}
-.demo-btn b {
-  font-weight: 500;
-}
-.demo-btn span {
-  font-size: var(--fs-2);
-  color: var(--ink-3);
-}
-
 .dropzone-over::after {
   content: 'Drop audio or photos';
   position: absolute;
@@ -3185,4 +3134,359 @@ html.perform-idle * {
   font-size: var(--fs-2);
   color: var(--ink-3);
   line-height: 1.45;
+}
+
+/* ───────── the start screen: the Hum mark rippling through a glyph field, one big Choose audio ───────── */
+.welcome {
+  --pulse: 0;
+  position: relative;
+  pointer-events: auto;
+  width: min(480px, 100%);
+  max-height: 100%;
+  padding: 22px 22px 16px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  isolation: isolate;
+  animation: wl-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes wl-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+.wl-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -2;
+}
+/* paper tooth, like the hand-drawn looks */
+.wl-grain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .1  0 0 0 0 .1  0 0 0 0 .09  0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.wl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: 18px;
+}
+.wl-word {
+  margin: 0;
+  font-size: 46px;
+  line-height: 0.9;
+  font-weight: 680;
+  letter-spacing: -0.045em;
+  color: var(--ink);
+}
+.wl-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 7px;
+  margin: 10px 0 0;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.wl-tags b {
+  position: relative;
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: color 0.12s;
+}
+/* the word on the beat lights up with a tick under it */
+.wl-tags b::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.18s;
+}
+.welcome[data-tag='0'] .wl-tags b[data-i='0'],
+.welcome[data-tag='1'] .wl-tags b[data-i='1'],
+.welcome[data-tag='2'] .wl-tags b[data-i='2'],
+.welcome[data-tag='3'] .wl-tags b[data-i='3'] {
+  color: var(--accent);
+}
+.welcome[data-tag='0'] .wl-tags b[data-i='0']::after,
+.welcome[data-tag='1'] .wl-tags b[data-i='1']::after,
+.welcome[data-tag='2'] .wl-tags b[data-i='2']::after,
+.welcome[data-tag='3'] .wl-tags b[data-i='3']::after {
+  transform: scaleX(1);
+}
+.wl-mark {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  margin: -4px 2px 0 0;
+  display: grid;
+  place-items: center;
+  animation: ld-float 3.2s ease-in-out infinite;
+}
+.wl-ball {
+  width: 46px;
+  height: 46px;
+}
+.wl-rings {
+  position: absolute;
+  inset: 0;
+}
+.wl-rings i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(47, 75, 255, 0.45);
+  animation: ld-ripple 1.3s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.wl-choose {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 60px;
+  padding: 0 18px 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 calc(8px + var(--pulse) * 4px) calc(20px + var(--pulse) * 10px) -10px rgba(47, 75, 255, 0.75);
+  transition:
+    transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 0.15s;
+}
+.wl-choose:hover {
+  background: #2440f5;
+  transform: translateY(-1px);
+}
+.wl-choose:active {
+  transform: translateY(1px) scale(0.995);
+}
+.wl-choose:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.wl-label {
+  flex: 1;
+  display: grid;
+}
+.wl-label > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.15s,
+    transform 0.2s;
+}
+.wl-label b {
+  font-size: 17px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+.wl-drag {
+  font-size: 17px;
+  font-weight: 620;
+  opacity: 0;
+  transform: translateY(6px);
+}
+.dropzone-over .wl-label b {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.dropzone-over .wl-drag {
+  opacity: 1;
+  transform: none;
+}
+.wl-up {
+  opacity: 0.85;
+  transition: transform 0.2s;
+}
+.wl-choose:hover .wl-up {
+  transform: translateY(-2px);
+}
+/* a little equaliser that bounces on the island's beat */
+.wl-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+  width: 39px;
+  flex: none;
+}
+.wl-eq i {
+  flex: 1;
+  height: 100%;
+  border-radius: 1.5px;
+  background: rgba(255, 255, 255, 0.92);
+  transform-origin: bottom;
+  animation: wl-bar 1.07s ease-in-out infinite;
+}
+.wl-eq i:nth-child(2n) {
+  animation-duration: 0.8s;
+}
+.wl-eq i:nth-child(3n) {
+  animation-duration: 1.34s;
+}
+.wl-choose:hover .wl-eq i,
+.dropzone-over .wl-eq i {
+  animation-duration: 0.45s;
+}
+@keyframes wl-bar {
+  0%,
+  100% {
+    transform: scaleY(0.22);
+  }
+  40% {
+    transform: scaleY(1);
+  }
+  70% {
+    transform: scaleY(0.5);
+  }
+}
+.wl-hint {
+  margin: 9px 2px 0;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+}
+.wl-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-2);
+}
+.wl-more-h {
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  margin-right: 2px;
+}
+.wl-gap {
+  flex: 1;
+}
+.wl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: var(--fs-3);
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    background 0.12s;
+}
+.wl-chip:hover {
+  border-color: var(--ink-3);
+}
+.wl-chip.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+}
+.wl-chip.ghost:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+/* a roomy stage: a bigger island */
+@container (min-height: 460px) and (min-width: 640px) {
+  .welcome {
+    width: 540px;
+    padding: 28px 28px 20px;
+  }
+  .wl-word {
+    font-size: 58px;
+  }
+  .wl-head {
+    margin-bottom: 24px;
+  }
+  .wl-mark {
+    width: 80px;
+    height: 80px;
+  }
+  .wl-ball,
+  .wl-rings i {
+    width: 58px;
+    height: 58px;
+    margin: -29px 0 0 -29px;
+  }
+  .wl-ball {
+    margin: 0;
+  }
+  .wl-choose {
+    height: 66px;
+  }
+}
+/* a short stage (a phone, a small window): tighter, the beat words go */
+@container (max-height: 300px) {
+  .welcome {
+    padding: 14px 16px 12px;
+  }
+  .wl-head {
+    margin-bottom: 12px;
+  }
+  .wl-word {
+    font-size: 36px;
+  }
+  .wl-tags {
+    margin-top: 6px;
+  }
+  .wl-choose {
+    height: 50px;
+  }
+  .wl-more {
+    margin-top: 10px;
+    padding-top: 8px;
+  }
+}
+@container (max-height: 236px) {
+  .wl-tags,
+  .wl-hint {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome,
+  .wl-mark,
+  .wl-eq i {
+    animation: none;
+  }
+}
+/* over the start screen the island says it ("Let go to play it"), so the page outline stays wordless */
+.dropzone-over:has(.welcome)::after {
+  content: '';
 }

@@ -1,12 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { DEMO_TRACKS } from '../audio/demoTracks';
 import { Stage } from '../render/stage';
 import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
-import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from '../state/tracks';
-import { BrowserTab, Mic, Upload } from './Icons';
 import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
+import { WelcomeLayer } from './Welcome';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -17,10 +15,8 @@ export function StageView() {
   const aspect = useStudio((s) => s.aspect);
   const perform = useStudio((s) => s.perform);
   const quality = useStudio((s) => s.quality);
-  const track = useStudio((s) => s.track);
   const recording = useStudio((s) => s.recording);
   const [size, setSize] = useState({ w: 800, h: 450 });
-  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stage = new Stage(canvas.current!);
@@ -72,47 +68,7 @@ export function StageView() {
             </span>
           )}
         </div>
-        {!track && (
-          <div className="empty">
-            <div className="empty-card">
-              <h2>Drop a song to begin</h2>
-              <p>Hum listens for the sub, the kick, the air and the drop, then paints with them.</p>
-              <div className="row" style={{ marginBottom: 10 }}>
-                {DEMO_TRACKS.map((d) => (
-                  <button key={d.id} className="demo-btn" onClick={() => void loadDemo(d.id)}>
-                    <b>{d.name}</b>
-                    <span>{d.description}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="row">
-                <button className="btn" onClick={() => fileInput.current?.click()}>
-                  <Upload width={14} height={14} /> Choose audio
-                </button>
-                <button className="btn" onClick={() => void useMic()}>
-                  <Mic width={14} height={14} /> Use microphone
-                </button>
-                {canListenToTab() && (
-                  <button className="btn" onClick={() => void useTab()}>
-                    <BrowserTab width={14} height={14} /> Listen to a tab
-                  </button>
-                )}
-              </div>
-              {canListenToTab() && <p className="empty-hint">Play the song on YouTube in another tab, pick that tab, keep Share tab audio on.</p>}
-              <input
-                ref={fileInput}
-                type="file"
-                accept="audio/*,image/*"
-                multiple
-                hidden
-                onChange={(e) => {
-                  if (e.target.files) void handleFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-            </div>
-          </div>
-        )}
+        <WelcomeLayer />
       </div>
     </div>
   );
