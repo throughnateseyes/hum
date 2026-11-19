@@ -98,6 +98,21 @@ interface Running extends ResolvedTransition {
   center: [number, number];
 }
 
+/**
+ * One frame of a render (render/timeline.ts): the render's own clock and the song's sound at that
+ * moment stand in for the wall clock and the live engine, so the same frame comes out every time.
+ */
+export interface OfflineTick {
+  /** the render clock (ms); the scenes' time is (now − the clock's origin) / 1000 */
+  now: number;
+  /** seconds since the last frame */
+  dt: number;
+  /** what the song sounds like at this frame */
+  audio: AudioFrame;
+  /** called before each layer draws (scene, windows, pop-ups, lyrics), so a render can keep each layer's dice its own */
+  phase?: (layer: 'scene' | 'windows' | 'popups' | 'lyrics') => void;
+}
+
 const BREATHES = new Set<TransitionId>(TRANSITIONS.filter((t) => t.breathes).map((t) => t.id));
 const tmpColor = new THREE.Color();
 
@@ -127,6 +142,8 @@ export class Stage {
   private raf = 0;
   private last = performance.now();
   private t0 = performance.now();
+  /** the clock of the frame being drawn (ms): the wall clock live, the render's clock in a render */
+  private clockNow = performance.now();
   private frameNo = 0;
   private palette: ResolvedPalette;
   private placeholder: PhotoAsset | null = null;
@@ -433,7 +450,7 @@ export class Stage {
     this.warm?.inst.dispose();
     this.warm = null;
     try {
-      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared }), born: performance.now(), params: {} };
+      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared }), born: this.clockNow, params: {} };
       this.warmFresh = true;
     } catch (e) {
       console.warn('[hum] prewarm failed', e);
@@ -532,14 +549,31 @@ export class Stage {
     this.fxOutParams.clear();
   }
 
-  private tick() {
-    const now = performance.now();
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+  /** Start the render clock at `originMs` (scene time 0), for a stage that a render drives. */
+  resetClock(originMs: number) {
+    this.t0 = this.last = this.clockNow = originMs;
+    this.frameNo = 0;
+  }
+
+  /** Draw one frame of a render at the render's time with the song's sound then (no wall clock, no live engine). */
+  renderFrame(o: OfflineTick) {
+    this.tick(o);
+  }
+
+  /** Let the song's Feel (tension, afterglow, wind) catch up through a stretch that isn't drawn: a render's run-up. */
+  primeFeel(audio: AudioFrame, dt: number) {
+    this.feel.update(audio, useStudio.getState().analysis, dt);
+  }
+
+  private tick(o?: OfflineTick) {
+    const now = o ? o.now : performance.now();
+    const dt = o ? o.dt : Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    this.clockNow = now;
     this.fps = this.fps * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
     this.frameNo++;
-    audioEngine.sensitivity = useStudio.getState().sensitivity;
-    const raw = audioEngine.update(dt);
+    if (!o) audioEngine.sensitivity = useStudio.getState().sensitivity;
+    const raw = o ? o.audio : audioEngine.update(dt);
     autopilotTick(raw);
     planTick(raw);
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
@@ -615,6 +649,7 @@ export class Stage {
       drawScene(this.warm, this.prevRT, defaults);
     }
 
+    o?.phase?.('scene');
     const curParams = resolveParams(this.current.def.params, s.sceneParams, s.modulations, 'scene', audio.layers, this.current.params);
     liveState.scene = curParams;
     liveState.fx = this.fxParams;
@@ -659,8 +694,11 @@ export class Stage {
       }
       // the lyric legibility guard looks at the picture before pop-ups and lyrics go over it
       if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
+      o?.phase?.('windows');
       this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT });
+      o?.phase?.('popups');
       this.popups.render(r, base, this.impactRT, pops.instruments);
+      o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
@@ -677,8 +715,11 @@ export class Stage {
         this.shared.blit(finalTex, null);
         if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
+      o?.phase?.('windows');
       this.sceneWindows.render(r, base, winOpts);
+      o?.phase?.('popups');
       this.popups.render(r, base, null, pops.instruments);
+      o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
@@ -744,7 +785,7 @@ export class Stage {
   get transition(): { id: TransitionId; p: number; ms: number } | null {
     const tr = this.tr;
     if (!tr) return null;
-    const lin = Math.min(1, (performance.now() - tr.start) / tr.ms);
+    const lin = Math.min(1, (this.clockNow - tr.start) / tr.ms);
     return { id: tr.id, p: lin + tr.boost * (1 - lin), ms: tr.ms };
   }
 

@@ -531,6 +531,18 @@ export function planTick(f: AudioFrame) {
   s.applyPreset(songTinted(look));
 }
 
+/**
+ * The sequencer's own memory (a look held after a hand pick, the colours last put on screen), so a
+ * render can start it fresh and put it back afterwards.
+ */
+export function planSequencerState(): { hold: typeof hold; lastTint: string } {
+  return { hold, lastTint };
+}
+export function restorePlanSequencer(st: { hold: typeof hold; lastTint: string }) {
+  hold = st.hold;
+  lastTint = st.lastTint;
+}
+
 /** how long a board interlude plays at the top of a section: 4 bars, at most ~45% of the section */
 export function interludeLength(sec: TrackSection, bpm: number): number {
   const bars4 = (16 * 60) / Math.max(40, bpm || 120);
