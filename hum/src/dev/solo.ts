@@ -9,6 +9,12 @@
  *     &look=<json>                           { palette: id | {bg,fg,accent,accent2,muted}, sceneParams, effects, modulations }
  *     &w=1280&h=720
  *     &windows=1                             scene windows on (other looks playing in windows over this one)
+ *     &lyrics=auto | subtitle | big | cutout | <json>   draw lyric type over the look (test lyrics sung in every
+ *                                            part, see testLyricsSung). The json fixes the Auto plan so shots compare:
+ *                                            { style: 'auto', family: 'serif', motion: 'tender',
+ *                                              parts: ['sparse', 'subtitle', 'sparse', 'big+giant', 'sparse', 'subtitle'] }
+ *                                            (one per section: intro, verse, build, drop, break, outro; "+giant" / "+burst"
+ *                                            adds a moment). The look json may carry the same as `lyrics`.
  *     &finish=film                           a finish over the picture (clean, film, riso, ink, tape, hand);
  *                                            several (finish=clean,film,riso) put each one side by side for
  *                                            every time on the sheet. Also `finish` in the look JSON.
@@ -40,12 +46,24 @@ import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { popLevelAt } from '../state/plan';
 import { HAND_DEFAULT, useStudio } from '../state/store';
-import { TEST_SONG, sectionAt, testAnalysis, testFrame, testLyrics } from './testSong';
+import { LyricLayer } from '../render/lyricLayer';
+import type { Treatment } from '../render/lyricAuto';
+import { setLyricPlanOverride, type LyricMedium, type LyricMoment, type TypeFamily } from '../state/lyricPlan';
+import type { LyricStyle } from '../state/store';
+import { TEST_SONG, sectionAt, testAnalysis, testFrame, testLyrics, testLyricsSung } from './testSong';
 
 THREE.ColorManagement.enabled = false;
 
+interface LyricSpec {
+  style?: LyricStyle;
+  family?: TypeFamily;
+  motion?: Treatment;
+  parts?: string[];
+  seed?: number;
+}
 interface LookSpec {
   finish?: string | string[];
+  lyrics?: string | LyricSpec;
   palette?: string | Palette;
   sceneParams?: ParamValues;
   effects?: Preset['effects'];
@@ -107,6 +125,14 @@ function buildLook(def: SceneDef): LookState {
   });
 }
 
+/** the lyrics option: from the url, else from the look json */
+function lyricSpec(): LyricSpec | null {
+  const raw = q.get('lyrics') ?? (q.get('look') ? ((JSON.parse(q.get('look')!) as LookSpec).lyrics ?? null) : null);
+  if (!raw) return null;
+  if (typeof raw !== 'string') return raw;
+  return raw.trim().startsWith('{') ? (JSON.parse(raw) as LyricSpec) : { style: raw as LyricStyle };
+}
+
 async function boot() {
   const canvas = document.getElementById('solo') as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, preserveDrawingBuffer: true });
@@ -148,11 +174,30 @@ async function boot() {
   const withWindows = q.get('windows') === '1';
   if (withWindows) useStudio.setState({ popups: 'always', windowKind: 'looks' });
   useStudio.setState({ track: { name: `${TEST_SONG.artist} - ${TEST_SONG.title}`, source: 'file' }, lyrics: testLyrics(), analysis: testAnalysis() });
-  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable'].map((f) => document.fonts.load(`16px "${f}"`).catch(() => null)));
+  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable', 'Instrument Serif', 'italic 16px "Instrument Serif', 'Fraunces Variable', 'italic 16px "Fraunces Variable', 'Inter Tight Variable', 'Archivo Variable'].map((f) => document.fonts.load(f.startsWith('italic') ? `${f}"` : `16px "${f}"`).catch(() => null)));
 
   const def = await loadScene();
   const look = buildLook(def);
   const palette = resolvePalette(look.palette);
+  const lyr = lyricSpec();
+  const lyricLayer = lyr ? new LyricLayer() : null;
+  if (lyr && lyricLayer) {
+    lyricLayer.probe.readAsync = false;
+    const lyrics = testLyricsSung();
+    useStudio.setState({ lyrics, lyricStyle: lyr.style ?? 'auto', presetId: q.get('preset'), sceneId: def.id });
+    if (lyr.parts) {
+      setLyricPlanOverride({
+        seed: lyr.seed ?? 7,
+        family: lyr.family ?? 'grotesk',
+        motion: lyr.motion ?? 'punchy',
+        source: 'local',
+        parts: testAnalysis().sections.map((_, i) => {
+          const [medium, moment] = (lyr.parts![i] ?? 'subtitle').split('+');
+          return { medium: medium as LyricMedium, moment: (moment as LyricMoment) || null, why: 'fixed by the solo harness' };
+        }),
+      });
+    }
+  }
   const sceneRT = makeRenderTarget(W, H, { depthBuffer: true, samples: 4 });
   const fx = new FxChain(shared);
   fx.setSize(W, H);
@@ -246,6 +291,11 @@ async function boot() {
       void _p;
       const level = windowLevels(popLevelAt(audio.time), 'looks', def.category === 'board').looks;
       windows.render(renderer, base, { level, mainPresetId: q.get('preset'), mainSceneId: def.id, target: null });
+    }
+    if (lyricLayer) {
+      const s = useStudio.getState();
+      lyricLayer.sample(renderer, tex, shared.blit);
+      lyricLayer.render(renderer, { lines: s.lyrics!.lines, t, style: s.lyricStyle, palette, width: W, height: H, audio, dt });
     }
   };
 

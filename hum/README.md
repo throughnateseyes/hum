@@ -72,9 +72,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   chip by artist and song, or paste a lrclib.net link.
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
   what was found. It also switches between **Auto** (the default, a lyric video: see *Auto lyrics*
-  below), **Subtitles**, **Big words** (one line at a time, word by
-  word), **Cutouts** (the same big line as a ransom note: each word or letter cut from a different
-  clipping, slapped down as it's sung) and **Off**. On looks that already type the words out (Diary,
+  below), **Subtitles** (a quiet caption), **Big words** (one display line at a time, each word
+  revealed as it's sung), **Cutouts** (the line as a paper collage: one printed scrap per word, laid
+  down as it's sung) and **Off**. On looks that already type the words out (Diary,
   Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
   get no lyrics, but you can **paste them** in the chip. Hum then times each line by listening for
@@ -83,19 +83,38 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
 - **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
-  subtitles for verses and wordy parts, big words or cutouts for choruses and drops, a word or two in
-  a calm corner for builds and intros, and the look's own lyric components where it has them (the
-  Diary typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments
-  land too: one giant word on the biggest drop, a burst of cutouts on one chorus. The choice comes from
-  each part's label, energy, words per second and the look planned there; the whole song keeps one
-  type family (serif, grotesk, condensed, mono, rounded or typewriter, picked to fit its mood) and one
-  motion (soft fades, blur-ins, slams or shaking type). **Make a video** plans the lyrics together with
+  captions for verses and wordy parts, display lines for choruses and drops, an aside in a margin for
+  builds, intros and breaks, and the look's own lyric components where it has them (the Diary
+  typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments land
+  too: one giant word on the biggest drop (the key word huge on a third, the rest of the line as a
+  small kicker above it), and on loud songs, rarely, one drop line laid down as a paper collage.
+  The choice comes from each part's label, energy, words per second and the look planned there.
+- **Lyric type** is set like a motion designer would set it (`src/render/lyricAuto.ts`): one line at
+  a time, sentence case (lines that arrive in capitals are set back to sentence case), no trailing
+  commas, rows balanced so there's no lone word, hung from a margin or a third of the picture rather
+  than centred in a box. The whole song keeps one type family, picked to fit its mood:
+  *serif* (Instrument Serif for display lines, the key word in its true italic, and the giant word;
+  Fraunces for captions and heavier serif lines), *grotesk* (Inter Tight, set tight), *condensed*
+  (Archivo narrowed on its width axis, in capitals; Oswald is no longer used) or *mono* (JetBrains
+  Mono typed out letter by letter with a caret, IBM Plex Mono captions). The motion comes from the
+  voice: words rise out of a mask at their baseline as they're sung (slowly for tender songs, quickly
+  for loud ones), tracking opens on held notes (and on Archivo the width steps out too), the weight
+  settles as a word lands on loud songs, and lines leave with a quick soft fade. Nothing bounces,
+  wobbles or shakes. Captions keep the whole line up quietly and brighten each word with a wipe.
+  Everything stays in the middle and lower third, and 9:16 frames keep clear of the bottom band where
+  Reels and TikTok put their own captions.
+- **Words in the world.** Some looks host the line themselves (`src/render/lyricHosts.ts`): in
+  **Night Windows** it's a neon sign over the city whose tubes sit dark until each word is sung, then
+  flicker on and buzz with the kick; on **Still Water** the words float on the pool like the leaves,
+  each landing as it's sung, casting a shadow on the pebbles and wobbling with the rings. More looks
+  can join by adding a host (the file's header has the pattern and a few ideas).
+- **Make a video** plans the lyrics together with
   the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
   so two videos of the same song read differently. The chip shows what Auto chose for the part that's
   playing and why. Every style is **guarded for legibility**: every other frame Hum shrinks the
   picture under the text to 96×54 and checks it, then picks the calmest place for the line, an ink
   that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
-  soft plate, a band, or a torn paper strip on paper looks), easing between them so nothing flickers
+  feathered scrim, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
   when a cut changes the picture. The per-look lyric profiles and the audit behind them are in
   [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
@@ -321,6 +340,11 @@ start-up delay, measured once per session, so sound and picture line up to the s
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
   `/solo.html?finish=clean,film,riso,ink,tape,hand` (or `"finish"` in the `--look` JSON) shows each
   finish side by side for every moment and reports what each finish pass costs.
+  Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
+  `--look` json, to draw lyric type over the look: test lyrics are sung in every part (with held
+  notes), and `{ "lyrics": { "style": "auto", "family": "serif", "motion": "tender", "parts":
+  ["sparse", "subtitle", "sparse", "big+giant", "sparse", "subtitle"] } }` fixes the plan per part so
+  sheets compare shot for shot.
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
 - **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
 
