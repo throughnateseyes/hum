@@ -73,7 +73,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
   what was found. It also switches between **Auto** (the default, a lyric video: see *Auto lyrics*
   below), **Subtitles** (a quiet caption), **Big words** (one display line at a time, each word
-  revealed as it's sung), **Cutouts** (the line as a paper collage: one printed scrap per word, laid
+  revealed as it's sung), **Collage** (the line as a paper collage: one printed scrap per word, laid
   down as it's sung) and **Off**. On looks that already type the words out (Diary,
   Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
@@ -106,8 +106,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Words in the world.** Some looks host the line themselves (`src/render/lyricHosts.ts`): in
   **Night Windows** it's a neon sign over the city whose tubes sit dark until each word is sung, then
   flicker on and buzz with the kick; on **Still Water** the words float on the pool like the leaves,
-  each landing as it's sung, casting a shadow on the pebbles and wobbling with the rings. More looks
-  can join by adding a host (the file's header has the pattern and a few ideas).
+  each landing as it's sung, casting a shadow on the pebbles and wobbling with the rings. Hosted
+  lines get no scrim; they still read the picture under them and keep themselves legible in the
+  world's own terms (the wall behind the sign darkens and each tube sits in a dark halo over a bright
+  city; floating words sit in a soft dark of the water over bright caustics). More looks can join by
+  adding a host (the file's header has the pattern and a few ideas).
 - **Make a video** plans the lyrics together with
   the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
   so two videos of the same song read differently. The chip shows what Auto chose for the part that's

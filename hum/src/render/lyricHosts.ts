@@ -1,6 +1,6 @@
 import type { AudioFrame, Palette } from '../core/types';
 import { FACES } from './lyricFonts';
-import { hexRGB, lumOf, type RGB, type Rect } from './legibility';
+import { hexRGB, lumOf, type RegionStats, type RGB, type Rect } from './legibility';
 import { measureWord, voiceFor, type Treatment, type Voice } from './lyricAuto';
 
 /**
@@ -14,9 +14,11 @@ import { measureWord, voiceFor, type Treatment, type Voice } from './lyricAuto';
  *                   shadow on the pebbles below and wobbles with the rings
  *
  * Adding one: write a `LyricHost` (where the line lives for each frame shape, and `build`, which
- * lays a line out once and returns how to draw it at any time), and add it to HOSTS. Hosts look
- * after their own legibility (the guard stands back for them), so keep the ink bright on a dark
- * world or give it a shadow. Ideas waiting: condensation written on Night Train's window, a
+ * lays a line out once and returns how to draw it at any time), and add it to HOSTS. The guard
+ * doesn't put its scrims behind a hosted line; instead the layer reads the picture under the line
+ * and hands the host a `need` (0..1, eased) from the host's own `need(stats)`, and the host answers
+ * in its world's terms: the neon sign darkens the wall behind its tubes, the floating words sit in
+ * a soft dark of the water. Never a box. Ideas waiting: condensation written on Night Train's window, a
  * woodblock title printed into Willow, the sung line on a card in Flip Cards' deck.
  */
 
@@ -41,10 +43,15 @@ export interface HostCtx {
 export interface HostLine {
   /** normalized box around the line (for the chip and checks) */
   rect: Rect;
-  /** draw the line at song time t (alpha: the line's own fade) */
-  draw(g: CanvasRenderingContext2D, t: number, alpha: number, a: AudioFrame): void;
+  /**
+   * draw the line at song time t (alpha: the line's own fade; need: how much help the picture
+   * under the line asks for, 0 = none, 1 = a bright busy picture, eased by the layer)
+   */
+  draw(g: CanvasRenderingContext2D, t: number, alpha: number, a: AudioFrame, need: number): void;
   /** does it change at time t? (if not, the layer keeps the last drawing) */
   moving(t: number): boolean;
+  /** how much help this line needs over a picture with these stats under it (0..1) */
+  need(st: RegionStats): number;
 }
 
 export interface LyricHost {
@@ -149,6 +156,11 @@ function neonOf(pal: Palette): RGB {
   return lifted.map((v) => Math.max(0, Math.min(255, grey + (v - grey) * 1.25))) as RGB;
 }
 
+/** the night wall behind the sign */
+const DARK: RGB = [6, 7, 14];
+/** draw a shape this far off-canvas and offset its shadow back: a halo with no shape on top */
+const HALO_OFF = 10000;
+
 const neonSign: LyricHost = {
   name: 'a neon sign in the city',
   scenes: ['night-windows'],
@@ -191,7 +203,9 @@ const neonSign: LyricHost = {
       rect,
       // the tubes hum, so a lit sign is always moving a little
       moving: () => true,
-      draw(gg, t, alpha, a) {
+      // the tube's core is near white, so it's the bright windows behind that wash it out
+      need: (st) => clamp01((st.hi - 0.06) / 0.3) * 0.7 + clamp01((st.mean - 0.03) / 0.15) * 0.3,
+      draw(gg, t, alpha, a, need) {
         gg.save();
         gg.font = font;
         gg.fontStretch = v.stretch ?? 'normal';
@@ -213,10 +227,27 @@ const neonSign: LyricHost = {
         // a buzz: the whole sign breathes a little with the kick and the mains hum
         const hum = 0.93 + 0.05 * Math.sin(t * 120) * 0.5 + 0.07 * a.kick;
         const anyLit = set.words.reduce((m, w, i) => Math.max(m, lit(i, t - w.t)), 0);
+        const cx = (set.box.x0 + set.box.x1) / 2;
+        const cy = (set.box.y0 + set.box.y1) / 2;
+        // legibility in the sign's own terms: the wall behind a lit sign goes a little darker (more
+        // over a bright city), soft-edged, never a box
+        if (anyLit > 0) {
+          const rx = (set.box.x1 - set.box.x0) * 0.5 + sz * 1.3;
+          const ry = (set.box.y1 - set.box.y0) * 0.5 + sz * 1.0;
+          gg.save();
+          gg.translate(cx, cy);
+          gg.scale(rx, ry);
+          const dim = gg.createRadialGradient(0, 0, 0, 0, 0, 1);
+          dim.addColorStop(0, rgb(DARK, (0.18 + 0.56 * need) * anyLit));
+          dim.addColorStop(0.6, rgb(DARK, (0.12 + 0.46 * need) * anyLit));
+          dim.addColorStop(1, rgb(DARK, 0));
+          gg.globalAlpha = alpha;
+          gg.fillStyle = dim;
+          gg.fillRect(-1, -1, 2, 2);
+          gg.restore();
+        }
         // light spilling on the wall behind it
         if (anyLit > 0) {
-          const cx = (set.box.x0 + set.box.x1) / 2;
-          const cy = (set.box.y0 + set.box.y1) / 2;
           const rr = Math.max(set.box.x1 - set.box.x0, set.box.y1 - set.box.y0) * 0.75;
           const grd = gg.createRadialGradient(cx, cy, rr * 0.1, cx, cy, rr);
           grd.addColorStop(0, rgb(neon, 0.16 * anyLit * hum));
@@ -225,6 +256,28 @@ const neonSign: LyricHost = {
           gg.fillStyle = grd;
           gg.fillRect(cx - rr, cy - rr, rr * 2, rr * 2);
         }
+        // a dark halo hugging each lit tube and the gaps between them, so a lit window behind
+        // never reads as part of a letter (a window row in a word gap can look like an underscore).
+        // Drawn off to the side so only its shadow lands on the wall; the wide pass is smeared
+        // sideways to close the gaps.
+        gg.fillStyle = '#000';
+        gg.shadowColor = rgb(DARK, 0.92);
+        set.words.forEach((w, i) => {
+          const L = lit(i, t - w.t);
+          if (L <= 0) return;
+          gg.globalAlpha = alpha * Math.min(1, L * (0.45 + 0.55 * need));
+          gg.shadowBlur = sz * 0.45;
+          for (const dx of [-0.22, 0, 0.22]) {
+            gg.shadowOffsetX = HALO_OFF + dx * sz;
+            gg.fillText(w.text, w.x - HALO_OFF, w.y);
+          }
+          gg.shadowOffsetX = HALO_OFF;
+          for (const b of [0.22, 0.09]) {
+            gg.shadowBlur = sz * b;
+            gg.fillText(w.text, w.x - HALO_OFF, w.y);
+          }
+        });
+        gg.shadowOffsetX = 0;
         set.words.forEach((w, i) => {
           const L = lit(i, t - w.t);
           // the unlit tube: glass catching a little light
@@ -294,7 +347,9 @@ const floating: LyricHost = {
     return {
       rect,
       moving: () => true,
-      draw(gg, t, alpha, a) {
+      // white ink: the bright caustic streaks are what swallow it
+      need: (st) => clamp01((st.hi - 0.3) / 0.35) * 0.75 + clamp01((st.edge - 0.03) / 0.06) * 0.25,
+      draw(gg, t, alpha, a, need) {
         og.clearRect(0, 0, off.width, off.height);
         og.font = font;
         og.fontStretch = v.stretch ?? 'normal';
@@ -319,6 +374,25 @@ const floating: LyricHost = {
           og.fillText(p.w.text, p.x + sz * (0.14 + 0.4 * far), p.y + sz * (0.26 + 0.6 * far));
         }
         og.filter = 'none';
+        // over bright caustics the word sits in a soft dark of the water right under it (its own
+        // shape, blurred; drawn off to the side so only the shadow lands), never a box
+        {
+          og.fillStyle = '#000';
+          og.shadowOffsetX = HALO_OFF;
+          og.shadowColor = rgb(shade, 0.95);
+          for (const p of pos) {
+            if (p.age < 0) continue;
+            // a little always (the caustics move faster than the probe looks), more over bright water
+            og.globalAlpha = Math.min(1, p.age / 0.15) * Math.min(1, 0.2 + need) * 0.9;
+            for (const b of [0.4, 0.14, 0.05]) {
+              og.shadowBlur = sz * b;
+              og.fillText(p.w.text, p.x - HALO_OFF, p.y);
+            }
+          }
+          og.shadowOffsetX = 0;
+          og.shadowBlur = 0;
+          og.shadowColor = 'transparent';
+        }
         for (const p of pos) {
           if (p.age < 0) continue;
           og.globalAlpha = Math.min(1, p.age / 0.12);
