@@ -22,6 +22,7 @@ import { noteHandPick } from './state/taste';
 import { keepNow, skipNow } from './ui/Taste';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
+import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
 import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, togglePerform, usePerformSync } from './ui/Perform';
 
 const recorder = new Recorder();
@@ -32,6 +33,7 @@ export default function App() {
   const [over, setOver] = useState(false);
   const dragDepth = useRef(0);
   usePerformSync();
+  useVolumeSync();
 
   // initial look
   useEffect(() => {
@@ -79,6 +81,11 @@ export default function App() {
         shuffle();
       } else if (e.key === 'h' && !e.metaKey) {
         toggleHand();
+      } else if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        toggleMute(true);
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        nudgeVolume(e.key === 'ArrowUp' ? 0.1 : -0.1);
       }
     };
     window.addEventListener('keydown', onKey);

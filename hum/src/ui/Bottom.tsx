@@ -13,6 +13,7 @@ import { peekHandlers } from './Peek';
 import { noteHandPick } from '../state/taste';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
+import { Volume } from './Volume';
 
 /**
  * Three rows: the transport and the feel controls, one timeline (the song's parts with their looks
@@ -68,6 +69,7 @@ function TopRow() {
         <button className="play" onClick={() => audioEngine.toggle()} disabled={!track || track.source === 'mic'} title="Play / pause (space)">
           {playing ? <Pause /> : <Play style={{ marginLeft: 2 }} />}
         </button>
+        <Volume />
         <span className="time" ref={timeRef}>
           0:00 / 0:00
         </span>

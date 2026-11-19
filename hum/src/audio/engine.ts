@@ -218,7 +218,10 @@ export class AudioEngine {
       this.elSource.connect(analyser);
       this.elSource.connect(out);
       out.connect(ctx.destination);
-      out.connect(rec);
+      // recordings take the song before the volume, so turning the page down never quiets a video
+      this.elSource.connect(rec);
+      out.gain.value = this.vol;
+      this.el.volume = 1;
       this.ctx = ctx;
       this.analyser = analyser;
       this.outGain = out;
@@ -352,9 +355,12 @@ export class AudioEngine {
     return this.songTap;
   }
 
+  private vol = 1;
+  /** what you hear (0 to 1, already shaped). The analyser sits before it, so the visuals never change. */
   setVolume(v: number) {
-    if (this.outGain) this.outGain.gain.value = v;
-    else this.el.volume = v;
+    this.vol = Math.min(1, Math.max(0, v));
+    if (this.outGain && this.ctx) this.outGain.gain.setTargetAtTime(this.vol, this.ctx.currentTime, 0.015);
+    else this.el.volume = this.vol;
   }
 
   get playing() {

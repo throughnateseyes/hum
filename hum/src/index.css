@@ -1331,6 +1331,56 @@ div:hover > .card-del {
 .bt-group.feel {
   gap: 6px;
 }
+/* volume: a speaker to mute, a slider that's always there */
+.volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--h);
+  padding-right: 8px;
+  border-radius: var(--r-ctl);
+}
+.vol-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.vol-btn:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.vol-btn[aria-pressed='true'] {
+  color: var(--ink-3);
+}
+.vol-s {
+  width: 76px;
+  border-radius: 4px;
+  outline: none;
+}
+.vol-s:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.volume.dark .vol-btn {
+  color: #f2f2f2;
+}
+.volume.dark .vol-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.volume.dark .vol-btn[aria-pressed='true'] {
+  color: rgba(255, 255, 255, 0.5);
+}
+.volume.dark .slider .track {
+  background: rgba(255, 255, 255, 0.22);
+}
+.volume.dark .slider .fill {
+  background: #fff;
+}
 .time.bpm {
   color: var(--ink-3);
 }
@@ -3741,4 +3791,17 @@ html.perform-idle * {
   min-height: var(--h-sm);
   color: var(--ink-3);
   font-size: var(--fs-2);
+}
+
+/* the Perform bar on a phone: ratio outlines without their names, a shorter volume slider */
+@media (max-width: 560px) {
+  .perform-bar {
+    max-width: calc(100vw - 16px);
+  }
+  .perform-bar .frame-seg span {
+    display: none;
+  }
+  .perform-bar .vol-s {
+    width: 56px;
+  }
 }

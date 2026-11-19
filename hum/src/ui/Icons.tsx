@@ -23,6 +23,21 @@ export const Pause = (p: SVGProps<SVGSVGElement>) => (
     <rect x="14" y="5" width="4" height="14" rx="1.2" />
   </svg>
 );
+/** a speaker with 0 to 3 waves; 0 draws a cross (muted) */
+export const Speaker = ({ level = 3, ...p }: SVGProps<SVGSVGElement> & { level?: number }) => (
+  <svg {...base(p)}>
+    <path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1Z" fill="currentColor" stroke="none" />
+    {level === 0 ? (
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    ) : (
+      <>
+        <path d="M15.5 9.8a3 3 0 0 1 0 4.4" />
+        {level >= 2 && <path d="M18 7.6a6.2 6.2 0 0 1 0 8.8" />}
+        {level >= 3 && <path d="M20.4 5.4a9.4 9.4 0 0 1 0 13.2" />}
+      </>
+    )}
+  </svg>
+);
 export const Mic = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="9" y="3" width="6" height="11" rx="3" />

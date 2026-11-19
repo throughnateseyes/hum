@@ -80,6 +80,9 @@ export interface StudioState extends LookState {
   sensitivity: number;
   /** how hard everything reacts to the music: 0 still, 1 normal, 2 wild */
   impact: number;
+  /** how loud the song plays here, 0 to 1 (the visuals don't change) */
+  volume: number;
+  muted: boolean;
   quality: number;
   customPresets: Preset[];
   customShaders: CustomShaderSpec[];
@@ -181,6 +184,8 @@ function loadPersisted(): Partial<StudioState> {
       sensitivity: typeof j.sensitivity === 'number' ? j.sensitivity : undefined,
       quality: typeof j.quality === 'number' ? j.quality : undefined,
       impact: typeof j.impact === 'number' ? j.impact : undefined,
+      volume: typeof j.volume === 'number' ? Math.min(1, Math.max(0, j.volume)) : undefined,
+      muted: typeof j.muted === 'boolean' ? j.muted : undefined,
       chat: Array.isArray(j.chat) ? j.chat : [],
       directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
       directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
@@ -210,6 +215,8 @@ function persist(s: StudioState) {
         sensitivity: s.sensitivity,
         quality: s.quality,
         impact: s.impact,
+        volume: s.volume,
+        muted: s.muted,
         chat: s.chat.slice(-60),
         directorOpen: s.directorOpen,
         directorHeight: s.directorHeight,
@@ -275,6 +282,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   autoPilot: false,
   sensitivity: persisted.sensitivity ?? 1,
   impact: persisted.impact ?? 1,
+  volume: persisted.volume ?? 1,
+  muted: persisted.muted ?? false,
   quality: persisted.quality ?? 1,
   customPresets: persisted.customPresets ?? [],
   customShaders: persisted.customShaders ?? [],
@@ -398,7 +407,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

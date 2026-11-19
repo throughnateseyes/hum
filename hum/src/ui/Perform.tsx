@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { useStudio, type Aspect } from '../state/store';
 import { Pause, Play, X } from './Icons';
+import { Volume } from './Volume';
 
 export const FRAMES: { id: Aspect; name: string; hint: string }[] = [
   { id: 'fill', name: 'Fill', hint: 'Fill the space' },
@@ -191,6 +192,7 @@ export function PerformControls() {
       <button className="btn icon ghost" aria-label={playing ? 'Pause' : 'Play'} onClick={() => audioEngine.toggle()}>
         {playing ? <Pause width={14} height={14} /> : <Play width={14} height={14} />}
       </button>
+      <Volume dark />
       <FramePicker labels tipBelow={false} />
       <button className="btn ghost" onClick={exitPerform}>
         <X width={13} height={13} /> Exit
