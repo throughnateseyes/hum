@@ -117,6 +117,35 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   wear them too. Only hue moves, so each look keeps its own lights and darks and stays readable.
   *Song colours* (Look tab → Video): *Blend* (the default) meets halfway, *Match* puts every look on
   the main look's colours, *Off* leaves them alone. See `docs/song-colours.jpg`.
+- **Direction.** Every video commits to one direction, so it feels made rather than shuffled: one
+  world (the looks' style family), one set of colours (Song colours), one **finish** and one way of
+  moving (a transition set). Parts then change how big they feel, not what style they're in. Claude
+  picks the direction with the plan; offline, Hum picks it from the main looks' world and the song's
+  mood (calm acoustic songs lean to ink wash, warm cinematic ones to film, playful pop to riso, lo-fi
+  and retro to tape). The plan's note says what it chose.
+- **Finishes** are one surface laid over every look in the video, like shooting the whole thing on the
+  same film stock. After colour it's the biggest thing that makes a video hang together. Each takes its
+  paper and inks from the colours on screen, so it agrees with Song colours, and each moves with the
+  music without shouting:
+  - *Film*: 16mm grain that changes every frame, the picture swaying in the gate (more in gusts of
+    wind), a red-orange glow round bright things, a little flicker on kicks, a soft vignette, dust,
+    the odd scratch and rounded gate corners on dark looks.
+  - *Riso*: a risograph print in two or three inks from the palette on off-white paper, grainy, never
+    perfectly solid, each ink a little out of line, and the registration jumps on every snare.
+  - *Ink wash*: sumi ink on rice paper. The look's background becomes bare paper and what it draws
+    becomes soft washes that bleed along the fibres and darken at their edges; vivid parts become
+    watered-down colour. A drop wets the paper and the ink spreads. Calm and spacious on purpose.
+  - *Tape*: an old VHS tape: soft, colour smeared sideways and late, lines that shake on hits, a
+    tracking roll sweeping down the picture on the drop, and the torn lines along the bottom.
+  - *Hand-drawn*: the hand-drawn finish (below).
+  - *Clean*: nothing.
+  **Finish** (Look tab → Video) is *Auto* by default: each video uses its own direction's finish, and
+  outside a video it's Hand-drawn when that's switched on, else Clean. Pick one to use it everywhere.
+  The Hand-drawn switch (`H`) is the same control: on picks Hand-drawn, off picks Clean. A video's
+  transitions lean on its set (*soft* dissolves, *film* burns and fades to black, *graphic* wipes and
+  slit-scans, *organic* ink and ripples, *kinetic* cuts and pushes, *glitch* mosaics and glyphs); big
+  drops still cut. Finishes go over the picture and under pop-ups, windows and lyrics, and cost under
+  1 ms a frame at 1080p.
 - **Text wall, particle columns, glass planes, tracking HUD.** **Text Wall** (*Redacted*,
   *Highlighter*) fills the page with the song's lyrics, knocks words out and snaps red, yellow,
   blue and cyan boxes onto them on the beat; the sung line lights up wherever it appears and drops
@@ -197,7 +226,8 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
   → transition (src/render/transitions.ts) blends the outgoing look (still playing) into the new one;
                                            picked by src/state/transitionPick.ts
-  → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
+  → impact, finish (src/render/finishPass.ts, picked by the video's Direction: src/core/direction.ts,
+    src/state/direction.ts), then pop-ups and lyrics; or hand-drawn over all of it (handPass.ts)
   → scene windows (src/render/sceneWindows.ts)  other looks, each rendered at its window's size, framed over the picture
   → screen / MediaRecorder
 ```
@@ -231,6 +261,8 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   `node scripts/look-shot.mjs --preset willow-print --out sheet.png` renders a contact sheet of the
   song's key moments in a headless browser and prints shader errors and the frame cost
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
+  `/solo.html?finish=clean,film,riso,ink,tape,hand` (or `"finish"` in the `--look` JSON) shows each
+  finish side by side for every moment and reports what each finish pass costs.
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
 - **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
 

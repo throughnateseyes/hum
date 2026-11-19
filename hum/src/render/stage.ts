@@ -19,6 +19,8 @@ import { planTick, popLevelAt } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
 import { HandPass } from './handPass';
+import { FinishPass } from './finishPass';
+import { activeFinish } from '../state/direction';
 import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
@@ -163,6 +165,8 @@ export class Stage {
   private lastDrawing = -1;
   private drawingNo = 0;
   private prevHit = { kick: 0, snare: 0, drop: 0 };
+  /** the video's finish (film, riso, ink wash, tape) over the finished picture; see present() */
+  private finishPass: FinishPass;
   width = 2;
   height = 2;
   fps = 60;
@@ -223,6 +227,7 @@ export class Stage {
         this.blitQuad.render(this.renderer, target);
       },
     };
+    this.finishPass = new FinishPass(this.shared.noiseTex);
     const sceneOpts = { depthBuffer: true, samples: 4 } as const;
     this.sceneRT = makeRenderTarget(2, 2, sceneOpts);
     this.prevRT = makeRenderTarget(2, 2, sceneOpts);
@@ -544,6 +549,8 @@ export class Stage {
     planTick(raw);
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
     const s = useStudio.getState();
+    const finish = activeFinish(s);
+    const handOn = finish === 'hand';
     const audio = this.shape(raw, s.impact);
     const feel = this.feel.update(raw, s.analysis, dt);
 
@@ -565,13 +572,13 @@ export class Stage {
     // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
     // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
     const hit = this.hitEdge(audio);
-    if (s.hand.on && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
+    if (handOn && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
       this.shared.blit(this.holdRT.texture, null);
       this.resolveSnapshots();
       return;
     }
     this.lastDrawing = time;
-    if (!s.hand.on) this.holdReady = false;
+    if (!handOn) this.holdReady = false;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
     const photos = s.photos.length ? s.photos : [this.placeholder];
@@ -649,7 +656,7 @@ export class Stage {
     const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
-    if (s.hand.on) {
+    if (handOn) {
       // everything (lyrics too) goes through the hand-drawn finish, then is held until the next drawing
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
@@ -671,10 +678,10 @@ export class Stage {
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
-        this.shared.blit(this.impactRT.texture, null);
+        this.present(this.impactRT.texture, finish, base);
         if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       } else {
-        this.shared.blit(finalTex, null);
+        this.present(finalTex, finish, base);
         if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
       this.sceneWindows.render(r, base, winOpts);
@@ -682,6 +689,16 @@ export class Stage {
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
+  }
+
+  /**
+   * Finish hook (Direction): put the finished picture on screen through the video's finish, or as it
+   * is for Clean. Pop-ups, scene windows and lyrics go over it afterwards. The finish reads time,
+   * audio and Feel from the frame context only.
+   */
+  private present(tex: THREE.Texture, finish: ReturnType<typeof activeFinish>, base: Omit<FrameContext, 'params'>) {
+    const drawn = this.finishPass.render(this.renderer, tex, null, finish, { time: base.time, dt: base.dt, audio: base.audio, feel: base.feel, palette: base.palette, width: base.width, height: base.height });
+    if (!drawn) this.shared.blit(tex, null);
   }
 
   /** blend the outgoing look into `inTex` while a transition runs; returns what goes on screen */
@@ -783,6 +800,7 @@ export class Stage {
     this.impactRT.dispose();
     this.holdRT.dispose();
     this.hand.dispose();
+    this.finishPass.dispose();
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
     this.lyricLayer.dispose();

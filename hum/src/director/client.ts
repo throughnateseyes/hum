@@ -4,6 +4,7 @@
  * offline director on 501 (no key), 429 (rate limit), 403 (access code), network errors
  * or unusable output. Everything that comes back is validated against the live registries.
  */
+import { cleanDirection, type Direction } from '../core/direction';
 import type {
   CustomShaderSpec,
   DirectorRequest,
@@ -507,6 +508,8 @@ export type PlanReply =
       transitions: (PlanTransition | null)[];
       /** lyric video: a type family and a medium (+ optional moment) per section (null when Claude didn't say) */
       lyric: { family: TypeFamily | null; parts: (LyricPart | null)[] };
+      /** the video's direction: finish, transition set, type hint (null when Claude didn't give a usable one) */
+      direction: Direction | null;
     }
   | { ok: false; reason: string };
 
@@ -599,5 +602,6 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     shotBars,
     transitions,
     lyric: { family: TYPE_FAMILIES.includes(json.plan.lyricType as TypeFamily) ? (json.plan.lyricType as TypeFamily) : null, parts: lyricParts },
+    direction: cleanDirection(json.plan.direction),
   };
 }

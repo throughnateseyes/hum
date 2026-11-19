@@ -1,3 +1,4 @@
+import { activeFinish, setFinish } from '../state/direction';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
@@ -397,7 +398,7 @@ function drawWave(c: HTMLCanvasElement | null, a: TrackAnalysis | null, t: numbe
 
 /** one-click hand-drawn finish (its settings live in the Look tab) */
 function HandToggle() {
-  const on = useStudio((s) => s.hand.on);
+  const on = useStudio((s) => activeFinish(s) === 'hand');
   return (
     <label className="sw boxed has-tip tip-left" data-tip="Choppy frames, wobbly lines, ink on paper. Fine-tune it in the Look tab. (H)">
       <Toggle on={on} onChange={() => toggleHand()} />
@@ -406,10 +407,11 @@ function HandToggle() {
   );
 }
 
+/** Hand-drawn is one of the finishes: on picks it, off picks Clean (the Finish picker in the Look tab can go back to Auto) */
 export function toggleHand() {
-  const s = useStudio.getState();
-  s.set({ hand: { ...s.hand, on: !s.hand.on } });
-  s.flash(s.hand.on ? 'Hand-drawn off' : 'Hand-drawn on. Fine-tune it in the Look tab');
+  const on = activeFinish(useStudio.getState()) === 'hand';
+  setFinish(on ? 'clean' : 'hand');
+  useStudio.getState().flash(on ? 'Hand-drawn off (Finish: Clean)' : 'Hand-drawn on. Fine-tune it in the Look tab');
 }
 
 /** the pop-up windows over the picture: one switch for all of them (when they show lives in the Look tab) */
