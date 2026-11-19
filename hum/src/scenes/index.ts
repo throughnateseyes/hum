@@ -3,8 +3,9 @@ import { scenes as threeScenes } from './three';
 import { scenes as shaderScenes } from './shader';
 import { scenes as photoScenes } from './photo';
 import { scenes as boardScenes } from './board';
+import { scenes as natureScenes } from './nature';
 
-const builtin: SceneDef[] = [...boardScenes, ...threeScenes, ...shaderScenes, ...photoScenes];
+const builtin: SceneDef[] = [...boardScenes, ...threeScenes, ...shaderScenes, ...photoScenes, ...natureScenes];
 
 /** runtime-registered scenes (AI-generated / custom GLSL) */
 const runtime = new Map<string, SceneDef>();

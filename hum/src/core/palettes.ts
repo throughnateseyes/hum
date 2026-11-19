@@ -28,6 +28,11 @@ export const PALETTES: Palette[] = [
   { id: 'pistachio', name: 'Pistachio Poster', bg: '#dde4a3', fg: '#141414', accent: '#1d3bff', accent2: '#f2d70c', muted: '#f7f7f0' },
   { id: 'bubblegum', name: 'Bubblegum Poster', bg: '#ffc9de', fg: '#161616', accent: '#ff5a1f', accent2: '#2b44ff', muted: '#ffffff' },
   { id: 'flip-night', name: 'Flip Night', bg: '#000000', fg: '#f4f0e6', accent: '#ffd400', accent2: '#ff6b2b', muted: '#4e0a7a' },
+  // nature looks: gilded clouds, canopy, above the clouds, still water
+  { id: 'gilded-sky', name: 'Gilded Sky', bg: '#7f9cb8', fg: '#2c4766', accent: '#f4e8cc', accent2: '#d8b26a', muted: '#b4c4d0' },
+  { id: 'canopy', name: 'Canopy', bg: '#7fb3e3', fg: '#1d3520', accent: '#a7cf4f', accent2: '#fff6dc', muted: '#4f7d33' },
+  { id: 'golden-hour', name: 'Golden Hour', bg: '#231d33', fg: '#ffeccb', accent: '#eda54a', accent2: '#c46a5e', muted: '#4b4361' },
+  { id: 'still-water', name: 'Still Water', bg: '#1e4c56', fg: '#e8f4ef', accent: '#7fc7c0', accent2: '#d6a15c', muted: '#2e6a6f' },
 ];
 
 export function getPalette(id: string): Palette {
