@@ -106,6 +106,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
   first four bars.
+- **Scene windows.** Pop-ups can also be other looks: framed windows (a title bar with the look's
+  name, a plain card, or a round cut-out) each playing a different look live over the picture, so
+  looks combine like a desktop stacked with programs. They open on new parts and phrases, bump on
+  kicks, stamp a cascade of copies on snares, huddle and tremble through a build, slam shut on the
+  drop and burst back open a beat later. *Windows show* (Look tab → Video) picks Instruments, Looks
+  or Both (the default); the Pop-ups switch turns all of them on or off.
+- **Song colours.** A video cut from many looks still reads as one piece: every look leans toward
+  the colours of the look the song uses most (choruses and drops count double), and scene windows
+  wear them too. Only hue moves, so each look keeps its own lights and darks and stays readable.
+  *Song colours* (Look tab → Video): *Blend* (the default) meets halfway, *Match* puts every look on
+  the main look's colours, *Off* leaves them alone. See `docs/song-colours.jpg`.
 - **Text wall, particle columns, glass planes, tracking HUD.** **Text Wall** (*Redacted*,
   *Highlighter*) fills the page with the song's lyrics, knocks words out and snaps red, yellow,
   blue and cyan boxes onto them on the beat; the sung line lights up wherever it appears and drops
@@ -187,6 +198,7 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → transition (src/render/transitions.ts) blends the outgoing look (still playing) into the new one;
                                            picked by src/state/transitionPick.ts
   → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
+  → scene windows (src/render/sceneWindows.ts)  other looks, each rendered at its window's size, framed over the picture
   → screen / MediaRecorder
 ```
 
@@ -205,6 +217,10 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
 - **Shared engines for scenes:** `tnoise` / `tfbm` read a shared noise texture (several times cheaper
   than computed noise; `src/core/noise.ts`), and `Flock` (`src/core/flock.ts`) steers a few thousand
   bodies for anything made of a crowd.
+- **Song palette** (`src/core/songPalette.ts`): `harmonize(look, key, strength)` rotates a palette's
+  hues onto a key palette's in OKLCH, keeping lightness exactly. Colours far round the wheel commit
+  to the key's hue rather than stopping halfway in mud; greys take a breath of the key's ground. The
+  plan applies it as looks come on screen (`songTinted` in `src/state/plan.ts`).
 - **Adding a scene:** write a `SceneDef` with params and a `style`, and drop it in one of the
   `src/scenes/*/index.ts` arrays. A shader scene is only a `void main()` — see
   `src/scenes/shader/guide.ts` (this is also the guide the AI reads).

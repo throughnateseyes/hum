@@ -33,6 +33,8 @@ export const LYRIC_FONTS: LyricFont[] = ['auto', 'grotesk', 'serif', 'condensed'
 export type PopupMode = 'video' | 'always' | 'off';
 /** what the pop-up windows show: instruments (little board modules), other looks playing live, or both */
 export type WindowKind = 'instruments' | 'looks' | 'both';
+/** song colours: every look in a video leans toward the video's main look's colours (off, blend halfway, match) */
+export type SongColors = 'off' | 'blend' | 'match';
 /** how often a video plan changes the picture: calmer, follow the song, or faster */
 export type Pace = 'slow' | 'song' | 'fast';
 export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | 'instrumental';
@@ -121,6 +123,7 @@ export interface StudioState extends LookState {
   hand: HandStyle;
   popups: PopupMode;
   windowKind: WindowKind;
+  songColors: SongColors;
   /** shot pacing for video plans */
   pace: Pace;
   /** how looks change: picked from the song (auto), one transition always, or 'cut' */
@@ -195,6 +198,7 @@ function loadPersisted(): Partial<StudioState> {
       hand: cleanHand(j.hand),
       popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
       windowKind: j.windowKind === 'instruments' || j.windowKind === 'looks' || j.windowKind === 'both' ? (j.windowKind as WindowKind) : undefined,
+      songColors: j.songColors === 'off' || j.songColors === 'blend' || j.songColors === 'match' ? (j.songColors as SongColors) : undefined,
       pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
       transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
       transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
@@ -231,6 +235,7 @@ function persist(s: StudioState) {
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
         windowKind: s.windowKind,
+        songColors: s.songColors,
         pace: s.pace,
         transition: s.transition,
         transitionBeats: s.transitionBeats,
@@ -316,6 +321,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   hand: persisted.hand ?? HAND_DEFAULT,
   popups: persisted.popups ?? 'video',
   windowKind: persisted.windowKind ?? 'both',
+  songColors: persisted.songColors ?? 'blend',
   pace: persisted.pace ?? 'song',
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
@@ -413,7 +419,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

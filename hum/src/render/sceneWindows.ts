@@ -9,7 +9,7 @@ import { getScene } from '../scenes';
 import { lum, makeInk, rgba, setFont, MONO } from '../scenes/board/kit';
 import type { Ink } from '../scenes/board/kit';
 import { resolveParams } from '../state/modulation';
-import { allLooks, findLook, relatedLooks, sectionIndexAt } from '../state/plan';
+import { allLooks, findLook, relatedLooks, sectionIndexAt, songTinted } from '../state/plan';
 import type { WindowKind } from '../state/store';
 import { FxChain } from './fxChain';
 import { paperInk } from './popups';
@@ -445,14 +445,14 @@ export class SceneWindows {
       const fw = spec.w + trail;
       const fh = spec.h + trail;
       let cost = overlap(x, y, spec.w, spec.h, mid.x, mid.y, mid.w, mid.h) * 8 + overlap(fx, fy, fw, fh, mid.x, mid.y, mid.w, mid.h) * 2;
-      cost += fw * fh - overlap(fx, fy, fw, fh, 0, 0, W, H);
+      cost += (fw * fh - overlap(fx, fy, fw, fh, 0, 0, W, H)) * 0.5;
       for (const o of this.wins) {
         if (o.closing >= 0) continue;
         const os = o.slot.spec;
         const ot = os.step * MAX_STAMPS;
-        cost += overlap(x, y, spec.w, spec.h, o.x, o.y, os.w, os.h) * 1.5;
+        cost += overlap(x, y, spec.w, spec.h, o.x, o.y, os.w, os.h) * 3;
         // and keep the two cascades from piling into each other
-        cost += overlap(fx, fy, fw, fh, Math.min(o.x, o.x + o.dir[0] * ot), Math.min(o.y, o.y + o.dir[1] * ot), os.w + ot, os.h + ot) * 0.5;
+        cost += overlap(fx, fy, fw, fh, Math.min(o.x, o.x + o.dir[0] * ot), Math.min(o.y, o.y + o.dir[1] * ot), os.w + ot, os.h + ot) * 1.5;
       }
       if (!best || cost < best.cost) best = { x, y, dir, cost };
     }
@@ -464,7 +464,8 @@ export class SceneWindows {
     const def = p ? getScene(p.sceneId) : undefined;
     if (!p || !def) return null;
     const spec = this.makeSpec(base.width, base.height);
-    const look = presetToLook(p);
+    // in a video, a window wears the song's colours like the main picture does
+    const look = presetToLook(songTinted(p));
     const rt = makeRenderTarget(spec.cw, spec.ch, { depthBuffer: true, samples: 0 });
     let inst: SceneInstance;
     try {
