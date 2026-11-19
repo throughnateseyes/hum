@@ -11,6 +11,7 @@
  */
 import { audioEngine } from '../audio/engine';
 import { textBetween } from '../audio/lyrics';
+import { lookStyle } from '../core/styles';
 import type { AudioFrame, Lyrics, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
 import { live } from './live';
@@ -262,7 +263,8 @@ function poolSize(drive: number, pace: Pace, given?: number): number {
 
 /**
  * Looks that sit well next to `mainId` in one section, best first: shared tags, what the analysis
- * suggested for this song, a similar intensity, and preferably another scene so the change shows.
+ * suggested for this song, the same style family, a similar intensity, and preferably another scene so
+ * the change shows.
  * Looks that are other sections' main looks rank lower so the parts stay distinct. Never boards.
  */
 export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | null)[] = [], bias?: (id: string) => number): string[] {
@@ -275,7 +277,8 @@ export function relatedLooks(mainId: string, a: TrackAnalysis, mains: (string | 
     .map((p) => {
       const r = sug.indexOf(p.id);
       const overlap = p.tags.filter((t) => m.tags.includes(t)).length;
-      const score = overlap + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0) + (bias ? bias(p.id) : 0);
+      const family = lookStyle(p) === lookStyle(m) ? 0.8 : 0;
+      const score = overlap + family + (r >= 0 ? 1.6 - r * 0.08 : 0) - 0.35 * Math.abs(intensity(p) - intensity(m)) + (p.sceneId !== m.sceneId ? 0.3 : 0) - (others.has(p.id) ? 0.6 : 0) + (bias ? bias(p.id) : 0);
       return { id: p.id, score };
     })
     .sort((x, y) => y.score - x.score || (x.id < y.id ? -1 : 1))
@@ -729,7 +732,7 @@ export async function makeVideo(wish = '') {
           };
         }),
         ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
-        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '' })),
+        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p) })),
         // taste memory: a short anonymous summary (look ids, tags, counts) and the last plan's looks
         ...(() => {
           const taste = tasteSummary(a);

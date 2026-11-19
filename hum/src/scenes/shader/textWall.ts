@@ -262,6 +262,7 @@ export const textWall = defineCanvasScene<St>({
   description:
     'A black page packed edge to edge with the song’s lyrics, repeated. Words are knocked out, dimmed or underlined; red, yellow, blue and cyan boxes snap onto words on the beat, the line being sung lights up white everywhere it appears, and a drop floods the wall with highlights. Without lyrics it fills with the song’s title, genre, mood and section names.',
   category: 'field',
+  style: 'type',
   tags: ['lyrics', 'typographic', 'glitch', 'experimental', 'hip hop', 'indie', 'driving', 'dark', 'pop'],
   params,
   showsLyrics: true,

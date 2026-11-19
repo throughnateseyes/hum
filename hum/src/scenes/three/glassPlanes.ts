@@ -145,6 +145,7 @@ export const glassPlanes = defineThreeScene({
   description:
     'Isometric zig-zag strips of cloudy blue-teal glass with thin glowing yellow-green edges and long hairline construction lines running past them, slowly drifting. Kicks push the ledges out, snares streak light along the lines, and a drop re-folds the whole structure into a new shape.',
   category: 'form',
+  style: 'light',
   tags: ['architectural', 'cold', 'cinematic', 'techno', 'minimal', 'hypnotic', 'electronic', 'dark', 'ambient'],
   params,
   modulations: [{ source: 'energy', param: 'glass', amount: 0.15 }],

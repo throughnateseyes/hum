@@ -105,6 +105,7 @@ export const liquidMarble = defineClockedShaderScene(
     description:
       'Domain-warped fbm ink folding into itself — ultramarine body with gold veins (accent / accent2). Bass deepens the warp and the spectrum sets its depth by radius (lows in the centre), every kick pinches and twists a fold at a new spot that rings out as a ripple, snares tear it sideways, build-ups wind it into a tightening vortex, and a drop blows a whirlpool out of the centre and flips the flow. Grainy, print-like.',
     category: 'field',
+    style: 'light',
     fragment,
     tags: ['liquid', 'luxurious', 'hypnotic', 'flowing', 'organic', 'deep', 'marble', 'psychedelic'],
     params: [

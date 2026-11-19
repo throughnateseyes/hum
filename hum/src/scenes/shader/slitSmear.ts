@@ -137,6 +137,7 @@ export const slitSmear = defineClockedShaderScene(
     description:
       'Monochrome slit-scan time smear (TouchDesigner look): a moving noise subject is sampled along a scan line bent by the waveform, and the history streams away on both sides. Every kick makes the stream lurch and stamps a spectrum barcode into it; snares tear horizontal bands; build-ups bend the slit harder and start tearing on their own; a drop splits the slit into three that fly apart and shear the history into diagonals. Tiny tick marks and numeric readouts in the margins.',
     category: 'field',
+    style: 'data',
     fragment,
     tags: ['monochrome', 'techno', 'glitch', 'experimental', 'cold', 'minimal', 'data', 'hypnotic'],
     feedback: true,

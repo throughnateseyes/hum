@@ -10,6 +10,8 @@ You write ONE full-screen GLSL fragment shader: just helper functions (optional)
 - \`varying vec2 vUv\` — 0..1, origin bottom-left. \`gl_FragCoord.xy\` = pixel coords.
 - \`uResolution\` (vec2 px), \`uTime\` (seconds, always advances, also when paused), \`uAspect\` (w/h).
 - Audio, 0..1 and already smoothed: \`uLevel, uSub, uBass, uLowMid, uMid, uHighMid, uAir\` (bands); \`uKick, uSnare, uHat\` (hit envelopes: jump to 1, decay); \`uEnergy\` (slow section intensity), \`uBrightness\`, \`uFlux\`, \`uBuild\` (rises in build-ups), \`uDrop\` (fires on a drop, decays), \`uBeatPhase\` (0→1 sawtooth per beat), \`uSway\` (-1..1 slow sine per bar), \`uBeat\` (1.0 only on a beat frame), \`uBeatCount\`, \`uBpm\`.
+- Feel, the song's emotional state (the same for every look, so looks agree with each other): \`uFeelIntensity\` (0..1, how big this part is, eased), \`uFeelTension\` (0..1, winding up: build-ups AND the last seconds before a drop that is known to be coming), \`uFeelRelease\` (1 when a drop lands, fading over ~10 s: the afterglow), \`uFeelWarmth\` (0 cold/dark … 1 warm/bright), \`uFeelToDrop\` / \`uFeelSinceDrop\` (seconds; 99 = none), \`uFeelSectionT\` / \`uFeelSongT\` (0..1). Prefer these over raw \`uEnergy\`/\`uBuild\`/\`uDrop\` for the big state of the scene.
+- The shared world: \`uFeelWind\` (vec2 unit direction), \`uFeelGust\` (0..1 strength), \`uFeelWindPhase\` (wind travel, already integrated: use it as the phase of anything that sways or drifts), \`uFeelDay\` (time of day 0..1: 0.25 dawn, 0.5 noon, 0.75 dusk; a song runs dawn → dusk), \`uFeelLight\` (light direction in radians). Use them for anything with wind, weather or light so cuts between looks keep the same weather.
 - \`uSpectrum\`, \`uWaveform\` samplers (use the functions below).
 - Palette: \`vec3 uBg, uFg, uAccent, uAccent2, uMuted\`. ALL colours must come from these (mix/scale them). Palettes can be light (cream bg, dark fg) or dark; look good on both.
 - \`uImage, uImage2\` (sampler2D) with \`uImageSize, uImage2Size\` (vec2 px), \`uPhotoIndex\` — current/next photo.
@@ -22,6 +24,9 @@ float hash11(float); float hash21(vec2); vec2 hash22(vec2);      // 0..1
 float vnoise(vec2);                         // value noise 0..1
 float snoise(vec2); float snoise(vec3);     // simplex -1..1
 float fbm(vec2 p, int oct); float fbm3(vec3 p, int oct);  // ~-1..1, oct <= 8
+float tnoise(vec2); float tnoise3(vec3);    // smooth value noise 0..1 read from a texture: several times cheaper
+vec4 tnoise4(vec2);                         // four independent noise channels in one read
+float tfbm(vec2 p, int oct); float tfbm3(vec3 p, int oct);  // ~-1..1 from the texture. PREFER these for clouds, smoke, water, many octaves
 float luma(vec3); mat2 rot2(float a);
 vec3 cosPalette(float t, vec3 a, vec3 b, vec3 c, vec3 d);
 vec3 paletteRamp(float t);                  // uBg → uAccent → uAccent2 → uFg

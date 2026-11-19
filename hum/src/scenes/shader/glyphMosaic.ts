@@ -137,6 +137,7 @@ export const glyphMosaic = defineClockedShaderScene(
     description:
       'A printed grid of dots, rings, crosses and asterisks in one ink. Blocky patches flip to new glyphs on every kick, the bands choose which glyphs appear, snares knock patches negative and drops dissolve the whole field to its inverse.',
     category: 'field',
+    style: 'print',
     fragment,
     light: true,
     tags: ['graphic', 'minimal', 'rhythmic', 'playful', 'techno', 'house', 'bouncy', 'clean'],

@@ -1,6 +1,6 @@
 # Hum: sound → sight
 
-**Hum turns a song into a music video, live in your browser.** Drop in a track and Hum takes it apart: the kick, snare and hats, the bass and melody notes, the vocals, the build-ups and the drops. It reads what kind of song it is and the mood it's going for, finds the lyrics, and then plays one of nearly 50 hand-built visual "looks" that react to every hit. Press **Make a video** and it cuts between looks along the song, with faster cuts in busy parts and a hard cut on every big drop. Then record the result.
+**Hum turns a song into a music video, live in your browser.** Drop in a track and Hum takes it apart: the kick, snare and hats, the bass and melody notes, the vocals, the build-ups and the drops. It reads what kind of song it is and the mood it's going for, finds the lyrics, and then plays one of nearly 100 hand-built visual "looks" that react to every hit. Press **Make a video** and it cuts between looks along the song, with faster cuts in busy parts and a hard cut on every big drop. Then record the result.
 
 ![A grid of Hum looks: paper bars, an arcade board, a glyph mosaic, a tracking HUD, a pixel cube, a lyric text wall, a photo board, particle columns, flip cards, glass planes, a lyric zine, halftone bars, a particle swarm, a mission-control board, a kaleidoscope and violet glass](hum/docs/looks.jpg)
 

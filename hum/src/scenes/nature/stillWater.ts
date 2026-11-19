@@ -310,6 +310,7 @@ export const stillWater: SceneDef = {
   description:
     'A realistic calm pool seen from straight above: pebbles under clear water, caustic light playing on the bottom, a few floating leaves. Each kick drops a stone whose rings spread, bounce and cross for real (a wave simulation), the drop lands a big one, and rain falls on the water in quiet, sad parts.',
   category: 'form',
+  style: 'world',
   tags: ['calm', 'sad', 'melancholic', 'tender', 'ambient', 'minimal', 'acoustic', 'piano', 'lofi', 'nature', 'organic', 'realistic', 'spacious'],
   params,
   modulations: [],
@@ -508,7 +509,8 @@ export const stillWater: SceneDef = {
         surfaceUniforms.tSim.value = simA!.texture;
         surfaceUniforms.uSimTexel.value.set(1 / simA!.width, 1 / simA!.height);
         surfaceUniforms.uWindT.value = windT;
-        surfaceUniforms.uWindAmp.value = 0.0016 * num(p, 'wind', 0.5) * (1 + 1.5 * Math.min(1, a.build));
+        // the shared weather: gusts roughen the pool, and tension (which starts before a known drop) more so
+        surfaceUniforms.uWindAmp.value = 0.0016 * num(p, 'wind', 0.5) * (0.8 + 0.5 * frame.feel.gust + 1.5 * Math.min(1, Math.max(a.build, frame.feel.tension)));
         surfaceUniforms.uHScale.value = 1.0;
         surfaceUniforms.uDepth.value = num(p, 'depth', 0.22);
 

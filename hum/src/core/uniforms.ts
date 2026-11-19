@@ -1,8 +1,11 @@
 import * as THREE from 'three';
+import { FEEL_UNIFORMS, type Feel } from './feel';
 import { AUDIO_UNIFORM_NAMES } from './glsl';
 import type { AudioFrame, ParamDef, ParamValues, ResolvedPalette, SharedResources } from './types';
 
 export type UniformMap = Record<string, THREE.IUniform>;
+
+const FEEL_NAMES = Object.keys(FEEL_UNIFORMS) as (keyof typeof FEEL_UNIFORMS)[];
 
 /** Base uniforms shared by scenes and effects. */
 export function createBaseUniforms(shared: SharedResources, params: ParamDef[]): UniformMap {
@@ -12,6 +15,7 @@ export function createBaseUniforms(shared: SharedResources, params: ParamDef[]):
     uAspect: { value: 1 },
     uSpectrum: { value: shared.spectrumTex },
     uWaveform: { value: shared.waveformTex },
+    uNoiseTex: { value: shared.noiseTex },
     uBg: { value: new THREE.Color() },
     uFg: { value: new THREE.Color() },
     uAccent: { value: new THREE.Color() },
@@ -19,6 +23,8 @@ export function createBaseUniforms(shared: SharedResources, params: ParamDef[]):
     uMuted: { value: new THREE.Color() },
   };
   for (const n of AUDIO_UNIFORM_NAMES) u[n] = { value: 0 };
+  for (const n of FEEL_NAMES) u[n] = { value: 0 };
+  u.uFeelWind = { value: new THREE.Vector2(1, 0) };
   for (const p of params) {
     u[`u_${p.id}`] = { value: p.type === 'color' ? new THREE.Color(p.default) : paramToFloat(p, p.default) };
   }
@@ -42,7 +48,7 @@ export function paramToFloat(p: ParamDef, v: unknown): number {
 
 export function updateBaseUniforms(
   u: UniformMap,
-  o: { width: number; height: number; time: number; audio: AudioFrame; palette: ResolvedPalette },
+  o: { width: number; height: number; time: number; audio: AudioFrame; palette: ResolvedPalette; feel?: Feel },
 ) {
   (u.uResolution.value as THREE.Vector2).set(o.width, o.height);
   u.uTime.value = o.time;
@@ -68,6 +74,11 @@ export function updateBaseUniforms(
   u.uBeat.value = a.beat ? 1 : 0;
   u.uBeatCount.value = a.beatCount;
   u.uBpm.value = a.bpm;
+  const feel = o.feel;
+  if (feel && u.uFeelWind) {
+    for (const n of FEEL_NAMES) u[n].value = feel[FEEL_UNIFORMS[n]];
+    (u.uFeelWind.value as THREE.Vector2).set(feel.windX, feel.windY);
+  }
   const c = o.palette.c;
   (u.uBg.value as THREE.Color).copy(c.bg);
   (u.uFg.value as THREE.Color).copy(c.fg);

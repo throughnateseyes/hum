@@ -134,6 +134,7 @@ export const ridgeline = defineThreeScene({
   description:
     'Stacked spectrum lines over time seen in perspective, newest line at the front, each one filled with the background so it hides the lines behind it (the classic ridgeline look). Kicks flash the newest line.',
   category: 'form',
+  style: 'data',
   tags: ['minimal', 'editorial', 'melancholic', 'post-punk', 'ambient', 'calm', 'technical', 'monochrome'],
   light: true,
   params,

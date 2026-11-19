@@ -126,6 +126,7 @@ export const particleColumns = defineThreeScene({
   description:
     'A spectrum made of noise: columns of fine stippled, glowing dots rise and fall with their frequency band, a soft haze band drifts behind them and dark slots cut through it. Kicks make the columns jump and bloom, snares flash the field, and a drop re-deals the columns.',
   category: 'field',
+  style: 'particles',
   tags: ['electronic', 'cosmic', 'hypnotic', 'techno', 'ambient', 'dark', 'cold', 'energetic', 'dreamy'],
   params,
   modulations: [

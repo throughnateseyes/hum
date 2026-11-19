@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { STYLES, lookStyle, sceneStyle, type StyleId } from '../core/styles';
 import type { Preset, SceneCategory } from '../core/types';
 import { PRESETS } from '../presets';
 import { allScenes, getScene } from '../scenes';
@@ -42,13 +43,6 @@ const Glyph = ({ c }: { c: SceneCategory }) => {
       <I width={14} height={14} />
     </span>
   );
-};
-const CAT_LABEL: Record<SceneCategory, string> = {
-  board: 'Instrument boards',
-  form: '3D forms',
-  field: 'Fields',
-  photo: 'Photo',
-  code: 'Generated',
 };
 
 /** drag a look card onto a song-map section */
@@ -129,12 +123,15 @@ function Looks() {
   const analysis = useStudio((s) => s.analysis);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
   const [mood, setMood] = useState('all');
+  const [style, setStyle] = useState<StyleId | 'all'>('all');
   const suggested = analysis?.suggestedPresets ?? [];
+  const ranked = suggested.length > 0 && mood === 'all' && style === 'all';
 
   const list = useMemo(() => {
     let l = PRESETS.filter((p) => getScene(p.sceneId));
+    if (style !== 'all') l = l.filter((p) => lookStyle(p) === style);
     if (mood !== 'all') l = l.filter((p) => p.tags.includes(mood) || (mood === 'photo' && getScene(p.sceneId)?.category === 'photo'));
-    if (suggested.length && mood === 'all') {
+    if (suggested.length) {
       const rank = (p: Preset) => {
         const i = suggested.indexOf(p.id);
         return i < 0 ? 999 : i;
@@ -142,7 +139,12 @@ function Looks() {
       l = [...l].sort((a, b) => rank(a) - rank(b));
     }
     return l;
-  }, [mood, suggested]);
+  }, [mood, style, suggested]);
+  // with no song to rank against and no filter, the looks are listed family by family
+  const groups = useMemo(
+    () => (ranked || style !== 'all' || mood !== 'all' ? null : STYLES.map((s) => ({ ...s, looks: list.filter((p) => lookStyle(p) === s.id) })).filter((g) => g.looks.length)),
+    [ranked, style, mood, list],
+  );
 
   // capture a thumbnail for whatever look is showing
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -155,6 +157,18 @@ function Looks() {
   return (
     <>
       <div className="filter-row">
+        <span className="filter-name">Style</span>
+        <button className={`chip ${style === 'all' ? 'on' : ''}`} onClick={() => setStyle('all')}>
+          All
+        </button>
+        {STYLES.map((s) => (
+          <button key={s.id} className={`chip ${style === s.id ? 'on' : ''}`} title={s.hint} onClick={() => setStyle(style === s.id ? 'all' : s.id)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+      <div className="filter-row">
+        <span className="filter-name">Mood</span>
         {MOODS.map((m) => (
           <button key={m} className={`chip ${mood === m ? 'on' : ''}`} onClick={() => setMood(m)}>
             {m[0].toUpperCase() + m.slice(1)}
@@ -182,15 +196,20 @@ function Looks() {
           </div>
         </>
       )}
-      <div className="section-h">
-        <span className="label">{suggested.length && mood === 'all' ? 'Ranked for this track' : 'Presets'}</span>
-        <span className="label">{list.length}</span>
-      </div>
-      <div className="cards">
-        {list.map((p) => (
-          <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => handPick(p)} />
-        ))}
-      </div>
+      {(groups ?? [{ id: 'all', label: ranked ? 'Ranked for this track' : 'Looks', hint: '', looks: list }]).map((g) => (
+        <div key={g.id}>
+          <div className="section-h" title={g.hint || undefined}>
+            <span className="label">{g.label}</span>
+            <span className="label">{g.looks.length}</span>
+          </div>
+          <div className="cards">
+            {g.looks.map((p) => (
+              <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => handPick(p)} />
+            ))}
+          </div>
+        </div>
+      ))}
+      {list.length === 0 && <p className="panel-intro">No looks match both filters.</p>}
     </>
   );
 }
@@ -270,16 +289,19 @@ function Scenes() {
   const sceneId = useStudio((s) => s.sceneId);
   useStudio((s) => s.customShaders.length); // re-render when AI scenes are added
   const scenes = allScenes();
-  const cats: SceneCategory[] = ['board', 'form', 'field', 'photo', 'code'];
+  // by style family; scenes Claude wrote for you come last as their own group
+  const groups = [
+    ...STYLES.map((st) => ({ key: st.id as string, label: st.label, hint: st.hint, list: scenes.filter((s) => s.category !== 'code' && sceneStyle(s) === st.id) })),
+    { key: 'code', label: 'Generated', hint: 'Scenes Claude wrote for you', list: scenes.filter((s) => s.category === 'code') },
+  ];
   return (
     <>
-      {cats.map((c) => {
-        const list = scenes.filter((s) => s.category === c);
+      {groups.map(({ key, label, hint, list }) => {
         if (!list.length) return null;
         return (
-          <div key={c}>
-            <div className="section-h">
-              <span className="label">{CAT_LABEL[c]}</span>
+          <div key={key}>
+            <div className="section-h" title={hint}>
+              <span className="label">{label}</span>
               <span className="label">{list.length}</span>
             </div>
             {list.map((s) => (

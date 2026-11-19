@@ -126,6 +126,7 @@ export const aboveClouds: SceneDef = {
   description:
     'Flying just over a realistic sea of clouds at golden hour, under a dark deck lit from below by a sun on the horizon. Columns of light stand in the cloud sea: they rise with a build and blaze on the drop; kicks make the sea glow.',
   category: 'form',
+  style: 'world',
   tags: ['euphoric', 'cinematic', 'epic', 'spacious', 'dreamy', 'uplifting', 'warm', 'ambient', 'nature', 'organic', 'realistic', 'emotional'],
   params,
   modulations: [],
@@ -173,19 +174,22 @@ export const aboveClouds: SceneDef = {
         drop.step(frame);
         const dEnv = drop.env;
         glowS = approach(glowS, a.kick * num(p, 'glow', 0.7), 12, dt);
-        buildS = approach(buildS, Math.min(1, Math.max(0, a.build)), 3, dt);
+        const feel = frame.feel;
+        // tension also rises in the seconds before a drop the analysis knows about
+        buildS = approach(buildS, Math.min(1, Math.max(0, a.build, feel.tension)), 3, dt);
 
         // camera: just above the sea, looking out to the horizon
         const fov = vol.fitCamera(frame.aspect, 46, 50);
         vol.camera.position.set(0, 2.55, 0);
         vol.camera.rotation.set((-2.5 * Math.PI) / 180, 0, 0, 'YXZ');
         const u = vol.march.uniforms;
-        dirFromAngles(num(p, 'sun', 1.6), -14, u.uSunDir.value as THREE.Vector3);
+        // the sun sits on the horizon ahead; the shared light slides it from left of centre to right over the song
+        dirFromAngles(num(p, 'sun', 1.6), -14 * Math.cos(feel.light), u.uSunDir.value as THREE.Vector3);
 
         // fly forward over the sea (km/s)
         const rate = num(p, 'speed', 0.6) * tempoRate(frame) * (0.6 + 0.5 * a.energy + 0.6 * buildS);
         wind.z += dt * rate * 0.35;
-        wind.x += dt * rate * 0.04;
+        wind.x += dt * rate * 0.04 * feel.windX * (0.75 + 0.6 * feel.gust);
         detailT += dt * rate * 0.03;
         (u.uWind.value as THREE.Vector3).copy(wind);
         u.uDetailT.value = detailT;

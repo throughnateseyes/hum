@@ -151,6 +151,7 @@ export const pointSwarm = defineThreeScene({
   description:
     '110k GPU points streaming through a divergence-free flow field. Kicks punch the cloud outward and send a bright shockwave shell through it, snares wring it into a corkscrew, the spectrum sculpts its silhouette, builds crush it into a spinning core and a drop blows it apart before it re-forms. Glows additively on dark palettes.',
   category: 'form',
+  style: 'particles',
   tags: ['ethereal', 'flowing', 'cosmic', 'electronic', 'hypnotic', 'energetic', 'dreamy'],
   params,
   modulations: [

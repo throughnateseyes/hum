@@ -69,6 +69,7 @@ export const gildedClouds: SceneDef = {
   description:
     'Realistic volumetric cumulus lit by a low golden sun on a dusty blue sky, seen from the ground looking up. The clouds swell and glow on the kick and drift with the tempo, the sun sinks and the sky deepens in quiet parts, a build piles them higher and the drop floods them with light. The hazy horizon along the bottom keeps lyrics readable.',
   category: 'form',
+  style: 'world',
   tags: ['dreamy', 'calm', 'romantic', 'tender', 'ambient', 'spacious', 'warm', 'soft', 'nature', 'organic', 'acoustic', 'indie', 'realistic'],
   light: true,
   params,
@@ -104,7 +105,9 @@ export const gildedClouds: SceneDef = {
         const quiet = 1 - THREE.MathUtils.smoothstep(a.energy, 0.08, 0.55);
         dusk = approach(dusk, quiet * num(p, 'dusk', 0.7), 0.6, dt);
         swellS = approach(swellS, a.kick * num(p, 'swell', 1), 14, dt);
-        const build = Math.min(1, Math.max(0, a.build));
+        const feel = frame.feel;
+        // tension also rises in the seconds before a drop the analysis knows about, so the clouds pile up ahead of it
+        const build = Math.min(1, Math.max(0, a.build, feel.tension));
 
         // camera: on the ground, tilted up so the frame's bottom edge sits just above the horizon
         const fov = vol.fitCamera(frame.aspect, 52, 64);
@@ -114,11 +117,13 @@ export const gildedClouds: SceneDef = {
 
         // sun: low and golden; sinks toward dusk in quiet parts
         const u = vol.march.uniforms;
-        dirFromAngles(24 - 9 * dusk, -150, u.uSunDir.value as THREE.Vector3);
+        // the shared light: behind-left early in the song, overhead-behind at its peak, behind-right by the end
+        dirFromAngles(24 - 9 * dusk + 5 * Math.sin(feel.light), -180 - 30 * Math.cos(feel.light), u.uSunDir.value as THREE.Vector3);
 
         // drift with the tempo (km/s); a build pushes the wind
         const rate = num(p, 'speed', 0.7) * tempoRate(frame) * (0.6 + 0.5 * a.energy + 0.8 * build);
-        wind.x += dt * rate * 0.12;
+        // the shared wind decides which way they drift, and gusts push them along
+        wind.x += dt * rate * 0.12 * feel.windX * (0.75 + 0.6 * feel.gust);
         wind.z += dt * rate * 0.03;
         detailT += dt * rate * 0.02;
         (u.uWind.value as THREE.Vector3).copy(wind);

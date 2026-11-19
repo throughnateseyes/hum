@@ -153,6 +153,7 @@ export const clayOrb = defineThreeScene({
   description:
     'A matte clay blob on a studio backdrop. Sub slowly inflates it, kicks punch dents that ring out as ripples, mids ripple the skin, air adds fine grain and a drop briefly shatters it into spikes.',
   category: 'form',
+  style: 'form',
   tags: ['calm', 'organic', 'soft', 'minimal', 'warm', 'bouncy', 'playful', 'tactile'],
   light: true,
   params,

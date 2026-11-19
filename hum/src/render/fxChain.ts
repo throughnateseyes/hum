@@ -1,3 +1,4 @@
+import type { Feel } from '../core/feel';
 import * as THREE from 'three';
 import { FULLSCREEN_VERT, GLSL_COMMON, GLSL_HEADER, paramUniformDecls } from '../core/glsl';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
@@ -74,7 +75,7 @@ export class FxChain {
     renderer: THREE.WebGLRenderer,
     input: THREE.Texture,
     instances: { inst: EffectInstance; def: EffectDef; params: ParamValues }[],
-    o: { width: number; height: number; time: number; audio: AudioFrame; palette: ResolvedPalette },
+    o: { width: number; height: number; time: number; audio: AudioFrame; palette: ResolvedPalette; feel?: Feel },
   ): THREE.Texture {
     let src = input;
     let flip = false;

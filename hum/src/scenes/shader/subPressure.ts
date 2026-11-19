@@ -84,6 +84,7 @@ export const subPressure = defineClockedShaderScene(
     description:
       'Made for dubstep and bass music: heavy halftoned bars that bend with every sub wobble and bulge out like a speaker cone, blocks sliding with the spectrum, screen-shake on kicks and a hard colour inversion on the drop.',
     category: 'field',
+    style: 'data',
     fragment,
     tags: ['dubstep', 'bass', 'heavy', 'aggressive', 'gritty', 'industrial', 'dark', 'intense'],
     params: [

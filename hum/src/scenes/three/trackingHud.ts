@@ -283,6 +283,7 @@ export const trackingHud = defineThreeScene({
   description:
     'A swirling body of blue-white light watched by a computer-vision overlay: thin red boxes lock onto the bright clusters, green centroid dots, dashed motion arrows and live x / y coordinates. Loud parts lock on more boxes, kicks punch the clusters, and a drop blows the body apart and re-targets everything.',
   category: 'form',
+  style: 'data',
   tags: ['electronic', 'futuristic', 'cinematic', 'techno', 'dark', 'cosmic', 'energetic', 'glitch', 'experimental'],
   params,
   modulations: [
