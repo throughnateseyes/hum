@@ -57,6 +57,8 @@ A Make a video costs about $0.04 on the default model. When a limit is hit, the 
 
 Without a key, the hosted site still works with the offline director.
 
+Visitors without a code can use everything except the AI. When they press an AI action (Make a video, describe a feeling, a new scene), Hum asks for a code and then carries on with that action. The same box links to this repo and explains how to run Hum on their own computer with their own Claude sign-in. If the site has no key at all, the box just says AI is off here. The server is the real check: codes and limits are enforced in `hum/server/`, never in the browser. A saved code can be changed or forgotten under Look → Advanced.
+
 ## The full guide
 
 [hum/README.md](hum/README.md) explains every feature, the keyboard shortcuts, how the app is built, and how to add your own scenes, effects and looks.

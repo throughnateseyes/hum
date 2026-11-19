@@ -701,7 +701,6 @@ export async function makeVideo(wish = '') {
   if (!a || s.planning) return;
   s.set({ planning: true });
   const { requestPlan } = await import('../director/client');
-  const { readAccessCode } = await import('../ui/Director');
   const { getScene } = await import('../scenes');
   const looks = allLooks().filter((p) => getScene(p.sceneId));
   const lyr = s.lyrics;
@@ -739,7 +738,8 @@ export async function makeVideo(wish = '') {
         // lyric video: how overlay lyrics fit each look, and how wordy each section is
         ...lyricRequest(a, lyr, looks, getScene, lyricSeed),
       },
-      { accessCode: readAccessCode() || undefined },
+      // the saved access code is sent by the client; a missing or wrong one opens the access gate,
+      // which retries this request once it's unlocked (closing it keeps the offline plan)
     );
     if (r.ok) claudeLyric = r.lyric;
     if (r.ok) {

@@ -3,6 +3,12 @@
 @import '@fontsource-variable/inter';
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
+/* lyric typefaces (the lyrics panel's font picker) */
+@import '@fontsource-variable/playfair-display/wght.css';
+@import '@fontsource-variable/playfair-display/wght-italic.css';
+@import '@fontsource-variable/oswald';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource-variable/caveat';
 
 :root {
   --canvas: #f1f0ec;
@@ -1173,32 +1179,6 @@ div:hover > .card-del {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.hand-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--h);
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--r-ctl);
-  background: var(--panel-2);
-  color: var(--ink-2);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.hand-btn:hover {
-  color: var(--ink);
-}
-.hand-btn.on {
-  background: var(--ink);
-  color: var(--panel);
-}
-.hand-btn.has-tip:hover::after {
-  left: auto;
-  right: 0;
 }
 .impact {
   display: flex;
@@ -2599,7 +2579,6 @@ html.perform-idle * {
   .impact-s {
     flex: 1;
   }
-  .hand-btn,
   .sw.boxed {
     justify-content: center;
   }
@@ -2770,8 +2749,111 @@ html.perform-idle * {
 .lyr-pop.wide {
   width: 340px;
 }
+.lyr-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.lyr-top .lyr-h {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lyr-status {
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+}
+.lyr-main {
+  width: 100%;
+  height: 34px;
+  justify-content: center;
+  font-weight: 600;
+}
+.lyr-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.lyr-label {
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+}
+.lyr-fonts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.lyr-font {
+  height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.lyr-font:hover {
+  background: var(--sel);
+}
+.lyr-font.on {
+  background: var(--ink);
+  color: var(--panel);
+}
+.lyr-font.condensed {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.lyr-font.hand {
+  font-size: 19px;
+}
+.lyr-font.mono {
+  font-size: 13px;
+}
+.lyr-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--fs-2);
+  cursor: pointer;
+}
+.lyr-more-btn::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+.lyr-more-btn.open::after {
+  margin-top: 2px;
+  transform: rotate(-135deg);
+}
+.lyr-more-btn:hover {
+  color: var(--ink);
+}
 .lyr-more {
-  margin-left: -8px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 .lyr-form {
   width: 100%;
@@ -3141,9 +3223,9 @@ html.perform-idle * {
   --pulse: 0;
   position: relative;
   pointer-events: auto;
-  width: min(480px, 100%);
+  width: min(640px, 100%);
   max-height: 100%;
-  padding: 22px 22px 16px;
+  padding: 22px 24px 16px;
   border-radius: 16px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -3171,7 +3253,7 @@ html.perform-idle * {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.35;
   mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .1  0 0 0 0 .1  0 0 0 0 .09  0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
@@ -3184,9 +3266,9 @@ html.perform-idle * {
 }
 .wl-word {
   margin: 0;
-  font-size: 46px;
+  font-size: 40px;
   line-height: 0.9;
-  font-weight: 680;
+  font-weight: 650;
   letter-spacing: -0.045em;
   color: var(--ink);
 }
@@ -3221,6 +3303,7 @@ html.perform-idle * {
   transform: scaleX(0);
   transform-origin: left;
   transition: transform 0.18s;
+  display: none;
 }
 .welcome[data-tag='0'] .wl-tags b[data-i='0'],
 .welcome[data-tag='1'] .wl-tags b[data-i='1'],
@@ -3237,16 +3320,16 @@ html.perform-idle * {
 .wl-mark {
   position: relative;
   flex: none;
-  width: 64px;
-  height: 64px;
-  margin: -4px 2px 0 0;
+  width: 52px;
+  height: 52px;
+  margin: -2px 2px 0 0;
   display: grid;
   place-items: center;
   animation: ld-float 3.2s ease-in-out infinite;
 }
 .wl-ball {
-  width: 46px;
-  height: 46px;
+  width: 36px;
+  height: 36px;
 }
 .wl-rings {
   position: absolute;
@@ -3256,12 +3339,12 @@ html.perform-idle * {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 46px;
-  height: 46px;
-  margin: -23px 0 0 -23px;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
   border-radius: 50%;
-  border: 1.5px solid rgba(47, 75, 255, 0.45);
-  animation: ld-ripple 1.3s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  border: 1px solid rgba(47, 75, 255, 0.3);
+  animation: ld-ripple 1.6s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 .wl-choose {
   position: relative;
@@ -3269,7 +3352,7 @@ html.perform-idle * {
   align-items: center;
   gap: 14px;
   width: 100%;
-  height: 60px;
+  height: 54px;
   padding: 0 18px 0 16px;
   border: 0;
   border-radius: 12px;
@@ -3279,7 +3362,7 @@ html.perform-idle * {
   cursor: pointer;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.25) inset,
-    0 calc(8px + var(--pulse) * 4px) calc(20px + var(--pulse) * 10px) -10px rgba(47, 75, 255, 0.75);
+    0 8px 20px -12px rgba(47, 75, 255, 0.6);
   transition:
     transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1),
     background 0.15s;
@@ -3306,7 +3389,7 @@ html.perform-idle * {
     transform 0.2s;
 }
 .wl-label b {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 620;
   letter-spacing: -0.01em;
 }
@@ -3346,13 +3429,13 @@ html.perform-idle * {
   border-radius: 1.5px;
   background: rgba(255, 255, 255, 0.92);
   transform-origin: bottom;
-  animation: wl-bar 1.07s ease-in-out infinite;
+  animation: wl-bar 1.6s ease-in-out infinite;
 }
 .wl-eq i:nth-child(2n) {
-  animation-duration: 0.8s;
+  animation-duration: 1.2s;
 }
 .wl-eq i:nth-child(3n) {
-  animation-duration: 1.34s;
+  animation-duration: 2s;
 }
 .wl-choose:hover .wl-eq i,
 .dropzone-over .wl-eq i {
@@ -3425,30 +3508,17 @@ html.perform-idle * {
 /* a roomy stage: a bigger island */
 @container (min-height: 460px) and (min-width: 640px) {
   .welcome {
-    width: 540px;
-    padding: 28px 28px 20px;
+    width: min(700px, 100%);
+    padding: 26px 28px 18px;
   }
   .wl-word {
-    font-size: 58px;
+    font-size: 48px;
   }
   .wl-head {
-    margin-bottom: 24px;
-  }
-  .wl-mark {
-    width: 80px;
-    height: 80px;
-  }
-  .wl-ball,
-  .wl-rings i {
-    width: 58px;
-    height: 58px;
-    margin: -29px 0 0 -29px;
-  }
-  .wl-ball {
-    margin: 0;
+    margin-bottom: 22px;
   }
   .wl-choose {
-    height: 66px;
+    height: 58px;
   }
 }
 /* a short stage (a phone, a small window): tighter, the beat words go */
@@ -3489,4 +3559,157 @@ html.perform-idle * {
 /* over the start screen the island says it ("Let go to play it"), so the page outline stays wordless */
 .dropzone-over:has(.welcome)::after {
   content: '';
+}
+
+/* ───────── access gate (AI code / run it yourself) ───────── */
+.gate-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: var(--s-4);
+  background: rgba(27, 27, 26, 0.32);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: gateFade 0.14s ease-out;
+}
+.gate {
+  position: relative;
+  width: min(380px, 100%);
+  max-height: calc(100dvh - 2 * var(--s-4));
+  overflow-y: auto;
+  padding: var(--s-5) var(--s-5) var(--s-4);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--fs-3);
+  animation: gateIn 0.18s ease-out;
+}
+.gate:focus {
+  outline: none;
+}
+.gate-x {
+  position: absolute;
+  top: var(--s-2);
+  right: var(--s-2);
+}
+.gate h2 {
+  margin: 0 var(--s-5) var(--s-2) 0;
+  font-size: var(--fs-5);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.gate-lede {
+  margin: 0 0 var(--s-4);
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.gate-form {
+  display: flex;
+  gap: var(--s-2);
+}
+.gate-form .txt {
+  flex: 1;
+  min-width: 0;
+  height: var(--h-lg);
+  font-size: 16px; /* 16px keeps phones from zooming into the field */
+}
+.gate-form .btn {
+  height: var(--h-lg);
+  padding: 0 var(--s-3);
+}
+.gate-form .txt[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.gate-err {
+  margin: var(--s-2) 0 0;
+  color: var(--danger);
+  font-size: var(--fs-2);
+  line-height: 1.4;
+}
+.gate-skip {
+  display: block;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+}
+.gate-skip:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.gate-diy {
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.gate-diy.solo {
+  margin-top: 0;
+}
+.gate-diy h3 {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-4);
+  font-weight: 600;
+  color: var(--ink);
+}
+.gate-diy ol {
+  margin: 0 0 var(--s-3);
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+}
+.gate-diy code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--ink);
+}
+.gate-gh {
+  text-decoration: none;
+}
+@keyframes gateFade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes gateIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+@media (max-width: 520px) {
+  .gate-scrim {
+    place-items: end center;
+  }
+  .gate {
+    padding: var(--s-4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gate-scrim,
+  .gate {
+    animation: none;
+  }
+}
+
+/* the quiet access-code row in Inspector → Advanced */
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--h-sm);
+  color: var(--ink-3);
+  font-size: var(--fs-2);
 }

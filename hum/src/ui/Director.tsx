@@ -6,13 +6,8 @@ import { pickLook, pickScene } from '../state/plan';
 import { useStudio, type ChatMsg } from '../state/store';
 import { Arrow, Chevron, Redo, Sparkle, Trash } from './Icons';
 
-export function readAccessCode(): string {
-  try {
-    return localStorage.getItem('hum.accessCode') ?? '';
-  } catch {
-    return '';
-  }
-}
+/** the saved access code now lives with the access gate */
+export { readAccessCode } from '../director/access';
 
 type Mode = 'preset' | 'shader';
 
@@ -73,15 +68,13 @@ export function DirectorPanel() {
     setPrompt('');
     setBusy(mode);
     try {
-      const res = await direct(
-        {
-          prompt: p,
-          mode,
-          track: s.analysis ? { summary: s.analysis.summary, bpm: s.analysis.bpm, mood: s.analysis.mood, tags: s.analysis.tags } : null,
-          current: s.sceneId ? lookToPreset(s, { id: s.presetId ?? 'current', name: 'Current look', description: '', tags: [] }) : null,
-        },
-        { accessCode: readAccessCode() || undefined },
-      );
+      // the saved code is sent by the client; a missing or wrong one opens the access gate
+      const res = await direct({
+        prompt: p,
+        mode,
+        track: s.analysis ? { summary: s.analysis.summary, bpm: s.analysis.bpm, mood: s.analysis.mood, tags: s.analysis.tags } : null,
+        current: s.sceneId ? lookToPreset(s, { id: s.presetId ?? 'current', name: 'Current look', description: '', tags: [] }) : null,
+      });
       const st = useStudio.getState();
       if (res.shader) {
         st.addCustomShader(res.shader);

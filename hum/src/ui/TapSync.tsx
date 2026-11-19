@@ -60,7 +60,7 @@ export function TapSync() {
   const close = useCallback(() => {
     saveLyrics();
     useStudio.getState().set({ tapSync: false });
-    if (taps) useStudio.getState().flash(`Timing fixed (${taps} tap${taps === 1 ? '' : 's'}) and saved for this song`);
+    if (taps) useStudio.getState().flash('Timing saved');
   }, [taps]);
 
   // Space taps while the panel is open (instead of play/pause); Esc closes
@@ -90,10 +90,10 @@ export function TapSync() {
   const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
   return (
-    <div className="tap" role="dialog" aria-label="Fix lyric timing">
+    <div className="tap" role="dialog" aria-label="Tap lyric timing">
       <div className="tap-head">
-        <b>Fix timing</b>
-        <span>Tap (or press Space) the moment each line starts</span>
+        <b>Tap timing</b>
+        <span>Tap or press Space as each line starts</span>
         <button className="btn sm ghost" onClick={close}>
           Done
         </button>

@@ -338,13 +338,14 @@ const LYRIC_TYPES = ['grotesk', 'serif', 'condensed', 'mono', 'rounded', 'typewr
 
 const LYRIC_RULES = `## The lyrics: direct a lyric video
 When the song has timed lyrics, also decide how the words appear, per section, like an editor making a lyric video. Mix mediums across the song instead of one treatment for everything:
-- subtitle: the line small, low or high in the frame. For verses and dense, wordy parts (over ~2.5 words per second big type can't be read).
+- subtitle: the line small, low in the frame. For verses and dense, wordy parts (over ~2.5 words per second big type can't be read).
 - big: the line huge, word by word, in the song's motion. For choruses and drops, and slow, sparse lines that deserve weight.
 - cutout: ransom-note clippings on paper scraps. Loud choruses and drops, bridges, punk or playful songs; it is legible on any picture.
-- sparse: only one or two key words of each line, small, in a calm corner. Builds, intros, breaks, the hush before a drop.
+- sparse: the line small and quiet, set to one side, its key words a little bigger. Builds, intros, breaks, the hush before a drop.
 - own: the look shows the words itself (its lyric fit says "carries the words"): overlay text stands down there. Use it whenever that look leads a section with lyrics.
+Lyrics only ever sit in the middle or the lower third of the frame (the top stays clear), and every word of every line is shown; Hum places them, you only pick the medium.
 Respect each look's lyric fit (what it suits, where its calm zones are): never put big type on a look that suits it poorly; prefer the look's own lyrics when it carries them. Sections in the same group usually keep their medium, so a returning chorus looks like itself; the last chorus may escalate. Use at least two mediums in a song with three or more sung parts.
-- moment (optional, rare): "giant" puts one huge word on the first line of the biggest drop or peak; "burst" throws one chorus line down as a scatter of cutouts. At most one of each per song.
+- moment (optional, rare): "giant" sets the key word of the first line of the biggest drop or peak huge, the rest of the line around it; "burst" throws one chorus line down as a scatter of cutouts. At most one of each per song.
 - lyricType: one type family for the whole video (grotesk, serif, condensed, mono, rounded, typewriter) that fits the genre and mood: serif or typewriter for tender and intimate songs, condensed or grotesk for loud ones, mono for cold electronic ones, rounded for sweet pop.
 Give each section with words a lyric entry; leave it out for sections without words.`;
 
@@ -353,10 +354,17 @@ const LYRIC_PART_SCHEMA = {
   description: 'Optional (sections with words): how the lyrics appear in this section.',
   properties: {
     medium: { type: 'string', enum: [...LYRIC_MEDIUMS] },
-    moment: { type: 'string', enum: [...LYRIC_MOMENTS], description: 'Optional one-off: giant (one huge word on the drop) or burst (a scatter of cutouts).' },
+    moment: { type: 'string', enum: [...LYRIC_MOMENTS], description: 'Optional one-off: giant (the key word huge on the drop) or burst (a scatter of cutouts).' },
   },
   required: ['medium'],
 };
+
+/** lyrics never sit in the top of the frame, so a look's calm "top" zone isn't offered to the plan */
+const noTop = (fit: string) =>
+  fit.replace(/calm ([a-z/]+)/, (_, z: string) => {
+    const keep = z.split('/').filter((x) => x && x !== 'top');
+    return `calm ${keep.length ? keep.join('/') : 'bottom'}`;
+  });
 
 /** lyric fit per look: [{ id, fit }] → one line each */
 function describeLyricFit(raw: unknown, known: Set<string>): string {
@@ -365,7 +373,7 @@ function describeLyricFit(raw: unknown, known: Set<string>): string {
     .slice(0, 80)
     .filter(isObj)
     .filter((x) => typeof x.id === 'string' && known.has(x.id) && typeof x.fit === 'string')
-    .map((x) => `${String(x.id).slice(0, 48)}: ${String(x.fit).replace(/\s+/g, ' ').slice(0, 90)}`);
+    .map((x) => `${String(x.id).slice(0, 48)}: ${noTop(String(x.fit).replace(/\s+/g, ' ').slice(0, 90))}`);
   return capBytes(lines.join('\n'), 6_000);
 }
 
@@ -538,6 +546,16 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   if (!key && !useLocal) return { status: 501, json: { error: 'no_key', note: 'No ANTHROPIC_API_KEY is configured on the server.' } };
 
   if (!isObj(body)) return { status: 400, json: { error: 'bad_request', note: 'Expected a JSON object.' } };
+
+  // the local backend is just you on your own machine, so it skips access codes (and, below, the limits)
+  const who = useLocal ? 'local' : matchCode(env, body.accessCode);
+  // `check`: is this code good? Answers without calling Claude or counting, so the app can ask before
+  // it sends a real request. Same rule as every other mode, so it reveals nothing a real request wouldn't.
+  if (body.mode === 'check') {
+    if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
+    return { status: 200, json: { ok: true, via: useLocal ? 'subscription' : 'api' } };
+  }
+
   const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : body.mode === 'plan' ? 'plan' : null;
   const promptRaw = typeof body.prompt === 'string' ? body.prompt.trim() : '';
   if (!mode) return { status: 400, json: { error: 'bad_request', note: 'mode must be "preset", "shader" or "plan".' } };
@@ -546,10 +564,8 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   }
   if (!promptRaw && !body.current && !body.track) return { status: 400, json: { error: 'bad_request', note: 'Empty prompt.' } };
 
-  const who = matchCode(env, body.accessCode);
   if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
 
-  // the local backend is just you on your own machine, so it skips the visitor limits
   if (!useLocal) {
     const gate = await checkLimits(env, { ip, code: who });
     if (!gate.ok) return { status: gate.status, json: gate.json };

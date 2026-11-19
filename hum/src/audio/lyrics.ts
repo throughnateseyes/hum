@@ -81,6 +81,25 @@ export function parseLyricsfile(yaml: string, duration: number): LyricLine[] {
     else if (key === 'end_ms') target.end = Number(v) / 1000;
     else if (key === 'words') word = null;
   }
+  // word pieces are syllables: only a trailing space ends a word ("yummy-" + "yum" is one word)
+  for (const l of lines) {
+    if (!l.words?.length) continue;
+    const merged: { t: number; end: number; text: string }[] = [];
+    let open: { t: number; end: number; text: string } | null = null;
+    for (const p of l.words) {
+      if (open) {
+        open.text += p.text;
+        open.end = p.end;
+      } else open = { ...p };
+      if (/\s$/.test(p.text)) {
+        merged.push(open);
+        open = null;
+      }
+    }
+    if (open) merged.push(open);
+    l.words = merged.map((w) => ({ ...w, text: w.text.trim() })).filter((w) => w.text);
+    if (!l.text) l.text = l.words.map((w) => w.text).join(' ');
+  }
   return finish(lines.filter((l) => l.text || l.words?.length), duration);
 }
 
@@ -93,12 +112,17 @@ function finish(lines: LyricLine[], duration: number): LyricLine[] {
     if (!l.end || l.end <= l.t) l.end = next ? next.t : Math.min(duration || l.t + 5, l.t + 6);
     // cap how long a line lingers before an instrumental gap
     l.end = Math.min(l.end, l.t + Math.max(4, l.text.length * 0.12 + 2));
-    if (l.words) {
+    if (l.words?.length) {
+      l.words.sort((a, b) => a.t - b.t);
       for (let j = 0; j < l.words.length; j++) {
         const w = l.words[j];
-        if (!w.end || w.end <= w.t) w.end = l.words[j + 1]?.t ?? l.end;
+        if (!w.end || w.end <= w.t) w.end = l.words[j + 1]?.t ?? Math.max(l.end, w.t + 0.3);
       }
+      // the line lasts at least until its last word is sung (word stamps can run past the next line)
+      l.end = Math.max(l.end, l.words[l.words.length - 1].end);
     }
+    // two lines on the same stamp: the renderer shows them together, but keep the end sane
+    if (l.end <= l.t) l.end = l.t + 0.3;
   }
   return lines.filter((l) => l.text.trim());
 }

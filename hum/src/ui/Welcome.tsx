@@ -47,6 +47,7 @@ export function Welcome() {
     // ripples start at the mark, one per beat
     const ripples: number[] = [];
     let beat = -1;
+    let beat2 = -1;
     const t0 = performance.now();
     const CELL = 11;
     // a fixed shape for each cell, so the mosaic reads as glyphs and not noise
@@ -67,17 +68,21 @@ export function Welcome() {
       const phase = (t % BEAT) / BEAT;
       if (b !== beat) {
         beat = b;
-        ripples.push(t);
-        if (ripples.length > 4) ripples.shift();
         box.dataset.tag = String(b % TAGS.length);
+      }
+      // a ripple and a ring only every other beat: it should breathe, not shout
+      if (b !== beat2 && b % 2 === 0) {
+        beat2 = b;
+        ripples.push(t);
+        if (ripples.length > 3) ripples.shift();
         if (rings.current && !still) {
           const r = document.createElement('i');
           rings.current.appendChild(r);
           window.setTimeout(() => r.remove(), 1400);
         }
       }
-      const pulse = Math.exp(-phase * 5);
-      mark.current?.style.setProperty('--lvl', (pulse * (0.55 + h * 0.45)).toFixed(3));
+      const pulse = Math.exp(-phase * 5) * (b % 2 === 0 ? 1 : 0.4);
+      mark.current?.style.setProperty('--lvl', (pulse * (0.35 + h * 0.5)).toFixed(3));
       box.style.setProperty('--pulse', pulse.toFixed(3));
 
       // the mark's centre, in the card's space
@@ -90,7 +95,7 @@ export function Welcome() {
       const floor = btn ? btn.top - cr.top + btn.height * 0.5 : H * 0.55;
 
       ctx.clearRect(0, 0, W, H);
-      const reach = Math.hypot(W, H) * (0.62 + h * 0.28);
+      const reach = Math.hypot(W, H) * (0.4 + h * 0.3);
       for (let y = CELL / 2; y < floor; y += CELL) {
         const band = Math.min(1, (floor - y) / 34);
         for (let x = CELL / 2; x < W; x += CELL) {
@@ -98,20 +103,20 @@ export function Welcome() {
           if (d > reach) continue;
           // falls off away from the mark, so the words stay on clean paper
           const fall = Math.max(0, 1 - d / reach);
-          let v = 0.35 + 0.35 * Math.sin(x * 0.05 + t * 0.8) * Math.cos(y * 0.07 - t * 0.55);
+          let v = 0.3 + 0.3 * Math.sin(x * 0.045 + t * 0.5) * Math.cos(y * 0.06 - t * 0.35);
           for (const rt of ripples) {
-            const r = (t - rt) * 210;
-            const age = Math.max(0, 1 - (t - rt) / 2.2);
-            v += Math.exp(-(((d - r) / 16) ** 2)) * 0.75 * age;
+            const r = (t - rt) * 170;
+            const age = Math.max(0, 1 - (t - rt) / 2.4);
+            v += Math.exp(-(((d - r) / 18) ** 2)) * 0.5 * age;
           }
-          v = Math.min(1, v * (0.55 + h * 0.6)) * fall * fall * band;
-          if (v < 0.06) continue;
+          v = Math.min(1, v * (0.5 + h * 0.7)) * fall * fall * band;
+          if (v < 0.08) continue;
           const k = hash(x, y);
           const s = CELL * (0.18 + v * 0.42);
-          ctx.fillStyle = `rgba(47, 75, 255, ${(0.25 + v * 0.75).toFixed(3)})`;
+          ctx.fillStyle = `rgba(47, 75, 255, ${((0.18 + v * 0.5) * (1 + h * 0.6)).toFixed(3)})`;
           ctx.strokeStyle = ctx.fillStyle;
           ctx.lineWidth = 1.4;
-          if (v > 0.62 && k > 0.45) {
+          if (h > 0.5 && v > 0.62 && k > 0.45) {
             ctx.fillRect(x - s, y - s, s * 2, s * 2); // solid tile
           } else if (k < 0.34) {
             ctx.beginPath(); // plus

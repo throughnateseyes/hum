@@ -104,8 +104,10 @@ export function canSyncLyrics() {
 }
 
 /**
- * Time pasted lyrics (or LRCLIB's untimed words) to the song by listening for the sung words on
- * this computer. Falls back to spreading the lines evenly, ready to be tapped into place.
+ * Time lyrics to the song by listening for the sung words on this computer. Lyrics that already
+ * have timings (LRCLIB, the file, an earlier sync) keep them as a guide: the heard words move them
+ * onto the singing, and lines nothing was heard for follow the old timing, shifted the same way.
+ * Pasted words with no timing fall back to spreading the lines evenly, ready to be tapped into place.
  */
 export async function syncPastedLyrics(text: string, keep: Partial<Pick<Lyrics, 'source' | 'title' | 'artist'>> = {}) {
   const buf = lastBuf;
@@ -113,37 +115,50 @@ export async function syncPastedLyrics(text: string, keep: Partial<Pick<Lyrics, 
   if (!buf || !lastFile || st.lyricsSync) return;
   const token = loadToken;
   const prior = st.lyrics;
+  const guide = prior?.synced && prior.lines.length ? prior.lines : undefined;
   const base: Omit<Lyrics, 'lines'> = { synced: true, source: 'pasted', plain: text, title: prior?.title, artist: prior?.artist, ...keep };
   st.set({ lyricsSync: { stage: 'prepare', frac: 0 }, lyricsMatched: null });
   let lines: LyricLine[] = [];
   let matched = 0;
   let note = '';
   try {
-    const heard = await listenForWords(buf, (p) => token === loadToken && useStudio.getState().set({ lyricsSync: p }));
+    const heard = await listenForWords(buf, (p) => token === loadToken && useStudio.getState().set({ lyricsSync: p }), guessLanguage(text));
     if (token !== loadToken) return;
     lastHeard = heard;
-    const res = alignLyrics(text, heard, buf.duration);
+    const res = alignLyrics(text, heard, buf.duration, { prior: guide });
     lines = res.lines;
     matched = res.matched;
-    if (matched < 0.25) note = 'Couldn’t hear many of the words, so the timing is rough. Use Fix timing to tap it into place.';
+    if (matched < (guide ? 0.1 : 0.25)) note = guide ? 'Couldn’t hear enough of the words to improve the timing.' : 'Couldn’t hear many of the words, so the timing is rough. Tap to fix it.';
   } catch (e) {
     console.warn('[hum] listening failed', e);
     if (token !== loadToken) return;
-    note = `Couldn’t listen to the song (${e instanceof Error ? e.message : 'unknown error'}). The lines are spread out evenly: use Fix timing to tap them into place.`;
+    note = `Couldn’t listen to the song (${e instanceof Error ? e.message : 'unknown error'}).`;
   }
-  if (!lines.length || matched < 0.25) {
-    // too little to go on: keep any lines that did land, otherwise spread them evenly
-    if (!lines.length) lines = spreadLyrics(text, buf.duration);
-  }
+  // too little to go on: keep the timing it had, or spread the lines evenly to tap into place
+  if (guide && (!lines.length || matched < 0.1)) lines = guide;
+  else if (!lines.length) lines = spreadLyrics(text, buf.duration);
   if (!lines.length) {
     useStudio.getState().set({ lyricsSync: null });
     useStudio.getState().flash('There were no lines to sync');
     return;
   }
   const lyrics: Lyrics = { ...base, lines };
-  useStudio.getState().set({ lyrics, lyricsStatus: 'found', lyricsSync: null, lyricsMatched: lines.some((l) => l.words) ? matched : null, lyricsNote: note });
+  useStudio.getState().set({ lyrics, lyricsStatus: 'found', lyricsSync: null, lyricsMatched: lines !== guide && lines.some((l) => l.words) ? matched : null, lyricsNote: note });
   saveLyrics();
-  useStudio.getState().flash(note ? 'Lyrics added. The timing needs a few taps' : `Lyrics synced: matched ${Math.round(matched * 100)}% of the words`);
+  useStudio.getState().flash(note ? (guide ? 'Kept the timing it had' : 'Lyrics added. The timing needs a few taps') : 'Lyrics synced to the singing');
+}
+
+/** Whisper's language for the lyrics' script (it assumes English otherwise); undefined lets it be */
+function guessLanguage(text: string): string | undefined {
+  if (/[\u3040-\u30ff]/.test(text)) return 'japanese';
+  if (/[\uac00-\ud7af]/.test(text)) return 'korean';
+  if (/[\u4e00-\u9fff]/.test(text)) return 'chinese';
+  if (/[\u0400-\u04ff]/.test(text)) return 'russian';
+  if (/[\u0600-\u06ff]/.test(text)) return 'arabic';
+  if (/[\u0e00-\u0e7f]/.test(text)) return 'thai';
+  if (/[\u0590-\u05ff]/.test(text)) return 'hebrew';
+  if (/[ñ¿¡]/i.test(text)) return 'spanish';
+  return undefined;
 }
 
 /** the words heard in the loaded song, once it has been listened to */
@@ -162,8 +177,8 @@ async function retimeToFile(l: Lyrics, refDuration: number): Promise<{ lyrics: L
   const diff = dur - refDuration;
   const longer = `Timed for a ${fmtLen(refDuration)} version (this file is ${fmtLen(Math.abs(diff))} ${diff > 0 ? 'longer' : 'shorter'})`;
   if (lastHeard?.length) {
-    const res = alignLyrics(l.lines.map((x) => x.text).join('\n'), lastHeard, dur);
-    if (res.matched >= 0.25) return { lyrics: { ...l, lines: res.lines }, note: `${longer}; lined up with this file by listening.` };
+    const res = alignLyrics(l.lines.map((x) => x.text).join('\n'), lastHeard, dur, { prior: l.lines });
+    if (res.matched >= 0.15) return { lyrics: { ...l, lines: res.lines }, note: `${longer}; lined up with this file by listening.` };
   }
   try {
     // lengths on LRCLIB aren't always the song's (some uploads add silence), so look a bit wider
@@ -178,10 +193,10 @@ async function retimeToFile(l: Lyrics, refDuration: number): Promise<{ lyrics: L
       })
       .filter((x) => x.end > 0 && x.t < dur);
     const sign = off >= 0 ? '+' : '−';
-    return { lyrics: { ...l, lines }, note: `${longer}; moved ${sign}${Math.abs(off).toFixed(1)} s to match where the singing is. For exact timing, use Re-time by listening.` };
+    return { lyrics: { ...l, lines }, note: `${longer}; moved ${sign}${Math.abs(off).toFixed(1)} s to match the singing. Sync by listening for exact timing.` };
   } catch (e) {
     console.warn('[hum] retime failed', e);
-    return { lyrics: l, note: `${longer}; the timing may be off. Use Re-time by listening or Fix timing.` };
+    return { lyrics: l, note: `${longer}; the timing may be off. Sync by listening to fix it.` };
   }
 }
 

@@ -26,6 +26,9 @@ export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
 export type LyricStyle = 'off' | 'subtitle' | 'big' | 'cutout' | 'auto';
 /** big / cutout lyrics on looks that already show the words themselves (typewriter, word cloud…) */
 export type LyricsOnBoards = 'hide' | 'show';
+/** the lyric typeface: 'auto' follows the song (or Claude's plan); the rest are bundled fonts */
+export type LyricFont = 'auto' | 'grotesk' | 'serif' | 'condensed' | 'mono' | 'hand';
+export const LYRIC_FONTS: LyricFont[] = ['auto', 'grotesk', 'serif', 'condensed', 'mono', 'hand'];
 /** small board windows over the picture: during a played video plan, always, or never */
 export type PopupMode = 'video' | 'always' | 'off';
 /** how often a video plan changes the picture: calmer, follow the song, or faster */
@@ -91,6 +94,7 @@ export interface StudioState extends LookState {
   /** the user chose a lyric style themselves (until then it's Auto) */
   lyricStylePicked: boolean;
   lyricsOnBoards: LyricsOnBoards;
+  lyricFont: LyricFont;
   lyricsSync: LyricsSync;
   /** what the automatic lookup searched for (prefills the search box) */
   lyricsQuery: { title?: string; artist?: string };
@@ -133,7 +137,7 @@ export interface StudioState extends LookState {
   flash: (msg: string) => void;
 }
 
-export const HAND_DEFAULT: HandStyle = { on: false, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
+export const HAND_DEFAULT: HandStyle = { on: true, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
 
 /** a stored or AI-made hand style, with anything missing or out of range fixed */
 export function cleanHand(h: unknown): HandStyle | undefined {
@@ -179,6 +183,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
       lyricStylePicked: j.lyricStylePicked === true,
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
+      lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
     };
   } catch {
     return {};
@@ -201,6 +206,7 @@ function persist(s: StudioState) {
         lyricStyle: s.lyricStyle,
         lyricStylePicked: s.lyricStylePicked,
         lyricsOnBoards: s.lyricsOnBoards,
+        lyricFont: s.lyricFont,
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
         pace: s.pace,
@@ -277,6 +283,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricStyle: persisted.lyricStyle ?? 'auto',
   lyricStylePicked: persisted.lyricStylePicked ?? false,
   lyricsOnBoards: persisted.lyricsOnBoards ?? 'hide',
+  lyricFont: persisted.lyricFont ?? 'auto',
   lyricsSync: null,
   lyricsQuery: {},
   lyricsMatched: null,
@@ -380,7 +387,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

@@ -1,5 +1,6 @@
 import type { AudioFrame, TrackAnalysis } from '../core/types';
 import { hash } from '../scenes/board/kit';
+import { LYRIC_FAMILIES } from './lyricFonts';
 
 /**
  * Auto lyrics: the treatment follows what the song feels like.
@@ -122,7 +123,7 @@ export interface Style {
   base: number;
 }
 
-const SANS = 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+const SANS = LYRIC_FAMILIES.grotesk;
 const STYLES: Record<Treatment, Style> = {
   tender: { weight: 300, family: SANS, track: 0.16, upper: false, lower: true, base: 0.058 },
   dreamy: { weight: 400, family: SANS, track: 0.08, upper: false, lower: true, base: 0.06 },
@@ -130,15 +131,8 @@ const STYLES: Record<Treatment, Style> = {
   aggressive: { weight: 400, family: 'Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Black", sans-serif', track: 0.01, upper: true, lower: false, base: 0.08 },
 };
 
-/** the song's type family: one per song, so the whole video speaks with one voice */
-export const FAMILY_FONTS: Record<string, string> = {
-  grotesk: SANS,
-  serif: 'Didot, "Bodoni 72", "Bodoni MT", "Playfair Display", Georgia, serif',
-  condensed: '"Avenir Next Condensed", "Arial Narrow", "Helvetica Neue Condensed", Impact, sans-serif',
-  mono: '"SF Mono", "JetBrains Mono", Menlo, Consolas, "Courier New", monospace',
-  rounded: 'ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Varela Round", sans-serif',
-  typewriter: '"American Typewriter", "Courier New", Courier, serif',
-};
+/** the song's type family: one per song, so the whole video speaks with one voice (bundled fonts) */
+export const FAMILY_FONTS: Record<string, string> = LYRIC_FAMILIES;
 
 /**
  * The motion's style set in the song's family, varied a little per part (`variant` 0..1 from the
@@ -147,7 +141,7 @@ export const FAMILY_FONTS: Record<string, string> = {
 export function styleFor(treatment: Treatment, family?: string, variant = 0.5): Style {
   const st = { ...STYLES[treatment] };
   if (!family || !FAMILY_FONTS[family]) return st;
-  st.family = family === 'condensed' && treatment === 'aggressive' ? STYLES.aggressive.family : FAMILY_FONTS[family];
+  st.family = FAMILY_FONTS[family];
   const heavy = treatment === 'punchy' || treatment === 'aggressive';
   if (family === 'serif') {
     st.weight = heavy ? 700 : 400;
@@ -170,6 +164,13 @@ export function styleFor(treatment: Treatment, family?: string, variant = 0.5): 
   } else if (family === 'rounded') {
     st.weight = heavy ? 800 : 500;
     st.track = heavy ? 0 : 0.04;
+  } else if (family === 'hand') {
+    // handwriting: never all caps, a little bigger (the x-height is small)
+    st.weight = heavy ? 700 : 500;
+    st.track = 0;
+    st.upper = false;
+    st.lower = false;
+    st.base *= 1.18;
   } else if (family === 'typewriter') {
     st.weight = heavy ? 700 : 400;
     st.track = 0.03;
@@ -195,8 +196,8 @@ function caseOf(st: Style, s: string) {
 
 /**
  * Lay one line out: emphasis per word from how it's sung, wrapped and fitted (with room to swell)
- * into `box`, aligned left, centre or right. `scale` sizes the type (sparse words smaller, the giant
- * word huge); `maxRows` caps the wrap.
+ * into `box`, aligned left, centre or right. `scale` sizes the type (sparse lines smaller, giant
+ * lines huge); `maxRows` caps the wrap; `boost` sets some words (the key words) bigger.
  */
 export function buildAuto(
   g: CanvasRenderingContext2D,
@@ -206,7 +207,7 @@ export function buildAuto(
   W: number,
   H: number,
   treatment: Treatment,
-  o: { style?: Style; box?: Box; align?: 'left' | 'center' | 'right'; scale?: number; maxRows?: number } = {},
+  o: { style?: Style; box?: Box; align?: 'left' | 'center' | 'right'; scale?: number; maxRows?: number; boost?: { index: number[]; k: number } } = {},
 ): AutoLayout {
   const st = o.style ?? STYLES[treatment];
   const box = o.box ?? { x0: W * 0.1, y0: H * 0.19, x1: W * 0.9, y1: H * 0.81 };
@@ -223,6 +224,8 @@ export function buildAuto(
     const e = (timed ? 0.6 : 0.25) * held + (timed ? 0.4 : 0.35) * lo;
     return words.length === 1 ? 1 : 0.88 + 0.5 * e;
   });
+  // key words set bigger than the rest (the giant moment, sparse lines)
+  if (o.boost) for (const i of o.boost.index) if (ks[i] !== undefined) ks[i] *= o.boost.k;
 
   g.letterSpacing = '0px';
   const measure = (text: string, px: number) => {

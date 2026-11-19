@@ -8,7 +8,7 @@ import { useStudio, type InspectorTab, type Pace, type PopupMode } from '../stat
 import { TRANSITIONS } from '../core/transitionList';
 import { Clamp, Field, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
 import { Down, Plus, Up, X } from './Icons';
-import { readAccessCode } from './Director';
+import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
 import { TasteGroup } from './Taste';
 
 const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director' };
@@ -490,22 +490,27 @@ function LookPanel() {
         <Field label="Render quality" value={`${Math.round(quality * 100)}%`} tip="Lower it if the picture stutters on a slower computer.">
           <Slider value={quality} min={0.4} max={1} step={0.05} onChange={(v) => set({ quality: v })} />
         </Field>
-        <Field label="Director access code">
-          <input
-            className="txt"
-            type="password"
-            placeholder="Only if the site owner set one"
-            defaultValue={readAccessCode()}
-            onChange={(e) => {
-              try {
-                localStorage.setItem('hum.accessCode', e.target.value);
-              } catch {
-                /* storage unavailable */
-              }
-            }}
-          />
-        </Field>
+        <AccessCodeRow />
       </Section>
     </>
+  );
+}
+
+/** the saved AI access code: quiet, just change or forget it (the gate asks for it when needed) */
+function AccessCodeRow() {
+  const saved = useAccessGate((s) => s.saved);
+  return (
+    <div className="code-row">
+      <span>AI access code: {saved ? 'saved' : 'none'}</span>
+      <span className="spacer" />
+      <button className="btn sm ghost" onClick={openAccessGate}>
+        {saved ? 'Change' : 'Enter'}
+      </button>
+      {saved && (
+        <button className="btn sm ghost" onClick={forgetAccessCode}>
+          Forget
+        </button>
+      )}
+    </div>
   );
 }

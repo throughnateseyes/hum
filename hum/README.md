@@ -197,7 +197,12 @@ once today's total has reached the cap, so a cap can go over by at most the call
 (about $0.04 each for Make a video). Refused requests fall back to the offline director. If Redis
 can't be reached, the counts drop to memory for that request instead of failing. Each call is logged
 as `[hum-director] plan for sam: $0.0410 (today $0.53)` in the function logs. Your Claude
-subscription in `npm run dev` skips the limits.
+subscription in `npm run dev` skips the limits and the access codes (it only answers your own computer).
+
+In the app, an AI action that comes back needing a code opens a small box (`src/ui/AccessGate.tsx`,
+logic in `src/director/access.ts`): the code is checked with the free `mode: "check"` request (no
+Claude call, same rule as a real request), saved, and the action retries. Closing it keeps the offline
+result. On a site with no key the box explains how to run Hum yourself instead.
 
 Rough costs on Sonnet 5.5: Make a video ≈ $0.04, describe a feeling → look ≈ $0.02–0.03, a new
 GLSL scene ≈ $0.05–0.10. `HUM_MODEL=claude-haiku-5-5` is about 20× cheaper. Also set a monthly spend

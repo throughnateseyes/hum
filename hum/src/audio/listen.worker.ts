@@ -14,6 +14,9 @@ const RATE = 16000;
 /** listen in windows a little under Whisper's 30 s, overlapping so no word is cut in half */
 const WIN = 28;
 const HOP = 24;
+/** Whisper sometimes stops early in a window and misses a whole verse: gaps longer than this get a second listen */
+const GAP = 7;
+const MAX_RETRIES = 14;
 
 env.allowLocalModels = false;
 
@@ -64,6 +67,8 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string
     const loud = rms(audio, 0, audio.length);
     const starts: number[] = [];
     for (let s = 0; s < total - 1; s += HOP) starts.push(s);
+    // a rough plan for progress: the windows, plus a few second listens
+    const planned = starts.length + 4;
     post({ type: 'listening', frac: 0 });
     for (let k = 0; k < starts.length; k++) {
       const s = starts[k];
@@ -82,7 +87,45 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string
           if (text && t >= lo && t < hi) words.push({ t, end, text });
         }
       }
-      post({ type: 'listening', frac: (k + 1) / starts.length });
+      post({ type: 'listening', frac: Math.min(0.95, (k + 1) / planned) });
+    }
+    // second listen: where nothing was heard for a while but there's sound, listen again from a
+    // different starting point (Whisper's early stops depend on where the window starts)
+    words.sort((x, y) => x.t - y.t);
+    let tries = 0;
+    for (let pass = 0; pass < 2 && tries < MAX_RETRIES; pass++) {
+      const gaps: [number, number][] = [];
+      const sounding = (a: number, b: number) => b - a > GAP && rms(audio, Math.floor(a * RATE), Math.floor(b * RATE)) > loud * 0.2;
+      let prevEnd = 0;
+      for (const w of words) {
+        if (sounding(prevEnd, w.t)) gaps.push([prevEnd, w.t]);
+        prevEnd = Math.max(prevEnd, w.end);
+      }
+      if (sounding(prevEnd, total)) gaps.push([prevEnd, total]);
+      if (!gaps.length) break;
+      for (const [a, b] of gaps) {
+        let from = Math.max(0, a - 1.5);
+        while (from < b - 2 && tries < MAX_RETRIES) {
+          tries++;
+          const lo = Math.floor(from * RATE);
+          const hi = Math.min(audio.length, Math.floor((from + WIN) * RATE));
+          const out = await model(audio.subarray(lo, hi), { return_timestamps: 'word', ...(language ? { language } : {}) });
+          let last = -1;
+          for (const c of out.chunks ?? []) {
+            const t = from + c.timestamp[0];
+            const end = from + (c.timestamp[1] ?? c.timestamp[0] + 0.3);
+            const text = c.text.trim();
+            if (text && t > a + 0.05 && t < b - 0.05) {
+              words.push({ t, end, text });
+              last = Math.max(last, end);
+            }
+          }
+          post({ type: 'listening', frac: Math.min(0.99, (starts.length + tries) / Math.max(planned, starts.length + tries + 1)) });
+          // carry on from what was heard, or skip ahead if this listen heard nothing either
+          from = last > from + 2 ? last - 1 : from + WIN - 6;
+        }
+      }
+      words.sort((x, y) => x.t - y.t);
     }
     post({ type: 'done', words });
   } catch (err) {

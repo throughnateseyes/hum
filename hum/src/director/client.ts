@@ -1,5 +1,6 @@
 /**
- * AI director client. POSTs to /api/director (Claude on the server); falls back to the
+ * AI director client. POSTs to /api/director (Claude on the server) through the access gate
+ * (access.ts: asks for a code on 403, explains on 501); falls back to the
  * offline director on 501 (no key), 429 (rate limit), 403 (access code), network errors
  * or unusable output. Everything that comes back is validated against the live registries.
  */
@@ -25,6 +26,7 @@ import { allScenes } from '../scenes';
 import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
 import { localDirect } from './local';
+import { postDirector } from './access';
 import { cleanPlanTransition, type PlanTransition } from '../core/transitionList';
 import { LYRIC_MEDIUMS, LYRIC_MOMENTS, TYPE_FAMILIES, type LyricMedium, type LyricMoment, type LyricPart, type TypeFamily } from '../state/lyricPlan';
 
@@ -394,7 +396,7 @@ export function validateShader(raw: unknown, warnings: string[] = []): CustomSha
 /* ───────────────────────── direct() ───────────────────────── */
 
 export interface DirectOptions {
-  /** sent as `accessCode` when the server requires HUM_ACCESS_CODE */
+  /** sent as `accessCode` on the first try (default: the saved code, see access.ts) */
   accessCode?: string;
   /** defaults to '/api/director' */
   endpoint?: string;
@@ -423,17 +425,12 @@ export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Pr
     track: req.track ?? null,
     current: req.current ?? null,
     catalog: buildCatalog(),
-    accessCode: opts.accessCode,
   };
 
   let res: Response;
   try {
-    res = await fetch(opts.endpoint ?? '/api/director', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: opts.signal,
-    });
+    // through the access gate: a missing or wrong code asks for one, then retries
+    res = await postDirector((accessCode) => ({ ...body, accessCode }), opts);
   } catch (err) {
     if (opts.signal?.aborted) throw err;
     return fallback(req, 'Couldn’t reach the AI director (offline?).');
@@ -448,9 +445,9 @@ export async function direct(req: DirectorRequest, opts: DirectOptions = {}): Pr
   const serverNote = isObj(json) ? str(json.note ?? json.error, 200) : '';
 
   if (!res.ok) {
-    if (res.status === 501) return fallback(req, 'No Claude API key is configured on the server.');
+    if (res.status === 501) return fallback(req, 'AI is switched off on this site.');
     if (res.status === 429) return fallback(req, serverNote || 'AI director rate limit reached — try again later.');
-    if (res.status === 403) return fallback(req, 'The AI director needs a valid access code.');
+    if (res.status === 403) return fallback(req, 'The AI director needs an access code.');
     if (res.status === 404) return fallback(req, 'The AI director endpoint isn’t deployed.');
     return fallback(req, `AI director error (${res.status}${serverNote ? `: ${serverNote}` : ''}).`);
   }
@@ -520,10 +517,8 @@ export type PlanReply =
 export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): Promise<PlanReply> {
   let res: Response;
   try {
-    res = await fetch(opts.endpoint ?? '/api/director', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
+    res = await postDirector(
+      (accessCode) => ({
         mode: 'plan',
         prompt: req.wish ?? '',
         track: req.track,
@@ -533,10 +528,10 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         lyrics: req.lyrics,
         ...(req.taste ? { taste: req.taste } : {}),
         ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
-        accessCode: opts.accessCode,
+        accessCode,
       }),
-      signal: opts.signal,
-    });
+      opts,
+    );
   } catch (err) {
     if (opts.signal?.aborted) throw err;
     return { ok: false, reason: 'Couldn’t reach the AI director (offline?).' };
@@ -549,9 +544,9 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   }
   const serverNote = isObj(json) ? str(json.note ?? json.error, 200) : '';
   if (!res.ok) {
-    if (res.status === 501) return { ok: false, reason: 'No Claude connection is set up.' };
+    if (res.status === 501) return { ok: false, reason: 'AI is switched off on this site, so this is the offline plan.' };
     if (res.status === 429) return { ok: false, reason: serverNote || 'The AI director is rate limited right now.' };
-    if (res.status === 403) return { ok: false, reason: 'The AI director needs a valid access code.' };
+    if (res.status === 403) return { ok: false, reason: 'The AI director needs an access code, so this is the offline plan.' };
     return { ok: false, reason: `AI director error (${res.status}${serverNote ? `: ${serverNote}` : ''}).` };
   }
   if (!isObj(json) || !isObj(json.plan) || !Array.isArray(json.plan.sections)) return { ok: false, reason: 'The AI director sent an unreadable plan.' };

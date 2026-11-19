@@ -10,6 +10,7 @@ import { Recorder, download } from './render/recorder';
 import { Bottom, toggleHand } from './ui/Bottom';
 import { BrowserTab, Camera, Chevron, Expand, Mic, Rec, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
+import { AccessGate } from './ui/AccessGate';
 import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
 import { PeekWindow } from './ui/Peek';
@@ -119,6 +120,7 @@ export default function App() {
         <DirectorPanel />
       </div>
       <PerformControls />
+      <AccessGate />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

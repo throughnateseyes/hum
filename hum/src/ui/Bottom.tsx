@@ -73,12 +73,12 @@ function TopRow() {
         </span>
         <span className="time bpm">{analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}</span>
         <button className="btn sm has-tip" data-tip="Tap along 4+ times to set the tempo" onClick={onTap}>
-          Tap
+          Tap tempo
         </button>
         {hasPlan && (
-          <label className="sw has-tip" data-tip="On: the looks change with the song’s parts as it plays. Picking a look while it plays puts it into that part.">
+          <label className="sw boxed has-tip" data-tip="On: the looks change with each part of the song, as Make a video planned. Off: one look stays until you pick another.">
             <Toggle on={planOn} onChange={(v) => useStudio.getState().set({ planOn: v, autoPilot: v ? false : useStudio.getState().autoPilot })} />
-            Follow parts
+            Use video plan
           </label>
         )}
       </div>
@@ -397,17 +397,10 @@ function drawWave(c: HTMLCanvasElement | null, a: TrackAnalysis | null, t: numbe
 function HandToggle() {
   const on = useStudio((s) => s.hand.on);
   return (
-    <button
-      className={`hand-btn has-tip tip-left ${on ? 'on' : ''}`}
-      data-tip="Hand-drawn: choppy frames, wobbly lines, ink on paper. Fine-tune it in the Look tab. (H)"
-      onClick={() => toggleHand()}
-    >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10.5 2.5l3 3L6 13H3v-3z" />
-        <path d="M9 4l3 3" />
-      </svg>
+    <label className="sw boxed has-tip tip-left" data-tip="Choppy frames, wobbly lines, ink on paper. Fine-tune it in the Look tab. (H)">
+      <Toggle on={on} onChange={() => toggleHand()} />
       Hand-drawn
-    </button>
+    </label>
   );
 }
 
@@ -437,7 +430,7 @@ function OverlaysSwitch() {
       data-tip={`The little pop-up windows over the picture. ${on ? (mode === 'always' ? 'Showing all the time.' : 'Showing while a video plays.') : 'Hidden.'} Choose when they show in the Look tab.`}
     >
       <Toggle on={on} onChange={set} />
-      Overlays
+      Pop-ups
     </label>
   );
 }
