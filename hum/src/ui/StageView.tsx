@@ -6,6 +6,7 @@ import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
 import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
+import { RenderPreview } from './RenderBar';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -70,10 +71,13 @@ export function StageView() {
             <Volume dark />
           </div>
         )}
+        {/* a render draws off screen: show its frames here as they're made */}
+        {clip?.count !== undefined && clip.size && <RenderPreview key={clip.size} size={clip.size} />}
         <div className="stage-hud">
           {clip && (
             <span className="hud-pill rec">
-              <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : 'Clip'} · 1080×1920 · Esc cancels
+              <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
+              {clip.count !== undefined && clip.count > 1 ? ` (${(clip.index ?? 0) + 1} of ${clip.count})` : ''} · Esc cancels
             </span>
           )}
           {recording && (

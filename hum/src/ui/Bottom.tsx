@@ -8,24 +8,27 @@ import { assignLook, findLook, interludeLength, makeVideo, sectionIndexAt, secti
 import { presetToLook } from '../presets/apply';
 import { useStudio, type PopupMode } from '../state/store';
 import { LAYER_MIME, Slider, Toggle } from './controls';
-import { Pause, Play, Plus, Sparkle, Wave } from './Icons';
+import { Film, Pause, Play, Plus, Sparkle, Wave } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { peekHandlers } from './Peek';
 import { noteHandPick } from '../state/taste';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
 import { Volume } from './Volume';
+import { RangeOverlay, RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 
 /**
  * Three rows: the transport and the feel controls, one timeline (the song's parts with their looks
  * on top, the waveform under them, one playhead through both), and the live layer meters.
  */
 export function Bottom() {
+  // render mode: the song map picks a stretch and the meter row becomes the render row
+  const rendering = useRenderMode((s) => s.on);
   return (
     <div className="bottom">
       <TopRow />
       <Timeline />
-      <LayerStrip />
+      {rendering ? <RenderBar /> : <LayerStrip />}
     </div>
   );
 }
@@ -103,6 +106,7 @@ function Timeline() {
   const planning = useStudio((s) => s.planning);
   const plan = useStudio((s) => s.plan);
   const bdOpen = useBreakdown((s) => s.open);
+  const renderOn = useRenderMode((s) => s.on);
   const canvas = useRef<HTMLCanvasElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const lane = useRef<HTMLDivElement>(null);
@@ -174,6 +178,7 @@ function Timeline() {
             ))}
         </div>
         <div className="tl-head" ref={head} />
+        {renderOn && analysis && secs.length > 0 && <RangeOverlay a={analysis} />}
       </div>
       <div className="tl-side">
         <button
@@ -193,6 +198,15 @@ function Timeline() {
         >
           <Wave width={14} height={14} />
           Breakdown
+        </button>
+        <button
+          className={`btn tl-render has-tip tip-left ${renderOn ? 'on' : ''}`}
+          disabled={!analysis || !secs.length}
+          onClick={toggleRenderMode}
+          data-tip="Pick a stretch of the song and make it into videos: the same moments at 9:16, 4:5, 1:1 or 16:9"
+        >
+          <Film width={14} height={14} />
+          Render
         </button>
       </div>
     </div>

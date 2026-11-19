@@ -18,6 +18,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   lastFile = info.source === 'file' ? { blob, name: info.name } : null;
   lastBuf = null;
   lastHeard = null;
+  songBuf = null;
   const st = useStudio.getState();
   st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
   const ctx = audioEngine.ensureContext();
@@ -26,6 +27,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     void audioEngine.play().catch(() => {});
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     if (token !== loadToken) return;
+    songBuf = buf;
     if (info.source === 'file') lastBuf = buf;
     // lyrics are looked up alongside the analysis (demo tracks are instrumental)
     if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
@@ -84,6 +86,12 @@ export async function lookUpLyrics(blob: Blob, name: string, duration: number, t
     console.warn('[hum] lyrics lookup failed', e);
     if (token === loadToken) useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: 'Lyrics lookup failed.' });
   }
+}
+
+/** the decoded audio of the loaded song or demo (the render timeline makes its videos from it) */
+let songBuf: AudioBuffer | null = null;
+export function songBuffer(): AudioBuffer | null {
+  return songBuf;
 }
 
 /** the blob of the loaded file, for "try again" */
@@ -323,6 +331,7 @@ export async function loadDemo(id: string) {
 export async function useMic() {
   try {
     await audioEngine.startMic();
+    songBuf = null;
     lastBuf = null;
     lastFile = null;
     useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
@@ -359,6 +368,7 @@ export async function useTab() {
     } else flash('This browser can’t listen to another tab. Try Chrome or Edge.');
     return;
   }
+  songBuf = null;
   lastBuf = null;
   lastFile = null;
   useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });

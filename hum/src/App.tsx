@@ -7,7 +7,8 @@ import { live } from './state/live';
 import { useStudio } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
 import { Recorder, download } from './render/recorder';
-import { clipBlocker, exportClip } from './render/clipExport';
+import { clipBlocker } from './render/clipExport';
+import { clipForTikTok } from './render/timeline';
 import { Bottom, toggleHand } from './ui/Bottom';
 import { BrowserTab, Camera, Chevron, Expand, Mic, Rec, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
@@ -237,7 +238,7 @@ function ClipButton() {
   const flash = useStudio((s) => s.flash);
   const len = clip ? clip.end - clip.start : 0;
   const tip = clip
-    ? 'Recording the clip. Esc or click to cancel'
+    ? 'Making the clip. Esc or click to cancel'
     : blocked ?? 'A vertical 1080×1920 clip of the best 15–30 s, ready for TikTok or Reels';
   const label = !clip
     ? 'Clip for TikTok'
@@ -254,10 +255,10 @@ function ClipButton() {
         if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
         else if (recording) flash('Stop the recording first');
         else if (blocked) flash(blocked);
-        else void exportClip();
+        else void clipForTikTok();
       }}
       data-tip={tip}
-      aria-label={clip ? `Recording clip, ${label}. Click to cancel` : 'Clip for TikTok or Reels'}
+      aria-label={clip ? `Making clip, ${label}. Click to cancel` : 'Clip for TikTok or Reels'}
       aria-disabled={!!blocked && !clip}
     >
       <ClipIcon width={13} height={13} />

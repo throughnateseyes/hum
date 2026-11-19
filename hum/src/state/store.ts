@@ -48,6 +48,10 @@ export interface ClipProgress {
   /** the stretch of the song being recorded (s) */
   start: number;
   end: number;
+  /** render timeline: the size being made ("1080×1920"), and which of how many */
+  size?: string;
+  index?: number;
+  count?: number;
 }
 
 export interface ChatMsg {

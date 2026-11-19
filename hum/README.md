@@ -212,7 +212,23 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   show in the Scene tab).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
+- **Render** (button by the song map) makes videos without you timing a thing. The song map turns
+  into a picker: drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold
+  ⌥ to snap to beats), drag an edge or the middle to adjust, click a part to take that whole part,
+  or use **Best part** (the strongest 15–30 s, built around the biggest drop or hook) or **Whole
+  song**. Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
+  for the Instagram feed, **1:1** 1080×1080, **16:9** 1920×1080), pick 30 or 60 fps and press
+  **Render**. Each size is made one after another and downloads as it's done, named like
+  `pressure-0m24s-0m30s-1080x1920.mp4`; the stage shows the frames as they're made and Esc cancels.
+  Nothing plays while it works and it never drops a frame, however heavy the look: Hum draws every
+  frame itself from the song file, at its own pace (often faster than real time). The same stretch
+  comes out exactly the same every time, and every size shows the same moments: the same cuts,
+  transitions, pop-ups, windows, lyrics and Song colours that playback shows there. Afterwards the
+  look, the playhead and the stage are back as they were. **Clip for TikTok** (top right) does this
+  in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
+  fall back to recording the stretch live while it plays, and say so.
+- **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
+  camera icon saves a PNG.
 - Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
 
 ## How it's built
@@ -237,6 +253,22 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → scene windows (src/render/sceneWindows.ts)  other looks, each rendered at its window's size, framed over the picture
   → screen / MediaRecorder
 ```
+
+**Rendering a video** (`src/render/timeline.ts`) runs the same chain without the speakers or the
+clock. A second, hidden stage draws each frame at a fixed frame rate. Its sound comes from
+`OfflineAudioFrames` (`src/audio/offlineFrames.ts`): the decoded song, a Blackman window over the last
+4096 samples and an FFT that matches the browser's AnalyserNode to a thousandth of a dB, fed to its
+own copy of the engine's listening code (`src/audio/frameDsp.ts`, which the live engine uses too), at
+60 steps a second. The beat grid is set from the song's tempo and kicks, so the beat count depends
+only on where in the song you are. During each frame `performance.now`, `Date.now` and
+`Math.random` are swapped for the render's clock and per-frame seeded dice (re-seeded for the scene,
+windows, pop-ups and lyrics, so sizes don't drift apart), and the plan's sequencer talks to the hidden
+stage. Each video starts drawing 3 s early (frames thrown away) and listening 12 s early, so Feel,
+flocks, wind, windows and the levels have settled. Frames go to WebCodecs' H.264 encoder (High
+profile, level picked from the size, about 18 Mbps at 1080p30, a keyframe every 2 s) and the song's
+slice to its AAC encoder (48 kHz stereo, 40 ms fade in, 350 ms fade out); `src/render/mp4.ts` writes
+the MP4 (moov first, so it plays while it downloads, and an edit list that skips the AAC encoder's
+start-up delay, measured once per session, so sound and picture line up to the sample).
 
 - `src/core/` — the contracts (`types.ts`), the shared GLSL header + function library (`glsl.ts`),
   and helpers to define scenes (`defineShaderScene`, `defineCanvasScene`, `defineThreeScene`).
