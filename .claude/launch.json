@@ -4,8 +4,28 @@
     {
       "name": "hum",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "hum", "run", "dev", "--", "--port", "5178", "--strictPort"],
+      "runtimeArgs": [
+        "--prefix",
+        "hum",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5178",
+        "--strictPort"
+      ],
       "port": 5178
+    },
+    {
+      "name": "hum-local",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "hum",
+        "run",
+        "dev"
+      ],
+      "port": 5173
     }
   ]
 }
