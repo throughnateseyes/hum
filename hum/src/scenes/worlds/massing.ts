@@ -503,7 +503,7 @@ uniform sampler2D uTop;
 uniform mat4 uTopMat;
 uniform vec2 uTopRange;
 uniform vec3 uHorizon;
-uniform float uFogK, uStainAmt, uPlantAmt, uDebug;
+uniform float uFogK, uStainAmt, uPlantAmt;
 
 float shadowAt(vec3 w, vec3 n) {
   vec4 p = uShadowMat * vec4(w + n * 0.05, 1.0);
@@ -771,10 +771,6 @@ void main() {
   }
   if (kind < 1.5) col = fogged(col, vW);
   gl_FragColor = vec4(col, 1.0);
-  if (uDebug > 0.5) {
-    float dv = uDebug < 1.5 ? shadowAt(vW, n) : uDebug < 2.5 ? max(dot(n, uSunDir), 0.0) : 1.0 - skyOcc(vW, n);
-    gl_FragColor = vec4(vec3(dv), 1.0);
-  }
 }
 `;
 
@@ -893,7 +889,6 @@ void main() {
 
 /* ───────────────────────── the scene ───────────────────────── */
 
-const DEBUG = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('massdebug') ?? 0) : 0;
 const MAXU = 420;
 const MAXB = 320;
 const HIST = 360; // 6 s at 60 Hz
@@ -942,7 +937,6 @@ export const massing: SceneDef = {
       uFogK: { value: 0.004 },
       uStainAmt: { value: 0.5 },
       uPlantAmt: { value: 0 },
-      uDebug: { value: 0 },
     };
 
     /* instanced blocks */
@@ -1157,7 +1151,8 @@ export const massing: SceneDef = {
       lastSince = since;
       if (dropNow) {
         drops++;
-        cfg = drops % 2 === 1 ? 0 : 1;
+        // every drop slams the building into the other open configuration
+        cfg = drops % 2;
         peak = true;
         flash = 1;
         ember = 1;
@@ -1168,9 +1163,10 @@ export const massing: SceneDef = {
       const quietPart = sec === 'break' || sec === 'outro' || sec === 'intro';
       if (peak && (quietPart || f.intensity < 0.42)) peak = false;
       if (!peak && (sec === 'chorus' || sec === 'drop') && f.intensity > 0.62) peak = true;
-      let target = 0.06 + 0.34 * smooth(0.22, 0.8, f.intensity) + 0.42 * f.tension;
+      // the build opens it only part way (the rest is saved for the drop)
+      let target = 0.05 + 0.3 * smooth(0.22, 0.8, f.intensity) + 0.3 * f.tension;
       // the building draws in for the last second before a known drop
-      if (f.toDrop < 1.1) target -= 0.22 * (1 - f.toDrop / 1.1);
+      if (f.toDrop < 1.2) target -= 0.32 * smooth(0, 1, 1 - f.toDrop / 1.2);
       if (peak) target = 1;
       target = Math.max(0, Math.min(1, target)) * Math.min(1, move);
       // record it (with the configuration) so each row can follow a little later
@@ -1320,6 +1316,12 @@ export const massing: SceneDef = {
           c[2] += u.push[1] * pr;
           c[3] += u.push[2] * pr;
           c[5] += u.push[3] * pr;
+          // strain: the overhangs shiver under the build's tension, the higher the more
+          if (u.kind === 0 && u.row > 0 && f.tension > 0.05) {
+            const tr = f.tension * f.tension * 0.035 * Math.min(1, u.row / 4);
+            c[1] += tr * Math.sin(clock * 37 + u.seed * 61);
+            c[0] += tr * 0.6 * Math.sin(clock * 29 + u.seed * 23);
+          }
           aPos.setXYZW(i, c[0], c[1], c[2], 0);
           aSize.setXYZW(i, c[3], c[4], c[5], u.kind);
         }
@@ -1358,13 +1360,14 @@ export const massing: SceneDef = {
       const az = m.az + 1.0 - 0.3 * Math.cos(ang);
       const sunDir = U.uSunDir.value;
       const day = new THREE.Vector3(Math.sin(az) * Math.cos(elev), Math.sin(elev), Math.cos(az) * Math.cos(elev));
-      const flood = new THREE.Vector3(Math.sin(m.az + 0.35 * sideSign) * 0.8, -0.45, Math.cos(m.az + 0.35 * sideSign) * 0.8).normalize();
+      // low and raking (steeper and the podium would shadow the whole tower), fading with height
+      const flood = new THREE.Vector3(Math.sin(m.az + 0.55 * sideSign) * 0.8, -0.2, Math.cos(m.az + 0.55 * sideSign) * 0.8).normalize();
       sunDir.copy(day).lerp(flood, night).normalize();
       const chorusStrobe = night * (peak ? 0.25 * a.kick : 0);
-      U.uSunAmt.value = (0.1 + 0.72 * sunP) * (1 - night) + night * (0.95 + chorusStrobe);
+      U.uSunAmt.value = (0.1 + 0.72 * sunP) * (1 - night) + night * (1.25 + chorusStrobe);
       U.uAmb.value = (0.72 - 0.24 * sunP) * (1 - night) + night * 0.06;
       U.uNight.value = night;
-      U.uFloodFall.value = 0.07;
+      U.uFloodFall.value = 0.045;
       U.uFlash.value = flash * (0.25 + 0.5 * night) * weight * 0.6;
       U.uStainAmt.value = num(p, 'stain', 0.55);
       U.uPlantAmt.value = plantsP;
@@ -1411,9 +1414,11 @@ export const massing: SceneDef = {
       const cx = (bMin.x + bMax.x) / 2;
       const cz = (bMin.z + bMax.z) / 2;
       const depthHalf = Math.max(bMax.x - bMin.x, bMax.z - bMin.z) / 2;
-      const needH = height * 0.62;
+      // keep the crown in frame even when the camera drops to a worm's eye
+      const needH = height * (0.62 + 0.1 * drama);
       const needW = (wMax - wMin) * 0.5 * 1.12;
-      const fit = Math.max(needH / tanV, needW / tanH) + depthHalf * 0.8;
+      // overhangs reaching toward a low camera loom larger than their bounds: more room as it drops
+      const fit = Math.max(needH / tanV, needW / tanH) + depthHalf * (0.8 + 0.6 * drama);
       const dTarget = fit * (1 - 0.2 * drama);
       if (!camInit) {
         camDist = dTarget;
@@ -1429,7 +1434,7 @@ export const massing: SceneDef = {
       const lookX = cx + right.x * (cmid - (cx * right.x + cz * right.z));
       const lookZ = cz + right.z * (cmid - (cx * right.x + cz * right.z));
       camera.position.set(lookX + Math.sin(camAz) * camDist, camY, lookZ + Math.cos(camAz) * camDist);
-      const ty = height * 0.53;
+      const ty = height * (0.53 + 0.05 * drama);
       const pitchFull = Math.atan2(ty - camY, camDist);
       const pitch = pitchFull * Math.min(0.95, 0.12 + 0.55 * drama + 0.3 * tiltUp);
       camera.up.set(0, 1, 0);
@@ -1478,7 +1483,6 @@ export const massing: SceneDef = {
       groundMat.uniforms.uPoolOn.value = poolOn > 0.5 ? 1 : 0;
       groundMat.uniforms.uPoolRect.value.set(poolC[0], poolC[1], m.pool[2], m.pool[3]);
       groundMat.uniforms.uPoolDir.value.set(Math.sin(m.az), Math.cos(m.az));
-      U.uDebug.value = DEBUG;
       for (const r of ripples) r.z += dt;
       groundMat.uniforms.uRipple0.value.copy(ripples[0]);
       groundMat.uniforms.uRipple1.value.copy(ripples[1]);

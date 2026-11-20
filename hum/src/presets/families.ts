@@ -662,4 +662,15 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     pairs: ['prism', 'tunnel-vision', 'particle-columns', 'overprint', 'swarm-bloom'],
     clashes: ['willow', 'diary', 'retro-desktop', 'garden'],
   },
+  massing: {
+    name: 'Massing',
+    blurb: 'A brutalist building of heavy board-formed concrete blocks that plays the song: still in the quiet, rows breathing on the kick, blocks straining into cantilevers on the build and slamming into a new stack on the drop.',
+    takes: { massing: 'Béton', 'massing-overcast': 'Overcast', 'massing-overgrown': 'Overgrown', 'massing-night': 'Night' },
+    roles: ['intro', 'verse', 'build', 'peak'],
+    energy: [0.2, 0.95],
+    motion: 'explosive',
+    themes: ['city', 'graphic'],
+    pairs: ['night-windows', 'sub-pressure', 'blomp-grid', 'signal-scan', 'chrome-warehouse'],
+    clashes: ['confetti', 'kaleido-candy', 'diary', 'willow', 'soft-orbs'],
+  },
 };
