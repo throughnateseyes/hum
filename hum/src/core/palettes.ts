@@ -134,7 +134,7 @@ export const PALETTES: Palette[] = [
   // so the hand print doesn't spend it on plain grey
   { id: 'massing-beton', name: 'Béton Brut', bg: '#4f86d0', fg: '#121418', accent: '#ece4d3', accent2: '#6c6965', muted: '#aaa398' },
   { id: 'massing-overcast', name: 'Massing Overcast', bg: '#c9cbcc', fg: '#0f1012', accent: '#8e8a84', accent2: '#4b4946', muted: '#c4781e' },
-  { id: 'massing-overgrown', name: 'Massing Overgrown', bg: '#9fc3d8', fg: '#14170f', accent: '#e2dccb', accent2: '#5f6555', muted: '#5c7a3a' },
+  { id: 'massing-overgrown', name: 'Massing Overgrown', bg: '#9fc3d8', fg: '#14170f', accent: '#e2dccb', accent2: '#64625c', muted: '#447d1e' },
   { id: 'massing-night', name: 'Massing Night', bg: '#0e1420', fg: '#050506', accent: '#d2ccc0', accent2: '#4a4744', muted: '#a3180e' },
 ];
 

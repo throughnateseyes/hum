@@ -503,7 +503,7 @@ uniform sampler2D uTop;
 uniform mat4 uTopMat;
 uniform vec2 uTopRange;
 uniform vec3 uHorizon;
-uniform float uFogK, uStainAmt, uPlantAmt;
+uniform float uFogK, uStainAmt, uPlantAmt, uCheap;
 
 float shadowAt(vec3 w, vec3 n) {
   vec4 p = uShadowMat * vec4(w + n * 0.05, 1.0);
@@ -512,6 +512,7 @@ float shadowAt(vec3 w, vec3 n) {
   float z = s.z - 0.0006;
   vec2 t = uShadowTexel;
   float sum = step(z, texture2D(uShadow, s.xy).r) * 2.0;
+  if (uCheap > 0.5) return sum * 0.5;
   sum += step(z, texture2D(uShadow, s.xy + vec2(t.x, t.y) * 0.75).r);
   sum += step(z, texture2D(uShadow, s.xy + vec2(-t.x, t.y) * 0.75).r);
   sum += step(z, texture2D(uShadow, s.xy + vec2(t.x, -t.y) * 0.75).r);
@@ -560,7 +561,7 @@ vec3 concrete(float v) {
 float lightAt(vec3 w, vec3 n, out float sun) {
   float ndl = max(dot(n, uSunDir), 0.0);
   float sh = ndl > 0.0 ? shadowAt(w, n) : 0.0;
-  float occ = skyOcc(w, n);
+  float occ = uCheap > 0.5 ? 0.2 : skyOcc(w, n);
   // sky from above, bounce from the sunlit plaza from below (soffits and the feet of walls)
   float sky = 0.62 + 0.38 * n.y;
   float bounce = uSunAmt * (1.0 - uNight) * (0.5 - 0.5 * n.y) * 0.24 * exp(-max(w.y, 0.0) * 0.05);
@@ -936,6 +937,8 @@ export const massing: SceneDef = {
       uHorizon: { value: new THREE.Color() },
       uFogK: { value: 0.004 },
       uStainAmt: { value: 0.5 },
+      // 1 while drawing the reflection: one shadow tap and no sky-occlusion taps (the water blurs it anyway)
+      uCheap: { value: 0 },
       uPlantAmt: { value: 0 },
     };
 
@@ -1529,7 +1532,9 @@ export const massing: SceneDef = {
           bushMat.side = THREE.BackSide;
           skyMat.side = THREE.FrontSide;
           r.setRenderTarget(reflRT);
+          U.uCheap.value = 1;
           r.render(refScene, mirrorCam);
+          U.uCheap.value = 0;
           boxMat.side = THREE.FrontSide;
           bushMat.side = THREE.FrontSide;
           skyMat.side = THREE.BackSide;
