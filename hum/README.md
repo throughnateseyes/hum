@@ -1,6 +1,6 @@
-# Hum — sound → sight
+# Hum — sound → feeling → space
 
-An audio-reactive visual playground. Drop a song in; Hum splits it into layers (sub, bass, mids,
+An experiment in texture, music and emotion. Drop a song in; Hum splits it into layers (sub, bass, mids,
 air, kick / snare / hat hits, energy, build-ups, drops), reads its mood, picks a look that fits, and
 paints with it. Everything is tweakable: scenes, a stackable effect chain, a modulation matrix that
 routes any audio layer to any slider, palettes, photos, and an AI director that writes looks — or
