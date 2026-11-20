@@ -33,6 +33,10 @@ export const PALETTES: Palette[] = [
   { id: 'canopy', name: 'Canopy', bg: '#7fb3e3', fg: '#1d3520', accent: '#a7cf4f', accent2: '#fff6dc', muted: '#4f7d33' },
   { id: 'golden-hour', name: 'Golden Hour', bg: '#231d33', fg: '#ffeccb', accent: '#eda54a', accent2: '#c46a5e', muted: '#4b4361' },
   { id: 'still-water', name: 'Still Water', bg: '#1e4c56', fg: '#e8f4ef', accent: '#7fc7c0', accent2: '#d6a15c', muted: '#2e6a6f' },
+  // laminar: dusk garden, night plaza, studio
+  { id: 'laminar-dusk', name: 'Laminar Dusk', bg: '#2b3b5e', fg: '#fff0dc', accent: '#a6eaff', accent2: '#eea56a', muted: '#2f4032' },
+  { id: 'laminar-night', name: 'Laminar Night', bg: '#0b0f1a', fg: '#ffe9cc', accent: '#5fd4ff', accent2: '#ffad5c', muted: '#232838' },
+  { id: 'laminar-studio', name: 'Laminar Studio', bg: '#cdd1d4', fg: '#ffffff', accent: '#bfe6ff', accent2: '#e8c39a', muted: '#6c7276' },
   /* looks built from the reference boards */
   // gradient cubes
   { id: 'toy-box', name: 'Toy Box', bg: '#7d5a50', fg: '#ff8de4', accent: '#ff431a', accent2: '#2247e6', muted: '#7cc63f' },
