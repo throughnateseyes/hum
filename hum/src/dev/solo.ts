@@ -222,7 +222,9 @@ async function boot() {
   const present = (id: FinishId) => {
     const { tex, ctx } = fin;
     if (!tex || !ctx) return;
-    if (id === 'hand') hand.render(renderer, tex, null, { style: HAND_DEFAULT, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
+    // as on the stage: a scene that needs more inks (handInks) gets them
+    const inks = Math.max(HAND_DEFAULT.inks, def.handInks ?? 0) as typeof HAND_DEFAULT.inks;
+    if (id === 'hand') hand.render(renderer, tex, null, { style: { ...HAND_DEFAULT, inks }, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
     else if (!finishes.get(id)?.render(renderer, tex, null, id, ctx)) shared.blit(tex, null);
   };
 
