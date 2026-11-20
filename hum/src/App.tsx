@@ -8,9 +8,10 @@ import { useStudio } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
 import { Recorder, download } from './render/recorder';
 import { clipBlocker } from './render/clipExport';
-import { clipForTikTok } from './render/timeline';
+import { clipForTikTok, renderBlocker } from './render/timeline';
+import { openRenderBar, useRenderMode } from './ui/RenderBar';
 import { Bottom, toggleHand } from './ui/Bottom';
-import { BrowserTab, Camera, Chevron, Expand, Mic, Rec, Shuffle, Upload } from './ui/Icons';
+import { BrowserTab, Camera, Chevron, Expand, Film, Mic, Rec, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { AccessGate } from './ui/AccessGate';
 import { Inspector } from './ui/Inspector';
@@ -206,24 +207,51 @@ function Topbar() {
         <span className="tb-div" />
         <FramePicker />
         <span className="tb-div" />
-        <button className="btn icon ghost has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void still()}>
-          <Camera width={15} height={15} />
-        </button>
-        <button
-          className={`btn rec has-tip tip-below ${recording ? 'on' : ''}`}
-          onClick={() => void toggleRec()}
-          data-tip={recording ? 'Stop and save the clip' : 'Record video with audio'}
-          aria-label={recording ? 'Stop recording' : 'Record'}
-        >
-          <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
-          <span className="lbl-wide">{recording ? 'Stop' : 'Record'}</span>
-        </button>
-        <ClipButton />
-        <button className="btn primary has-tip tip-below tip-end" onClick={enterPerform} data-tip="Fullscreen, controls hide  F">
+        {/* everything that saves what you see, as one group: a still, a live recording, a rendered video */}
+        <div className="tb-export" role="group" aria-label="Save a picture or video">
+          <button className="btn icon has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void still()}>
+            <Camera width={15} height={15} />
+          </button>
+          <button
+            className={`btn rec has-tip tip-below ${recording ? 'on' : ''}`}
+            onClick={() => void toggleRec()}
+            data-tip={recording ? 'Stop and save the clip' : 'Record what plays, live, with sound'}
+            aria-label={recording ? 'Stop recording' : 'Record'}
+          >
+            <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
+            <span className="lbl-wide">{recording ? 'Stop' : 'Record'}</span>
+          </button>
+          <RenderButton />
+          <ClipButton />
+        </div>
+        <button className="btn primary has-tip tip-below tip-end" onClick={enterPerform} data-tip="Full screen, controls hide  F">
           <Expand width={13} height={13} /> Perform
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * Opens the render row by the song map: pick any stretch, any sizes. It lights up while the row is
+ * open; when the row is off screen (a phone) a click brings it into view instead of closing it.
+ */
+function RenderButton() {
+  const on = useRenderMode((s) => s.on);
+  const blocked = useStudio((s) => renderBlocker({ ...s, clip: null, recording: false }));
+  const flash = useStudio((s) => s.flash);
+  return (
+    <button
+      className={`btn tb-render has-tip tip-below ${on ? 'on' : ''} ${blocked && !on ? 'off' : ''}`}
+      onClick={() => (blocked && !on ? flash(blocked) : openRenderBar())}
+      data-tip={blocked && !on ? blocked : on ? 'Close the render row' : 'Pick a stretch of the song and make it into videos, at any size'}
+      aria-label="Render a video"
+      aria-pressed={on}
+      aria-disabled={!!blocked && !on}
+    >
+      <Film width={14} height={14} />
+      <span className="lbl-wide">Render</span>
+    </button>
   );
 }
 

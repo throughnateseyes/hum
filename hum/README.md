@@ -267,7 +267,8 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
   fall back to recording the stretch live while it plays, and say so.
 - **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
-  camera icon saves a PNG.
+  camera icon saves a PNG. Still, Record, Render and Clip for TikTok sit together as one group in the
+  top bar.
 - Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
