@@ -7,7 +7,7 @@
  *                    filtered by mood; More looks… lists every family for the part, with a search
  *   Version          the other takes of the part's look, one tap each
  *   Lyrics           the part's lyric style (songs with timed lyrics)
- *   Pop-ups          Off / Few / Lots
+ *   Pop-ups          Auto / Off / Few / Lots
  *
  * Changes go into the plan (state/partEdit.ts), are saved for the song, survive a re-plan, and show on
  * the song map; Reset this part puts the planner's pick back and Undo takes back the last change.
@@ -231,8 +231,9 @@ function SheetFrame({ i, a }: { i: number; a: TrackAnalysis }) {
 
 /* ───────── what's in it ───────── */
 
-const POP_LEVELS: { label: string; v: number; tip: string }[] = [
-  { label: 'Off', v: 0, tip: 'No pop-up windows in this part' },
+const POP_LEVELS: { label: string; v: number | null; tip: string }[] = [
+  { label: 'Auto', v: null, tip: 'As many as the plan gives this part' },
+  { label: 'Off', v: 0, tip: 'No pop-ups or windows in this part' },
   { label: 'Few', v: 1, tip: 'A window pops up now and then' },
   { label: 'Lots', v: 3, tip: 'Windows pop in on the beats and on the drop' },
 ];
@@ -257,6 +258,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const lyrics = useStudio((s) => s.lyrics);
   const lyricStyle = useStudio((s) => s.lyricStyle);
   const popups = useStudio((s) => s.popups);
+  const partPops = useStudio((s) => s.partPops);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
   const undoText = useSyncExternalStore(onUndoChange, undoLabel);
@@ -269,7 +271,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const names = sectionNames(a.sections);
   const name = names[i];
   const look = hasPlan ? findLook(plan.looks[i]) : undefined;
-  const edit = hasPlan ? partEdits(plan, a)[i] : null;
+  const edit = hasPlan ? partEdits(plan, a, partPops)[i] : null;
   const { families } = useMemo(() => withCustom(custom), [custom]);
   const fam = look ? (families.find((f) => f.id === familyIdOf(look)) ?? familyOf(look)) : null;
 
@@ -310,7 +312,9 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const medium = hasPlan ? (plan.lyricPlan?.parts[i]?.medium ?? null) : null;
   const sc = look ? getScene(look.sceneId) : undefined;
   const ownOk = !!look && profileFor(look.id, sc?.category, !!sc?.showsLyrics).own !== 'none';
-  const pops = hasPlan ? popsOf(plan, a, i) : null;
+  // the person's level for this part (null: Auto), and what the plan gives it
+  const mine = typeof partPops?.[i] === 'number' ? partPops[i] : null;
+  const planned = hasPlan ? popsOf(plan, a, i) : null;
   const changedWhat = edit ? [edit.look && 'look', edit.lyric && 'lyrics', edit.pops && 'pop-ups'].filter(Boolean).join(', ') : '';
   const peek = canHover();
 
@@ -442,14 +446,15 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
         </section>
       )}
 
-      {hasPlan && pops !== null && (
+      {hasPlan && planned !== null && (
         <section className="ps-sec" aria-labelledby={`${headingId}-pop`}>
           <div className="ps-h">
             <h3 id={`${headingId}-pop`}>Pop-ups</h3>
+            <span>Auto here is {planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}</span>
           </div>
           <div className="seg full ps-seg" role="group" aria-label={`Pop-up windows in ${name}`}>
             {POP_LEVELS.map((o) => {
-              const on = o.v === 0 ? pops === 0 : o.v === 1 ? pops === 1 : pops >= 2;
+              const on = o.v === null ? mine === null : mine !== null && (o.v === 0 ? mine === 0 : o.v === 1 ? mine === 1 : mine >= 2);
               return (
                 <button key={o.label} className={on ? 'on' : ''} aria-pressed={on} disabled={busy} title={o.tip} onClick={() => setPartPopsLevel(i, o.v)}>
                   {o.label}

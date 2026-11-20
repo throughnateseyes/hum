@@ -67,7 +67,6 @@ export interface VideoPlan {
 export interface PlanBase {
   looks: (string | null)[];
   rotate: (string[] | null)[];
-  pops: number[];
   /** each part's lyric medium (null: no words there, or no lyric plan) */
   lyric: (LyricMedium | null)[];
 }
@@ -160,9 +159,8 @@ export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep = -1): Vi
       interludes[i] = null;
       changed = true;
     }
-    // pop-ups the person set for this part by hand stay as they set them
-    const mine = !!plan.base && typeof plan.pops?.[i] === 'number' && plan.pops[i] !== plan.base.pops[i];
-    if (!mine) pops[i] = Math.max(pops[i] ?? 0, d.strength >= 0.75 ? 3 : 2);
+    // (pop-ups the person set by hand live in store.partPops and win over this)
+    pops[i] = Math.max(pops[i] ?? 0, d.strength >= 0.75 ? 3 : 2);
     if (i === keep || !looks[i] || looks[i] !== looks[i - 1]) continue;
     const pick = dropLook(looks, a, i, looks[i - 1], moodFilter(plan.mood));
     if (!pick) continue;
@@ -713,15 +711,26 @@ export function popLevelAt(t: number): number {
   if (s.popups === 'off') return 0;
   const a = s.analysis;
   const planned = s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a);
-  if (planned) {
-    const i = sectionIndexAt(a!.sections, t);
-    const v = s.plan!.pops?.[i];
-    return typeof v === 'number' ? Math.max(0, Math.min(3, Math.round(v))) : POPS_BY_LABEL[a!.sections[i].label];
-  }
+  if (planned) return partPopsAt(sectionIndexAt(a!.sections, t)).level;
   if (s.popups !== 'always') return 0;
   if (!a?.sections.length) return 1;
-  const sec = a.sections[sectionIndexAt(a.sections, t)];
-  return Math.max(1, POPS_BY_LABEL[sec.label]);
+  const i = sectionIndexAt(a.sections, t);
+  const mine = s.partPops?.[i];
+  return typeof mine === 'number' ? mine : Math.max(1, POPS_BY_LABEL[a.sections[i].label]);
+}
+
+/**
+ * Part i's pop-up level now (0 none … 3 lots) and whether it's the person's own (store.partPops,
+ * set with setPartPops) rather than the planner's. 0 turns off the instrument pop-ups and the scene
+ * windows both, since both read popLevelAt.
+ */
+export function partPopsAt(i: number): { level: number; mine: boolean } {
+  const s = useStudio.getState();
+  const o = s.partPops?.[i];
+  if (typeof o === 'number') return { level: Math.max(0, Math.min(3, Math.round(o))), mine: true };
+  const a = s.analysis;
+  if (!a?.sections[i]) return { level: 1, mine: false };
+  return { level: validPlan(s.plan, a) ? popsOf(s.plan!, a, i) : POPS_BY_LABEL[a.sections[i].label], mine: false };
 }
 
 /* ───────────────────────── picks while a plan is on ───────────────────────── */
@@ -1020,7 +1029,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
       const names = sectionNames(a.sections);
       plan = { ...plan, note: `${plan.note} Kept your changes to ${listNames(k.kept.map((i) => names[i]))}.` };
     }
-  }
+  } else if (opts.keepEdits === false && now.partPops) now.set({ partPops: null }); // "Start fresh": the pop-up overrides go too
   if (cacheKey && plan.source === 'claude') {
     savePlan(cacheKey, plan);
     watchPlan(cacheKey, plan, a);
@@ -1058,7 +1067,6 @@ export function planBase(plan: VideoPlan, a: TrackAnalysis): PlanBase {
   return {
     looks: [...plan.looks],
     rotate: a.sections.map((_, i) => (plan.rotate?.[i] ? [...plan.rotate[i]!] : null)),
-    pops: a.sections.map((_, i) => popsOf(plan, a, i)),
     lyric: a.sections.map((_, i) => plan.lyricPlan?.parts[i]?.medium ?? null),
   };
 }
@@ -1074,22 +1082,29 @@ export interface PartEdit {
   lyric: boolean;
 }
 
-/** what the person changed in each part (null where the part is as planned) */
-export function partEdits(plan: VideoPlan | null, a: TrackAnalysis | null): (PartEdit | null)[] {
+/**
+ * What the person changed in each part (null where the part is as planned): looks and lyric styles
+ * against the plan's base, pop-ups from the overrides in store.partPops (pass them in from a
+ * component that subscribes to them, so it redraws when they change).
+ */
+export function partEdits(plan: VideoPlan | null, a: TrackAnalysis | null, partPops: (number | null)[] | null = useStudio.getState().partPops): (PartEdit | null)[] {
   if (!plan || !a || !validPlan(plan, a)) return [];
-  const b = plan.base;
-  if (!b || b.looks.length !== plan.looks.length) return a.sections.map(() => null);
+  const b = plan.base && plan.base.looks.length === plan.looks.length ? plan.base : null;
   return a.sections.map((_, i) => {
     const e = {
-      look: plan.looks[i] !== b.looks[i],
-      pops: popsOf(plan, a, i) !== b.pops[i],
-      lyric: !!plan.lyricPlan?.parts[i] && plan.lyricPlan.parts[i]!.medium !== b.lyric[i],
+      look: !!b && plan.looks[i] !== b.looks[i],
+      pops: typeof partPops?.[i] === 'number',
+      lyric: !!b && !!plan.lyricPlan?.parts[i] && plan.lyricPlan.parts[i]!.medium !== b.lyric[i],
     };
     return e.look || e.pops || e.lyric ? e : null;
   });
 }
 
-/** carry the parts changed by hand in `prev` over to a new plan `next` for the same song */
+/**
+ * Carry the parts changed by hand in `prev` over to a new plan `next` for the same song. Pop-up
+ * overrides need no carrying: they live in store.partPops, outside the plan, and outlast re-plans.
+ * `kept` lists every changed part, pop-ups included, for the "Kept your changes" note.
+ */
 export function keepEdits(next: VideoPlan, prev: VideoPlan, a: TrackAnalysis): { plan: VideoPlan; kept: number[] } {
   const edits = partEdits(prev, a);
   const kept = edits.map((e, i) => (e ? i : -1)).filter((i) => i >= 0);
@@ -1097,7 +1112,6 @@ export function keepEdits(next: VideoPlan, prev: VideoPlan, a: TrackAnalysis): {
   const base = withBase(next, a).base!;
   const looks = [...next.looks];
   const rotate = a.sections.map((_, i) => next.rotate?.[i] ?? null);
-  const pops = a.sections.map((_, i) => popsOf(next, a, i));
   const lp = next.lyricPlan ? { ...next.lyricPlan, parts: [...next.lyricPlan.parts] } : undefined;
   for (const i of kept) {
     const e = edits[i]!;
@@ -1105,11 +1119,10 @@ export function keepEdits(next: VideoPlan, prev: VideoPlan, a: TrackAnalysis): {
       looks[i] = prev.looks[i];
       rotate[i] = prev.rotate?.[i] ?? null;
     }
-    if (e.pops) pops[i] = popsOf(prev, a, i);
     const was = prev.lyricPlan?.parts[i];
     if (e.lyric && lp && was && lp.parts[i]) lp.parts[i] = { ...lp.parts[i]!, medium: was.medium, why: was.why };
   }
-  return { plan: { ...next, looks, rotate, pops, ...(lp ? { lyricPlan: lp } : {}), base }, kept };
+  return { plan: { ...next, looks, rotate, ...(lp ? { lyricPlan: lp } : {}), base }, kept };
 }
 
 /** the mood of the plan playing now (scene windows keep to it too) */

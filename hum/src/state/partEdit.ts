@@ -2,8 +2,9 @@
  * Changing one part of the video by hand (the part sheet, src/ui/PartSheet.tsx): its look, its
  * version (another take of the same family), its lyric style and its pop-ups.
  *
- * Every change lands in the plan itself, so the sequencer, scrubbing and renders read it like any
- * other plan, and the song map shows it at once. The plan's `base` (what the planner chose) tells a
+ * Looks and lyric styles land in the plan itself, so the sequencer, scrubbing and renders read them
+ * like any other plan, and the song map shows them at once. Pop-up levels go to store.partPops
+ * (setPartPops), outside the plan, which popLevelAt reads ahead of the plan's own marks. The plan's `base` (what the planner chose) tells a
  * changed part from a planned one: a re-plan keeps the changes (plan.ts keepEdits), "Reset this part"
  * puts the planner's pick back, and Undo steps back through the last few changes. A plan changed
  * here is saved for the song (planCache.keepPlan), whoever planned it.
@@ -18,8 +19,12 @@ import { isScrubbing } from './scrub';
 import { useStudio } from './store';
 import { noteHandPick } from './taste';
 
-/** the plans before the last few changes made here (same song only) */
-const undo: { plan: VideoPlan; analysis: TrackAnalysis; what: string }[] = [];
+/** the plans (and pop-up overrides) before the last few changes made here (same song only) */
+const undo: { plan: VideoPlan; partPops: (number | null)[] | null; analysis: TrackAnalysis; what: string }[] = [];
+function pushUndo(plan: VideoPlan, a: TrackAnalysis, what: string) {
+  undo.push({ plan, partPops: useStudio.getState().partPops, analysis: a, what });
+  if (undo.length > UNDO_MAX) undo.shift();
+}
 const UNDO_MAX = 20;
 const undoSubs = new Set<() => void>();
 const changed = () => undoSubs.forEach((f) => f());
@@ -46,8 +51,7 @@ function current(): { plan: VideoPlan; a: TrackAnalysis } | null {
 
 /** put a changed plan on (the song map follows it from now on) and save it for the song */
 function commit(before: VideoPlan, a: TrackAnalysis, next: VideoPlan, what: string) {
-  undo.push({ plan: before, analysis: a, what });
-  if (undo.length > UNDO_MAX) undo.shift();
+  pushUndo(before, a, what);
   const s = useStudio.getState();
   s.set({ plan: next, planOn: true, autoPilot: false });
   keepPlan(next);
@@ -115,22 +119,19 @@ export function setPartLyric(i: number, medium: LyricMedium) {
   }
 }
 
-/** part i's pop-up windows: 0 off, 1 a few, 3 lots (through the store's setPartPops, so it saves) */
-export function setPartPopsLevel(i: number, level: number) {
+/**
+ * part i's pop-ups: 0 off, 1 a few, 3 lots, null back to the planner's (the store's setPartPops keeps
+ * it outside the plan, so it outlasts re-plans, and saves it for the song)
+ */
+export function setPartPopsLevel(i: number, level: number | null) {
   const s = useStudio.getState();
   const cur = current();
   if (!cur) return;
-  const before = s.plan!;
-  // the base goes on first, so the change reads as a change
-  if (before !== cur.plan) s.set({ plan: cur.plan });
+  if ((s.partPops?.[i] ?? null) === level) return;
+  pushUndo(s.plan!, cur.a, `${sectionNames(cur.a.sections)[i]} pop-ups`);
   s.setPartPops(i, level);
-  const after = useStudio.getState().plan;
-  if (after && after !== cur.plan) {
-    undo.push({ plan: before, analysis: cur.a, what: `${sectionNames(cur.a.sections)[i]} pop-ups` });
-    if (undo.length > UNDO_MAX) undo.shift();
-    if (!useStudio.getState().planOn) useStudio.getState().set({ planOn: true, autoPilot: false });
-    changed();
-  }
+  if (!useStudio.getState().planOn) useStudio.getState().set({ planOn: true, autoPilot: false });
+  changed();
 }
 
 /** put the planner's own picks back into part i */
@@ -146,8 +147,6 @@ export function resetPart(i: number) {
     looks[i] = b.looks[i];
     rotate[i] = b.rotate[i];
   }
-  const pops = a.sections.map((_, j) => plan.pops?.[j] ?? b.pops[j]);
-  pops[i] = b.pops[i];
   let lyricPlan = plan.lyricPlan;
   const was = b.lyric[i];
   if (lyricPlan?.parts[i] && was) {
@@ -155,11 +154,15 @@ export function resetPart(i: number) {
     parts[i] = { ...parts[i]!, medium: was, why: '' };
     lyricPlan = { ...lyricPlan, parts };
   }
-  let next = ensureDropCuts({ ...plan, looks, rotate, pops, ...(lyricPlan ? { lyricPlan } : {}) }, a, i);
+  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}) }, a, i);
+  // pop-ups go back to the planner's level too (one Undo step with the rest)
+  const pp = s.partPops ? s.partPops.map((v, j) => (j === i ? null : v)) : null;
+  const partPops = pp?.some((v) => v !== null) ? pp : null;
   // the plan's "kept your changes" line goes once nothing is changed any more
-  if (partEdits(next, a).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
+  if (partEdits(next, a, partPops).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
   const name = sectionNames(a.sections)[i];
   commit(s.plan!, a, next, `reset ${name}`);
+  if (s.partPops !== partPops) s.set({ partPops });
   s.flash(`${name} is back to the plan`);
 }
 
@@ -169,7 +172,7 @@ export function undoPartEdit() {
   const top = undo[undo.length - 1];
   if (!top || top.analysis !== s.analysis) return;
   undo.pop();
-  s.set({ plan: top.plan, planOn: true, autoPilot: false });
+  s.set({ plan: top.plan, partPops: top.partPops, planOn: true, autoPilot: false });
   keepPlan(top.plan);
   s.flash(`Undid ${top.what}`);
   changed();

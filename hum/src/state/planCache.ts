@@ -113,6 +113,50 @@ export function keepPlan(plan: VideoPlan) {
   watchPlan(key, plan, s.analysis);
 }
 
+/* ── pop-up levels set by hand per part (store.partPops), saved per song apart from the plans ── */
+
+const POPS_KEY = 'hum.partPops';
+
+/** the song by name and the shape of its parts (lyrics don't matter to pop-ups) */
+function popsKey(name: string, a: TrackAnalysis): string {
+  return `${name}|${hash(`${a.duration.toFixed(1)}|${a.sections.map((s) => `${s.label[0]}${s.start.toFixed(1)}`).join(',')}`)}`;
+}
+
+function readPops(): Record<string, { at: number; pops: (number | null)[] }> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(POPS_KEY) ?? '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+/** save (or with null, forget) the loaded song's pop-up overrides */
+export function savePartPops(pops: (number | null)[] | null) {
+  const s = useStudio.getState();
+  if (!s.track || s.track.source === 'mic' || !s.analysis) return;
+  const all = readPops();
+  const key = popsKey(s.track.name, s.analysis);
+  if (pops && pops.length === s.analysis.sections.length && pops.some((v) => v !== null)) all[key] = { at: Date.now(), pops };
+  else delete all[key];
+  const keep = Object.entries(all)
+    .sort((x, y) => y[1].at - x[1].at)
+    .slice(0, MAX_SAVED);
+  try {
+    localStorage.setItem(POPS_KEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch {
+    /* storage full or blocked: overrides last until the page closes */
+  }
+}
+
+/** the pop-up overrides saved for this song (null without any) */
+export function loadPartPops(name: string, a: TrackAnalysis): (number | null)[] | null {
+  const e = readPops()[popsKey(name, a)];
+  if (!e || !Array.isArray(e.pops) || e.pops.length !== a.sections.length) return null;
+  const pops = e.pops.map((v) => (typeof v === 'number' && v >= 0 && v <= 3 ? Math.round(v) : null));
+  return pops.some((v) => v !== null) ? pops : null;
+}
+
 /* ── keep the saved plan up to date as the person edits it ── */
 
 let watching: { key: string; plan: VideoPlan; analysis: TrackAnalysis } | null = null;

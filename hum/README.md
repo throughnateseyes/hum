@@ -50,7 +50,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   the five families that fit the part best and sit well beside its neighbours (filter by mood, or
   **More looks…** for all of them with a search); **Version** to pick a take in one tap;
   **Lyrics** for this part (Subtitles, Big words, A word or two, the look's own) when the song has
-  synced lyrics; and **Pop-ups** Off / Few / Lots. A part you changed wears a dot. Changes are kept
+  synced lyrics; and **Pop-ups** Auto / Off / Few / Lots (Off also stops the windows). A part you changed wears a dot. Changes are kept
   with the saved video, a new plan keeps them, and **Reset this part** / **Undo** in the sheet put
   things back (`src/ui/PartSheet.tsx`, `src/state/partEdit.ts`).
   **Mood** (the row under the song map) re-plans the whole video in one tap inside one world:

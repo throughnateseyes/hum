@@ -21,6 +21,7 @@ const cover = (id: MoodId) => {
 export function MoodRow() {
   const analysis = useStudio((s) => s.analysis);
   const plan = useStudio((s) => s.plan);
+  const partPops = useStudio((s) => s.partPops);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
   // the mood waiting on "keep your changes?" (null: Any)
@@ -33,7 +34,7 @@ export function MoodRow() {
   if (!analysis?.sections.length) return null;
   const hasPlan = validPlan(plan, analysis);
   const active = hasPlan ? (plan.mood ?? null) : undefined;
-  const edited = hasPlan ? partEdits(plan, analysis).flatMap((e, i) => (e ? [i] : [])) : [];
+  const edited = hasPlan ? partEdits(plan, analysis, partPops).flatMap((e, i) => (e ? [i] : [])) : [];
   const names = sectionNames(analysis.sections);
 
   const go = (mood: MoodId | null, keepEdits: boolean) => {

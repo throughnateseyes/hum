@@ -275,7 +275,8 @@ function SectionRow({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
   const dragLook = dragId ? findLook(dragId) : undefined;
   const dragging = !!dragId;
   const sheetAt = usePartSheet((s) => s.index);
-  const edits = partEdits(plan, a);
+  const partPops = useStudio((s) => s.partPops);
+  const edits = partEdits(plan, a, partPops);
 
   useEffect(
     () =>
