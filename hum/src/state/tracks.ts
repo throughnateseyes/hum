@@ -41,6 +41,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     if (token !== loadToken) return;
     audioEngine.setAnalysis(analysis);
     useStudio.getState().set({ analysis, analyzing: false });
+    // pop-up levels set by hand for this song before come back with it
     if (opts.autoTheme !== false) {
       const pick = analysis.suggestedPresets.map((id) => PRESETS.find((p) => p.id === id)).find(Boolean);
       if (pick) {
@@ -484,7 +485,7 @@ export async function useMic() {
     songBuf = null;
     lastBuf = null;
     lastFile = null;
-    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
+    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, partPops: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   } catch {
     useStudio.getState().flash('Microphone permission was denied');
   }
@@ -523,7 +524,7 @@ export async function useTab() {
   songBuf = null;
   lastBuf = null;
   lastFile = null;
-  useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
+  useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, analysis: null, analyzing: false, plan: null, partPops: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   flash('Listening to the tab. Play the song there.');
 }
 

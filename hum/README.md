@@ -45,6 +45,20 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   Director's **Video** mode ("calmer chorus", "something brighter on the drop", "fewer pop-ups"):
   only the parts you mention change, on the small model, for a fraction of a cent. Picking a scene
   pauses the song map.
+  **Click a part** to open its sheet (a popover over the part on a computer, a bottom sheet on a
+  phone: swipe it down or tap outside to close). It has **Play this part**; **Swap the look** with
+  the five families that fit the part best and sit well beside its neighbours (filter by mood, or
+  **More looks…** for all of them with a search); **Version** to pick a take in one tap;
+  **Lyrics** for this part (Subtitles, Big words, A word or two, the look's own) when the song has
+  synced lyrics; and **Pop-ups** Auto / Off / Few / Lots (Off also stops the windows). A part you changed wears a dot. Changes are kept
+  with the saved video, a new plan keeps them, and **Reset this part** / **Undo** in the sheet put
+  things back (`src/ui/PartSheet.tsx`, `src/state/partEdit.ts`).
+  **Mood** (the row under the song map) re-plans the whole video in one tap inside one world:
+  Brutal, Dreamy, Hacker, Nature, Club, Paper, Night city or Playful. Each mood is a hand-picked set
+  of look families and takes plus one finish and transition set (`src/presets/moods.ts`), and both
+  the offline planner and Claude stay inside it, as do each part's rotation, drop cuts, skips and
+  scene windows. Parts still differ, by take and by neighbouring families of that world. If you've
+  changed parts, it asks whether to keep those changes or start fresh. **Any** goes back to no mood.
   **Saved videos:** the last video Claude made for a song stays in this browser (24 songs), edits
   included, so **Make a video** on a song you've done before plays it straight away with no new
   request. **Remake video** (or typing a wish) always asks Claude for a fresh take.

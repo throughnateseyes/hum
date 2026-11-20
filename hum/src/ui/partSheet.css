@@ -1,0 +1,485 @@
+/* ───────── the part sheet (src/ui/PartSheet.tsx) and the mood row (src/ui/Moods.tsx) ───────── */
+
+/* the stage's empty state (.empty in index.css) shares the class name with an empty part and turned
+   its pointer off, so an empty part could be neither clicked nor dropped on */
+.tl-sec.empty {
+  pointer-events: auto;
+  container-type: normal;
+}
+/* the song map: a part changed by hand wears a dot, the part being edited a ring */
+.tl-sec.open {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.tl-edit {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px #fff;
+  pointer-events: none;
+}
+.tl-sec.tiny .tl-edit {
+  top: 2px;
+  right: 2px;
+}
+
+/* ── moods: one row under the song map ── */
+.moods {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.moods-l {
+  flex: none;
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--ink-3);
+  cursor: default;
+}
+.moods-row {
+  display: flex;
+  gap: var(--s-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 1px;
+}
+.moods-row::-webkit-scrollbar {
+  display: none;
+}
+.mood {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--h-sm);
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mood img {
+  width: 18px;
+  height: 18px;
+  margin-left: -6px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.mood:hover {
+  background: var(--sel);
+  color: var(--ink);
+}
+.mood.on {
+  background: var(--ink);
+  color: #fff;
+}
+.mood:focus-visible,
+.ps button:focus-visible,
+.ps input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.mood[disabled] {
+  opacity: 0.5;
+}
+.moods-ask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.moods-ask span {
+  margin-right: 2px;
+}
+.moods-ask b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* the moods as a filter (the sheet's look list) */
+.mood-chips {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -2px 6px;
+  padding: 0 2px;
+}
+.mood-chips::-webkit-scrollbar {
+  display: none;
+}
+.mood-chips .chip {
+  flex: none;
+}
+
+/* ── the sheet ── */
+.ps {
+  position: fixed;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.07),
+    var(--shadow-lg);
+}
+/* a computer: a popover standing on the part, its arrow pointing at it */
+.ps-pop {
+  border-radius: var(--r-lg);
+  animation: ps-pop 0.14s ease-out;
+}
+.ps-pop::after {
+  content: '';
+  position: absolute;
+  left: var(--arrow, 50%);
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  transform: rotate(45deg);
+  background: var(--panel);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.07);
+}
+@keyframes ps-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* a phone: a bottom sheet in reach of the thumb */
+.ps-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 54;
+  background: rgba(20, 20, 22, 0.32);
+  animation: ps-fade 0.18s ease-out;
+}
+.ps-phone {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 82svh;
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: ps-up 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes ps-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes ps-fade {
+  from {
+    opacity: 0;
+  }
+}
+.ps-grab {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 2px;
+  touch-action: none;
+  cursor: grab;
+}
+.ps-grab i {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2);
+}
+.ps-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-3);
+}
+.ps-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ps-phone .ps-head {
+  touch-action: none;
+}
+.ps-pic {
+  flex: none;
+  width: 44px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2) center / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.ps-title {
+  flex: 1;
+  min-width: 0;
+}
+.ps-title h2 {
+  margin: 0;
+  font-size: var(--fs-5);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.ps-sub {
+  display: block;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-x {
+  flex: none;
+  align-self: flex-start;
+}
+.ps-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ps-note {
+  margin: 8px 0 0;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.ps-noplan {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: var(--r);
+  background: var(--panel-2);
+}
+.ps-noplan p {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+.ps-sec {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ps-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ps-h h3 {
+  margin: 0;
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+.ps-h span {
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-search {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.ps-looks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.ps-look {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+.ps-look:hover {
+  background: var(--panel-2);
+}
+.ps-thumb {
+  flex: none;
+  display: block;
+  width: 52px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.ps-thumb img,
+.ps-thumb svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ps-lt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ps-lt b {
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-lt span {
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-empty {
+  padding: 8px 4px;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+}
+.ps-more {
+  margin-top: 4px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 500;
+}
+.ps-more:hover {
+  text-decoration: underline;
+}
+.ps-takes {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px 2px 4px;
+  margin: 0 -2px;
+}
+.ps-take {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--ink-2);
+}
+.ps-take .ps-thumb {
+  width: 58px;
+  height: 40px;
+}
+.ps-take:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.ps-take.on {
+  color: var(--ink);
+}
+.ps-take.on .ps-thumb {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.ps-tn {
+  max-width: 100%;
+  font-size: var(--fs-2);
+  line-height: 1.2;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ps-seg {
+  width: 100%;
+}
+.ps [disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* thumb-sized targets on a phone */
+.ps-phone .ps-body {
+  padding: 4px var(--s-4) var(--s-4);
+}
+.ps-phone .btn.sm {
+  height: 36px;
+  padding: 0 12px;
+}
+.ps-phone .btn.icon.sm {
+  width: 36px;
+  padding: 0;
+}
+.ps-phone .seg button {
+  height: 36px;
+}
+.ps-phone .chip {
+  height: 30px;
+  padding: 0 10px;
+}
+.ps-phone .ps-look {
+  padding: 6px 4px;
+}
+.ps-phone .ps-thumb {
+  width: 60px;
+  height: 42px;
+}
+.ps-phone .ps-take {
+  width: 72px;
+}
+.ps-phone .ps-take .ps-thumb {
+  width: 66px;
+  height: 46px;
+}
+@media (max-width: 760px) {
+  .mood {
+    height: 30px;
+  }
+  .moods-ask .btn.sm {
+    height: 32px;
+  }
+  /* the question on its own line, its three answers in a row under it */
+  .moods:has(.moods-ask) {
+    align-items: flex-start;
+  }
+  .moods-ask span {
+    flex-basis: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-pop,
+  .ps-phone,
+  .ps-backdrop {
+    animation: none;
+    transition: none;
+  }
+}
