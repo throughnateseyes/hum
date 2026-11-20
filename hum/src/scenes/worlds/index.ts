@@ -9,6 +9,7 @@ import { retroDesktop } from './retroDesktop';
 import { orrery } from './orrery';
 import { nightTrain } from './nightTrain';
 import { garden } from './garden';
+import { goldenAvenue } from './goldenAvenue';
 
 /** worlds: places and living things, drawn rather than photographed */
-export const scenes: SceneDef[] = [willow, nightWindows, signalForest, jellies, shoal, observer, retroDesktop, orrery, nightTrain, garden];
+export const scenes: SceneDef[] = [willow, nightWindows, signalForest, jellies, shoal, observer, retroDesktop, orrery, nightTrain, garden, goldenAvenue];

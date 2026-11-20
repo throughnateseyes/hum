@@ -91,6 +91,10 @@ export const LOOK_PROFILES: Record<string, LyricProfile> = {
   'highlighter': P(0.8, 0.2, 0.5, 0.4, ['top', 'left'], 'carries', 'dark', 'paper'),
   'flip-cards': P(0.8, 0.2, 0.5, 0.4, ['top', 'bottom'], 'carries', 'light', 'band'),
   'flip-cards-paper': P(0.8, 0.2, 0.5, 0.4, ['bottom', 'top'], 'carries', 'dark', 'paper'),
+  // golden avenue: busy canopy up top, the lit path and the glow at the end of the avenue are calm
+  'golden-avenue': P(1, 0.75, 0.75, 0.85, ['bottom', 'middle', 'top'], 'none', 'look', 'soft'),
+  'golden-avenue-dusk': P(1, 0.75, 0.75, 0.85, ['bottom', 'middle', 'top'], 'none', 'look', 'soft'),
+  'golden-avenue-birch': P(1, 0.75, 0.75, 0.85, ['bottom', 'middle', 'top'], 'none', 'look', 'soft'),
 };
 
 /** fallbacks by scene category, for scenes picked directly and people's own looks */

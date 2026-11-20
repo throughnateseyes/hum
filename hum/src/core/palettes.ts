@@ -124,6 +124,10 @@ export const PALETTES: Palette[] = [
   // lensing
   { id: 'lensing-pastel', name: 'Lensing Pastel', bg: '#050507', fg: '#f4f1ff', accent: '#ffd27a', accent2: '#7ff0d0', muted: '#9a8cff' },
   { id: 'lensing-ember', name: 'Lensing Ember', bg: '#0b0710', fg: '#fff1e4', accent: '#ff7a59', accent2: '#ffd36e', muted: '#c552d8' },
+  // golden avenue
+  { id: 'golden-avenue', name: 'Golden Avenue', bg: '#fff1c6', fg: '#4a2b20', accent: '#f4c21c', accent2: '#e0841f', muted: '#f1d27c' },
+  { id: 'golden-avenue-dusk', name: 'Avenue at Dusk', bg: '#ffd3ba', fg: '#3a2130', accent: '#f4a64e', accent2: '#cc5f62', muted: '#eaa98a' },
+  { id: 'golden-avenue-birch', name: 'Birch Avenue', bg: '#e9eef0', fg: '#262a33', accent: '#e2cf8e', accent2: '#6f8296', muted: '#cfd6da' },
 ];
 
 export function getPalette(id: string): Palette {
