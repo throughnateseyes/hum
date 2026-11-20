@@ -32,8 +32,8 @@ export function activeFinish(s: Pick<StudioState, 'finish' | 'hand' | 'planOn' |
 /** pick a finish (or Auto) in the UI; keeps the Hand-drawn switch in step */
 export function setFinish(v: 'auto' | FinishId) {
   const s = useStudio.getState();
-  if (v === 'auto') s.set({ finish: v });
-  else s.set({ finish: v, hand: { ...s.hand, on: v === 'hand' } });
+  if (v === 'auto') s.set({ finish: v, finishPicked: true });
+  else s.set({ finish: v, finishPicked: true, hand: { ...s.hand, on: v === 'hand' } });
 }
 
 /** the transitions a plan's direction leans on (undefined: no preference) */
