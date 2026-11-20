@@ -98,31 +98,35 @@ float sdSeg(vec2 p, vec2 a, vec2 b) {
   vec2 pa = p - a, ba = b - a;
   return length(pa - ba * clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0));
 }
-/* a bare winter tree: a trunk and seven orders of forking branches (one fold per order), swaying */
-float treeD(vec2 p, float seed) {
+/* a bare winter tree: a trunk and nine orders of forking branches (one fold per order), swaying.
+   The per-order turns and scales are worked out once a frame in JS (uTA, uTB, uTK; tree 1 at 0..8, tree 2 at 9..17). */
+uniform vec4 uTA[18], uTB[18];
+uniform float uTK[18];
+float vSeg(vec2 p, float L) { return length(vec2(p.x, p.y - clamp(p.y, 0.0, L))); }
+float treeD(vec2 p, int o, float seed, float px) {
   float L = 0.3;
   float w = 0.024;
-  float d = sdSeg(p, vec2(0.0), vec2(0.0, L)) - w * (1.3 - p.y);
+  p = rot2(0.16 * cos(seed * 2.7)) * p;   // each trunk leans its own way
+  float d = vSeg(p, L) - w * (1.3 - p.y);
   float sc = 1.0;
-  float sway = (0.02 + 0.07 * uFeelGust) * sin(uFeelWindPhase * 1.3 + seed);
   for (int i = 0; i < 9; i++) {
     float fi = float(i);
     p.y -= L;
     // each fork leans a little its own way, and every branch wanders (so no two forks mirror cleanly)
-    p = rot2(sway * (0.3 + fi * 0.22) + 0.24 * sin(seed * 3.1 + fi * 2.3)) * p;
-    p.x += 0.05 * (tnoise(p * 5.0 + seed * 7.0 + fi * 3.3) - 0.5);
+    vec4 A = uTA[o + i];
+    p = mat2(A.x, A.y, A.z, A.w) * p;
+    p.x += 0.022 * sin(p.y * 8.0 + p.x * 3.0 + seed * 7.0 + fi * 3.3);
     p.x = abs(p.x) - 0.006;
-    float a = 0.3 + 0.2 * sin(seed + fi * 1.73);
-    p = rot2(-a) * p;   // the branch leans out from the fold
-    float k = 0.74 + 0.06 * sin(seed * 1.7 + fi);
-    p /= k;
-    sc *= k;
+    vec4 B = uTB[o + i];
+    p = mat2(B.x, B.y, B.z, B.w) * p;   // the branch leans out from the fold, scaled to the next order
+    sc *= uTK[o + i];
     w *= 0.76;
-    d = min(d, (sdSeg(p, vec2(0.0), vec2(0.0, L)) - w) * sc);
+    d = min(d, (vSeg(p, L) - w) * sc);
+    if (sc * w < px * 0.22) break;   // twigs finer than a pixel add nothing
   }
   return d;
 }
-float treeMask(vec3 ro, vec3 rd, vec4 tr, float seed, out float tHit) {
+float treeMask(vec3 ro, vec3 rd, vec4 tr, int o, float seed, out float tHit) {
   tHit = 1e9;
   if (tr.w <= 0.0) return 0.0;
   float den = dot(rd, uFh);
@@ -131,9 +135,9 @@ float treeMask(vec3 ro, vec3 rd, vec4 tr, float seed, out float tHit) {
   if (t <= 0.0) return 0.0;
   vec3 h = ro + rd * t;
   vec2 q = vec2(dot(h - tr.xyz, uRh), h.y - tr.y) / tr.w;
-  if (abs(q.x) > 1.2 || q.y < -0.1 || q.y > 1.6) return 0.0;
-  float d = treeD(q, seed);
-  float px = t / (uResolution.y * 0.5) / tr.w * 1.2;   // about a pixel, in tree units
+  if (abs(q.x) > 0.95 || q.y < -0.1 || q.y > 1.4) return 0.0;
+  float px = t / (uResolution.y * 0.5 * uFocal) / tr.w * 1.4;   // a little over a pixel, in tree units
+  float d = treeD(q, o, seed, px);
   tHit = t;
   return 1.0 - smoothstep(-px * 0.5, px, d);
 }
@@ -305,7 +309,7 @@ vec3 shadeCell(vec2 uv, vec3 dl, vec3 ls, float flood) {
       n = vec3(0.0, 0.0, 1.0);
     } else {
       float lo = 0.0, hi = tBack;
-      for (int i = 0; i < 9; i++) {
+      for (int i = 0; i < 8; i++) {
         float m = 0.5 * (lo + hi);
         if (recessF(hp + dl * m, hs, r, taper, D) < 0.0) lo = m; else hi = m;
       }
@@ -346,7 +350,8 @@ vec3 shadeCell(vec2 uv, vec3 dl, vec3 ls, float flood) {
   alb *= 0.96 + 0.06 * (hash21(c * 0.71) - 0.5) * u_weather;
   alb *= 1.0 - 0.18 * depthFrac * u_weather;
 
-  float light = 1.37 * u_exposure * alb * (amb * (1.0 - 0.85 * uSunAmt) * (1.0 - 0.72 * uFloodY) + direct * 1.3);
+  // at night the shade sinks and the floodlit faces climb toward the lightest tone, so the face keeps its structure in print
+  float light = 1.37 * u_exposure * alb * (amb * (1.0 - 0.85 * uSunAmt) * (1.0 - 0.84 * uFloodY) + direct * (1.3 + 1.1 * uFloodY));
   float tone = clamp(light, 0.0, 1.0);
   vec3 col = ramp(pow(tone, 0.85));
 
@@ -386,8 +391,7 @@ void main() {
   vec3 ro = uCamPos;
   vec3 T, N; vec2 uv;
   float t = hitFacade(ro, rd, T, N, uv);
-  vec3 sky = skyCol(rd);
-  vec3 col = sky;
+  vec3 col;
   if (t > 0.0 && uv.y < uTop) {
     vec3 B = vec3(0.0, 1.0, 0.0);
     vec3 dl = vec3(dot(rd, T), dot(rd, B), dot(rd, N));
@@ -398,7 +402,11 @@ void main() {
     vec2 dx = dFdx(uv), dy = dFdy(uv);
     float fp = max(length(dx), length(dy)) / min(uCell.x, uCell.y);
     fp = min(fp, 4.0);
-    if (fp > 0.07) {
+    if (fp > 0.07 && fp < 0.2) {
+      // middle distance: two samples along the pixel's longer axis are enough
+      vec2 ax = length(dx) > length(dy) ? dx : dy;
+      col = 0.5 * (shadeCell(uv - ax * 0.25, dl, ls, flood) + shadeCell(uv + ax * 0.25, dl, ls, flood));
+    } else if (fp >= 0.2) {
       // far away: average four samples across the pixel
       vec3 acc = vec3(0.0);
       acc += shadeCell(uv + dx * -0.25 + dy * -0.25, dl, ls, flood);
@@ -417,13 +425,16 @@ void main() {
     col = mix(col, ramp(0.35 + 0.4 * max(ls.y, 0.0) * uSunAmt), roof);
     // aerial haze
     float fog = 1.0 - exp(-t * (0.002 + 0.016 * u_haze * u_haze));
+    vec3 sky = mix(uBg, uMuted, 0.25 + 0.6 * u_sky);   // the haze takes the sky's low tone (no clouds needed)
     col = mix(col, mix(sky, uBg, 0.4), clamp(fog, 0.0, 0.85));
+  } else {
+    col = skyCol(rd);
   }
   // bare trees in front of the building
   if (u_trees > 0.001) {
     float th1, th2;
-    float m1 = treeMask(ro, rd, uTree1, 1.3, th1);
-    float m2 = treeMask(ro, rd, uTree2, 4.1, th2);
+    float m1 = treeMask(ro, rd, uTree1, 0, 1.3, th1);
+    float m2 = treeMask(ro, rd, uTree2, 9, 4.1, th2);
     vec3 bark = ramp(0.04);
     if (th2 < t || t <= 0.0 || uv.y >= uTop) col = mix(col, mix(bark, col, 0.25), m2 * u_trees);
     if (th1 < t || t <= 0.0 || uv.y >= uTop) col = mix(col, bark, m1 * u_trees);
@@ -491,6 +502,9 @@ export const precast: SceneDef = {
       uRP: { value: new THREE.Vector4(0, 0.33, 0.66, 1) },
       uTree1: { value: new THREE.Vector4(0, 0, 0, 0) },
       uTree2: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uTA: { value: Array.from({ length: 18 }, () => new THREE.Vector4(1, 0, 0, 1)) },
+      uTB: { value: Array.from({ length: 18 }, () => new THREE.Vector4(1, 0, 0, 1)) },
+      uTK: { value: new Array(18).fill(0.74) },
       uFh: { value: new THREE.Vector3(0, 0, -1) },
       uRh: { value: new THREE.Vector3(1, 0, 0) },
     };
@@ -507,6 +521,7 @@ export const precast: SceneDef = {
     // song state
     let track = 0;
     let prevSince = 99;
+    let sinceCounted = 99;
     let drops = 0;
     let modFrom = -1; // module index turning from / to, and how far the turn is
     let modTo = -1;
@@ -542,12 +557,18 @@ export const precast: SceneDef = {
         updateParamUniforms(uniforms, params, p);
 
         /* drops: flip the light, flood the windows, turn the module */
-        const dropped = feel.sinceDrop < prevSince - 0.5 && feel.sinceDrop < 1;
+        // starting (or seeking) past a drop: take up the post-drop state at once, no flash, no turn
+        const missed = prevSince >= 98 && feel.sinceDrop >= 1 && feel.sinceDrop < 98;
+        // (and the same drop arriving live a moment later doesn't count twice)
+        sinceCounted += dt;
+        const dropped = feel.sinceDrop < prevSince - 0.5 && feel.sinceDrop < 1 && sinceCounted > 4;
         prevSince = feel.sinceDrop;
-        if (dropped) {
+        if (dropped || missed) sinceCounted = 0;
+        if (dropped || missed) {
           drops++;
-          flash = 1;
+          if (dropped) flash = 1;
           if (bool(p, 'flip', true)) side = -side;
+          if (missed) sideEased = side;
         }
         flash *= Math.exp(-dt * 1.1);
 
@@ -556,7 +577,7 @@ export const precast: SceneDef = {
         // the drops walk through porthole → coffer → sawtooth (the plain slot only when it's the chosen module)
         const cycle = MODULES[base] === 'slot' ? [3, 0, 1, 2] : [0, 1, 2].map((k) => (base + k) % 3);
         const want = cycle[(bool(p, 'morph', true) ? drops : 0) % cycle.length];
-        if (modTo < 0) modFrom = modTo = want;
+        if (modTo < 0 || (missed && morphT >= 1)) modFrom = modTo = want;
         else if (want !== modTo) {
           // a new turn starts from wherever the cells are now (a turn under way snaps to its end)
           if (morphT < 1) turns++;
@@ -656,12 +677,14 @@ export const precast: SceneDef = {
           tgt.set(0.4, 1.6 + 0.3 * Math.sin(frame.time * 0.07), 0);
           waveO = -d * 1.1;
         } else if (framing === 1) {
-          // the corner of two wings, from a low angle, sky above the roof
-          top = 13;
-          const az = Math.PI / 4 + 0.22 * Math.sin(orbit) + sway * 0.4;
-          const d = (8.5 / zoom) * dz;
-          cam.set(Math.sin(az) * d, 0.8, Math.cos(az) * d);
-          tgt.set(0, 6.2 + 0.5 * (dz - 1), 0);
+          // the corner of two wings, from near the foot looking up: the wings fill the frame, sky above the roof
+          top = 12.5;
+          const az = Math.PI / 4 + 0.16 * Math.sin(orbit) + sway * 0.3;
+          // a longer lens from further back: less distortion, big portholes, the wings across the frame
+          const d = (7.2 / zoom) * dz;
+          cam.set(Math.sin(az) * d, 0.0, Math.cos(az) * d);
+          tgt.set(0, 4.4 + 0.4 * (dz - 1), 0);
+          focal *= 1.7;
           trackU = 0;
           waveO = -14;
         } else if (framing === 2) {
@@ -689,11 +712,36 @@ export const precast: SceneDef = {
         const fh = uniforms.uFh.value.set(f.x, 0, f.z).normalize();
         const rh = uniforms.uRh.value.set(-fh.z, 0, fh.x);
         const trees = num(p, 'trees', 0);
-        const camDist = framing === 1 ? 6.5 : framing === 2 ? 2.4 : 3.2;
-        const tScale = framing === 1 ? 6.5 : 4;
         const wide = Math.pow(Math.min(1, Math.max(0.3, asp / 1.78)), 0.8); // narrow frames pull the trees in
-        uniforms.uTree1.value.set(cam.x + fh.x * camDist * 0.5 - rh.x * camDist * 0.95 * wide, -1.4, cam.z + fh.z * camDist * 0.5 - rh.z * camDist * 0.95 * wide, trees > 0 ? tScale * 0.75 : 0);
-        uniforms.uTree2.value.set(cam.x + fh.x * camDist + rh.x * camDist * wide, -1.6, cam.z + fh.z * camDist + rh.z * camDist * wide, trees > 0 ? tScale : 0);
+        // not a matched pair: a nearer tree on the left, a taller one further off to the right
+        // [forward, side, height, base] for each, in world units from the camera
+        const cd = framing === 2 ? 2.4 : 3.2;
+        const tp = framing === 1
+          ? [3.6, -2.0, 3.6, -1.5, 5.6, 2.4, 5.2, -1.0]
+          : [0.45 * cd, -0.8 * cd, 2.5, -1.5, 1.15 * cd, 1.2 * cd, 4.6, -1.2];
+        const on = trees > 0 ? 1 : 0;
+        tp[0] *= 1 + 0.7 * (1 - wide); // in a narrow frame the near tree steps back so it doesn't swallow the shot
+        uniforms.uTree1.value.set(cam.x + fh.x * tp[0] + rh.x * tp[1] * wide, tp[3], cam.z + fh.z * tp[0] + rh.z * tp[1] * wide, tp[2] * on);
+        uniforms.uTree2.value.set(cam.x + fh.x * tp[4] + rh.x * tp[5] * wide, tp[7], cam.z + fh.z * tp[4] + rh.z * tp[5] * wide, tp[6] * on);
+        if (on) {
+          // each order's fork: a lean that sways with the song's wind, then the branch's own angle and scale
+          const TA = uniforms.uTA.value as THREE.Vector4[];
+          const TB = uniforms.uTB.value as THREE.Vector4[];
+          const TK = uniforms.uTK.value as number[];
+          for (let t = 0; t < 2; t++) {
+            const seed = t === 0 ? 1.3 : 4.1;
+            const sw = (0.02 + 0.07 * feel.gust) * Math.sin(feel.windPhase * 1.3 + seed);
+            for (let i = 0; i < 9; i++) {
+              const ra = sw * (0.3 + i * 0.22) + 0.24 * Math.sin(seed * 3.1 + i * 2.3);
+              const a2 = -(0.3 + 0.2 * Math.sin(seed + i * 1.73));
+              const k = 0.74 + 0.06 * Math.sin(seed * 1.7 + i);
+              // rot2(a) = mat2(c, -s, s, c), column-major
+              TA[t * 9 + i].set(Math.cos(ra), -Math.sin(ra), Math.sin(ra), Math.cos(ra));
+              TB[t * 9 + i].set(Math.cos(a2) / k, -Math.sin(a2) / k, Math.sin(a2) / k, Math.cos(a2) / k);
+              TK[t * 9 + i] = k;
+            }
+          }
+        }
         uniforms.uCamPos.value.copy(cam);
         uniforms.uCamF.value.copy(f);
         uniforms.uCamR.value.copy(r);
@@ -715,6 +763,16 @@ export const precast: SceneDef = {
         let lx = Math.cos(a) * Math.cos(rake);
         let ly = Math.sin(a) * Math.cos(rake);
         let lz = Math.sin(rake);
+        if (framing === 1) {
+          // the corner: the sun stands off to one side so one wing is lit and the other in shade (never both
+          // half lit at noon); it climbs and sinks with the song, low and long in a build, and a drop swaps the wings
+          const sd = Math.max(-1, Math.min(1, -Math.cos(a) * 4));
+          const psi = Math.PI / 4 + sd * (0.74 + 0.3 * (0.45 - num(p, 'rake', 0.38)));
+          const el = (0.3 + 0.28 * Math.sin(a)) * (1 - 0.45 * tens);
+          lx = Math.cos(el) * Math.cos(psi);
+          ly = Math.sin(el);
+          lz = Math.cos(el) * Math.sin(psi);
+        }
         if (night > 0.001) {
           // floodlights at the foot of the building, grazing up the facade
           const fa = -Math.PI / 2 + 0.35 * sideEased + num(p, 'angle', 0) * 0.6;
