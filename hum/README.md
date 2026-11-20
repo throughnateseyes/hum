@@ -290,8 +290,18 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
   and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
   Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
-  allows it, a full-window view on iPhone.
-- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
+  allows it, a full-window view on iPhone. In full screen, moving the mouse (or a tap) brings up a
+  slim bar along the bottom that fades again after a couple of seconds, or as soon as the pointer
+  leaves the window, and the cursor hides with it. On top is a seek line you can grab anywhere: it
+  thickens under the pointer, the song's parts are small gaps in it and its drops dots above it, and
+  hovering shows the time and the part ("Verse 2 · 0:28"). Click to jump; near a part's start or a
+  drop the click snaps onto it. Drag to scrub: the song pauses and the picture follows you (as with
+  the render handles, `src/state/scrub.ts`), then plays on from where you let go if it was playing.
+  Under it: play / pause, the time and the part you're in, volume, the frame and exit
+  (`src/ui/SeekBar.tsx`, `PerformControls` in `src/ui/Perform.tsx`). The bar is page-only, so it is
+  never in recordings or renders. In full screen `←/→` move 5 s and `⇧←/⇧→` jump to the previous /
+  next part (back goes to the start of the part you're in first, like a music player).
+- Keys: `space` play/pause · `←/→` previous/next look (in full screen: back / forward 5 s, with `⇧` by part) · `[` / `]` previous/next look (anywhere) · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
 
