@@ -107,7 +107,7 @@ export const PALETTES: Palette[] = [
   // golden avenue
   { id: 'golden-avenue', name: 'Golden Avenue', bg: '#fff1c6', fg: '#4a2b20', accent: '#f4c21c', accent2: '#e0841f', muted: '#f1d27c' },
   { id: 'golden-avenue-dusk', name: 'Avenue at Dusk', bg: '#ffd3ba', fg: '#3a2130', accent: '#f4a64e', accent2: '#cc5f62', muted: '#eaa98a' },
-  { id: 'golden-avenue-birch', name: 'Birch Avenue', bg: '#e9eef0', fg: '#262a33', accent: '#e2cf8e', accent2: '#6f8296', muted: '#cfd6da' },
+  { id: 'golden-avenue-birch', name: 'Birch Avenue', bg: '#edf1f2', fg: '#22262f', accent: '#dcc277', accent2: '#5b6e84', muted: '#c4cdd3' },
 ];
 
 export function getPalette(id: string): Palette {
