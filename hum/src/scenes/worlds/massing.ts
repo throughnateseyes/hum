@@ -102,6 +102,10 @@ interface Unit {
   mv: number;
   rot: number;
   cur: Box;
+  /** the drop: hoisted height above its place, vertical speed, and when it lets go */
+  fy: number;
+  fv: number;
+  fAt: number;
 }
 
 interface Bush {
@@ -111,6 +115,27 @@ interface Bush {
   fz: number;
   r: number;
   seed: number;
+  /** shape: height stretch (0.5 a low mat .. 2 a tall shrub), and whether it spills down over the edge */
+  tall?: number;
+  hang?: boolean;
+}
+
+/** a mixed clump of growth on a terrace: mostly small, now and then a big shrub or a small tree, some trailing over the edge */
+function plantClump(bushes: Bush[], parent: number, rand: () => number, n: number) {
+  for (let b = 0; b < n; b++) {
+    const k = rand();
+    const big = k > 0.86;
+    const mat = k < 0.35;
+    bushes.push({
+      parent,
+      fx: (rand() - 0.5) * 0.95,
+      fz: mat ? 0.47 : 0.15 + rand() * 0.3,
+      r: big ? 0.6 + rand() * 0.35 : mat ? 0.22 + rand() * 0.18 : 0.18 + rand() * 0.22,
+      seed: rand(),
+      tall: big ? 1.3 + rand() * 0.8 : mat ? 0.45 + rand() * 0.25 : 0.8 + rand() * 0.6,
+      hang: mat,
+    });
+  }
 }
 
 function rng(seed: number) {
@@ -141,6 +166,9 @@ function unit(o: Partial<Unit> & { base: Box }): Unit {
     mv: 0,
     rot: 0,
     cur: [...o.base] as Box,
+    fy: 0,
+    fv: 0,
+    fAt: -1,
     ...o,
   };
 }
@@ -153,6 +181,10 @@ interface Model {
   pool: [number, number, number, number];
   /** where the camera looks from (radians round the building; 0 = from +z) */
   az: number;
+  /** extra distance for overhangs that reach toward the camera (share of the half depth) */
+  depthK: number;
+  /** share of the frame height the building fills when calm (wide, looming forms want less) */
+  fill: number;
 }
 
 /** fins along one face of a block */
@@ -215,7 +247,7 @@ function buildTower(seed: number, fins: number, rand: () => number): Model {
       base: [0, coreH / 2, -0.2, 3.2, coreH, 3.2],
       open: [
         [0, (gap * n) / 2, 0, 0, gap * n, 0],
-        [0, (gap * 1.3 * n) / 2, 0, 0, gap * 1.3 * n, 0],
+        [0, (1.8 * n) / 2, 0, 0.6, 1.8 * n, 0.6],
       ],
       face: [SLOT, 3.2, 1, 0.7],
       look: [0.12, 0.88, 0.5, 0],
@@ -229,7 +261,7 @@ function buildTower(seed: number, fins: number, rand: () => number): Model {
       base: [3.0, (coreH - 2) / 2, -1.9, 1.7, coreH - 2, 1.7],
       open: [
         [0, (gap * (n - 1)) / 2, 0, 0, gap * (n - 1), 0],
-        [-0.4, (gap * 1.3 * (n - 1)) / 2, 0.6, 0, gap * 1.3 * (n - 1), 0],
+        [-0.4, (1.75 * (n - 1)) / 2, 0.6, 0, 1.75 * (n - 1), 0],
       ],
       face: [BLANK, 1, 1, 0],
       seed: rand(),
@@ -258,12 +290,21 @@ function buildTower(seed: number, fins: number, rand: () => number): Model {
       style === GRID ? [GRID, 1.3, 1, 0.7] : style === VOID ? [VOID, 99, 99, 2.6] : style === SLOT ? [SLOT, 99, 1, 0.8] : style === SAW ? [SAW, 0.7, 1, 0] : [BLANK, 1, 1, 0];
     const lookO: [number, number, number, number] = style === GRID ? [0.5, 0.56, 1, 0.4] : style === VOID ? [0.46, 0.52, 0, 0.3] : style === SLOT ? [0.9, 0.36, 1, 0.5] : [0, 0, 0, 0.3];
     const yc = y + h / 2;
+    // the two open configurations travel far, and stay hung on the core: a block that slides a long way
+    // out also extrudes, so its inner end stays in the core and the rest is a long cantilever
+    const reach = (d: number, o: number, len: number) => Math.max(0, 2 * (o + 1.0) - len) * (d % 2 === 0 ? 1 : 0);
+    const reachZ = (d: number, o: number, len: number) => Math.max(0, 2 * (o + 1.0) - len) * (d % 2 === 1 ? 1 : 0);
+    const o0 = top ? 1.4 : off1 * 1.25;
+    const o1 = top ? 2.2 : off2 + 2.6 + rand() * 1.6;
+    const len0 = dir % 2 === 0 ? sx : sz;
+    const len1 = dir2 % 2 === 0 ? sx : sz;
+    const tele = top ? 1.9 : 1.75;
     const u = unit({
       row: i + 1,
       base: [cx, yc, cz, sx, h, sz],
       open: [
-        [DX[dir] * off1, gap * (i + 1), DZ[dir] * off1, top ? 1.2 : 0, top ? 0.4 : 0, top ? 0.8 : 0],
-        [DX[dir2] * off2 - cx * 0.4, gap * 1.3 * (i + 1), DZ[dir2] * off2 - cz * 0.4, top ? 1.6 : 0.4, top ? 0.6 : 0, top ? 0.6 : 0.4],
+        [DX[dir] * o0 - cx * 0.3, gap * (i + 1), DZ[dir] * o0 - cz * 0.3, (top ? 1.6 : 0) + reach(dir, o0, len0) * 0.7, top ? 0.5 : 0, (top ? 1.0 : 0) + reachZ(dir, o0, len0) * 0.7],
+        [DX[dir2] * o1 - cx, tele * (i + 1), DZ[dir2] * o1 - cz, (top ? 3.4 : 0.3) + reach(dir2, o1, len1), top ? 1.4 : 0.2, (top ? 2.2 : 0.3) + reachZ(dir2, o1, len1)],
       ],
       push: [DX[dir] * 0.45, DZ[dir] * 0.45, 0, 0],
       face: cell,
@@ -282,8 +323,8 @@ function buildTower(seed: number, fins: number, rand: () => number): Model {
           row: i + 1,
           base: [DX[odir] * 1.6, y + oh / 2 + (h - oh), DZ[odir] * 1.6 - 0.2, odir % 2 === 0 ? ow : 2.4, oh, odir % 2 === 0 ? 2.4 : ow],
           open: [
-            [DX[odir] * 1.2, gap * (i + 1), DZ[odir] * 1.2, 0, 0, 0],
-            [DX[odir] * 0.4, gap * 1.3 * (i + 1), DZ[odir] * 0.4 + 0.6, 0, 0, 0],
+            [DX[odir] * 1.6, gap * (i + 1), DZ[odir] * 1.6, 0, 0, 0],
+            [DX[odir] * 2.2, 1.75 * (i + 1) + 0.6, DZ[odir] * 2.2 + 0.6, odir % 2 === 0 ? 2.2 : 0, 0.4, odir % 2 === 0 ? 0 : 2.2],
           ],
           push: [DX[odir] * 0.35, DZ[odir] * 0.35, 0, 0],
           face: rand() < 0.5 ? [GRID, 0.7, 1, 0.38] : [BLANK, 1, 1, 0],
@@ -305,7 +346,7 @@ function buildTower(seed: number, fins: number, rand: () => number): Model {
   for (let k = 0; k < 7; k++) bushes.push({ parent: 0, fx: (rand() - 0.5) * 0.95, fz: 0.44, r: 0.4 + rand() * 0.4, seed: rand() });
   const az = -0.78;
   addCity(units, rand, az);
-  return { units, bushes, rows: n + 2, pool: [0.4, 32, 8, 25], az };
+  return { units, bushes, rows: n + 2, pool: [0.4, 32, 8, 25], az, depthK: 0.45, fill: 0.79 };
 }
 
 /**
@@ -319,12 +360,13 @@ function buildSlab(seed: number, fins: number, rand: () => number): Model {
   const lean = seed % 2 ? 1 : -1;
   // the base: a narrow core on a plinth
   units.push(unit({ row: 0, base: [0, 0.25, 0, 13, 0.5, 10], face: [BLANK, 1, 1, 0], seed: rand() }));
-  units.push(unit({ row: 0, base: [0, 0.5 + 1.1, 0, 4.2, 2.2, 3.4], face: [SLOT, 99, 1.1, 0.7], look: [0.8, 0.5, 1, 0], seed: rand() }));
+  // the core and pilotis stretch as the first floor lifts, so it never floats
+  units.push(unit({ row: 0, base: [0, 0.5 + 1.1, 0, 4.2, 2.2, 3.4], open: [[0, 0.05, 0, 0, 0.1, 0], [0, 0.2, 0, 0, 0.4, 0]], face: [SLOT, 99, 1.1, 0.7], look: [0.8, 0.5, 1, 0], seed: rand() }));
   // pilotis
   for (let k = 0; k < 4; k++) {
     const x = k % 2 ? 2.9 : -2.9;
     const z = k < 2 ? 2.3 : -2.3;
-    units.push(unit({ row: 0, base: [x, 0.5 + 1.1, z, 0.55, 2.2, 0.55], open: [[x * 0.3, 0, z * 0.3, 0, 0, 0], [x * 0.5, 0, z * 0.5, 0, 0, 0]], face: [BLANK, 1, 1, 0], seed: rand() }));
+    units.push(unit({ row: 0, base: [x, 0.5 + 1.1, z, 0.55, 2.2, 0.55], open: [[x * 0.3, 0.05, z * 0.3, 0, 0.1, 0], [x * 0.5, 0.2, z * 0.5, 0, 0.4, 0]], face: [BLANK, 1, 1, 0], seed: rand() }));
   }
   const L = 7;
   let y = 2.7;
@@ -341,7 +383,8 @@ function buildSlab(seed: number, fins: number, rand: () => number): Model {
         base: [0, y + h / 2, 0, top ? w + 1.4 : w, h, top ? d + 1.2 : d],
         open: [
           [0, dy + (top ? 0.45 : 0), 0, i * step * 1.05 + (top ? 0.8 : 0), top ? 0.3 : 0, i * step * 0.85 + (top ? 0.6 : 0)],
-          [lean * i * 0.32, dy * 1.4 + (top ? 0.7 : 0), 0.15 * i, i * step * 0.8 + (top ? 1.2 : 0), top ? 0.4 : 0, i * step * 0.6 + (top ? 0.4 : 0)],
+          // the drop: the floors shear apart left and right, the stack telescopes up and the cap swells
+          [top ? lean * 0.8 : (i % 2 ? 1 : -1) * lean * (0.7 + 0.42 * i), 0.4 * (i + 1) + (top ? 1.3 : 0), top ? 0.6 : 0.22 * i, i * step * 1.5 + (top ? 4.2 : 0), top ? 0.9 : 0, i * step * 1.1 + (top ? 3.2 : 0)],
         ],
         push: [0, 0, 0.5, 0.4],
         face: top ? [SAW, 0.5, 1.7, 0] : [GRID, 0.62, 1, 0.36],
@@ -359,7 +402,7 @@ function buildSlab(seed: number, fins: number, rand: () => number): Model {
   for (let k = 0; k < 8; k++) bushes.push({ parent: 0, fx: (rand() - 0.5) * 0.95, fz: (rand() < 0.5 ? 1 : -1) * 0.45, r: 0.45 + rand() * 0.4, seed: rand() });
   const az = -0.55;
   addCity(units, rand, az);
-  return { units, bushes, rows: L + 1, pool: [0, 32, 9, 25], az };
+  return { units, bushes, rows: L + 1, pool: [0, 32, 9, 25], az, depthK: 1.0, fill: 0.66 };
 }
 
 /**
@@ -384,8 +427,9 @@ function buildTerraces(seed: number, fins: number, rand: () => number): Model {
           row: r,
           base: [x, r * 1.0 + 0.5, z, sw, 1, dpt],
           open: [
-            [0, r * 0.18, 0.4 + alt * 0.9, 0, 0.0, 0.3],
-            [alt ? -0.6 : 0.6, r * 0.32, 1.1 - alt * 0.6, 0.3, 0.1, 0.4],
+            [0, r * 0.2, 0.5 + alt * 1.3, 0, 0.0, 0.4],
+            // the drop: the drawers fly out the other way, far, and the hillside heaves up
+            [alt ? -1.3 : 1.3, r * 0.55, 2.6 - alt * 1.8, 0.4, 0.15, 1.2],
           ],
           push: [0, 0.6, 0, 0],
           face: [GRID, 1.15, 1, 0.62],
@@ -395,14 +439,16 @@ function buildTerraces(seed: number, fins: number, rand: () => number): Model {
       );
       const idx = units.length - 1;
       if (fins > 0.3 && rand() < fins * 0.35) addFins(units, idx, 1, 6, 0.35, rand);
-      for (let b = 0; b < 3; b++) bushes.push({ parent: idx, fx: (rand() - 0.5) * 0.95, fz: 0.42 + rand() * 0.06, r: 0.3 + rand() * 0.3, seed: rand() });
+      // sparse and uneven: some terraces bare, some thick
+      const nClump = rand() < 0.3 ? 0 : 1 + Math.floor(rand() * 3.2);
+      plantClump(bushes, idx, rand, nClump);
     }
   }
   // a stair tower at one end
   units.push(unit({ row: 0, base: [8.4, 4.2, -1.5, 2.2, 8.4, 2.2], open: [[0.6, 0.8, 0, 0, 1.6, 0], [-0.4, 1.2, 0.8, 0, 2.4, 0]], face: [SLOT, 99, 1, 0.5], look: [0.16, 0.86, 0.4, 0.6], seed: rand() }));
   const az = -0.42 + (seed % 2 ? 0.2 : 0);
   addCity(units, rand, az);
-  return { units, bushes, rows: R, pool: [0, 30, 11, 23], az };
+  return { units, bushes, rows: R, pool: [0, 30, 11, 23], az, depthK: 0.6, fill: 0.74 };
 }
 
 function buildModel(form: number, seed: number, fins: number): Model {
@@ -451,16 +497,20 @@ void main() {
 
 const BUSH_VERT_COMMON = /* glsl */ `
 attribute vec4 aBush; // centre xyz, radius
-attribute vec4 aBush2; // seed, hang, -, -
+attribute vec4 aBush2; // seed, hang, height stretch, -
 vec3 bushWorld(out vec3 nW) {
   float s = aBush2.x * 17.0;
   vec3 p = position;
-  float n = snoise(p * 1.6 + s) * 0.28 + snoise(p * 3.7 + s * 2.0) * 0.12;
+  float n = snoise(p * 1.6 + s) * 0.3 + snoise(p * 3.7 + s * 2.0) * 0.14;
   p *= 1.0 + n;
-  p.y *= 0.72;
+  float tall = aBush2.z > 0.01 ? aBush2.z : 0.72;
+  p.y *= tall;
+  // taller growth narrows toward the top, low mats spread
+  p.xz *= mix(1.0, 1.0 - 0.35 * max(position.y, 0.0), step(1.1, tall)) * (tall < 0.7 ? 1.3 : 1.0);
   vec3 w = aBush.xyz + p * aBush.w;
+  w.y += (tall - 0.72) * aBush.w * 0.5;
   // hanging growth spills down over the edge
-  if (aBush2.y > 0.5 && position.y < 0.0) w.y += position.y * aBush.w * 1.4;
+  if (aBush2.y > 0.5 && position.y < 0.0) w.y += position.y * aBush.w * 2.6 * (0.6 + 0.8 * fract(s * 3.1 + position.x * 2.0));
   // sway with the wind, more at the top
   float sway = (position.y * 0.5 + 0.5) * aBush.w;
   w.xz += uFeelWind * sway * (0.04 + 0.12 * uFeelGust) * sin(uFeelWindPhase * 2.2 + s);
@@ -504,6 +554,7 @@ uniform mat4 uTopMat;
 uniform vec2 uTopRange;
 uniform vec3 uHorizon;
 uniform float uFogK, uStainAmt, uPlantAmt, uCheap;
+uniform vec3 uRimDir;
 
 float shadowAt(vec3 w, vec3 n) {
   vec4 p = uShadowMat * vec4(w + n * 0.05, 1.0);
@@ -568,7 +619,9 @@ float lightAt(vec3 w, vec3 n, out float sun) {
   float amb = (uAmb * sky + bounce) * (1.0 - 0.55 * occ);
   float fall = mix(1.0, exp(-max(w.y, 0.0) * uFloodFall), uNight);
   sun = ndl * sh * fall;
-  return amb + uSunAmt * sun + uFlash * (0.4 + 0.3 * n.y);
+  // night: a weaker cool light from behind and above picks out the edges the flood can't reach
+  float rim = uNight * 0.3 * pow(max(dot(n, uRimDir), 0.0), 1.5) * (1.0 - 0.5 * occ);
+  return amb + uSunAmt * sun + rim + uFlash * (0.4 + 0.3 * n.y);
 }
 
 vec3 fogged(vec3 col, vec3 w) {
@@ -692,7 +745,8 @@ void main() {
       sunLit = ndl * lit * frameSh;
       vec3 wallC = concrete(val);
       // lit windows: per cell, more in rows the kick has just lit
-      float cellH = hash21(cell + vec2(seed * 37.0, faceId * 11.0));
+      // at night whole floors are lit or dark, with a few odd rooms
+      float cellH = mix(hash21(cell + vec2(seed * 37.0, faceId * 11.0)), hash21(vec2(cell.y, seed * 37.0)), uNight * 0.8);
       float glowOn = step(cellH, vLook.z * (0.08 + 0.92 * clamp(uSunAmt < 0.5 ? 1.0 : 0.6, 0.0, 1.0)) + vDyn.y);
       float glowAmt = glowOn * (0.85 + 0.15 * sin(uTime * 1.3 + cellH * 40.0));
       if (t == tz) {
@@ -705,12 +759,14 @@ void main() {
           float fres = pow(1.0 - abs(rd.z), 3.0);
           vec3 glass = mix(uFg, mix(uAccent2, uBg, 0.6), 0.12 + 0.35 * fres);
           glass = mix(glass, uAccent, 0.5 * sunLit);
-          col = mix(glass, uMuted * (1.0 + 0.15 * glowAmt), glowAmt);
+          // lit rooms: the extra ink by day (amber), the floodlit cream at night (the extra ink is the ember then)
+          vec3 glowC = mix(uMuted, mix(uAccent, vec3(1.0), 0.1), uNight);
+          col = mix(glass, glowC * (1.0 + 0.15 * glowAmt), glowAmt);
         }
       } else {
         col = wallC;
         // warm spill from a lit room onto the reveal
-        col = mix(col, uMuted, glowAmt * 0.45 * smoothstep(0.0, D, depthIn));
+        col = mix(col, mix(uMuted, uAccent, uNight), glowAmt * 0.45 * smoothstep(0.0, D, depthIn));
         if (style > 1.5 && style < 2.5) col = mix(col, uMuted, vDyn.z * smoothstep(0.2, D, depthIn) * 0.7);
       }
     }
@@ -818,12 +874,51 @@ void main() {
     // lit tops, shaded bellies: brighter where the cloud thins toward the sun
     float c2 = tfbm(p * 0.9 + uSunDir.xz * 0.12, 5);
     float lit = smoothstep(0.3, 0.6, 0.75 + (c - c2) * 5.0 + (shape - 0.6) * 1.5);
-    vec3 cl = mix(mix(uBg, uAccent2, 0.3), mix(uAccent, vec3(1.0), 0.15), lit);
-    cl = mix(cl, mix(uBg, uAccent2, 0.55), uNight * 0.7);
+    // bellies stay close to the sky (no grey rim when printed in a few inks); the lit cores are the cloud
+    // (a crisp step from sky to cloud: a soft one passes through every mid ink and prints as a rim)
+    float core = smoothstep(0.0, 0.015, shape - (0.68 - 0.3 * uClouds)) * step(0.5, lit);
+    vec3 cl = mix(uBg, mix(uAccent, vec3(1.0), 0.15), core);
+    cl = mix(cl, mix(uBg, uAccent2, 0.3), uNight * 0.85);
     col = mix(col, cl, cov * (1.0 - 0.6 * uNight));
   }
-  col += uFlash * 0.35;
+  col += uFlash * 0.35 * (1.0 - 0.75 * uNight);
   gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+const DUST_VERT = /* glsl */ `
+attribute vec2 aInfo; // age share 0..1, size in metres
+uniform float uPx;
+varying float vAge;
+varying float vSeed;
+void main() {
+  vec4 mv = viewMatrix * vec4(position, 1.0);
+  vAge = aInfo.x;
+  vSeed = fract(position.x * 1.37 + position.z * 0.71);
+  // puffs swell as they drift
+  float s = aInfo.y * (0.6 + 1.6 * sqrt(aInfo.x));
+  gl_PointSize = aInfo.x >= 1.0 ? 0.0 : s * uPx / max(1.0, -mv.z);
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+const DUST_FRAG = /* glsl */ `
+uniform float uSunAmt, uNight;
+varying float vAge;
+varying float vSeed;
+void main() {
+  vec2 c = gl_PointCoord - 0.5;
+  float r = length(c) * 2.0;
+  float lumpy = tnoise(gl_PointCoord * 2.2 + vSeed * 17.0) * 0.6 + tnoise(gl_PointCoord * 5.0 + vSeed * 5.0) * 0.25;
+  // a soft billow, not a bead: wide falloff broken up by noise
+  float a = (1.0 - smoothstep(0.0, 1.0, r * (0.85 + 0.5 * lumpy))) * smoothstep(0.2, 0.6, lumpy + 0.25) * pow(1.0 - vAge, 1.4);
+  a *= 0.7;
+  if (a < 0.02) discard;
+  // pale concrete dust, lit from the top, a little darker underneath
+  float lit = 0.5 + 0.5 * clamp(-c.y * 2.0 + 0.2, 0.0, 1.0);
+  vec3 col = mix(uAccent2, uAccent, (0.45 + 0.4 * lit) * min(1.0, 0.4 + uSunAmt));
+  col = mix(col, uBg, 0.3 * (1.0 - uNight));
+  gl_FragColor = vec4(col, a * (0.85 - 0.35 * uNight));
 }
 `;
 
@@ -891,6 +986,7 @@ void main() {
 /* ───────────────────────── the scene ───────────────────────── */
 
 const MAXU = 420;
+const MAXD = 700;
 const MAXB = 320;
 const HIST = 360; // 6 s at 60 Hz
 
@@ -939,6 +1035,7 @@ export const massing: SceneDef = {
       uStainAmt: { value: 0.5 },
       // 1 while drawing the reflection: one shadow tap and no sky-occlusion taps (the water blurs it anyway)
       uCheap: { value: 0 },
+      uRimDir: { value: new THREE.Vector3(0, 1, 0) },
       uPlantAmt: { value: 0 },
     };
 
@@ -996,6 +1093,57 @@ export const massing: SceneDef = {
     scene.add(bushes);
     refScene.add(bushesRef);
     casterScene.add(bushesCast);
+
+    /* dust: concrete puffs where blocks slam down */
+    const dPos = new Float32Array(MAXD * 3);
+    const dVel = new Float32Array(MAXD * 3);
+    const dAge = new Float32Array(MAXD).fill(99);
+    const dLife = new Float32Array(MAXD).fill(1);
+    const dSize = new Float32Array(MAXD);
+    let dHead = 0;
+    const dgeo = new THREE.BufferGeometry();
+    const dPosAttr = new THREE.BufferAttribute(dPos, 3);
+    const dInfo = new Float32Array(MAXD * 2); // age share, size
+    const dInfoAttr = new THREE.BufferAttribute(dInfo, 2);
+    dPosAttr.setUsage(THREE.DynamicDrawUsage);
+    dInfoAttr.setUsage(THREE.DynamicDrawUsage);
+    dgeo.setAttribute('position', dPosAttr);
+    dgeo.setAttribute('aInfo', dInfoAttr);
+    const dustMat = makeMaterial({
+      params,
+      shared,
+      vertex: DUST_VERT,
+      fragment: DUST_FRAG,
+      extra: { uPx: { value: 720 }, uSunAmt: U.uSunAmt, uNight: U.uNight },
+      transparent: true,
+      depthWrite: false,
+    });
+    const dust = new THREE.Points(dgeo, dustMat);
+    dust.frustumCulled = false;
+    scene.add(dust);
+    const spawnDust = (x: number, y: number, z: number, sx: number, sz: number, amt: number) => {
+      const count = Math.min(26, Math.round(7 + amt * 12));
+      for (let k = 0; k < count; k++) {
+        const i = dHead;
+        dHead = (dHead + 1) % MAXD;
+        // round the block's foot: along its edges, blowing outward
+        const t = Math.random();
+        const edge = Math.floor(Math.random() * 4);
+        const ex = edge < 2 ? (t - 0.5) * sx : (edge === 2 ? 0.5 : -0.5) * sx;
+        const ez = edge < 2 ? (edge === 0 ? 0.5 : -0.5) * sz : (t - 0.5) * sz;
+        const len = Math.hypot(ex, ez) || 1;
+        dPos[i * 3] = x + ex;
+        dPos[i * 3 + 1] = y + (Math.random() - 0.3) * 0.3;
+        dPos[i * 3 + 2] = z + ez;
+        const sp = (1.5 + Math.random() * 3.5) * (0.6 + 0.6 * amt);
+        dVel[i * 3] = (ex / len) * sp + (Math.random() - 0.5);
+        dVel[i * 3 + 1] = (Math.random() - 0.25) * 1.6;
+        dVel[i * 3 + 2] = (ez / len) * sp + (Math.random() - 0.5);
+        dAge[i] = 0;
+        dLife[i] = 1.4 + Math.random() * 1.6;
+        dSize[i] = 1.1 + Math.random() * 1.8 * (0.7 + 0.5 * amt);
+      }
+    };
 
     /* sky dome */
     const skyMat = makeMaterial({
@@ -1055,7 +1203,7 @@ export const massing: SceneDef = {
     U.uTop.value = topRT.depthTexture;
     U.uShadow.value = shadowRT.depthTexture;
 
-    const materials = [boxMat, boxDepth, bushMat, bushDepth, skyMat, groundMat];
+    const materials = [boxMat, boxDepth, bushMat, bushDepth, skyMat, groundMat, dustMat];
 
     /* model state */
     let model: Model | null = null;
@@ -1077,6 +1225,11 @@ export const massing: SceneDef = {
     const snareTimes: number[] = [];
     let snareCount = 0;
     let clock = 0;
+    const landI = new Int32Array(64);
+    const landA = new Float32Array(64);
+    let landN = 0;
+    // landings over the last moment (decays), to share the dust budget
+    let landSum = 0;
     let shake = 0;
     let shakeV = 0;
     let shakeY = 0;
@@ -1122,7 +1275,10 @@ export const massing: SceneDef = {
       aFace.needsUpdate = true;
       geo.instanceCount = n;
       const nb = Math.min(MAXB, model.bushes.length);
-      for (let i = 0; i < nb; i++) aBush2.setXYZW(i, model.bushes[i].seed, 1, 0, 0);
+      for (let i = 0; i < nb; i++) {
+        const b = model.bushes[i];
+        aBush2.setXYZW(i, b.seed, b.tall === undefined || b.hang ? 1 : 0, b.tall ?? 0, 0);
+      }
       aBush2.needsUpdate = true;
       return model;
     };
@@ -1167,7 +1323,7 @@ export const massing: SceneDef = {
       if (peak && (quietPart || f.intensity < 0.42)) peak = false;
       if (!peak && (sec === 'chorus' || sec === 'drop') && f.intensity > 0.62) peak = true;
       // the build opens it only part way (the rest is saved for the drop)
-      let target = 0.05 + 0.3 * smooth(0.22, 0.8, f.intensity) + 0.3 * f.tension;
+      let target = 0.05 + 0.28 * smooth(0.22, 0.8, f.intensity) + 0.4 * f.tension;
       // the building draws in for the last second before a known drop
       if (f.toDrop < 1.2) target -= 0.32 * smooth(0, 1, 1 - f.toDrop / 1.2);
       if (peak) target = 1;
@@ -1225,7 +1381,8 @@ export const massing: SceneDef = {
         snareTimes.push(clock);
         if (snareTimes.length > 8) snareTimes.shift();
       }
-      ember = Math.max(peak ? 0.45 : 0, ember - dt * (peak ? 0.08 : 0.4));
+      // the voids burn on the drop and cool over a few seconds
+      ember = Math.max(0, ember - dt * 0.3);
       flash = Math.max(0, flash - dt * 3.5);
 
       /* each block follows the recorded expansion from its own delay; big changes fall and slam */
@@ -1269,7 +1426,49 @@ export const massing: SceneDef = {
           }
         }
       }
-      if (impact > 0.15) shakeV -= impact * 0.9 * weight;
+      /* the drop: blocks hang a little higher through the last beat before it, are flung up and swung out on
+         it, then fall under gravity and slam into their new places, bottom row first, each with a puff of dust */
+      const g = 46;
+      const hoistT = f.toDrop < 1.6 && !peak ? smooth(0, 1, 1 - f.toDrop / 1.6) : 0;
+      if (dropNow) {
+        for (let i = 0; i < n; i++) {
+          const u = units[i];
+          if (u.kind === 0 && u.row > 0) u.fAt = clock + 0.02 + u.row * 0.055;
+        }
+      }
+      landN = 0;
+      for (let i = 0; i < n; i++) {
+        const u = units[i];
+        if (u.kind !== 0 || u.row === 0) continue;
+        const H = (1.7 + 0.6 * u.row) * Math.min(1.2, move);
+        if (u.fAt === -1) {
+          u.fy = approach(u.fy, hoistT * H * 0.6, 4, dt);
+          continue;
+        }
+        if (u.fAt >= 0) {
+          if (clock < u.fAt) continue;
+          u.fv = Math.sqrt(2 * g * Math.max(0.3, H - u.fy));
+          u.fAt = -2;
+        }
+        u.fv -= g * dt;
+        u.fy += u.fv * dt;
+        if (u.fy <= 0 && u.fv < 0) {
+          const hit = Math.min(2.2, -u.fv * 0.075 * (0.6 + 0.12 * u.base[4]));
+          impact = Math.max(impact, hit);
+          if (landN < landI.length) {
+            landI[landN] = i;
+            landA[landN] = hit;
+            landN++;
+          }
+          u.fy = 0;
+          if (u.fv < -5) u.fv = -u.fv * 0.1;
+          else {
+            u.fv = 0;
+            u.fAt = -1;
+          }
+        }
+      }
+      if (impact > 0.15) shakeV -= Math.min(2.4, impact) * 0.9 * weight;
 
       /* geometry */
       const bmin = tmpMin.set(1e9, 1e9, 1e9);
@@ -1319,6 +1518,7 @@ export const massing: SceneDef = {
           c[2] += u.push[1] * pr;
           c[3] += u.push[2] * pr;
           c[5] += u.push[3] * pr;
+          c[1] += u.fy;
           // strain: the overhangs shiver under the build's tension, the higher the more
           if (u.kind === 0 && u.row > 0 && f.tension > 0.05) {
             const tr = f.tension * f.tension * 0.035 * Math.min(1, u.row / 4);
@@ -1334,10 +1534,38 @@ export const massing: SceneDef = {
         aLook.setXYZW(i, Math.min(0.92, u.look[0] * openK), Math.min(0.9, u.look[1] * openK), u.look[2] * glowP, u.look[3]);
         aDyn.setXYZW(i, u.seed, (rowGlow[u.row] ?? 0) * (u.look[2] > 0 ? 1 : 0), ember * emberP, 0);
         if (u.kind !== 2) {
-          bmin.set(Math.min(bmin.x, c[0] - c[3] / 2), Math.min(bmin.y, c[1] - c[4] / 2), Math.min(bmin.z, c[2] - c[5] / 2));
-          bmax.set(Math.max(bmax.x, c[0] + c[3] / 2), Math.max(bmax.y, c[1] + c[4] / 2), Math.max(bmax.z, c[2] + c[5] / 2));
+          // frame the building where it will rest, not where a flung block is in the air
+          const fy = u.kind === 0 ? u.fy : u.parent !== undefined ? units[u.parent].fy : 0;
+          bmin.set(Math.min(bmin.x, c[0] - c[3] / 2), Math.min(bmin.y, c[1] - fy - c[4] / 2), Math.min(bmin.z, c[2] - c[5] / 2));
+          bmax.set(Math.max(bmax.x, c[0] + c[3] / 2), Math.max(bmax.y, c[1] - fy + c[4] / 2), Math.max(bmax.z, c[2] + c[5] / 2));
         }
       }
+      landSum = landSum * Math.exp(-dt * 2.5) + landN;
+      for (let k = 0; k < landN; k++) {
+        const c = units[landI[k]].cur;
+        // a dust budget: many small blocks landing together share it
+        spawnDust(c[0], c[1] - c[4] / 2, c[2], c[3], c[5], landA[k] * weight * Math.min(1, 5 / Math.max(1, landSum)));
+      }
+      // dust drifts out, slows, rises a little and thins away
+      const drag = Math.exp(-dt * 1.7);
+      for (let i = 0; i < MAXD; i++) {
+        if (dAge[i] >= 1) {
+          dInfo[i * 2] = 1;
+          continue;
+        }
+        dAge[i] = Math.min(1, dAge[i] + dt / dLife[i]);
+        dVel[i * 3] *= drag;
+        dVel[i * 3 + 1] = dVel[i * 3 + 1] * drag + 0.35 * dt;
+        dVel[i * 3 + 2] *= drag;
+        dPos[i * 3] += dVel[i * 3] * dt;
+        dPos[i * 3 + 1] += dVel[i * 3 + 1] * dt;
+        dPos[i * 3 + 2] += dVel[i * 3 + 2] * dt;
+        dInfo[i * 2] = dAge[i];
+        dInfo[i * 2 + 1] = dSize[i];
+      }
+      dPosAttr.needsUpdate = true;
+      dInfoAttr.needsUpdate = true;
+      dustMat.uniforms.uPx.value = frame.height / (2 * Math.tan((camera.fov * Math.PI) / 360));
       aPos.needsUpdate = true;
       aSize.needsUpdate = true;
       aLook.needsUpdate = true;
@@ -1366,9 +1594,11 @@ export const massing: SceneDef = {
       // low and raking (steeper and the podium would shadow the whole tower), fading with height
       const flood = new THREE.Vector3(Math.sin(m.az + 0.55 * sideSign) * 0.8, -0.2, Math.cos(m.az + 0.55 * sideSign) * 0.8).normalize();
       sunDir.copy(day).lerp(flood, night).normalize();
+      // the cool rim: from the far side of the flood, high up
+      U.uRimDir.value.set(-Math.sin(m.az + 1.4 * sideSign) * 0.7, 0.55, -Math.cos(m.az + 1.4 * sideSign) * 0.7).normalize();
       const chorusStrobe = night * (peak ? 0.25 * a.kick : 0);
       U.uSunAmt.value = (0.1 + 0.72 * sunP) * (1 - night) + night * (1.25 + chorusStrobe);
-      U.uAmb.value = (0.72 - 0.24 * sunP) * (1 - night) + night * 0.06;
+      U.uAmb.value = (0.72 - 0.24 * sunP) * (1 - night) + night * 0.1;
       U.uNight.value = night;
       U.uFloodFall.value = 0.045;
       U.uFlash.value = flash * (0.25 + 0.5 * night) * weight * 0.6;
@@ -1417,12 +1647,17 @@ export const massing: SceneDef = {
       const cx = (bMin.x + bMax.x) / 2;
       const cz = (bMin.z + bMax.z) / 2;
       const depthHalf = Math.max(bMax.x - bMin.x, bMax.z - bMin.z) / 2;
-      // keep the crown in frame even when the camera drops to a worm's eye
-      const needH = height * (0.62 + 0.1 * drama);
-      const needW = (wMax - wMin) * 0.5 * 1.12;
-      // overhangs reaching toward a low camera loom larger than their bounds: more room as it drops
-      const fit = Math.max(needH / tanV, needW / tanH) + depthHalf * (0.8 + 0.6 * drama);
-      const dTarget = fit * (1 - 0.2 * drama);
+      // monumental framing: the building fills most of the frame height, its foot a strip of pool above
+      // the bottom edge; at the peak it grows past the top edge (the crown cropped)
+      const footB = 0.11;
+      const fill = m.fill + 0.12 * drama;
+      const frameH = height / fill;
+      const needH = frameH / 2;
+      const needW = (wMax - wMin) * 0.5 * (aspect < 1 ? 0.8 : 1.02);
+      const depthK = m.depthK;
+      const fitH = needH / tanV;
+      const fitW = needW / tanH;
+      const dTarget = Math.max(fitH, fitW) + depthHalf * depthK;
       if (!camInit) {
         camDist = dTarget;
         camInit = true;
@@ -1431,21 +1666,25 @@ export const massing: SceneDef = {
       const sAcc = -90 * shake - 11 * shakeV;
       shakeV += sAcc * dt;
       shake += shakeV * dt;
-      shakeY = shake * 0.12;
+      shakeY = shake * 0.3;
       const camY = Math.max(0.35, 0.95 - 0.5 * drama) + shakeY;
       const cmid = (wMin + wMax) / 2;
       const lookX = cx + right.x * (cmid - (cx * right.x + cz * right.z));
       const lookZ = cz + right.z * (cmid - (cx * right.x + cz * right.z));
       camera.position.set(lookX + Math.sin(camAz) * camDist, camY, lookZ + Math.cos(camAz) * camDist);
-      const ty = height * (0.53 + 0.05 * drama);
+      // the frame's centre in the building's plane, from the frame actually used (width may have set it)
+      const frameA = 2 * Math.max(0.1, camDist - depthHalf * depthK) * tanV;
+      const ty = frameA * (0.5 - footB);
       const pitchFull = Math.atan2(ty - camY, camDist);
-      const pitch = pitchFull * Math.min(0.95, 0.12 + 0.55 * drama + 0.3 * tiltUp);
+      const pitchBase = pitchFull * Math.min(0.95, 0.12 + 0.55 * drama + 0.3 * tiltUp);
+      // the jolt nods the camera too (not compensated by the lens shift)
+      const pitch = pitchBase + shake * 0.025;
       camera.up.set(0, 1, 0);
       camera.lookAt(camera.position.x - Math.sin(camAz) * Math.cos(pitch), camY + Math.sin(pitch), camera.position.z - Math.cos(camAz) * Math.cos(pitch));
       camera.updateMatrixWorld();
       camera.updateProjectionMatrix();
       // lens shift for the rest, so the verticals stay parallel when the camera is calm
-      const shift = Math.tan(pitchFull - pitch) / tanV;
+      const shift = Math.tan(pitchFull - pitchBase) / tanV;
       camera.projectionMatrix.elements[9] = shift * 0.92;
       camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
 
@@ -1551,6 +1790,7 @@ export const massing: SceneDef = {
         geo.dispose();
         ico.dispose();
         bgeo.dispose();
+        dgeo.dispose();
         skyGeo.dispose();
         groundGeo.dispose();
         for (const mat of materials) mat.dispose();
