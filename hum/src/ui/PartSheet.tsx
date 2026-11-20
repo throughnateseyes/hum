@@ -29,6 +29,7 @@ import { MoodChips } from './Moods';
 import { hidePeek, peekHandlers } from './Peek';
 import { presetToLook } from '../presets/apply';
 import { useRenderMode } from './RenderBar';
+import { useLayout } from './layout';
 import { fmtTime, lookBg } from './song';
 import './partSheet.css';
 
@@ -39,6 +40,8 @@ export const closePartSheet = () => usePartSheet.setState({ index: null });
 
 const PHONE = '(max-width: 760px)';
 function usePhone() {
+  // the phone layout (layout.ts) also covers a phone on its side, which is wider than PHONE
+  const phoneLayout = useLayout((s) => s.phone);
   const [on, setOn] = useState(() => matchMedia(PHONE).matches);
   useEffect(() => {
     const mq = matchMedia(PHONE);
@@ -46,7 +49,7 @@ function usePhone() {
     mq.addEventListener('change', f);
     return () => mq.removeEventListener('change', f);
   }, []);
-  return on;
+  return on || phoneLayout;
 }
 const canHover = () => matchMedia('(hover: hover)').matches;
 /** run an action whose button may vanish (Reset, Undo), then keep focus in the sheet if it fell out */

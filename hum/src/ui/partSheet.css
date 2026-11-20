@@ -160,14 +160,17 @@
   }
 }
 /* a phone: a bottom sheet in reach of the thumb */
+/* on a phone the sheet is modal: it and its backdrop cover the tab row (phone.css, z 75) so the
+   last section (Pop-ups) is never hidden under it */
 .ps-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 54;
+  z-index: 82;
   background: rgba(20, 20, 22, 0.32);
   animation: ps-fade 0.18s ease-out;
 }
 .ps-phone {
+  z-index: 83;
   left: 0;
   right: 0;
   bottom: 0;
@@ -176,6 +179,15 @@
   padding-bottom: env(safe-area-inset-bottom);
   transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   animation: ps-up 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* a phone on its side: the sheet fills the right-hand column, top to bottom, like the panels (phone.css) */
+html.phone.land .ps-phone {
+  left: auto;
+  right: env(safe-area-inset-right);
+  top: 0;
+  width: var(--side-w);
+  max-height: none;
+  border-radius: 0;
 }
 @keyframes ps-up {
   from {
