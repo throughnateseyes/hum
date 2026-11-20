@@ -245,11 +245,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Render** (button by the song map) makes videos without you timing a thing. The song map turns
-  into a picker: drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold
-  ⌥ to snap to beats), drag an edge or the middle to adjust, click a part to take that whole part,
-  or use **Best part** (the strongest 15–30 s, built around the biggest drop or hook) or **Whole
-  song**. Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
+- **Render** (in the top bar's save group, and by the song map) makes videos without you timing a
+  thing. The song map turns into a picker: drag across it to choose a stretch (it snaps to bars and
+  to the parts' edges; hold ⌥ to snap to beats), drag an edge or the middle to adjust, double-click a
+  part to take that whole part, or use **Best part** (the strongest 15–30 s, built around the
+  biggest drop or hook) or **Whole song**. While you drag, the song pauses and the playhead and the
+  stage follow the edge you're moving, like scrubbing in a video editor: the stage shows that moment's
+  look, lyric line and how hard it hits (`src/state/scrub.ts`). Let go and a paused song stays on
+  that moment; a playing one plays on from the start of the clip (after moving the end, from 2.5 s
+  before it, so you hear the clip end). A click moves the playhead, to play from there. The row
+  underneath shows **Start** and **End** to the tenth of a second (click one to see it on the stage),
+  each with a button that sets it to the playhead (keys `I` and `O`, as in video editors). Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
   for the Instagram feed, **1:1** 1080×1080, **16:9** 1920×1080), pick 30 or 60 fps and press
   **Render**. Each size is made one after another and downloads as it's done, named like
   `pressure-0m24s-0m30s-1080x1920.mp4`; the stage shows the frames as they're made and Esc cancels.
@@ -262,7 +268,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   fall back to recording the stretch live while it plays, and say so.
 - **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
   camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
+- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
 

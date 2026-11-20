@@ -3868,6 +3868,13 @@ html.perform-idle * {
   opacity: 1;
   pointer-events: auto;
 }
+/* while a render edge is dragged: which moment the stage is showing */
+.hud-pill.scrub {
+  background: var(--accent);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Perform has its own bar; a touch screen can't hover, so the play row keeps it there */
 .perform .stage-vol {
   display: none;

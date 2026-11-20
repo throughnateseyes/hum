@@ -6,7 +6,7 @@ import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
 import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
-import { RenderPreview } from './RenderBar';
+import { fmtPrecise, RenderPreview, useRenderMode } from './RenderBar';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -20,6 +20,7 @@ export function StageView() {
   const recording = useStudio((s) => s.recording);
   const clip = useStudio((s) => s.clip);
   const hasTrack = useStudio((s) => !!s.track);
+  const scrub = useRenderMode((s) => s.scrub);
   const [size, setSize] = useState({ w: 800, h: 450 });
 
   useEffect(() => {
@@ -74,6 +75,11 @@ export function StageView() {
         {/* a render draws off screen: show its frames here as they're made */}
         {clip?.count !== undefined && clip.size && <RenderPreview key={clip.size} size={clip.size} />}
         <div className="stage-hud">
+          {scrub && (
+            <span className="hud-pill scrub">
+              {scrub.edge === 'start' ? 'Start' : 'End'} · {fmtPrecise(scrub.t)}
+            </span>
+          )}
           {clip && (
             <span className="hud-pill rec">
               <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
@@ -91,3 +97,4 @@ export function StageView() {
     </div>
   );
 }
+

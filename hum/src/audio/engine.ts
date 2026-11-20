@@ -12,6 +12,9 @@ export { emptyFrame } from './frameDsp';
 
 export type SourceKind = 'none' | 'file' | 'mic';
 
+/** the levels a held moment keeps (the beat clock keeps running, hits don't repeat) */
+const HELD_KEYS = ['level', 'sub', 'bass', 'lowMid', 'mid', 'highMid', 'air', 'kick', 'snare', 'hat', 'energy', 'brightness', 'flux', 'build', 'drop', 'sway'] as const satisfies readonly (keyof AudioFrame)[];
+
 export class AudioEngine {
   ctx: AudioContext | null = null;
   analyser: AnalyserNode | null = null;
@@ -100,6 +103,7 @@ export class AudioEngine {
     if (this.el.src.startsWith('blob:')) URL.revokeObjectURL(this.el.src);
     this.el.src = URL.createObjectURL(file);
     this.kind = 'file';
+    this.held = null;
     this.setAnalysis(analysis);
     this.resetState();
     await new Promise<void>((res) => {
@@ -190,9 +194,24 @@ export class AudioEngine {
     else this.pause();
   }
   seek(t: number) {
+    this.held = null;
     this.el.currentTime = Math.max(0, Math.min(t, this.el.duration || 0));
     this.setAnalysis(this.analysis);
     this.resetState(false);
+  }
+
+  /**
+   * While paused, show the sound of one moment instead of easing to idle: scrubbing the render range
+   * holds the levels heard at the handle, so the stage looks like that moment. Playing or seeking
+   * lets go of it.
+   */
+  private held: AudioFrame | null = null;
+  holdFrame(f: AudioFrame | null) {
+    if (!f) {
+      this.held = null;
+      return;
+    }
+    this.held = { ...f, spectrum: f.spectrum.slice(), waveform: f.waveform.slice(), layers: { ...f.layers } };
   }
   private songTap: { gain: GainNode; dest: MediaStreamAudioDestinationNode } | null = null;
   /**
@@ -246,6 +265,16 @@ export class AudioEngine {
       songTime: file ? this.el.currentTime : null,
     };
     const an = this.analyser;
+    if (playing) this.held = null;
+    if (this.held && file) {
+      const f = this.dsp.step(dtRaw, null, moment);
+      const h = this.held;
+      for (const k of HELD_KEYS) (f[k] as number) = h[k] as number;
+      f.spectrum.set(h.spectrum);
+      f.waveform.set(h.waveform);
+      Object.assign(f.layers, h.layers);
+      return f;
+    }
     if (!an || !playing) return this.dsp.step(dtRaw, null, moment);
     an.getFloatFrequencyData(this.freqDb);
     an.getFloatTimeDomainData(this.timeData);
