@@ -14,7 +14,51 @@ export interface HeardWord {
 export type ListenProgress = { stage: 'download' | 'listening'; frac: number };
 
 let worker: Worker | null = null;
-let busy = false;
+let nextId = 1;
+/** the listen under way (one at a time) */
+let current: { id: number; stop: () => void } | null = null;
+const jobs = new Map<number, { resolve: (w: HeardWord[]) => void; reject: (e: Error) => void; onProgress: (p: ListenProgress) => void }>();
+
+/** thrown by listenForWords when cancelListening stopped it */
+export class ListenCancelled extends Error {
+  constructor() {
+    super('Stopped listening');
+  }
+}
+
+function getWorker(): Worker {
+  if (worker) return worker;
+  const w = new Worker(new URL('./listen.worker.ts', import.meta.url), { type: 'module' });
+  w.onmessage = (e) => {
+    const m = e.data;
+    const j = jobs.get(m.id);
+    if (!j) return;
+    if (m.type === 'download' || m.type === 'listening') j.onProgress({ stage: m.type, frac: m.frac });
+    else if (m.type === 'done') j.resolve(m.words);
+    else if (m.type === 'cancelled') j.reject(new ListenCancelled());
+    else if (m.type === 'error') j.reject(new Error(m.message));
+  };
+  w.onerror = (e) => {
+    // a worker that failed to start is no use: the next listen makes a fresh one
+    for (const j of jobs.values()) j.reject(new Error(e.message || 'The listening model failed to start'));
+    jobs.clear();
+    w.terminate();
+    if (worker === w) worker = null;
+  };
+  return (worker = w);
+}
+
+/** is a song being listened to right now? */
+export const isListening = () => !!current;
+
+/**
+ * Stop the listen under way (a new song, or Stop in the lyrics chip): its promise rejects with
+ * ListenCancelled at once, and the worker drops the job at its next window. A model download that's
+ * under way finishes and is kept.
+ */
+export function cancelListening() {
+  current?.stop();
+}
 
 /** 16 kHz mono with the lows and highs trimmed (the voice sits in between) */
 async function prepare(buf: AudioBuffer): Promise<Float32Array> {
@@ -36,24 +80,32 @@ async function prepare(buf: AudioBuffer): Promise<Float32Array> {
 
 /** the words sung in the song, with times; the model stays loaded for the next song. `language` (Whisper's name) when the lyrics' script says which */
 export async function listenForWords(buf: AudioBuffer, onProgress: (p: ListenProgress) => void, language?: string): Promise<HeardWord[]> {
-  if (busy) throw new Error('Already listening to a song');
-  busy = true;
+  if (current) throw new Error('Already listening to a song');
+  const id = nextId++;
+  let stopped = false;
+  let rejectNow: ((e: Error) => void) | null = null;
+  const me = {
+    id,
+    stop: () => {
+      stopped = true;
+      if (current === me) current = null;
+      worker?.postMessage({ type: 'cancel', id });
+      rejectNow?.(new ListenCancelled());
+    },
+  };
+  current = me;
   try {
     const audio = await prepare(buf);
-    worker ??= new Worker(new URL('./listen.worker.ts', import.meta.url), { type: 'module' });
-    const w = worker;
+    if (stopped) throw new ListenCancelled();
+    const w = getWorker();
     return await new Promise<HeardWord[]>((resolve, reject) => {
-      w.onmessage = (e) => {
-        const m = e.data;
-        if (m.type === 'download' || m.type === 'listening') onProgress({ stage: m.type, frac: m.frac });
-        else if (m.type === 'done') resolve(m.words);
-        else if (m.type === 'error') reject(new Error(m.message));
-      };
-      w.onerror = (e) => reject(new Error(e.message || 'The listening model failed to start'));
-      w.postMessage({ audio, language }, [audio.buffer]);
+      rejectNow = reject;
+      jobs.set(id, { resolve, reject, onProgress: (p) => !stopped && onProgress(p) });
+      w.postMessage({ type: 'listen', id, audio, language }, [audio.buffer]);
     });
   } finally {
-    busy = false;
+    jobs.delete(id);
+    if (current === me) current = null;
   }
 }
 

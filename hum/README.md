@@ -87,6 +87,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   leaves your machine). If a line is off, **Fix timing** lets you tap along as each line starts, and
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
+  **Synced on their own:** on a computer, once a song's lyrics are found (and the song has been
+  analysed), Hum listens and syncs them to the singing by itself, the chip showing the progress
+  (the model download the first time). It skips lyrics that are already timed word by word (by hand,
+  on LRCLIB or in the file, unless they were made for another length of the song), your pasted and
+  saved lyrics, demos and live sound, and it waits while a render or recording runs. A song is only
+  listened to once: syncing again, or other lyrics picked for it, reuse what was heard. A new song
+  stops a listen under way, and **Stop** in the chip does too. Phones, data saver and low-memory
+  devices keep the button instead. **Sync new songs by listening** (chip → More) turns it off.
 - **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
   captions for verses and wordy parts, display lines for choruses and drops, an aside in a margin for
   builds, intros and breaks, and the look's own lyric components where it has them (the Diary

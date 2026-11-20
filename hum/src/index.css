@@ -2858,6 +2858,11 @@ html.perform-idle * {
 .lyr-wrong {
   margin-left: -8px;
 }
+/* the switch for syncing new songs on their own */
+.lyr-auto {
+  font-size: var(--fs-2);
+  white-space: normal;
+}
 .lyr-row {
   display: flex;
   gap: 6px;

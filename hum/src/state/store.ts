@@ -117,6 +117,8 @@ export interface StudioState extends LookState {
   lyricStylePicked: boolean;
   lyricsOnBoards: LyricsOnBoards;
   lyricFont: LyricFont;
+  /** sync new songs' lyrics to the singing by listening, on their own (where the device can) */
+  lyricsAutoSync: boolean;
   lyricsSync: LyricsSync;
   /** what the automatic lookup searched for (prefills the search box) */
   lyricsQuery: { title?: string; artist?: string };
@@ -215,6 +217,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricStylePicked: j.lyricStylePicked === true,
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
       lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
+      lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
     };
   } catch {
     return {};
@@ -240,6 +243,7 @@ function persist(s: StudioState) {
         lyricStylePicked: s.lyricStylePicked,
         lyricsOnBoards: s.lyricsOnBoards,
         lyricFont: s.lyricFont,
+        lyricsAutoSync: s.lyricsAutoSync,
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
         windowKind: s.windowKind,
@@ -323,6 +327,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricStylePicked: persisted.lyricStylePicked ?? false,
   lyricsOnBoards: persisted.lyricsOnBoards ?? 'hide',
   lyricFont: persisted.lyricFont ?? 'auto',
+  lyricsAutoSync: persisted.lyricsAutoSync ?? true,
   lyricsSync: null,
   lyricsQuery: {},
   lyricsMatched: null,
@@ -429,7 +434,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);
