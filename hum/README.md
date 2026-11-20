@@ -269,7 +269,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
   camera icon saves a PNG. Still, Record, Render and Clip for TikTok sit together as one group in the
   top bar.
-- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
+- **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
+  and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
+  Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
+  allows it, a full-window view on iPhone.
+- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
 

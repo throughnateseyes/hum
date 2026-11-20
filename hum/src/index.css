@@ -3916,11 +3916,58 @@ html.perform-idle * {
   opacity: 1;
   pointer-events: auto;
 }
+/* full screen on the stage: top-right of the picture, in with the pointer, out when it rests */
+.stage-fs {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(20, 20, 18, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.2s,
+    background 0.12s,
+    transform 0.12s;
+}
+.stage-fs.shown,
+.stage-fs:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.stage-fs:hover {
+  background: rgba(20, 20, 18, 0.78);
+  transform: scale(1.06);
+}
+.stage-fs:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.app.perform .stage-fs {
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+}
 /* while a render edge is dragged: which moment the stage is showing */
 .hud-pill.scrub {
   background: var(--accent);
   color: #fff;
   font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-fs {
+    transition: none;
+  }
 }
 
 /* Perform has its own bar; a touch screen can't hover, so the play row keeps it there */
