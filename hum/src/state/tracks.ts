@@ -23,7 +23,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   retimed = null;
   songBuf = null;
   const st = useStudio.getState();
-  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
+  st.set({ track: info, analysis: null, analyzing: true, plan: null, partPops: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
   const ctx = audioEngine.ensureContext();
   try {
     await audioEngine.loadFile(blob, null);

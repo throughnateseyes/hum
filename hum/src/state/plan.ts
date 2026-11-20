@@ -692,13 +692,36 @@ export function popLevelAt(t: number): number {
   const planned = s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a);
   if (planned) {
     const i = sectionIndexAt(a!.sections, t);
-    const v = s.plan!.pops?.[i];
-    return typeof v === 'number' ? Math.max(0, Math.min(3, Math.round(v))) : POPS_BY_LABEL[a!.sections[i].label];
+    return ownPops(i) ?? plannedPops(i);
   }
   if (s.popups !== 'always') return 0;
   if (!a?.sections.length) return 1;
-  const sec = a.sections[sectionIndexAt(a.sections, t)];
-  return Math.max(1, POPS_BY_LABEL[sec.label]);
+  const i = sectionIndexAt(a.sections, t);
+  return ownPops(i) ?? Math.max(1, POPS_BY_LABEL[a.sections[i].label]);
+}
+
+/** the person's own level for part i (setPartPops), or null when the part is the planner's */
+function ownPops(i: number): number | null {
+  const s = useStudio.getState();
+  const v = s.analysis && s.partPops?.length === s.analysis.sections.length ? s.partPops[i] : null;
+  return typeof v === 'number' ? Math.max(0, Math.min(3, Math.round(v))) : null;
+}
+
+/** the video plan's level for part i (its mark, else the part's label) */
+function plannedPops(i: number): number {
+  const s = useStudio.getState();
+  const v = s.plan?.pops?.[i];
+  const label = s.analysis?.sections[i]?.label;
+  return typeof v === 'number' ? Math.max(0, Math.min(3, Math.round(v))) : label ? POPS_BY_LABEL[label] : 1;
+}
+
+/**
+ * How busy pop-ups are in part i, for the UI: `level` 0 none … 3 lots (what plays when a video plan
+ * plays) and `mine` when the person set it (setPartPops) rather than the planner.
+ */
+export function partPopsAt(i: number): { level: number; mine: boolean } {
+  const own = ownPops(i);
+  return own !== null ? { level: own, mine: true } : { level: plannedPops(i), mine: false };
 }
 
 /* ───────────────────────── picks while a plan is on ───────────────────────── */
