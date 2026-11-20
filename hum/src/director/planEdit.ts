@@ -123,7 +123,8 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
         plan: {
           looks: plan.looks,
           rotate: plan.rotate ?? [],
-          pops: plan.pops ?? [],
+          // what actually plays: the person's own per-part levels (setPartPops) over the plan's
+          pops: a.sections.map((_, i) => s.partPops?.[i] ?? plan.pops?.[i] ?? 1),
           pace: plan.shotBars ?? [],
           lyric: plan.lyricPlan ? plan.lyricPlan.parts.map((p) => p?.medium ?? null) : [],
         },
@@ -154,6 +155,9 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
   if (now.analysis !== a || now.plan !== plan) return { ok: false, note: 'The plan changed while Claude was thinking, so this edit was dropped.' };
   const { plan: next, changed } = applyPlanEdit(plan, a, json.edit.changes);
   if (!changed) return { ok: true, note: serverNote || 'Nothing needed to change.', via, changed: 0 };
-  now.set({ plan: next, planOn: true });
+  // a part whose pop-ups the edit changed is the plan's again (the newest wish wins over an older hand setting)
+  const own = now.partPops?.length === a.sections.length ? [...now.partPops] : null;
+  if (own) for (let i = 0; i < own.length; i++) if ((next.pops?.[i] ?? null) !== (plan.pops?.[i] ?? null)) own[i] = null;
+  now.set({ plan: next, planOn: true, ...(own ? { partPops: own.some((v) => v !== null) ? own : null } : {}) });
   return { ok: true, note: serverNote || 'Changed the plan.', via, changed };
 }

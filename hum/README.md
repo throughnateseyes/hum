@@ -128,10 +128,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
   so two videos of the same song read differently. The chip shows what Auto chose for the part that's
   playing and why. Every style is **guarded for legibility**: every other frame Hum shrinks the
-  picture under the text to 96×54 and checks it, then picks the calmest place for the line, an ink
+  picture under the text to 96×54 and checks it (windows and pop-ups included: it's read after they
+  draw, just before the words), then picks the calmest place for the line, an ink
   that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
-  feathered scrim, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
-  when a cut changes the picture. The per-look lyric profiles and the audit behind them are in
+  feathered scrim, a halo, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
+  when a cut changes the picture. Words that sit on a pop-up window (or a very busy picture) always
+  get the **halo**: a fuzzy, feathered glow hugging the words in a palette colour that inverts
+  against the ink (it becomes one flat ink under the hand-drawn finish), so an overlap looks meant. The per-look lyric profiles and the audit behind them are in
   [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
 - **Busy boards and pop-ups.** Four more instrument boards join Orbit, Lab and Oto: **Arcade** (Pong
@@ -145,7 +148,15 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   playing on new parts, drops and some bars, then snap shut a few bars later. They're in recordings too. *In videos* (the default) shows them while a video plan
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
-  first four bars.
+  first four bars. **Pop-ups keep clear of the words:** the lyric line is laid out before any window
+  draws, so windows open away from it (and from where the next line will land), and one already open
+  where a line arrives glides out of the way on a spring. With no room to move (small phone frames,
+  lots of windows) it shrinks a little and stays, and the words over it get the halo.
+  **Per part:** `useStudio.getState().setPartPops(sectionIndex, level)` sets how busy pop-ups get in
+  one part (0 none: no instrument pop-ups and no scene windows; 1–3; `null` hands it back to the
+  planner). The person's levels win over the plan's, apply with Pop-ups on Always too, and are kept
+  per song beside the saved plans (`src/state/planCache.ts`), so they survive Remake video and
+  reloads; `partPopsAt(i)` (`src/state/plan.ts`) reads a part's level and whether it was set by hand.
 - **Scene windows.** Pop-ups can also be other looks: framed windows (a title bar with the look's
   name, a plain card, or a round cut-out) each playing a different look live over the picture, so
   looks combine like a desktop stacked with programs. They open on new parts and phrases, bump on
@@ -408,7 +419,9 @@ start-up delay, measured once per session, so sound and picture line up to the s
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
   `/solo.html?finish=clean,film,riso,ink,tape,hand` (or `"finish"` in the `--look` JSON) shows each
   finish side by side for every moment and reports what each finish pass costs.
-  Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
+  `&windows=1&popups=1&pops=3` puts scene windows and instrument pop-ups over it (seeded, so sheets
+  repeat; `&dodge=0` stops them keeping clear of the words, to look at the halo, and each cell's label
+  names the lyric backing). Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
   `--look` json, to draw lyric type over the look: test lyrics are sung in every part (with held
   notes), and `{ "lyrics": { "style": "auto", "family": "serif", "motion": "tender", "parts":
   ["sparse", "subtitle", "sparse", "big+giant", "sparse", "subtitle"] } }` fixes the plan per part so

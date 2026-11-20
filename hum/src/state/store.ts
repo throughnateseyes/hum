@@ -106,6 +106,12 @@ export interface StudioState extends LookState {
   directorHeight: number;
   /** the song's video plan: a look per section */
   plan: VideoPlan | null;
+  /**
+   * The person's own pop-up level for each part of this song (0 none … 3 lots; null = the planner's).
+   * Wins over the video plan's `pops`, survives re-plans and saved plans (kept per song in
+   * planCache.ts), and also applies with Pop-ups set to Always. Set it with setPartPops.
+   */
+  partPops: (number | null)[] | null;
   /** switch looks along the song map while playing */
   planOn: boolean;
   planning: boolean;
@@ -165,6 +171,12 @@ export interface StudioState extends LookState {
   clearChat: () => void;
   set: (patch: Partial<StudioState>) => void;
   flash: (msg: string) => void;
+  /**
+   * How busy pop-ups get in part `sectionIndex` (an index into analysis.sections): 0 none (no
+   * instrument pop-ups and no scene windows at all), 1 a few … 3 lots, or null to hand the part back
+   * to the planner. Read the result with partPopsAt() (state/plan.ts).
+   */
+  setPartPops: (sectionIndex: number, level: number | null) => void;
 }
 
 export const HAND_DEFAULT: HandStyle = { on: true, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
@@ -320,6 +332,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   directorOpen: persisted.directorOpen ?? true,
   directorHeight: persisted.directorHeight ?? 320,
   plan: null,
+  partPops: null,
   planOn: false,
   planning: false,
   lyrics: null,
@@ -443,6 +456,14 @@ export const useStudio = create<StudioState>((set, get) => ({
   set: (patch) => {
     set(patch);
     if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
+  },
+  setPartPops: (i, level) => {
+    const a = get().analysis;
+    if (!a || !Number.isInteger(i) || i < 0 || i >= a.sections.length) return;
+    const prev = get().partPops;
+    const next = prev && prev.length === a.sections.length ? [...prev] : a.sections.map(() => null);
+    next[i] = level === null || !Number.isFinite(level) ? null : Math.max(0, Math.min(3, Math.round(level)));
+    set({ partPops: next.some((v) => v !== null) ? next : null });
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

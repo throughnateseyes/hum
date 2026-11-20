@@ -10,12 +10,15 @@ import { chroma, radial, scope, spectrogram, stepSeq } from '../scenes/board/mod
 import { getScene } from '../scenes';
 import { popLevelAt, sectionIndexAt } from '../state/plan';
 import { useStudio } from '../state/store';
+import { NO_KEEP_OUT, type KeepOut, type Rect as NRect } from './legibility';
+import { glide, keepCost, newGlide, toPx, toRect, type Glide, type PxBox } from './keepClear';
 
 /**
  * Pop-ups: little framed board windows (one instrument each, with a title bar) that pop in over
  * whatever is playing — on section changes, drops and some bars — and snap shut a few bars later.
  * Drawn on a 2D canvas and composited into the frame, so they are
  * in recordings too. How busy it gets comes from popLevelAt() (the video plan, or the Always mode).
+ * They keep clear of the sung line (keepClear.ts): they open away from it and glide out of its way.
  */
 
 interface Kind {
@@ -66,6 +69,8 @@ interface Win {
   cacheKey: string;
   bumpX: number;
   bumpY: number;
+  /** keeping clear of the lyrics: where it's gliding to, and a little shrink when there's no room */
+  g: Glide;
 }
 
 /** on a dark palette the windows land as light paper sheets, so they pop off the picture */
@@ -97,6 +102,8 @@ export class PopupLayer {
   private lastT = 0;
   private empty = true;
   private sceneKey = '';
+  /** the layer's own clock for gliding (song-frame time, so held hand-drawn frames don't stall it) */
+  private lastTime = -1;
 
   constructor() {
     this.tex.minFilter = THREE.LinearFilter;
@@ -104,8 +111,11 @@ export class PopupLayer {
     this.tex.generateMipmaps = false;
   }
 
-  /** `level` overrides popLevelAt() (the stage passes 0 when the windows are set to show looks only) */
-  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, target: THREE.WebGLRenderTarget | null = null, level = popLevelAt(base.audio.time)) {
+  /**
+   * `level` overrides popLevelAt() (the stage passes 0 when the windows are set to show looks only);
+   * `keep` is where the lyrics are (lyricLayer.keepOut()), for the windows to keep clear of.
+   */
+  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, target: THREE.WebGLRenderTarget | null = null, level = popLevelAt(base.audio.time), keep: KeepOut = NO_KEEP_OUT) {
     const t = base.time;
     // a board look is already busy: keep it to the odd window
     const s = useStudio.getState();
@@ -120,9 +130,21 @@ export class PopupLayer {
       this.wins.length = 0;
     }
 
+    this.keep = keep;
     this.schedule(base, level, W, H);
     for (const w of this.wins) if (w.closing < 0 && (t >= w.until || level === 0)) w.closing = t;
     this.wins = this.wins.filter((w) => w.closing < 0 || t - w.closing < OUT_TIME);
+    // open windows glide out of the sung line's way
+    const dt = this.lastTime < 0 ? 0 : Math.min(0.25, Math.max(0, t - this.lastTime));
+    this.lastTime = t;
+    const m = Math.min(W, H) * 0.04;
+    const words = toPx(keep.now, W, H, Math.min(W, H) * 0.02);
+    for (const w of this.wins) {
+      if (w.closing >= 0) continue;
+      const others = this.wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
+      glide(w, w.g, w.w, w.h, words, W, H, m, others, dt);
+    }
+    this.size = { W, H };
 
     if (!this.wins.length) {
       if (!this.empty) {
@@ -138,6 +160,21 @@ export class PopupLayer {
     r.autoClear = false;
     this.quad.render(r, target);
     r.autoClear = ac;
+  }
+
+  private keep: KeepOut = NO_KEEP_OUT;
+  private size = { W: 2, H: 2 };
+
+  /** where a window is heading, at the size it's heading for (px) */
+  private goalBox(w: Win): PxBox {
+    const f = w.g.fitTo;
+    return { x: w.g.gx + (w.w * (1 - f)) / 2, y: w.g.gy + (w.h * (1 - f)) / 2, w: w.w * f, h: w.h * f };
+  }
+
+  /** the open windows (normalized, where they're heading), so lyrics over one get the halo */
+  occupied(): NRect[] {
+    const { W, H } = this.size;
+    return this.wins.filter((w) => w.closing < 0).map((w) => toRect(this.goalBox(w), W, H));
   }
 
   /** decide when windows open: section changes, drops, some bars (staggered a beat apart) */
@@ -211,18 +248,21 @@ export class PopupLayer {
         const iy = Math.max(0, Math.min(y + h, o.y + o.h) - Math.max(y, o.y));
         cost += ix * iy;
       }
-      // keep the middle of the picture mostly clear
+      // keep the middle of the picture mostly clear, and the lyrics (the line now, and the next)
       const cx = (x + w / 2) / W - 0.5;
       const cy = (y + h / 2) / H - 0.5;
       cost += Math.max(0, 0.22 - Math.hypot(cx, cy)) * w * h * 3;
+      cost += keepCost({ x, y, w, h }, this.keep, W, H, Math.min(W, H) * 0.02);
       if (!best || cost < best.cost) best = { x, y, cost };
     }
     const bars = 2 + Math.floor(Math.random() * 3);
+    const x = Math.round(best!.x);
+    const y = Math.round(best!.y);
     this.wins.push({
       kind,
       mod: kind.make(),
-      x: Math.round(best!.x),
-      y: Math.round(best!.y),
+      x,
+      y,
       w,
       h,
       born: t,
@@ -233,6 +273,7 @@ export class PopupLayer {
       cacheKey: '',
       bumpX: 0,
       bumpY: 0,
+      g: newGlide(x, y),
     });
   }
 
@@ -355,6 +396,8 @@ export class PopupLayer {
       const v = IN_SCALES[Math.min(IN_SCALES.length - 1, step)];
       sx = sy = v;
     }
+    sx *= w.g.fit;
+    sy *= w.g.fit;
     if (sx <= 0.001) return;
     const { cr } = this.chrome(w, bf, ink);
     const cx = w.x + w.w / 2 + w.bumpX;

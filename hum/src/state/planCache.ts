@@ -9,6 +9,10 @@
  * A song is recognised by its name and the shape of its analysis (length, tempo, where the parts
  * start) plus its lyrics, so a different file with the same name, or lyrics added later, asks again.
  * At most MAX_SAVED songs are kept, oldest dropped first.
+ *
+ * The person's own pop-up levels per part (store.partPops, set with setPartPops) are kept beside the
+ * plans, per song but not per plan: they come back when the song is loaded again and stay through
+ * "Remake video", offline plans and saved plans alike, until the song's parts change.
  */
 import type { Lyrics, TrackAnalysis } from '../core/types';
 import type { VideoPlan } from './plan';
@@ -35,9 +39,16 @@ function hash(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+const songShape = (a: TrackAnalysis) => `${a.duration.toFixed(1)}|${Math.round(a.bpm)}|${a.sections.map((s) => `${s.label[0]}${s.start.toFixed(1)}`).join(',')}`;
+
+/** which song a person's per-part settings belong to (its name and parts, whatever its lyrics) */
+export function songKey(name: string, a: TrackAnalysis): string {
+  return `${name}|${hash(songShape(a))}`;
+}
+
 /** which song (and which version of its lyrics) a plan belongs to */
 export function planKey(name: string, a: TrackAnalysis, lyr: Lyrics | null): string {
-  const shape = `${a.duration.toFixed(1)}|${Math.round(a.bpm)}|${a.sections.map((s) => `${s.label[0]}${s.start.toFixed(1)}`).join(',')}`;
+  const shape = songShape(a);
   const words = lyr?.synced && lyr.lines.length ? `s${hash(lyr.lines.map((l) => `${l.t.toFixed(1)}${l.text}`).join('\n'))}` : lyr?.plain ? `p${hash(lyr.plain)}` : 'n';
   return `${name}|${hash(shape)}|${words}`;
 }
@@ -124,3 +135,44 @@ export function watchPlan(key: string, plan: VideoPlan, analysis: TrackAnalysis)
     pending = window.setTimeout(() => savePlan(k, p), 800);
   });
 }
+
+/* ── the person's own pop-up levels per part, per song ── */
+
+const POPS_KEY = 'hum.partPops';
+
+function readPops(): Record<string, (number | null)[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(POPS_KEY) ?? '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePops(key: string, levels: (number | null)[] | null) {
+  try {
+    const all = readPops();
+    delete all[key];
+    if (levels) all[key] = levels;
+    // newest last; keep as many songs as plans
+    const keys = Object.keys(all);
+    for (const k of keys.slice(0, Math.max(0, keys.length - MAX_SAVED))) delete all[k];
+    localStorage.setItem(POPS_KEY, JSON.stringify(all));
+  } catch {
+    /* storage full or blocked: the settings just aren't remembered */
+  }
+}
+
+// a song's parts are known: bring back its pop-up levels; the person changes one: remember it
+useStudio.subscribe((s, prev) => {
+  const a = s.analysis;
+  if (!a || !s.track) return;
+  const key = songKey(s.track.name, a);
+  if (a !== prev.analysis) {
+    const saved = readPops()[key];
+    const ok = Array.isArray(saved) && saved.length === a.sections.length && saved.every((v) => v === null || (typeof v === 'number' && v >= 0 && v <= 3));
+    if (ok && saved.some((v) => v !== null)) s.set({ partPops: saved });
+    return;
+  }
+  if (s.partPops !== prev.partPops) writePops(key, s.partPops);
+});

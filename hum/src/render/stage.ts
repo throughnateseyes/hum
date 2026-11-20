@@ -18,6 +18,7 @@ import { autopilotTick } from '../state/autopilot';
 import { planTick, popLevelAt } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
+import { NO_KEEP_OUT } from './legibility';
 import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
 import { activeFinish } from '../state/direction';
@@ -760,6 +761,17 @@ export class Stage {
     const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
+    // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
+    if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
+    const keep = lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT;
+    // after they draw: where they are (words on one get the halo), and the legibility guard reads
+    // what the words will really sit on, windows and pop-ups included (a tiny readback every other frame)
+    const beforeLyrics = (rt: THREE.WebGLRenderTarget | null) => {
+      if (!lyricOpts) return;
+      this.lyricLayer.setOccluders([...this.sceneWindows.occupied(), ...this.popups.occupied()]);
+      if (rt) this.lyricLayer.sample(r, rt.texture, this.shared.blit);
+      else this.lyricLayer.sampleScreen(r, this.width, this.height);
+    };
     if (handOn) {
       // everything (lyrics too) goes through the hand-drawn finish, then is held until the next drawing
       if (s.impact > 0.001) {
@@ -768,12 +780,11 @@ export class Stage {
       } else {
         this.shared.blit(finalTex, this.impactRT);
       }
-      // the lyric legibility guard looks at the picture before pop-ups and lyrics go over it
-      if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       o?.phase?.('windows');
-      this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT });
+      this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, this.impactRT, pops.instruments);
+      this.popups.render(r, base, this.impactRT, pops.instruments, keep);
+      beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
@@ -786,15 +797,14 @@ export class Stage {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
         this.present(this.impactRT.texture, finish, base);
-        if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       } else {
         this.present(finalTex, finish, base);
-        if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
       o?.phase?.('windows');
-      this.sceneWindows.render(r, base, winOpts);
+      this.sceneWindows.render(r, base, { ...winOpts, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, null, pops.instruments);
+      this.popups.render(r, base, null, pops.instruments, keep);
+      beforeLyrics(null);
       o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
