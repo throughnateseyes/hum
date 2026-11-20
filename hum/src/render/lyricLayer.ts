@@ -6,7 +6,7 @@ import { getScene } from '../scenes';
 import { buildCutout, cutoutMoving, drawCutout, type CutoutLayout } from './cutout';
 import { FAMILY_FONTS, dropMoment, drawLine, layoutLine, moving, treatmentFor, voiceFor, type Box, type Inks, type Role, type Treatment, type TypeLayout } from './lyricAuto';
 import { hostFor, type HostLine } from './lyricHosts';
-import { FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, accentOr, applyShadow, badShare, coveredL, css, drawBacking, hexRGB, inksFor, judge, lumOf, regionStats, type Backing, type RGB, type Rect, type RegionStats } from './legibility';
+import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr, applyShadow, badShare, coverNow, coveredL, coveredShare, css, drawBacking, drawHalo, hexRGB, inksFor, judge, lumOf, regionStats, type Backing, type KeepOut, type RGB, type Rect, type RegionStats } from './legibility';
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
@@ -37,9 +37,17 @@ import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyri
  * own are shown together; when a line still has to make way, it fades out over the next one
  * instead of blinking out. Every word is drawn before its line leaves.
  *
- * Every style is guarded (legibility.ts): the frame under the text is sampled every few frames and
- * the ink and backing (shadow, soft scrim, full-width scrim, paper strip) are eased to whatever
- * clears the contrast target there. Lines a scene hosts get no scrim: the layer reads the picture
+ * Every style is guarded (legibility.ts): the frame under the text is sampled every few frames (after
+ * scene windows and pop-ups are drawn, so it's what the words really sit on) and the ink and backing
+ * (shadow, soft scrim, halo, full-width scrim, paper strip) are eased to whatever clears the contrast
+ * target there. Words over a pop-up window (or a very busy picture) always get the halo, a fuzzy
+ * palette-coloured glow round the words, so the overlap reads as meant.
+ *
+ * Pop-ups and windows keep clear of the words: prepare() lays the line out before they draw and
+ * keepOut() hands them its box (and where the next line will likely land), so they open elsewhere
+ * and glide out of the way when a line arrives under them (popups.ts, sceneWindows.ts).
+ *
+ * Lines a scene hosts get no scrim: the layer reads the picture
  * under them and the host answers in its own terms (lyricHosts.ts). Display,
  * collage and auto lyrics stand down on looks that show the words themselves (scenes with
  * `showsLyrics`) unless the user picks "Show anyway".
@@ -285,6 +293,34 @@ function rectOf(boxes: { x: number; y: number; w: number; h: number }[], W: numb
   return { x0: Math.max(0, x0 / W - pad), y0: Math.max(0, y0 / H - pad), x1: Math.min(1, x1 / W + pad), y1: Math.min(1, y1 / H + pad) };
 }
 
+/** a line this much covered by pop-up windows sits ON them: it gets the halo */
+const OVER_WINDOW = 0.05;
+/** a picture this busy under the line (mean neighbour difference) gets the halo instead of a soft scrim */
+const BUSY_EDGE = 0.085;
+
+export interface LyricOpts {
+  lines: LyricLine[];
+  t: number;
+  style: LyricStyle;
+  palette: Palette;
+  width: number;
+  height: number;
+  audio: AudioFrame;
+  dt?: number;
+}
+
+/** what both prepare() and render() work out about a frame */
+interface FrameFacts {
+  t: number;
+  shows: Showing[];
+  i: number;
+  cur: { i: number; line: Showing } | null;
+  W: number;
+  H: number;
+  look: LyricProfile;
+  carries: boolean;
+}
+
 const LABEL: Record<string, string> = { intro: 'Intro', verse: 'Verse', chorus: 'Chorus', bridge: 'Bridge', build: 'Build', drop: 'Drop', break: 'Break', outro: 'Outro' };
 
 export class LyricLayer {
@@ -316,6 +352,11 @@ export class LyricLayer {
   private ghostA = 0;
   /** how opaque the line on screen was when last drawn */
   private lastAlpha = 0;
+  /** pop-up windows on screen this frame (normalized boxes, where they're heading) */
+  private occluders: Rect[] = [];
+  /** where the words are, for the windows (see keepOut) */
+  private keep: KeepOut = NO_KEEP_OUT;
+  private lastRect: Rect | null = null;
 
   /** the picture under the lyrics, shrunk and read back every few frames */
   readonly probe = new FrameProbe();
@@ -326,18 +367,30 @@ export class LyricLayer {
     this.tex.generateMipmaps = false;
   }
 
-  /** look at the frame the lyrics will go over (called by the stage before pop-ups and lyrics) */
+  /**
+   * Look at the frame the lyrics will go over: called by the stage after the picture, scene windows
+   * and pop-ups are drawn and before the lyrics, with the texture they were drawn into...
+   */
   sample(r: THREE.WebGLRenderer, tex: THREE.Texture, blit: (t: THREE.Texture, target: THREE.WebGLRenderTarget | null) => void) {
     this.probe.sample(r, tex, blit);
   }
 
-  /** draw the lyrics for time t over whatever is on the screen */
-  render(r: THREE.WebGLRenderer, o: { lines: LyricLine[]; t: number; style: LyricStyle; palette: Palette; width: number; height: number; audio: AudioFrame; dt?: number }, target: THREE.WebGLRenderTarget | null = null) {
-    if (o.style === 'off' || !o.lines.length) return;
-    // the dev harness steps song time faster than real time: it passes its step and runs on its own clock
-    const now = o.dt !== undefined ? (this.devClock += o.dt) : performance.now() / 1000;
-    const dt = o.dt ?? Math.min(0.1, Math.max(0, now - (this.clock || now)));
-    this.clock = now;
+  /** ...or, when they were drawn straight to the screen, from the screen (w×h drawing buffer) */
+  sampleScreen(r: THREE.WebGLRenderer, w: number, h: number) {
+    this.probe.sampleScreen(r, w, h);
+  }
+
+  /** the pop-up windows on screen this frame (normalized boxes), so a line over one gets the halo */
+  setOccluders(rects: Rect[]) {
+    this.occluders = rects;
+  }
+
+  /** where the words are (and the next line will likely be), for windows to keep clear of; see prepare() */
+  keepOut(): KeepOut {
+    return this.keep;
+  }
+
+  private facts(o: LyricOpts): FrameFacts {
     const t = o.t + LEAD;
     const st = useStudio.getState();
     const shows = showings(o.lines);
@@ -349,19 +402,34 @@ export class LyricLayer {
     const scene = getScene(st.sceneId);
     const show = st.lyricsOnBoards === 'show';
     const look = profileFor(st.presetId, scene?.category, !!scene?.showsLyrics);
-    const carries = look.own === 'carries' && !show;
+    return { t, shows, i, cur, W, H, look, carries: look.own === 'carries' && !show };
+  }
 
-    if (!cur) {
-      if (!this.empty) {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.empty = true;
-        this.lastKey = '';
-      }
-      this.line = null;
-      this.ghostOn = false;
-      if (o.style === 'auto') this.report(null, st.analysis);
+  /**
+   * Lay out the line due now (once per showing) before anything else draws this frame, and note its
+   * box: pop-ups and scene windows read keepOut() to open elsewhere and glide out of its way.
+   */
+  prepare(o: LyricOpts) {
+    if (o.style === 'off' || !o.lines.length) {
+      this.keep = NO_KEEP_OUT;
       return;
     }
+    const f = this.facts(o);
+    if (f.cur) this.ensureLine(f, o);
+    const L = this.line;
+    const now = f.cur && L && L.medium !== 'own' && this.standDown < 0.5 ? L.rect : null;
+    if (now) this.lastRect = now;
+    // the next showing, once it's close: lines in a part mostly come back to the same place
+    const nx = f.shows[f.cur ? f.cur.i + 1 : f.i + 1];
+    const next = nx && nx.t - f.t < 2 && this.lastRect ? this.lastRect : null;
+    this.keep = { now, next };
+  }
+
+  /** the line for this showing, laid out (a new showing hands the old one over as a fading ghost) */
+  private ensureLine(f: FrameFacts, o: LyricOpts) {
+    const { W, H, t } = f;
+    const line = f.cur!.line;
+    const st = useStudio.getState();
     if (this.canvas.width !== W || this.canvas.height !== H) {
       this.canvas.width = W;
       this.canvas.height = H;
@@ -370,7 +438,6 @@ export class LyricLayer {
       this.lastKey = '';
       this.ghostOn = false;
     }
-    const line = cur.line;
     const words = line.words;
     const group = `${line.first}-${line.last}|${line.text}`;
     // a cut to or from a scene that hosts the line lays it out again (as part of the new picture)
@@ -391,11 +458,39 @@ export class LyricLayer {
         this.ghost.width = W;
         this.ghost.height = H;
       }
-      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, look, carries, W, H, o.palette, st.analysis, st.sceneId);
+      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId);
       this.line.group = group;
       this.standDown = 0;
     }
-    const L = this.line;
+  }
+
+  /** draw the lyrics for time t over whatever is on the screen */
+  render(r: THREE.WebGLRenderer, o: LyricOpts, target: THREE.WebGLRenderTarget | null = null) {
+    if (o.style === 'off' || !o.lines.length) return;
+    // the dev harness steps song time faster than real time: it passes its step and runs on its own clock
+    const now = o.dt !== undefined ? (this.devClock += o.dt) : performance.now() / 1000;
+    const dt = o.dt ?? Math.min(0.1, Math.max(0, now - (this.clock || now)));
+    this.clock = now;
+    const st = useStudio.getState();
+    const f = this.facts(o);
+    const { t, cur, W, H, carries } = f;
+
+    if (!cur) {
+      if (!this.empty) {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.empty = true;
+        this.lastKey = '';
+      }
+      this.line = null;
+      this.ghostOn = false;
+      if (o.style === 'auto') this.report(null, st.analysis);
+      return;
+    }
+    this.ensureLine(f, o);
+    const line = cur.line;
+    const words = line.words;
+    const key = this.line!.key;
+    const L = this.line!;
     const guarded = L.medium !== 'own' && L.medium !== 'cutout' && L.medium !== 'world';
 
     // a cut to a look that shows the words itself mid-line: fade out rather than fight it
@@ -413,7 +508,7 @@ export class LyricLayer {
     if (guarded && this.probe.version > 0 && this.probe.version !== this.probed) {
       this.probed = this.probe.version;
       L.stats = regionStats(this.probe, L.rect);
-      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target, ladder: L.ladder, pal: o.palette });
+      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target, ladder: this.ladderNow(L, L.stats), pal: o.palette });
       // while the line is still fading in nobody can see a jump, so take the new verdict outright
       // (shots often cut on the very line start, so the first probe may still show the last look)
       if (t - line.t < FADE_IN + 0.12) this.guard.reset(v);
@@ -466,6 +561,7 @@ export class LyricLayer {
         else if (L.type) {
           const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
           drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);
+          if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
           drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
         }
         g.restore();
@@ -485,11 +581,26 @@ export class LyricLayer {
     return inksFor(pal, st ?? undefined);
   }
 
+  /**
+   * The backings the guard may use for this line right now: words that sit on a pop-up window always
+   * get the halo (a designed overlap, never letters lost behind a window), and a very busy picture
+   * gets the halo where the look would use a soft scrim.
+   */
+  private ladderNow(L: LineState, st: RegionStats): Backing[] {
+    if (coveredShare(L.rect, this.occluders) > OVER_WINDOW) return ['halo', ...L.ladder.filter((b) => b === 'band' || b === 'paper')];
+    if (st.edge >= BUSY_EDGE) {
+      if (L.ladder.includes('soft')) return L.ladder.map((b) => (b === 'soft' ? 'halo' : b));
+      const k = L.ladder.findIndex((b) => b === 'band' || b === 'paper');
+      return k < 0 ? [...L.ladder, 'halo'] : [...L.ladder.slice(0, k), 'halo', ...L.ladder.slice(k)];
+    }
+    return L.ladder;
+  }
+
   /** does the accent read over the box, with the backing the guard is heading for? */
   private accentReads(L: LineState, pal: Palette): boolean {
     if (this.probe.version <= 0) return false;
     const gd = this.guard;
-    const cover = { none: 0.1, shadow: 0.3, soft: 0.62, band: 0.86, paper: 1 }[gd.backing];
+    const cover = Math.max(0.1, COVER[gd.backing]);
     const st = L.stats ?? regionStats(this.probe, L.rect);
     return badShare(this.probe, L.rect, lumOf(hexRGB(pal.accent)), gd.plate, cover, L.target, st.edge) <= 0.08;
   }
@@ -561,7 +672,8 @@ export class LyricLayer {
       let bestScore = Infinity;
       cand.forEach((z, k) => {
         const v = judge(this.probe, boxes[z]!.r, { inks: this.inkList(look.ink, pal, null), target: m === 'subtitle' ? 4.5 : 3, ladder: ladderFor(look), pal });
-        const score = v.level + v.bad * 3 + k * 0.35 + R() * 0.3;
+        // a place a pop-up window already covers is a poor one: the words would sit on it
+        const score = v.level + v.bad * 3 + k * 0.35 + R() * 0.3 + coveredShare(boxes[z]!.r, this.occluders) * 2.5;
         if (score < bestScore) {
           bestScore = score;
           best = z;
@@ -623,7 +735,7 @@ export class LyricLayer {
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
       L.stats = regionStats(this.probe, L.rect);
-      this.guard.reset(judge(this.probe, L.rect, { inks: this.inkList(L.inks, pal, L.stats), target: L.target, ladder: L.ladder, pal }));
+      this.guard.reset(judge(this.probe, L.rect, { inks: this.inkList(L.inks, pal, L.stats), target: L.target, ladder: this.ladderNow(L, L.stats), pal }));
       this.probed = this.probe.version;
       this.accentOK = this.accentReads(L, pal);
     }
@@ -640,7 +752,7 @@ export class LyricLayer {
     if (L.medium === 'cutout') return { medium: L.medium, zone: L.zone, moment: L.moment, backing: 'paper', bad: 0, why: L.why };
     if (L.medium === 'world') return { medium: L.medium, zone: L.zone, moment: L.moment, backing: 'none', bad: 0, why: L.why };
     const gd = this.guard;
-    const cover = Math.max(gd.mix.soft * 0.62, gd.mix.band * 0.86, gd.mix.paper, gd.mix.shadow * 0.3);
+    const cover = coverNow(gd);
     const st = regionStats(this.probe, L.rect);
     const bad = badShare(this.probe, L.rect, lumOf(gd.ink), gd.plate, cover, L.target, st.edge);
     return { medium: L.medium, zone: L.zone, moment: L.moment, backing: gd.backing, bad, why: L.why };
@@ -668,6 +780,32 @@ export class LyricLayer {
     this.quad.dispose();
     this.probe.dispose();
   }
+}
+
+/**
+ * Where the halo goes: one box per row, from its first word that's up to its newest, the newest
+ * easing in as it's sung (captions keep the whole line up, so their halo does too).
+ */
+function haloSpans(L: TypeLayout, t: number): { x: number; y: number; w: number; h: number }[] {
+  const out: { x: number; y: number; w: number; h: number }[] = [];
+  for (const r of L.rows) {
+    const ws = L.words.filter((w) => w.y > r.y && w.y < r.y + r.h * 1.4 && w.x >= r.x - 1 && w.x <= r.x + r.w + 1);
+    if (!ws.length) continue;
+    if (L.role === 'caption') {
+      out.push(r);
+      continue;
+    }
+    const up = ws.filter((w) => w.t <= t);
+    if (!up.length) continue;
+    const last = up[up.length - 1];
+    const k = Math.min(1, (t - last.t) / 0.22);
+    const p = 1 - (1 - k) * (1 - k);
+    const x0 = up.length > 1 ? up[0].x : last.x + last.w * 0.5 * (1 - p);
+    const from = up.length > 1 ? up[up.length - 2].x + up[up.length - 2].w : last.x + last.w * 0.5;
+    const x1 = from + (last.x + last.w - from) * p;
+    out.push({ x: x0, y: r.y, w: x1 - x0, h: r.h });
+  }
+  return out;
 }
 
 /** row boxes of a laid-out line that have a word up (scrims grow with the line) */

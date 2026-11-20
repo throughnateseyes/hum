@@ -9,6 +9,11 @@
  *     &look=<json>                           { palette: id | {bg,fg,accent,accent2,muted}, sceneParams, effects, modulations }
  *     &w=1280&h=720
  *     &windows=1                             scene windows on (other looks playing in windows over this one)
+ *     &popups=1                              instrument pop-ups on (little board windows, popups.ts)
+ *     &pops=0..3                             how busy windows and pop-ups get (default: from each part of the song)
+ *     &seed=7                                the pop-ups' dice (Math.random is seeded here, so sheets repeat)
+ *     &dodge=0                               windows don't keep clear of the words (to look at the halo words get
+ *                                            when they sit on a window); each cell's label names the lyric backing
  *     &lyrics=auto | subtitle | big | cutout | <json>   draw lyric type over the look (test lyrics sung in every
  *                                            part, see testLyricsSung). The json fixes the Auto plan so shots compare:
  *                                            { style: 'auto', family: 'serif', motion: 'tender',
@@ -41,6 +46,7 @@ import { FinishPass, isGpuFinish, type FinishContext } from '../render/finishPas
 import { HandPass } from '../render/handPass';
 import { isFinishId, type FinishId } from '../core/direction';
 import { SceneWindows, windowLevels } from '../render/sceneWindows';
+import { PopupLayer } from '../render/popups';
 import { getScene, registerScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
@@ -89,6 +95,18 @@ window.addEventListener('unhandledrejection', (e) => note(`rejection: ${String(e
 const q = new URLSearchParams(location.search);
 const W = Number(q.get('w')) || 1280;
 const H = Number(q.get('h')) || 720;
+
+// the pop-ups roll dice with Math.random: seed it so two sheets of the same look line up
+{
+  let a = (Number(q.get('seed')) || 7) >>> 0;
+  Math.random = () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 async function loadScene(): Promise<SceneDef> {
   const mod = q.get('mod');
@@ -172,7 +190,10 @@ async function boot() {
 
   // the song facts scenes read from the store (title, lyrics, sections)
   const withWindows = q.get('windows') === '1';
-  if (withWindows) useStudio.setState({ popups: 'always', windowKind: 'looks' });
+  const withPopups = q.get('popups') === '1';
+  const popsQ = q.get('pops');
+  const popsFixed = popsQ !== null ? Math.max(0, Math.min(3, Math.round(Number(popsQ)))) : null;
+  if (withWindows || withPopups) useStudio.setState({ popups: 'always', windowKind: withWindows && withPopups ? 'both' : withWindows ? 'looks' : 'instruments' });
   useStudio.setState({ track: { name: `${TEST_SONG.artist} - ${TEST_SONG.title}`, source: 'file' }, lyrics: testLyrics(), analysis: testAnalysis() });
   await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable', 'Instrument Serif', 'italic 16px "Instrument Serif', 'Fraunces Variable', 'italic 16px "Fraunces Variable', 'Inter Tight Variable', 'Archivo Variable'].map((f) => document.fonts.load(f.startsWith('italic') ? `${f}"` : `16px "${f}"`).catch(() => null)));
 
@@ -218,18 +239,22 @@ async function boot() {
   if (!finishIds.length) finishIds.push('clean');
   const finishes = new Map<FinishId, FinishPass>(finishIds.filter(isGpuFinish).map((id) => [id, new FinishPass(shared.noiseTex)]));
   const hand = new HandPass();
+  // as on the stage, the hand-drawn finish goes over everything (windows, pop-ups and lyrics too):
+  // the frame is put together here first, then drawn by hand
+  const frameRT = makeRenderTarget(W, H);
   const fin: { tex: THREE.Texture | null; ctx: FinishContext | null } = { tex: null, ctx: null };
   const present = (id: FinishId) => {
     const { tex, ctx } = fin;
     if (!tex || !ctx) return;
     // as on the stage: a scene that needs more inks (handInks) gets them
     const inks = Math.max(HAND_DEFAULT.inks, def.handInks ?? 0) as typeof HAND_DEFAULT.inks;
-    if (id === 'hand') hand.render(renderer, tex, null, { style: { ...HAND_DEFAULT, inks }, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
+    if (id === 'hand') hand.render(renderer, id === finishIds[0] ? frameRT.texture : tex, null, { style: { ...HAND_DEFAULT, inks }, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
     else if (!finishes.get(id)?.render(renderer, tex, null, id, ctx)) shared.blit(tex, null);
   };
 
   let inst: SceneInstance | null = null;
   let windows: SceneWindows | null = null;
+  let popups: PopupLayer | null = null;
   let feel = new FeelTracker();
   let t = 0;
   let born = 0;
@@ -240,6 +265,8 @@ async function boot() {
     inst = def.create({ renderer, width: W, height: H, shared });
     windows?.dispose();
     windows = withWindows ? new SceneWindows() : null;
+    popups?.dispose();
+    popups = withPopups ? new PopupLayer() : null;
     t = born = from;
     feel = new FeelTracker();
     frameNo = 0;
@@ -287,18 +314,27 @@ async function boot() {
     fin.tex = tex;
     fin.ctx = { time: ctx.time, dt, audio, feel: ctx.feel, palette, width: W, height: H };
     for (const p of finishes.values()) p.advance(fin.ctx);
-    present(finishIds[0]);
-    if (windows) {
-      const { params: _p, ...base } = ctx;
-      void _p;
-      const level = windowLevels(popLevelAt(audio.time), 'looks', def.category === 'board').looks;
-      windows.render(renderer, base, { level, mainPresetId: q.get('preset'), mainSceneId: def.id, target: null });
-    }
+    // the same order as the stage: picture (and finish), windows, pop-ups, lyrics; hand-drawn over all of it
+    const handOn = finishIds[0] === 'hand';
+    const target = handOn ? frameRT : null;
+    if (handOn) shared.blit(tex, frameRT);
+    else present(finishIds[0]);
+    const { params: _p, ...base } = ctx;
+    void _p;
+    const s = useStudio.getState();
+    const levels = windowLevels(popsFixed ?? popLevelAt(audio.time), s.windowKind, def.category === 'board');
+    const lyricOpts = { lines: s.lyrics?.lines ?? [], t, style: s.lyricStyle, palette, width: W, height: H, audio, dt };
+    if (lyricLayer) lyricLayer.prepare(lyricOpts);
+    const keep = q.get('dodge') === '0' ? undefined : lyricLayer?.keepOut();
+    if (windows) windows.render(renderer, base, { level: levels.looks, mainPresetId: q.get('preset'), mainSceneId: def.id, target, keep });
+    if (popups) popups.render(renderer, base, target, levels.instruments, keep);
     if (lyricLayer) {
-      const s = useStudio.getState();
-      lyricLayer.sample(renderer, tex, shared.blit);
-      lyricLayer.render(renderer, { lines: s.lyrics!.lines, t, style: s.lyricStyle, palette, width: W, height: H, audio, dt });
+      lyricLayer.setOccluders([...(windows?.occupied() ?? []), ...(popups?.occupied() ?? [])]);
+      if (target) lyricLayer.sample(renderer, target.texture, shared.blit);
+      else lyricLayer.sampleScreen(renderer, W, H);
+      lyricLayer.render(renderer, lyricOpts, target);
     }
+    if (handOn) present('hand');
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
@@ -337,7 +373,7 @@ async function boot() {
         const y = Math.floor(cell / cols) * (ch + 22);
         g.drawImage(canvas, 0, 0, W, H, x, y + 22, cw, ch);
         g.fillStyle = '#ddd';
-        g.fillText(`${fmt(times[i])}  ${sectionAt(times[i]).label}${audio.kick > 0.6 ? '  kick' : ''}${audio.drop > 0.5 ? '  DROP' : ''}${nf > 1 || finishIds[0] !== 'clean' ? `  · ${finishIds[k]}` : ''}`, x + 6, y + 11);
+        g.fillText(`${fmt(times[i])}  ${sectionAt(times[i]).label}${audio.kick > 0.6 ? '  kick' : ''}${audio.drop > 0.5 ? '  DROP' : ''}${nf > 1 || finishIds[0] !== 'clean' ? `  · ${finishIds[k]}` : ''}${lyricLayer?.legibilityNow() ? `  · ${lyricLayer.legibilityNow()!.backing}` : ''}`, x + 6, y + 11);
       }
       if (nf > 1) present(finishIds[0]);
     }

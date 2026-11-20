@@ -12,6 +12,8 @@ import { resolveParams } from '../state/modulation';
 import { allLooks, findLook, relatedLooks, sectionIndexAt, songTinted } from '../state/plan';
 import type { WindowKind } from '../state/store';
 import { FxChain } from './fxChain';
+import { glide, keepCost, newGlide, toPx, toRect, type Glide, type PxBox } from './keepClear';
+import { NO_KEEP_OUT, type KeepOut, type Rect } from './legibility';
 import { paperInk } from './popups';
 import { dryRun } from './warmup';
 
@@ -21,7 +23,8 @@ import { dryRun } from './warmup';
  * section changes, drops and some phrase starts, bump on kicks, stamp a cascade of copies on snares,
  * huddle and tremble while a build winds up, and all snap shut on a drop so the hit reads clean, then
  * burst back open. Each window renders its look at exactly its on-screen size into its own target,
- * and one small shader draws the picture with its frame, so it is in recordings too.
+ * and one small shader draws the picture with its frame, so it is in recordings too. They keep clear
+ * of the sung line like the pop-ups do (keepClear.ts): open away from it, glide out of its way.
  */
 
 /** how busy each kind of window gets for a pop level L (0..3) and the "Windows show" setting */
@@ -89,6 +92,8 @@ interface Win {
   /** which way the cascade runs (away from the middle sideways, towards it up or down) */
   dir: [number, number];
   title: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; key: string } | null;
+  /** keeping clear of the lyrics: where it's gliding to, and a little shrink when there's no room */
+  g: Glide;
 }
 
 const IN_STEP = 0.045;
@@ -191,6 +196,9 @@ export class SceneWindows {
   private seed = 0;
   private seedKey = '';
   private recent: string[] = [];
+  /** where the lyrics are this frame (lyricLayer.keepOut()) */
+  private keep: KeepOut = NO_KEEP_OUT;
+  private lastTime = -1;
   private blank = new THREE.DataTexture(new Uint8Array(4), 1, 1);
   private mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -225,7 +233,8 @@ export class SceneWindows {
     this.blank.needsUpdate = true;
   }
 
-  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, opts: { level: number; mainPresetId: string | null; mainSceneId: string; target?: THREE.WebGLRenderTarget | null }) {
+  /** `keep`: where the lyrics are (lyricLayer.keepOut()), for the windows to keep clear of */
+  render(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, opts: { level: number; mainPresetId: string | null; mainSceneId: string; target?: THREE.WebGLRenderTarget | null; keep?: KeepOut }) {
     const W = base.width;
     const H = base.height;
     const t = base.time;
@@ -250,6 +259,7 @@ export class SceneWindows {
       this.freeWarm();
     }
     if (this.warm && !this.allowed(this.warm.sceneId, opts.mainSceneId)) this.freeWarm();
+    this.keep = opts.keep ?? NO_KEEP_OUT;
 
     // while a build winds up the open windows hold on (trembling) until the drop slams them shut
     if (base.feel.tension > 0.4) for (const w of this.wins) if (w.closing < 0) w.until = Math.max(w.until, t + 0.5);
@@ -260,6 +270,15 @@ export class SceneWindows {
       if (done) this.freeWin(w);
       return !done;
     });
+    // open windows glide out of the sung line's way
+    const gdt = this.lastTime < 0 ? 0 : Math.min(0.25, Math.max(0, t - this.lastTime));
+    this.lastTime = t;
+    const words = toPx(this.keep.now, W, H, Math.min(W, H) * 0.02);
+    for (const w of this.wins) {
+      if (w.closing >= 0) continue;
+      const others = this.wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
+      glide(w, w.g, w.slot.spec.w, w.slot.spec.h, words, W, H, Math.min(W, H) * 0.04, others, gdt);
+    }
     // warm the next look on a frame where nothing opens, so the compile never lands on a beat
     if (level > 0 && !busy && !this.warm) {
       const slot = (this.warm = this.makeSlot(r, base, opts));
@@ -294,6 +313,20 @@ export class SceneWindows {
     }
     r.setClearColor(clear, clearA);
     this.composite(r, base, opts.target ?? null);
+  }
+
+  /** where a window is heading, at the size it's heading for (px) */
+  private goalBox(w: Win): PxBox {
+    const sp = w.slot.spec;
+    const f = w.g.fitTo;
+    return { x: w.g.gx + (sp.w * (1 - f)) / 2, y: w.g.gy + (sp.h * (1 - f)) / 2, w: sp.w * f, h: sp.h * f };
+  }
+
+  /** the open windows (normalized, where they're heading), so lyrics over one get the halo */
+  occupied(): Rect[] {
+    const [W, H] = this.size.split('x').map(Number);
+    if (!W || !H) return [];
+    return this.wins.filter((w) => w.closing < 0).map((w) => toRect(this.goalBox(w), W, H));
   }
 
   /** decide when windows open: section changes, drops, some phrase starts. Returns true when this frame is taken */
@@ -364,7 +397,7 @@ export class SceneWindows {
     if (!slot) return;
     const { x, y, dir } = this.place(slot.spec, base.width, base.height);
     const bars = 2 + Math.floor(this.rand() * 3);
-    const w: Win = { slot, x, y, dir, born: t, until: t + Math.min(11, Math.max(3, bars * 4 * spb)), closing: -1, bump: 0, stamps: [], stampN: 0, title: null };
+    const w: Win = { slot, x, y, dir, born: t, until: t + Math.min(11, Math.max(3, bars * 4 * spb)), closing: -1, bump: 0, stamps: [], stampN: 0, title: null, g: newGlide(x, y) };
     if (trail) {
       for (let k = 1; k <= MAX_STAMPS; k++) w.stamps.push({ born: t, k });
       w.stampN = MAX_STAMPS;
@@ -450,6 +483,8 @@ export class SceneWindows {
       const fw = spec.w + trail;
       const fh = spec.h + trail;
       let cost = overlap(x, y, spec.w, spec.h, mid.x, mid.y, mid.w, mid.h) * 8 + overlap(fx, fy, fw, fh, mid.x, mid.y, mid.w, mid.h) * 2;
+      // and the lyrics: the line now, and where the next will land
+      cost += keepCost({ x, y, w: spec.w, h: spec.h }, this.keep, W, H, Math.min(W, H) * 0.02);
       cost += (fw * fh - overlap(fx, fy, fw, fh, 0, 0, W, H)) * 0.5;
       for (const o of this.wins) {
         if (o.closing >= 0) continue;
@@ -590,7 +625,7 @@ export class SceneWindows {
       } else sx = sy = IN_SCALES[Math.min(IN_SCALES.length - 1, Math.floor(age / IN_STEP))];
       if (sx <= 0.001) return;
       const k = w.closing < 0 ? tense : 0;
-      const g = (1 + w.bump) * (1 - 0.15 * k);
+      const g = (1 + w.bump) * (1 - 0.15 * k) * w.g.fit;
       sx *= g;
       sy *= g;
       const jx = k > 0 ? (hash(base.frame * 31 + i * 7) - 0.5) * 4 * s * k : 0;

@@ -4,16 +4,21 @@ import type { Palette } from '../core/types';
 /**
  * Legibility guard for lyrics.
  *
- * Every other frame the finished picture (before pop-ups and lyrics) is shrunk into a tiny 96×54
- * buffer and read back. From that we know, for any box on screen, how bright the picture is there,
- * how much it varies and how busy (edgy) it is. `judge` then picks the lightest backing (none, a
- * soft shadow, a feathered scrim, a full-width scrim, a paper strip) and the ink that clears a contrast target
- * against the pixels actually under the text, and `Guard` eases between its choices so nothing
- * flickers when the scene changes under a line.
+ * Every other frame the finished picture is shrunk into a tiny 96×54 buffer and read back: everything
+ * the words will sit on, scene windows and pop-ups included (only the lyrics themselves come after).
+ * From that we know, for any box on screen, how bright the picture is there, how much it varies and
+ * how busy (edgy) it is. `judge` then picks the lightest backing (none, a soft shadow, a feathered
+ * scrim, a halo, a full-width scrim, a paper strip) and the ink that clears a contrast target against
+ * the pixels actually under the text, and `Guard` eases between its choices so nothing flickers when
+ * the scene changes under a line.
+ *
+ * The halo is the designed answer for words that sit over a pop-up window or a very busy picture: a
+ * fuzzy, feathered cloud in a palette colour that inverts against the ink, hugging the words (not a
+ * box), so an overlap reads as meant rather than as letters lost behind a window.
  */
 
 export type RGB = [number, number, number];
-export type Backing = 'none' | 'shadow' | 'soft' | 'band' | 'paper';
+export type Backing = 'none' | 'shadow' | 'soft' | 'halo' | 'band' | 'paper';
 /** normalized box, y from the top */
 export interface Rect {
   x0: number;
@@ -24,7 +29,9 @@ export interface Rect {
 
 export const LADDER: Backing[] = ['none', 'shadow', 'soft', 'band'];
 /** how much of the picture under the text each backing covers (in sRGB space, like canvas blending) */
-const COVER: Record<Backing, number> = { none: 0, shadow: 0.3, soft: 0.62, band: 0.86, paper: 1 };
+export const COVER: Record<Backing, number> = { none: 0, shadow: 0.3, soft: 0.62, halo: 0.84, band: 0.86, paper: 1 };
+/** how heavy each backing is (a verdict only steps down to a lighter one after the picture has stayed calm) */
+const LEVEL: Record<Backing, number> = { none: 0, shadow: 1, soft: 2, halo: 2.5, band: 3, paper: 4 };
 
 export const PROBE_W = 96;
 export const PROBE_H = 54;
@@ -66,6 +73,30 @@ export class FrameProbe {
   sample(r: THREE.WebGLRenderer, tex: THREE.Texture, blit: (t: THREE.Texture, target: THREE.WebGLRenderTarget | null) => void, every = 2) {
     if (this.busy || this.n++ % every) return;
     blit(tex, this.rt);
+    this.readBack(r);
+  }
+
+  /**
+   * The same from what is on the screen right now (the canvas' drawing buffer, w×h): one scaled
+   * framebuffer blit straight into the probe, so reading the frame with its windows and pop-ups on
+   * costs no more than reading a texture did.
+   */
+  sampleScreen(r: THREE.WebGLRenderer, w: number, h: number, every = 2) {
+    if (this.busy || this.n++ % every) return;
+    const gl = r.getContext();
+    if (!(gl instanceof WebGL2RenderingContext)) return;
+    r.setRenderTarget(this.rt);
+    const fb = (r.properties.get(this.rt) as { __webglFramebuffer?: WebGLFramebuffer }).__webglFramebuffer;
+    if (!fb) return;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fb);
+    gl.blitFramebuffer(0, 0, w, h, 0, 0, PROBE_W, PROBE_H, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    // three believes the probe's target is bound (setRenderTarget above): make that true for reads too
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    this.readBack(r);
+  }
+
+  private readBack(r: THREE.WebGLRenderer) {
     const ar = r as THREE.WebGLRenderer & { readRenderTargetPixelsAsync?: (...a: unknown[]) => Promise<unknown> };
     if (this.readAsync && ar.readRenderTargetPixelsAsync) {
       this.busy = true;
@@ -182,6 +213,31 @@ export function badShare(p: Pick<FrameProbe, 'luma'>, r: Rect, inkL: number, pla
   return bad / Math.max(1, n);
 }
 
+/**
+ * Where the lyrics are, for pop-ups and scene windows to keep clear of (normalized boxes): the line on
+ * screen now, and where the next one is likely to land when it's due within a couple of seconds.
+ */
+export interface KeepOut {
+  now: Rect | null;
+  next: Rect | null;
+}
+export const NO_KEEP_OUT: KeepOut = { now: null, next: null };
+
+/** share of box `r` that the boxes in `over` cover (overlaps between them counted once, on a coarse grid) */
+export function coveredShare(r: Rect, over: readonly Rect[]): number {
+  if (!over.length || r.x1 <= r.x0 || r.y1 <= r.y0) return 0;
+  const N = 12;
+  let hit = 0;
+  for (let j = 0; j < N; j++) {
+    const y = r.y0 + ((j + 0.5) / N) * (r.y1 - r.y0);
+    for (let i = 0; i < N; i++) {
+      const x = r.x0 + ((i + 0.5) / N) * (r.x1 - r.x0);
+      if (over.some((o) => x >= o.x0 && x <= o.x1 && y >= o.y0 && y <= o.y1)) hit++;
+    }
+  }
+  return hit / (N * N);
+}
+
 export const NEAR_WHITE: RGB = [248, 245, 238];
 export const NEAR_BLACK: RGB = [16, 15, 13];
 export const PAPER: RGB = [242, 237, 224];
@@ -225,15 +281,53 @@ export function judge(p: FrameProbe, r: Rect, o: JudgeOpts): Verdict {
   for (let li = 0; li < o.ladder.length; li++) {
     const backing = o.ladder[li];
     for (const ink of o.inks) {
-      const plate = backing === 'paper' ? PAPER : plateFor(ink, o.pal);
+      const plate = backing === 'paper' ? PAPER : backing === 'halo' ? haloFor(ink, o.pal, st, (c) => badShare(p, r, lumOf(ink), c, COVER.halo, o.target, st.edge), slack) : plateFor(ink, o.pal);
       if (backing === 'paper' && lumOf(ink) > 0.4) continue;
       const bad = badShare(p, r, lumOf(ink), plate, COVER[backing], o.target, st.edge);
-      const v: Verdict = { ink, plate, backing, level: backing === 'paper' ? LADDER.length : LADDER.indexOf(backing), bad };
+      const v: Verdict = { ink, plate, backing, level: LEVEL[backing], bad };
       if (bad <= slack) return v;
       if (!best || bad < best.bad - 0.02) best = v;
     }
   }
   return best ?? { ink: NEAR_WHITE, plate: NEAR_BLACK, backing: 'band', level: 3, bad: 1 };
+}
+
+const sat = (c: RGB) => (Math.max(...c) - Math.min(...c)) / 255;
+
+/**
+ * The halo's colour: a palette role (accent, accent2, muted, bg, fg, so it stays one of the hand-drawn
+ * finish's inks) that inverts against the ink and stands apart from what's under the words. Each role
+ * is tried over the real pixels under the words (`bad`: the share that would still miss the target
+ * with that halo); coloured roles win over neutrals when they clear it. When none does, the best one
+ * is pushed towards the dark or light end until it does.
+ */
+export function haloFor(ink: RGB, pal: Palette, st: RegionStats | undefined, bad: (plate: RGB) => number, slack = 0.06): RGB {
+  const inkL = lumOf(ink);
+  const under = st ? st.mean : 0.5;
+  let best: { c: RGB; score: number; ok: boolean } | null = null;
+  const roles: [string, number][] = [
+    [pal.accent, 1],
+    [pal.accent2, 0.8],
+    [pal.muted, 0.2],
+    [pal.bg, 0.3],
+    [pal.fg, 0],
+  ];
+  for (const [hex, pref] of roles) {
+    const c = hexRGB(hex);
+    const L = lumOf(c);
+    if (ratio(inkL, L) < 3) continue;
+    const b = bad(c);
+    // standing apart from the picture under it is what makes the halo read as a shape, not a smudge
+    const apart = Math.min(1, Math.abs(Math.sqrt(L) - Math.sqrt(under)) * 2.2);
+    const score = (b <= slack ? 10 : -b * 10) + pref + sat(c) * 1.5 + apart;
+    if (!best || score > best.score) best = { c, score, ok: b <= slack };
+  }
+  if (best?.ok) return best.c;
+  const from = best?.c ?? hexRGB(inkL > 0.4 ? pal.bg : pal.fg);
+  const to = inkL > 0.4 ? NEAR_BLACK : PAPER;
+  let c = from;
+  for (let k = 0.15; k <= 1.001 && bad(c) > slack; k += 0.15) c = mixRGB(from, to, k);
+  return c;
 }
 
 /** inks to try for a palette: the look's own text colour, then whichever neutral sits opposite the picture */
@@ -249,19 +343,24 @@ export function inksFor(pal: Palette, st?: RegionStats): RGB[] {
 export interface BackingMix {
   shadow: number;
   soft: number;
+  halo: number;
   band: number;
   paper: number;
 }
 
 const TARGET_MIX: Record<Backing, BackingMix> = {
-  none: { shadow: 0.25, soft: 0, band: 0, paper: 0 },
-  shadow: { shadow: 1, soft: 0, band: 0, paper: 0 },
-  soft: { shadow: 0.55, soft: 1, band: 0, paper: 0 },
-  band: { shadow: 0.35, soft: 0, band: 1, paper: 0 },
-  paper: { shadow: 0, soft: 0, band: 0, paper: 1 },
+  none: { shadow: 0.25, soft: 0, halo: 0, band: 0, paper: 0 },
+  shadow: { shadow: 1, soft: 0, halo: 0, band: 0, paper: 0 },
+  soft: { shadow: 0.55, soft: 1, halo: 0, band: 0, paper: 0 },
+  halo: { shadow: 0.3, soft: 0, halo: 1, band: 0, paper: 0 },
+  band: { shadow: 0.35, soft: 0, halo: 0, band: 1, paper: 0 },
+  paper: { shadow: 0, soft: 0, halo: 0, band: 0, paper: 1 },
 };
 
-const mixRGB = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+function mixRGB(a: RGB, b: RGB, k: number): RGB {
+  return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+}
+
 
 /**
  * Eases toward the latest verdict: stronger backings come in fast (≈0.15 s), lighter ones only after
@@ -271,7 +370,7 @@ const mixRGB = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[
 export class Guard {
   ink: RGB = [...NEAR_WHITE];
   plate: RGB = [...NEAR_BLACK];
-  mix: BackingMix = { shadow: 0.25, soft: 0, band: 0, paper: 0 };
+  mix: BackingMix = { shadow: 0.25, soft: 0, halo: 0, band: 0, paper: 0 };
   level = 0;
   backing: Backing = 'none';
   private want: Verdict | null = null;
@@ -338,7 +437,7 @@ export class Guard {
   /** a key that changes when the drawn result would visibly change */
   key() {
     const q = (v: number) => Math.round(v * 24);
-    return `${q(this.mix.shadow)}${q(this.mix.soft)}${q(this.mix.band)}${q(this.mix.paper)}|${this.ink.map((c) => c >> 3).join(',')}|${this.plate.map((c) => c >> 3).join(',')}`;
+    return `${q(this.mix.shadow)}${q(this.mix.soft)}${q(this.mix.halo)}${q(this.mix.band)}${q(this.mix.paper)}|${this.ink.map((c) => c >> 3).join(',')}|${this.plate.map((c) => c >> 3).join(',')}`;
   }
 }
 
@@ -412,6 +511,33 @@ export function drawBacking(g: CanvasRenderingContext2D, rows: { x: number; y: n
   g.restore();
 }
 
+/**
+ * The halo: a fuzzy cloud in the guard's halo colour hugging the words that are up. `spans` are pixel
+ * boxes (one per row, growing as words are sung). Each is drawn twice as the blurred shadow of a box
+ * parked off-canvas, a dense body under the letters and a wide feather around it, so there's no
+ * edge anywhere: it reads as glow, not as a plate. Two blurred fills per row, whatever the word count.
+ */
+export function drawHalo(g: CanvasRenderingContext2D, spans: { x: number; y: number; w: number; h: number }[], gd: Guard, size: number, W: number, alpha: number) {
+  const k = gd.mix.halo * alpha;
+  if (k < 0.02 || !spans.length) return;
+  g.save();
+  const off = W * 4;
+  g.fillStyle = '#000';
+  g.shadowOffsetX = off;
+  for (const p of [
+    { blur: 1.6, padX: 0.5, padY: 0.42, a: 0.55 },
+    { blur: 0.6, padX: 0.2, padY: 0.06, a: 0.93 },
+  ]) {
+    g.shadowBlur = size * p.blur;
+    g.shadowColor = css(gd.plate, p.a * k);
+    for (const b of spans) {
+      if (b.w <= 1) continue;
+      g.fillRect(b.x - size * p.padX - off, b.y - size * p.padY, b.w + size * p.padX * 2, b.h + size * p.padY * 2);
+    }
+  }
+  g.restore();
+}
+
 /** soft shadow for glyphs in the plate colour (call before fillText) */
 export function applyShadow(g: CanvasRenderingContext2D, gd: Guard, size: number, alpha: number) {
   const a = Math.min(1, gd.mix.shadow) * alpha;
@@ -430,9 +556,15 @@ export function accentOr(accent: RGB, ink: RGB, bgL: number, target = 3): RGB {
   return ratio(lumOf(accent), bgL) >= target ? accent : ink;
 }
 
+/** how much of the picture the backing showing right now covers */
+export function coverNow(gd: Guard): number {
+  const m = gd.mix;
+  return Math.max(m.shadow * COVER.shadow, m.soft * COVER.soft, m.halo * COVER.halo, m.band * COVER.band, m.paper);
+}
+
 /** effective background luminance under the text, once the guard's backing covers it */
 export function coveredL(st: RegionStats, gd: Guard): number {
-  const c = Math.max(gd.mix.soft * COVER.soft, gd.mix.band * COVER.band, gd.mix.paper);
+  const c = Math.max(gd.mix.soft * COVER.soft, gd.mix.halo * COVER.halo, gd.mix.band * COVER.band, gd.mix.paper);
   const pl = lumOf(gd.plate);
   return st.mean * (1 - c) + pl * c;
 }
