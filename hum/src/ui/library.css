@@ -1,0 +1,240 @@
+/* Looks library (left) and the takes strip (right): look families, filters, takes. */
+
+.lib-search {
+  margin: var(--s-3) 0 0;
+}
+.lib-search input.txt {
+  height: 28px;
+}
+/* Part and Theme: one line each that scrolls sideways (eighteen chips wrapped to five rows), the
+   label pinned at the start and the far edge fading out so it reads as "more this way" */
+.filter-row.slide {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-right: calc(-1 * var(--s-3, 12px));
+  padding-right: var(--s-3, 12px);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.filter-row.slide::-webkit-scrollbar {
+  display: none;
+}
+.filter-row.slide .chip {
+  flex: none;
+}
+.filter-row.slide .filter-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  /* one width for both rows so their chips line up */
+  flex: 0 0 52px;
+  box-sizing: border-box;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  /* chips slide under the label and fade out before they reach its text */
+  padding-right: 10px;
+  margin-right: -4px;
+  background: linear-gradient(to right, var(--panel) calc(100% - 10px), transparent);
+}
+.chip.now {
+  color: var(--accent);
+}
+.chip.now.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* a family card: the whole card is one button (card-hit) under the content, so the take swatches can
+   be buttons of their own without nesting */
+.card.fam {
+  cursor: pointer;
+  /* hundreds of cards: the browser skips laying out the ones off screen */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 58px;
+}
+.card.fam > :not(.card-hit) {
+  position: relative;
+  pointer-events: none;
+}
+.card-hit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  padding: 0;
+}
+.card-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.card .takes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  pointer-events: auto;
+}
+.take-dot {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.take-dot:hover {
+  transform: scale(1.25);
+}
+.take-dot.on {
+  box-shadow:
+    0 0 0 1.5px var(--panel),
+    0 0 0 3px var(--ink);
+}
+.takes-n {
+  margin-left: 2px;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+}
+
+/* the takes strip above the Inspector's tabs */
+.takes-strip {
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 14px 10px;
+  background: var(--panel);
+}
+.takes-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.takes-head h3 {
+  margin: 0;
+  font-size: var(--fs-3, 13px);
+  font-weight: 600;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.takes-head .label {
+  flex: none;
+}
+.takes-head .spacer {
+  flex: 1;
+}
+.takes-fit {
+  margin: -4px 0 8px;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.takes-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.take-tile {
+  position: relative;
+  flex: 0 0 60px;
+  width: 60px;
+}
+.take-pick {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.take-tile .tt-img {
+  width: 60px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.take-tile .tt-img img,
+.take-tile .tt-img svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.take-tile .tt-pal {
+  display: flex;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.take-tile .tt-pal i {
+  flex: 1;
+}
+.take-tile .tt-name {
+  margin-top: 3px;
+  font-size: var(--fs-1);
+  line-height: 1.25;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.take-tile:hover .tt-name {
+  color: var(--ink);
+}
+.take-tile.on .tt-img {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 3.5px var(--ink);
+}
+.take-tile.on .tt-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+.take-tile .tt-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  opacity: 0;
+}
+.take-tile:hover .tt-del {
+  opacity: 1;
+}
+.take-tile.add .tt-img {
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  color: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.take-tile.add:hover .tt-img {
+  color: var(--ink);
+  background: var(--sel);
+}
+.takes-save {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.takes-save input.txt {
+  flex: 1;
+  min-width: 0;
+}

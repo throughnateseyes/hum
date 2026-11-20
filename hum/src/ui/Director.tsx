@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { direct } from '../director/client';
 import { lookToPreset } from '../presets/apply';
 import { getScene } from '../scenes';
-import { pickLook, pickScene } from '../state/plan';
+import { familyForNew } from '../presets/fit';
+import { findLook, pickLook, pickScene } from '../state/plan';
 import { useStudio, type ChatMsg } from '../state/store';
 import { Arrow, Chevron, Redo, Sparkle, Trash } from './Icons';
 
@@ -100,7 +101,9 @@ export function DirectorPanel() {
         pickScene(res.shader.id);
         st.pushChat({ role: 'director', text: res.note, mode, shaderId: res.shader.id, title: res.shader.name, source: res.source, via: res.via });
       } else if (res.preset) {
-        const preset = { ...res.preset, custom: true };
+        // a look the director made on the scene of an existing look family becomes a take of it
+        const fam = familyForNew(res.preset.sceneId, s.presetId ? findLook(s.presetId) : undefined);
+        const preset = { ...res.preset, custom: true, ...(fam ? { family: fam, variant: res.preset.name } : {}) };
         st.addCustomPreset(preset);
         pickLook(preset);
         st.pushChat({ role: 'director', text: res.note, mode, presetId: preset.id, title: preset.name, source: res.source, via: res.via });

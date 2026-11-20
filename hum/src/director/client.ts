@@ -484,7 +484,9 @@ export interface PlanRequest {
   /** whole lyrics when they have no timing */
   lyrics?: string;
   /** `custom`: made by the person (the server lists these after the built-in looks) */
-  looks: { id: string; name: string; description: string; tags: string[]; category: string; style?: string; custom?: boolean }[];
+  looks: { id: string; name: string; description: string; tags: string[]; category: string; style?: string; custom?: boolean; family?: string; take?: string }[];
+  /** one entry per look family in `looks`, with its fit (the server lists looks one family per line) */
+  families?: import('./shortlist').FamilyEntry[];
   /** taste memory: what the person tends to keep or skip, and the last plan's looks (ids, tags and counts only) */
   taste?: import('../state/taste').TasteSummary;
   /** lyric video: how overlay lyrics fit each look (one short line per look id) and words sung per second per section */
@@ -533,6 +535,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         character: req.character,
         sections: req.sections,
         looks: req.looks,
+        ...(req.families ? { families: req.families } : {}),
         lyrics: req.lyrics,
         ...(req.taste ? { taste: req.taste } : {}),
         ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
@@ -559,6 +562,14 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
   }
   if (!isObj(json) || !isObj(json.plan) || !Array.isArray(json.plan.sections)) return { ok: false, reason: 'The AI director sent an unreadable plan.' };
   const known = new Set(req.looks.map((l) => l.id));
+  // a reply that names a look family instead of one of its takes gets the family's first take (the one
+  // that suits the song best, see familyPayload)
+  const leads = new Map<string, string>();
+  for (const l of req.looks) if (l.family && !leads.has(l.family)) leads.set(l.family, l.id);
+  const resolve = (v: unknown) => {
+    const id = str(v, 60);
+    return known.has(id) ? id : (leads.get(id) ?? '');
+  };
   const looks: (string | null)[] = req.sections.map(() => null);
   const why: string[] = req.sections.map(() => '');
   const pops: (number | null)[] = req.sections.map(() => null);
@@ -590,16 +601,16 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
     }
   }
   for (const [i, e] of entries) {
-    const id = str(e.lookId, 60);
-    if (!known.has(id)) continue;
+    const id = resolve(e.lookId);
+    if (!id) continue;
     looks[i] = id;
     why[i] = str(e.why, 120);
     const p = toNum(e.pops);
     if (p !== null) pops[i] = Math.max(0, Math.min(3, Math.round(p)));
-    const inter = str(e.interlude, 60);
+    const inter = resolve(e.interlude);
     if (inter && boards.has(inter) && inter !== id) interludes[i] = inter;
     if (Array.isArray(e.rotate)) {
-      const extra = [...new Set(e.rotate.map((r) => str(r, 60)))].filter((r) => known.has(r) && !boards.has(r) && r !== id).slice(0, 3);
+      const extra = [...new Set(e.rotate.map(resolve))].filter((r) => r && !boards.has(r) && r !== id).slice(0, 3);
       if (extra.length) rotate[i] = extra;
     }
     const bars = toNum(e.pace);

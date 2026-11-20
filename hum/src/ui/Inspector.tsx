@@ -11,6 +11,7 @@ import { Clamp, Field, ParamControl, Section, Slider, Toggle, groupParams } from
 import { Down, Plus, Up, X } from './Icons';
 import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
 import { TasteGroup } from './Taste';
+import { TakesStrip } from './Takes';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 
@@ -37,6 +38,7 @@ export function Inspector() {
           </button>
         ))}
       </div>
+      <TakesStrip />
       <div className="panel-body">
         {tab === 'scene' && <ScenePanel />}
         {tab === 'fx' && <FxPanel />}
