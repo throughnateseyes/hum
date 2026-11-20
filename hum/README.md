@@ -87,6 +87,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   leaves your machine). If a line is off, **Fix timing** lets you tap along as each line starts, and
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
+  **Synced on their own:** on a computer, once a song's lyrics are found (and the song has been
+  analysed), Hum listens and syncs them to the singing by itself, the chip showing the progress
+  (the model download the first time). It skips lyrics that are already timed word by word (by hand,
+  on LRCLIB or in the file, unless they were made for another length of the song), your pasted and
+  saved lyrics, demos and live sound, and it waits while a render or recording runs. A song is only
+  listened to once: syncing again, or other lyrics picked for it, reuse what was heard. A new song
+  stops a listen under way, and **Stop** in the chip does too. Phones, data saver and low-memory
+  devices keep the button instead. **Sync new songs by listening** (chip → More) turns it off.
 - **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
   captions for verses and wordy parts, display lines for choruses and drops, an aside in a margin for
   builds, intros and breaks, and the look's own lyric components where it has them (the Diary
@@ -245,11 +253,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Render** (button by the song map) makes videos without you timing a thing. The song map turns
-  into a picker: drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold
-  ⌥ to snap to beats), drag an edge or the middle to adjust, click a part to take that whole part,
-  or use **Best part** (the strongest 15–30 s, built around the biggest drop or hook) or **Whole
-  song**. Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
+- **Render** (in the top bar's save group, and by the song map) makes videos without you timing a
+  thing. The song map turns into a picker: drag across it to choose a stretch (it snaps to bars and
+  to the parts' edges; hold ⌥ to snap to beats), drag an edge or the middle to adjust, double-click a
+  part to take that whole part, or use **Best part** (the strongest 15–30 s, built around the
+  biggest drop or hook) or **Whole song**. While you drag, the song pauses and the playhead and the
+  stage follow the edge you're moving, like scrubbing in a video editor: the stage shows that moment's
+  look, lyric line and how hard it hits (`src/state/scrub.ts`). Let go and a paused song stays on
+  that moment; a playing one plays on from the start of the clip (after moving the end, from 2.5 s
+  before it, so you hear the clip end). A click moves the playhead, to play from there. The row
+  underneath shows **Start** and **End** to the tenth of a second (click one to see it on the stage),
+  each with a button that sets it to the playhead (keys `I` and `O`, as in video editors). Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
   for the Instagram feed, **1:1** 1080×1080, **16:9** 1920×1080), pick 30 or 60 fps and press
   **Render**. Each size is made one after another and downloads as it's done, named like
   `pressure-0m24s-0m30s-1080x1920.mp4`; the stage shows the frames as they're made and Esc cancels.
@@ -261,8 +275,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
   fall back to recording the stretch live while it plays, and say so.
 - **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
-  camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
+  camera icon saves a PNG. Still, Record, Render and Clip for TikTok sit together as one group in the
+  top bar.
+- **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
+  and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
+  Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
+  allows it, a full-window view on iPhone.
+- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
 

@@ -4,8 +4,12 @@
  * (base, multilingual) on this computer through transformers.js: the audio never leaves the machine.
  * The model downloads once (~95 MB) and the browser keeps it.
  *
- * in:  { audio: Float32Array (16 kHz mono), language?: string }
- * out: { type: 'download', frac } · { type: 'listening', frac } · { type: 'done', words } · { type: 'error', message }
+ * in:  { type: 'listen', id, audio: Float32Array (16 kHz mono), language?: string } · { type: 'cancel', id }
+ * out: { id, type: 'download', frac } · { id, type: 'listening', frac } · { id, type: 'done', words }
+ *      · { id, type: 'cancelled' } · { id, type: 'error', message }
+ *
+ * Jobs run one at a time. A cancelled job stops at the next window (the model download, if it's
+ * under way, still finishes and is kept, so the next song doesn't start it over).
  */
 import { env, pipeline } from '@huggingface/transformers';
 
@@ -22,7 +26,16 @@ env.allowLocalModels = false;
 
 type Asr = (audio: Float32Array, opts: Record<string, unknown>) => Promise<{ text: string; chunks?: { text: string; timestamp: [number, number | null] }[] }>;
 let asr: Asr | null = null;
-const post = (m: unknown) => (self as unknown as Worker).postMessage(m);
+/** the job being worked on (its id goes on every message) */
+let job = 0;
+const post = (m: Record<string, unknown>) => (self as unknown as Worker).postMessage({ id: job, ...m });
+const cancelled = new Set<number>();
+class Cancelled extends Error {}
+/** let a waiting cancel message in, then stop if it was for this job */
+async function checkpoint(id: number) {
+  await new Promise((r) => setTimeout(r, 0));
+  if (cancelled.has(id)) throw new Cancelled();
+}
 
 async function load() {
   if (asr) return asr;
@@ -58,10 +71,21 @@ function rms(a: Float32Array, from: number, to: number) {
   return Math.sqrt(s / Math.max(1, to - from));
 }
 
-self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string }>) => {
+type Msg = { type: 'listen'; id: number; audio: Float32Array; language?: string } | { type: 'cancel'; id: number };
+let queue: Promise<void> = Promise.resolve();
+
+self.onmessage = (e: MessageEvent<Msg>) => {
+  const m = e.data;
+  if (m.type === 'cancel') cancelled.add(m.id);
+  else queue = queue.then(() => listen(m.id, m.audio, m.language));
+};
+
+async function listen(id: number, audio: Float32Array, language?: string) {
+  job = id;
   try {
-    const { audio, language } = e.data;
+    await checkpoint(id);
     const model = await load();
+    await checkpoint(id);
     const words: { t: number; end: number; text: string }[] = [];
     const total = audio.length / RATE;
     const loud = rms(audio, 0, audio.length);
@@ -77,6 +101,7 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string
       // skip near-silent windows: nothing to hear, and Whisper makes things up in silence
       if (rms(audio, a, b) > loud * 0.12) {
         const out = await model(audio.subarray(a, b), { return_timestamps: 'word', ...(language ? { language } : {}) });
+        await checkpoint(id);
         // keep words from the middle of each window; the overlap belongs to whichever window sees it whole
         const lo = k === 0 ? -1 : s + (WIN - HOP) / 2;
         const hi = k === starts.length - 1 ? Infinity : s + WIN - (WIN - HOP) / 2;
@@ -110,6 +135,7 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string
           const lo = Math.floor(from * RATE);
           const hi = Math.min(audio.length, Math.floor((from + WIN) * RATE));
           const out = await model(audio.subarray(lo, hi), { return_timestamps: 'word', ...(language ? { language } : {}) });
+          await checkpoint(id);
           let last = -1;
           for (const c of out.chunks ?? []) {
             const t = from + c.timestamp[0];
@@ -129,6 +155,9 @@ self.onmessage = async (e: MessageEvent<{ audio: Float32Array; language?: string
     }
     post({ type: 'done', words });
   } catch (err) {
-    post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+    if (err instanceof Cancelled) post({ type: 'cancelled' });
+    else post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+  } finally {
+    cancelled.delete(id);
   }
-};
+}
