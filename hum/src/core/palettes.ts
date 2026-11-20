@@ -104,6 +104,12 @@ export const PALETTES: Palette[] = [
   // ribbon type
   { id: 'gig-poster', name: 'Gig Poster', bg: '#ff4a26', fg: '#141210', accent: '#f6a8e2', accent2: '#d3ec7c', muted: '#8f86f7' },
   { id: 'after-hours-tape', name: 'After Hours Tape', bg: '#0f1016', fg: '#f3eee3', accent: '#ff5b37', accent2: '#e8dfcb', muted: '#4a43d6' },
+  // overprint
+  { id: 'overprint-cream', name: 'Overprint Cream', bg: '#f2e5bd', fg: '#262447', accent: '#4f9a98', accent2: '#e4577b', muted: '#a8dcd0' },
+  { id: 'overprint-night', name: 'Overprint Night', bg: '#1d2038', fg: '#f1e4c4', accent: '#3d9d96', accent2: '#ef6a6f', muted: '#e5b54a' },
+  // lensing
+  { id: 'lensing-pastel', name: 'Lensing Pastel', bg: '#050507', fg: '#f4f1ff', accent: '#ffd27a', accent2: '#7ff0d0', muted: '#9a8cff' },
+  { id: 'lensing-ember', name: 'Lensing Ember', bg: '#0b0710', fg: '#fff1e4', accent: '#ff7a59', accent2: '#ffd36e', muted: '#c552d8' },
 ];
 
 export function getPalette(id: string): Palette {
