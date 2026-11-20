@@ -3448,6 +3448,81 @@ html.perform-idle * {
 .ld-rings b:nth-child(3) {
   animation-delay: 2s;
 }
+/* one-tap start: one calm line under the mark, a thin bar, and the lyrics lookup in small print */
+.loading-stage.with-steps {
+  grid-template-rows: 1fr auto 1fr;
+  align-items: center;
+}
+.loading-stage.with-steps .ld-mark {
+  grid-row: 2;
+}
+.ld-steps {
+  grid-row: 3;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ld-now {
+  font-size: var(--fs-4);
+  font-weight: 550;
+  color: var(--ink);
+}
+.ld-bar {
+  width: 140px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(47, 75, 255, 0.12);
+  overflow: hidden;
+}
+.ld-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transform: scaleX(0.04);
+  transition: transform 0.25s linear;
+}
+.ld-sub {
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+}
+/* the song is ready but the browser wants a tap before it makes a sound */
+.tap-play {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 15, 14, 0.28);
+  color: #fff;
+  animation: ld-fade-in 0.25s ease both;
+}
+.tap-play-ring {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s;
+}
+.tap-play:active .tap-play-ring {
+  transform: scale(0.94);
+}
+.tap-play-l {
+  font-weight: 600;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
 /* a sharper ring on every kick */
 .ld-rings i {
   border-color: rgba(47, 75, 255, 0.5);

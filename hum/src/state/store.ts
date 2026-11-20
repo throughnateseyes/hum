@@ -43,6 +43,13 @@ export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | '
 /** progress while pasted lyrics are being synced to the song */
 export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: number } | null;
 
+/**
+ * One-tap start: what a newly loaded song is doing on its way to a playing video (the stage shows one
+ * calm progress state for it). 'listen': being decoded and analysed; 'plan': the video being planned.
+ * `since` (ms) and `duration` (s, the song's length once known) let the stage pace its progress bar.
+ */
+export type Startup = { step: 'listen' | 'plan'; since: number; duration: number } | null;
+
 export interface ClipProgress {
   phase: 'prep' | 'rec' | 'save';
   frac: number;
@@ -106,6 +113,12 @@ export interface StudioState extends LookState {
   directorHeight: number;
   /** the song's video plan: a look per section */
   plan: VideoPlan | null;
+  /**
+   * The person's own pop-up level for each part of this song (0 none … 3 lots; null = the planner's).
+   * Wins over the video plan's `pops`, survives re-plans and saved plans (kept per song in
+   * planCache.ts), and also applies with Pop-ups set to Always. Set it with setPartPops.
+   */
+  partPops: (number | null)[] | null;
   /** switch looks along the song map while playing */
   planOn: boolean;
   planning: boolean;
@@ -140,6 +153,12 @@ export interface StudioState extends LookState {
   transitionBeats: number;
   /** the finish over every look: 'auto' follows the playing video's Direction (else Hand-drawn when it's on) */
   finish: 'auto' | FinishId;
+  /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
+  oneTap: boolean;
+  /** a one-tap start under way (null when nothing is loading) */
+  startup: Startup;
+  /** the song is ready but the browser wouldn't start sound without a tap: the stage shows a big play button */
+  needsTap: boolean;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -165,6 +184,12 @@ export interface StudioState extends LookState {
   clearChat: () => void;
   set: (patch: Partial<StudioState>) => void;
   flash: (msg: string) => void;
+  /**
+   * How busy pop-ups get in part `sectionIndex` (an index into analysis.sections): 0 none (no
+   * instrument pop-ups and no scene windows at all), 1 a few … 3 lots, or null to hand the part back
+   * to the planner. Read the result with partPopsAt() (state/plan.ts).
+   */
+  setPartPops: (sectionIndex: number, level: number | null) => void;
 }
 
 export const HAND_DEFAULT: HandStyle = { on: true, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
@@ -220,6 +245,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
       lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
       lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
+      oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
     };
   } catch {
     return {};
@@ -254,6 +280,7 @@ function persist(s: StudioState) {
         transition: s.transition,
         transitionBeats: s.transitionBeats,
         finish: s.finish,
+        oneTap: s.oneTap,
       }),
     );
   } catch {
@@ -320,6 +347,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   directorOpen: persisted.directorOpen ?? true,
   directorHeight: persisted.directorHeight ?? 320,
   plan: null,
+  partPops: null,
   planOn: false,
   planning: false,
   lyrics: null,
@@ -342,6 +370,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
   finish: persisted.finish ?? 'auto',
+  oneTap: persisted.oneTap ?? true,
+  startup: null,
+  needsTap: false,
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -442,7 +473,15 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch) persist(get());
+  },
+  setPartPops: (i, level) => {
+    const a = get().analysis;
+    if (!a || !Number.isInteger(i) || i < 0 || i >= a.sections.length) return;
+    const prev = get().partPops;
+    const next = prev && prev.length === a.sections.length ? [...prev] : a.sections.map(() => null);
+    next[i] = level === null || !Number.isFinite(level) ? null : Math.max(0, Math.min(3, Math.round(level)));
+    set({ partPops: next.some((v) => v !== null) ? next : null });
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

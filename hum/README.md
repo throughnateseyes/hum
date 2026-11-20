@@ -19,6 +19,34 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 
 - **Drop audio** anywhere (mp3 / wav / m4a / flac), pick a built-in demo (*Pressure* — 140 bpm
   halftime bass with a build and a drop; *Driftwood* — 72 bpm rain and piano), or use the mic.
+- **One tap.** Drop a song (or pick a file or a demo) and that's it: Hum listens to it, plans the
+  video and plays it from the top, with one calm progress note on the stage ("Listening to the
+  song", then "Planning the video") instead of a stack of messages. It starts on the offline plan
+  straight away and never waits on the network; meanwhile lyrics are looked up and Claude makes a
+  take of its own in the background (when the director is reachable and allowed, without asking
+  for an access code). Claude's plan takes over at the next part change (two seconds early, so the
+  transition lands on the line), unless you've already changed the video yourself; lyrics that
+  turn up later are timed in as they arrive. A song Claude has planned before plays its saved plan
+  at once. The tap or drop that loaded the song is what lets it play; if the browser still won't
+  start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Look
+  tab, Video) turns it off: then a song just plays, and Make a video is up to you.
+- **On a phone** (a touch screen up to 760 px wide, or a phone on its side) Hum has its own layout:
+  the picture on top at full width, play/pause, the time, the part you're in and the song map
+  under it, and a slim tab row at the bottom (**Looks**, **Settings**, **Lyrics**, **Export**). Each
+  tab opens its panel in a bottom sheet: drag its handle between peek, half and full, flick it, or
+  pull it down to close (tap the handle to swap half and full). Held sideways, the picture fills
+  the left and the controls and panels share a column on the right. On the picture: **swipe left
+  or right** to step through looks (the other takes of the look on screen first, then the looks
+  that sit with it in the part that's playing, then everything else; a small note names each one),
+  **swipe up** for the panels and down to put them away, **tap** for the controls on the picture
+  (full screen, Keep / Skip), **double-tap** for full screen. Add `?phone=1` (or `?phone=0`) to
+  the address to force the phone layout on or off. Computers and tablets keep the layout below.
+- **Share clip** (phone: Export). Pick 15, 30 or 60 s (or the stretch you picked on the song map),
+  and Hum renders that much around the song's biggest drop as a 1080×1920 vertical video, frame by
+  frame with its sound, with a progress bar and Cancel. When it's done, **Share to Instagram or
+  TikTok** opens the phone's share sheet with the MP4; where a browser can't share files it saves
+  the video instead, with a note on where to find it. The file is H.264 (High profile, BT.709) with
+  AAC-LC stereo sound in an MP4 with the index up front, which is what Instagram and TikTok take.
 - **Drop photos** anywhere — photo scenes and the instrument boards dissolve, mosh and rebuild them
   (a new photo every 4 bars).
 - **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any
@@ -45,6 +73,20 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   Director's **Video** mode ("calmer chorus", "something brighter on the drop", "fewer pop-ups"):
   only the parts you mention change, on the small model, for a fraction of a cent. Picking a scene
   pauses the song map.
+  **Click a part** to open its sheet (a popover over the part on a computer, a bottom sheet on a
+  phone: swipe it down or tap outside to close). It has **Play this part**; **Swap the look** with
+  the five families that fit the part best and sit well beside its neighbours (filter by mood, or
+  **More looks…** for all of them with a search); **Version** to pick a take in one tap;
+  **Lyrics** for this part (Subtitles, Big words, A word or two, the look's own) when the song has
+  synced lyrics; and **Pop-ups** Auto / Off / Few / Lots (Off also stops the windows). A part you changed wears a dot. Changes are kept
+  with the saved video, a new plan keeps them, and **Reset this part** / **Undo** in the sheet put
+  things back (`src/ui/PartSheet.tsx`, `src/state/partEdit.ts`).
+  **Mood** (the row under the song map) re-plans the whole video in one tap inside one world:
+  Brutal, Dreamy, Hacker, Nature, Club, Paper, Night city or Playful. Each mood is a hand-picked set
+  of look families and takes plus one finish and transition set (`src/presets/moods.ts`), and both
+  the offline planner and Claude stay inside it, as do each part's rotation, drop cuts, skips and
+  scene windows. Parts still differ, by take and by neighbouring families of that world. If you've
+  changed parts, it asks whether to keep those changes or start fresh. **Any** goes back to no mood.
   **Saved videos:** the last video Claude made for a song stays in this browser (24 songs), edits
   included, so **Make a video** on a song you've done before plays it straight away with no new
   request. **Remake video** (or typing a wish) always asks Claude for a fresh take.
@@ -128,10 +170,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
   so two videos of the same song read differently. The chip shows what Auto chose for the part that's
   playing and why. Every style is **guarded for legibility**: every other frame Hum shrinks the
-  picture under the text to 96×54 and checks it, then picks the calmest place for the line, an ink
+  picture under the text to 96×54 and checks it (windows and pop-ups included: it's read after they
+  draw, just before the words), then picks the calmest place for the line, an ink
   that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
-  feathered scrim, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
-  when a cut changes the picture. The per-look lyric profiles and the audit behind them are in
+  feathered scrim, a halo, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
+  when a cut changes the picture. Words that sit on a pop-up window (or a very busy picture) always
+  get the **halo**: a fuzzy, feathered glow hugging the words in a palette colour that inverts
+  against the ink (it becomes one flat ink under the hand-drawn finish), so an overlap looks meant. The per-look lyric profiles and the audit behind them are in
   [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
 - **Busy boards and pop-ups.** Four more instrument boards join Orbit, Lab and Oto: **Arcade** (Pong
@@ -145,7 +190,15 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   playing on new parts, drops and some bars, then snap shut a few bars later. They're in recordings too. *In videos* (the default) shows them while a video plan
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
-  first four bars.
+  first four bars. **Pop-ups keep clear of the words:** the lyric line is laid out before any window
+  draws, so windows open away from it (and from where the next line will land), and one already open
+  where a line arrives glides out of the way on a spring. With no room to move (small phone frames,
+  lots of windows) it shrinks a little and stays, and the words over it get the halo.
+  **Per part:** `useStudio.getState().setPartPops(sectionIndex, level)` sets how busy pop-ups get in
+  one part (0 none: no instrument pop-ups and no scene windows; 1–3; `null` hands it back to the
+  planner). The person's levels win over the plan's, apply with Pop-ups on Always too, and are kept
+  per song beside the saved plans (`src/state/planCache.ts`), so they survive Remake video and
+  reloads; `partPopsAt(i)` (`src/state/plan.ts`) reads a part's level and whether it was set by hand.
 - **Scene windows.** Pop-ups can also be other looks: framed windows (a title bar with the look's
   name, a plain card, or a round cut-out) each playing a different look live over the picture, so
   looks combine like a desktop stacked with programs. They open on new parts and phrases, bump on
@@ -408,7 +461,9 @@ start-up delay, measured once per session, so sound and picture line up to the s
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
   `/solo.html?finish=clean,film,riso,ink,tape,hand` (or `"finish"` in the `--look` JSON) shows each
   finish side by side for every moment and reports what each finish pass costs.
-  Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
+  `&windows=1&popups=1&pops=3` puts scene windows and instrument pop-ups over it (seeded, so sheets
+  repeat; `&dodge=0` stops them keeping clear of the words, to look at the halo, and each cell's label
+  names the lyric backing). Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
   `--look` json, to draw lyric type over the look: test lyrics are sung in every part (with held
   notes), and `{ "lyrics": { "style": "auto", "family": "serif", "motion": "tender", "parts":
   ["sparse", "subtitle", "sparse", "big+giant", "sparse", "subtitle"] } }` fixes the plan per part so

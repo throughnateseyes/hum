@@ -1,0 +1,638 @@
+/* ───────── the phone layout (ui/layout.ts, ui/Phone.tsx) ─────────
+   Touch screens up to 760 px wide (and phones on their side): the picture on top at full width, the
+   transport and song map under it, a tab row at the bottom, and the panels in a bottom sheet. Every
+   rule is scoped to html.phone / .app.phone, so computers and tablets keep the desktop layout. */
+
+/* the part playing, beside the time: only the phone's transport row shows it */
+.part-now {
+  display: none;
+}
+
+html.phone {
+  --tabs-h: calc(58px + env(safe-area-inset-bottom));
+  --side-w: min(360px, 46vw);
+}
+/* the page itself never scrolls, bounces or zooms: the sheet and the panels scroll inside */
+html.phone,
+html.phone body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html.phone body {
+  position: fixed;
+  inset: 0;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app.phone {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  touch-action: manipulation;
+  overflow: hidden;
+}
+
+/* ── top bar: the brand, the song, open a song ── */
+.app.phone .topbar.ph-top {
+  position: static;
+  flex: none;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  height: 52px;
+  gap: var(--s-2);
+  padding: 0 6px 0 14px;
+}
+.app.phone .ph-top .src {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.app.phone .ph-top .trackpill {
+  width: 100%;
+  max-width: none;
+  min-height: 40px;
+}
+.app.phone .ph-top .trackpill .caret {
+  margin-left: auto;
+}
+.app.phone .ph-top .trackpill .meta {
+  display: none;
+}
+.app.phone .ph-top .menu {
+  left: 0;
+  right: 0;
+  width: auto;
+  max-width: calc(100vw - 28px);
+}
+.app.phone .ph-top .menu-item {
+  min-height: 48px;
+}
+.app.phone .ph-open {
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+/* ── the picture: full width, edge to edge ── */
+.app.phone .center {
+  order: 0;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app.phone .center > .stage-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  background: #111;
+}
+.app.phone .stage-frame {
+  border-radius: 0;
+  box-shadow: none;
+  outline: 0;
+}
+/* the finger on the picture is a tap or a swipe (stageGestures.ts), never a page scroll or zoom */
+.app.phone .stage-frame,
+.app.phone .stage-frame canvas {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* volume is the phone's own buttons */
+.app.phone .stage-vol,
+.app.phone .bt-row .volume {
+  display: none;
+}
+.app.phone .stage-fs {
+  width: 44px;
+  height: 44px;
+}
+/* a tap shows the controls over the picture (they'd otherwise wait for a hover) */
+.stage-frame.ctl .taste-hud {
+  opacity: 1;
+}
+.app.phone .taste-btn {
+  width: 44px;
+  height: 44px;
+}
+
+/* ── transport and song map, under the picture ── */
+.app.phone .bottom {
+  flex: none;
+  padding: 8px 12px 10px;
+  gap: 8px;
+}
+.app.phone .bt-row {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.app.phone .bt-row > .bt-group:first-child {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+}
+.app.phone .bt-group.feel,
+.app.phone .bt-row .bpm,
+.app.phone .bt-row .bt-group > .btn.sm {
+  display: none;
+}
+.app.phone .play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+.app.phone .play svg {
+  width: 16px;
+  height: 16px;
+}
+.app.phone .bt-row .part-now {
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.app.phone .bt-row .sw.boxed {
+  flex: none;
+  margin-left: auto;
+  min-height: 36px;
+}
+.app.phone .tl {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.app.phone .tl-side {
+  flex-direction: row;
+}
+.app.phone .tl-side .btn {
+  flex: 1;
+  height: 44px;
+  justify-content: center;
+  padding: 0 8px;
+}
+.app.phone .tl-lane {
+  grid-template-rows: 44px 30px;
+}
+
+/* ── the tab row ── */
+.ph-tabs {
+  flex: none;
+  display: flex;
+  height: var(--tabs-h);
+  padding: 0 0 env(safe-area-inset-bottom);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  position: relative;
+  z-index: 75;
+}
+.ph-tab {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  font-weight: 500;
+}
+.ph-tab.on {
+  color: var(--ink);
+}
+.ph-tab.on::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 28%;
+  right: 28%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+.ph-dot {
+  position: absolute;
+  top: 9px;
+  left: calc(50% + 8px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── the sheet: above the tab row ── */
+.sheet-track.ph-sheet {
+  bottom: var(--tabs-h);
+}
+.ph-head {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.ph-head b {
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+.ph-head .btn.ph-close {
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+}
+/* the desktop panels, laid out for the sheet */
+.ph-sheet .library,
+.ph-sheet .inspector {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}
+.ph-sheet .panel-tabs {
+  height: 44px;
+  padding: 0 10px;
+}
+.ph-sheet .panel-tabs button {
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.ph-sheet .panel-body {
+  padding: 2px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.ph-sheet .director {
+  border-top: 1px solid var(--line);
+}
+.ph-sheet .split-handle {
+  display: none;
+}
+/* Look settings is one long scroll (the sheet's body scrolls), not panels squeezed into it */
+.ph-settings {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.ph-settings .inspector {
+  flex: none;
+}
+.ph-settings .inspector .panel-body {
+  flex: none;
+  overflow: visible;
+}
+.ph-settings .inspector .panel-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+.ph-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+.ph-row .frame-seg {
+  width: 100%;
+}
+.ph-row .frame-seg button {
+  flex: 1;
+  min-height: 40px;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--fs-1, 11px);
+}
+.ph-feel {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.ph-feel .impact {
+  flex: 1 1 100%;
+  height: 44px;
+}
+.ph-feel .impact-s {
+  flex: 1;
+  width: auto;
+}
+.ph-feel .sw.boxed,
+.ph-shuffle {
+  flex: 1 1 0;
+  min-height: 44px;
+  justify-content: center;
+}
+.ph-export {
+  padding: 4px 16px calc(24px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ph-sep {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0;
+}
+.ph-export .ph-row {
+  padding: 0;
+}
+.ph-capture .btn {
+  flex: 1 1 0;
+  min-height: 44px;
+  justify-content: center;
+}
+.ph-more {
+  align-self: flex-start;
+  min-height: 44px;
+}
+.ph-hint {
+  margin: 0 0 8px;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+}
+.ph-render .rb {
+  flex-wrap: wrap;
+}
+
+/* ── Share clip (ShareClip.tsx) ── */
+.share {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.share-h {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.share-h b {
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+.share-h span,
+.share-what,
+.share-note {
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  line-height: 1.45;
+}
+.share-what,
+.share-note {
+  margin: 0;
+}
+.share-note {
+  color: var(--ink-2);
+}
+.share-len {
+  width: 100%;
+}
+.share-len button {
+  flex: 1;
+  min-height: 44px;
+  font-weight: 500;
+}
+.share-go {
+  width: 100%;
+  min-height: 50px;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--fs-4);
+  border-radius: 12px;
+}
+.share-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-row {
+  display: flex;
+  gap: 8px;
+}
+.share-row .btn {
+  flex: 1 1 0;
+  min-height: 44px;
+  justify-content: center;
+}
+.share-run {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.share-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transform-origin: left;
+  transition: transform 0.2s linear;
+}
+.share-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.share-cancel {
+  min-height: 44px;
+  padding: 0 18px;
+}
+
+/* ── the lyrics panel and empty panels ── */
+.sheet-empty {
+  margin: 0;
+  padding: 18px 20px calc(24px + env(safe-area-inset-bottom));
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.lyr-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 4px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.lyr-panel .btn {
+  min-height: 40px;
+}
+.lyr-panel textarea {
+  width: 100%;
+  font-size: 16px; /* iPhone zooms into smaller text fields */
+}
+.app.phone input,
+.app.phone textarea,
+.app.phone select,
+.ph-sheet input,
+.ph-sheet textarea,
+.ph-sheet select {
+  font-size: max(16px, 1em);
+}
+
+/* ── the look a swipe put on ── */
+.look-toast {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 16px 9px;
+  border-radius: 14px;
+  background: rgba(20, 20, 18, 0.62);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  pointer-events: none;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  animation:
+    look-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    look-out 0.3s ease-in 1.2s forwards;
+}
+.look-toast b {
+  font-size: var(--fs-4);
+  font-weight: 600;
+}
+.look-toast span {
+  font-size: var(--fs-2);
+  opacity: 0.75;
+}
+.look-toast.from-right {
+  --from: 24px;
+}
+.look-toast.from-left {
+  --from: -24px;
+}
+@keyframes look-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-50% + var(--from, 0px)));
+  }
+}
+@keyframes look-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* ── full screen on a phone: just the picture ── */
+.app.phone.perform .ph-tabs,
+.app.phone.perform .ph-top {
+  display: none;
+}
+html.phone .app.perform ~ .sheet-track,
+.app.phone.perform .sheet-track {
+  display: none;
+}
+.app.phone.perform {
+  padding: 0;
+}
+.app.phone.perform .center > .stage-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+}
+
+/* the toast sits under the top bar, clear of the notch */
+.app.phone .toast {
+  top: calc(env(safe-area-inset-top) + 58px);
+  max-width: calc(100vw - 32px);
+  text-align: center;
+}
+/* the part breakdown opens over everything */
+.app.phone .bd {
+  position: fixed;
+  inset: calc(env(safe-area-inset-top) + 8px) 8px calc(var(--tabs-h) + 8px);
+  margin: 0;
+  z-index: 80;
+  overflow: auto;
+}
+
+/* ── a phone on its side: the picture left, the controls and panels in a column on the right ── */
+.app.phone.land {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--side-w);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  padding: 0 env(safe-area-inset-right) 0 0;
+}
+.app.phone.land .center {
+  display: contents;
+}
+.app.phone.land .topbar.ph-top {
+  grid-column: 2;
+  grid-row: 1;
+  height: 48px;
+  border-left: 1px solid var(--line);
+}
+.app.phone.land .center > .stage-wrap {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  padding-left: env(safe-area-inset-left);
+}
+.app.phone.land .bottom {
+  grid-column: 2;
+  grid-row: 3;
+  border-left: 1px solid var(--line);
+}
+.app.phone.land .ph-tabs {
+  grid-column: 2;
+  grid-row: 4;
+  border-left: 1px solid var(--line);
+}
+.app.phone.land::before {
+  /* the empty middle of the right column */
+  content: '';
+  grid-column: 2;
+  grid-row: 2;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+html.phone.land {
+  --tabs-h: calc(52px + env(safe-area-inset-bottom));
+}
+.app.phone.land .ph-tab {
+  flex-direction: row;
+  gap: 6px;
+}
+.app.phone.land .ph-tab span {
+  display: none;
+}
+.app.phone.land .tl-side .btn {
+  height: 38px;
+}
+.app.phone.land .tl-lane {
+  grid-template-rows: 36px 26px;
+}
+.app.phone.land .bottom {
+  align-self: end;
+}
+html.phone.land .sheet-track.ph-sheet {
+  left: auto;
+  right: env(safe-area-inset-right);
+  width: var(--side-w);
+  top: 0;
+}
+html.phone.land .ph-sheet .sheet {
+  border-radius: 0;
+  border-left: 1px solid var(--line);
+}
+.app.phone.land.perform {
+  display: flex;
+}

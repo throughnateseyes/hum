@@ -39,14 +39,20 @@ const slug = (s: string) =>
  * look, plan and lyrics on the stage, then download it. The stage keeps showing on screen (switched to
  * 9:16 while it records) but draws at the full clip size. Esc cancels.
  */
-export async function exportClip(win?: ClipWindow, size: { w: number; h: number } = { w: CLIP_W, h: CLIP_H }): Promise<void> {
-  if (running) return;
+export async function exportClip(
+  win?: ClipWindow,
+  size: { w: number; h: number } = { w: CLIP_W, h: CLIP_H },
+  opts: { onDone?: (file: { blob: Blob; name: string } | null) => void } = {},
+): Promise<void> {
+  // onDone: hand the file back instead of downloading it (null when cancelled or it couldn't start)
+  const onDone = opts.onDone;
+  if (running) return onDone?.(null);
   const st = useStudio.getState();
   const blocked = clipBlocker(st);
   const stage = live.stage;
   if (blocked || !stage) {
     st.flash(blocked ?? 'The stage is not ready yet.');
-    return;
+    return onDone?.(null);
   }
   const w = win ?? pickClip(st.analysis!);
   const tap = audioEngine.tapSong();
@@ -54,7 +60,7 @@ export async function exportClip(win?: ClipWindow, size: { w: number; h: number 
   const mime = Recorder.pickMime();
   if (!tap || typeof MediaRecorder === 'undefined') {
     st.flash("This browser can't record video.");
-    return;
+    return onDone?.(null);
   }
 
   const before = { aspect: st.aspect, time: audioEngine.currentTime, playing: audioEngine.playing, track: st.track };
@@ -95,6 +101,7 @@ export async function exportClip(win?: ClipWindow, size: { w: number; h: number 
     }
     restore();
     useStudio.getState().flash(msg);
+    onDone?.(null);
   };
 
   const onKey = (e: KeyboardEvent) => {
@@ -138,8 +145,12 @@ export async function exportClip(win?: ClipWindow, size: { w: number; h: number 
       const ext = type.includes('mp4') ? 'mp4' : 'webm';
       const blob = new Blob(chunks, { type });
       restore();
-      download(blob, `${slug(before.track?.name ?? 'hum')}-clip.${ext}`);
-      useStudio.getState().flash(`Saved a ${Math.round(w.end - w.start)} s vertical clip (${ext.toUpperCase()}), from ${w.why}`);
+      const name = `${slug(before.track?.name ?? 'hum')}-clip.${ext}`;
+      if (onDone) onDone({ blob, name });
+      else {
+        download(blob, name);
+        useStudio.getState().flash(`Saved a ${Math.round(w.end - w.start)} s vertical clip (${ext.toUpperCase()}), from ${w.why}`);
+      }
     };
     r.stop();
   };

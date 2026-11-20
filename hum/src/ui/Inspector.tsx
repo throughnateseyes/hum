@@ -435,10 +435,18 @@ function VideoGroup() {
   const windowKind = useStudio((s) => s.windowKind);
   const songColors = useStudio((s) => s.songColors);
   const autoPilot = useStudio((s) => s.autoPilot);
+  const oneTap = useStudio((s) => s.oneTap);
   const set = useStudio((s) => s.set);
   const info = TRANSITIONS.find((t) => t.id === transition);
   return (
     <Section id="look.video" title="Video" sub="How a made video moves from look to look" collapsible>
+      <div className="row-switch">
+        <span>
+          <b>Make a video when a song loads</b>
+          <small>Drop a song and it plans the video and plays it from the top. Off: it just plays, and Make a video is up to you.</small>
+        </span>
+        <Toggle on={oneTap} onChange={(v) => set({ oneTap: v })} label="Make a video when a song loads" />
+      </div>
       <Field
         label="Pace"
         value={pace === 'song' ? 'Cuts with the music' : pace === 'slow' ? 'Holds longer' : 'Cuts twice as often'}

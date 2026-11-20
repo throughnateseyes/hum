@@ -186,6 +186,46 @@ export class AudioEngine {
     this.ensureContext();
     if (this.kind === 'file') await this.el.play();
   }
+
+  /**
+   * Call inside a tap, click or drop that will lead to a song playing a few seconds later (one-tap
+   * start: the song is analysed and planned first). It starts the audio context and touches play on
+   * the player while the browser still counts the gesture, which is what Safari needs to allow the
+   * later play() without another tap. Nothing is heard: a paused player is paused again at once.
+   */
+  unlock() {
+    this.ensureContext();
+    if (!this.el.paused) return;
+    try {
+      const p = this.el.play();
+      this.el.pause();
+      if (p) p.catch(() => {});
+    } catch {
+      /* no source yet: the context is what matters */
+    }
+  }
+
+  /**
+   * Play and say whether sound really started: the player must be running and the audio context too
+   * (Safari keeps a context suspended until a gesture resumes it, and then the song plays silently).
+   * False means the page needs one tap to start (the stage shows a big play button).
+   */
+  async start(): Promise<boolean> {
+    const ctx = this.ensureContext();
+    try {
+      await this.el.play();
+    } catch {
+      return false;
+    }
+    if (ctx.state !== 'running') {
+      await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
+    }
+    if (ctx.state !== 'running') {
+      this.el.pause();
+      return false;
+    }
+    return !this.el.paused;
+  }
   pause() {
     this.el.pause();
   }
