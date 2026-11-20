@@ -3,6 +3,7 @@ import { FULLSCREEN_VERT } from '../../core/glsl';
 import { createFullscreenQuad, makeRenderTarget } from '../../core/sceneHelpers';
 import type { ParamDef, SceneDef } from '../../core/types';
 import { num } from '../../core/uniforms';
+import { quality } from '../../render/quality';
 import { approach, makeMaterial, stepDt, syncMaterial } from '../three/common';
 import { DropTimer, TONEMAP_LIB, linColor, tempoRate } from '../nature/volume';
 
@@ -61,6 +62,8 @@ const PERIOD = PAIRS * SPACING;
 /** the ground pattern's own wrap (unnoticeable: once every ~16 minutes of walking) */
 const BIG = PERIOD * 20;
 const MAX_LEAVES = 4000;
+/** share of canopy dabs drawn when the quality governor draws the look smaller than the output */
+const LOD_KEEP = 0.62;
 
 /* ───────────────────────── GLSL ───────────────────────── */
 
@@ -80,10 +83,11 @@ vec3 gaSway(vec3 p) {
   d.xz += uGustXZ;
   return d * h;
 }
-// the haze: brightest looking down the avenue into the light
+// the haze: a gold mid-tone that only turns to cream light in a tight core down the avenue, so the
+// distance steps through values (and the hand-drawn finish's inks) instead of washing out in one sheet
 vec3 gaHaze(vec3 dir) {
   float m = max(dot(dir, uLightDir), 0.0);
-  return mix(uHaze, uGlowCol, pow(m, 7.0));
+  return mix(uHaze, uGlowCol, clamp(pow(m, 60.0) * 0.85 + pow(m, 9.0) * 0.3, 0.0, 1.0));
 }
 float gaFogF(float dist) { return 1.0 - exp(-dist * uFogK); }
 // ginkgo leaf in leaf units (about -1..1): a fan on a short stalk with the notch in the middle
@@ -266,6 +270,9 @@ void main() {
   float rim = pow(1.0 - abs(dot(n, dir)), 3.0) * max(dot(n, uLightDir), 0.0);
   vec3 lightC = uLight * (0.22 + 0.42 * lit + 0.12 * up) + uBounce * (0.2 + 0.6 * lowK) * (0.5 + 0.5 * lit) + uLight * rim * 1.2;
   vec3 col = alb * lightC * uSunI;
+  // birches: the lit side goes paper white and the far side a step down, so pale trunks hold their shape
+  // against the pale winter haze (and print as two inks, not one)
+  col *= 1.0 + uBirchK * (0.45 * lit - 0.2);
   // flecks of gold: light through the canopy landing on the bark in small dabs
   float fleck = smoothstep(0.83, 0.88, tnoise(vec2(vBark.x * 5.0 + 31.0, vBark.y * 4.5)));
   col = mix(col, uBounce * uSunI * 0.8, fleck * lit * 0.45 * (1.0 - uBirchK * 0.6));
@@ -410,8 +417,10 @@ void main() {
   float face = abs(dot(n, dir));
   float r = fract(aC.x * 13.7);
   // the drifting leaves are the brightest things in the picture: lemon gold, lit through
-  vec3 col = mix(uLeafLit, uLight, 0.3 + 0.45 * smoothstep(0.4, 1.0, r));
-  col = mix(col, mix(uLeafLit, uLeafDeep, 0.5), (aC.y * 0.4 + step(0.85, fract(aC.x * 7.7)) * 0.7) * 0.7);
+  // a mixed fall: mostly gold, some pale and lit right through, some deep (so the storm reads in any
+  // finish, not just as gold on gold)
+  vec3 col = mix(uLeafLit, uLight, 0.08 + 0.55 * smoothstep(0.62, 0.9, r));
+  col = mix(col, mix(uLeafLit, uLeafDeep, 0.7), (aC.y * 0.4 + step(0.76, fract(aC.x * 7.7)) * 0.8) * 0.8);
   float trans = pow(max(dot(dir, uLightDir), 0.0), 3.0);
   float top = max(n.y * sign(dot(n, -dir) + 1e-4), 0.0);
   col *= uSunI * (1.15 + 0.45 * face + 0.6 * trans + 0.3 * top);
@@ -421,7 +430,7 @@ void main() {
   float flick = 0.6 + 0.4 * sin(uTwinkleT * 6.0 + aC.x * 80.0);
   col += uLight * spec * uGlint * flick * 2.2;
   // out of focus leaves bloom into soft discs of light
-  col = mix(col, uLight * uSunI * 1.25, clamp(b * 0.45, 0.0, 0.7));
+  col = mix(col, mix(uLeafLit, uLight, 0.45) * uSunI * 1.25, clamp(b * 0.4, 0.0, 0.55));
   float fog = gaFogF(z);
   vCol = mix(col, gaHaze(dir), fog);
   vAlpha = aR.w / (1.0 + 0.7 * b * b) * smoothstep(0.7, 1.6, z);
@@ -528,7 +537,7 @@ void main() {
   // warm light down the avenue
   vec2 dv = (vUv - uVP) * vec2(uAspect, 1.0);
   float r2 = dot(dv, dv);
-  col += uGlowTint * (exp(-r2 * 6.0) * 0.16 + exp(-r2 * 45.0) * 0.32) * uGlowK;
+  col += uGlowTint * (exp(-r2 * 7.0) * 0.07 + exp(-r2 * 60.0) * 0.34) * uGlowK;
   vec3 o = ntToDisplay(col, uExposure);
   float l = dot(o, vec3(0.2126, 0.7152, 0.0722));
   o = mix(vec3(l), o, uSat);
@@ -551,6 +560,8 @@ interface Avenue {
   dab: Float32Array;
   dabInfo: Float32Array;
   nDabs: number;
+  /** the first run of dabs: enough to paint every crown coarsely (see LOD_KEEP) */
+  nCoarse: number;
   segA: Float32Array;
   segB: Float32Array;
   segS: Float32Array;
@@ -688,9 +699,14 @@ function buildAvenue(seed: number): Avenue {
       }
     }
   }
-  // near dabs first: the GPU can skip what they hide
+  // near dabs first: the GPU can skip what they hide. Two runs: a share of the dabs (picked by their
+  // spare random) first, then the rest, so on the quality governor's lower rungs drawing only the first run
+  // still paints every crown, just more coarsely
   const nDabs = dab.length / 4;
-  const order = Array.from({ length: nDabs }, (_, i) => i).sort((a, b) => dab[b * 4 + 2] - dab[a * 4 + 2]);
+  const near = (a: number, b: number) => dab[b * 4 + 2] - dab[a * 4 + 2];
+  const all = Array.from({ length: nDabs }, (_, i) => i);
+  const first = all.filter((i) => info[i * 4 + 2] < LOD_KEEP).sort(near);
+  const order = first.concat(all.filter((i) => info[i * 4 + 2] >= LOD_KEEP).sort(near));
   const D = new Float32Array(nDabs * 4);
   const I = new Float32Array(nDabs * 4);
   order.forEach((src, dst) => {
@@ -699,7 +715,7 @@ function buildAvenue(seed: number): Avenue {
       I[dst * 4 + c] = info[src * 4 + c];
     }
   });
-  return { dab: D, dabInfo: I, nDabs, segA: new Float32Array(segA), segB: new Float32Array(segB), segS: new Float32Array(segS), nSegs: segA.length / 4 };
+  return { dab: D, dabInfo: I, nDabs, nCoarse: first.length, segA: new Float32Array(segA), segB: new Float32Array(segB), segS: new Float32Array(segS), nSegs: segA.length / 4 };
 }
 
 /* ───────────────────────── scene ───────────────────────── */
@@ -713,6 +729,9 @@ export const goldenAvenue: SceneDef = {
   style: 'world',
   tags: ['nostalgic', 'warm', 'tender', 'hopeful', 'dreamy', 'romantic', 'uplifting', 'emotional', 'cinematic', 'calm', 'acoustic', 'indie', 'folk', 'pop', 'piano', 'nature', 'organic', 'bright', 'soft'],
   light: true,
+  // printed, the haze steps cream → pale gold (muted) → gold → orange → bark down the avenue; three inks
+  // already read, the fourth adds the pale-gold step between the light and the haze
+  handInks: 4,
   params,
   modulations: [],
   create(init) {
@@ -986,6 +1005,7 @@ export const goldenAvenue: SceneDef = {
     const order: number[] = [];
     const vp = new THREE.Vector3();
     const col = new THREE.Color();
+    const col2 = new THREE.Color();
     const invVP = new THREE.Matrix4();
 
     return {
@@ -1156,10 +1176,16 @@ export const goldenAvenue: SceneDef = {
         aP.needsUpdate = aR.needsUpdate = aC.needsUpdate = true;
 
         /* ── colour and light (linear) ── */
-        const sunI = 1.0 * (1 + 0.1 * kickS + 0.14 * gEnv + 0.1 * tension) * (1 - 0.1 * hang);
+        const sunI = 1.0 * (1 + 0.1 * kickS + 0.07 * gEnv + 0.1 * tension) * (1 - 0.1 * hang);
         linColor(pal.bg, worldU.uLight.value);
-        col.copy(pal.bg).lerp(pal.accent, 0.42);
-        linColor(col, worldU.uHaze.value).multiplyScalar(1.0 * sunI);
+        // the haze sits a value step below the light: gold for the ginkgo avenue (leaning to the second
+        // accent, since darkened yellow reads olive), the cool muted grey for birches, so white trunks stand
+        // out against it instead of melting into a straw-coloured field
+        const birchK = num(p, 'birch', 0);
+        col.copy(pal.bg).lerp(pal.accent, 0.55).lerp(pal.accent2, 0.14);
+        col2.copy(pal.bg).lerp(pal.muted, 0.85).lerp(pal.accent2, 0.14);
+        col.lerp(col2, birchK);
+        linColor(col, worldU.uHaze.value).multiplyScalar((0.84 - 0.14 * birchK) * sunI);
         linColor(pal.bg, worldU.uGlowCol.value).multiplyScalar(2.1 * sunI);
         linColor(pal.accent, worldU.uLeafLit.value);
         col.copy(pal.accent2).lerp(pal.fg, 0.12);
@@ -1178,9 +1204,9 @@ export const goldenAvenue: SceneDef = {
         gu.uDapT.value = dapT;
         (gu.uSkitA.value as THREE.Vector2).copy(skitA);
         (gu.uSkitB.value as THREE.Vector2).copy(skitB);
-        col.copy(pal.muted).lerp(pal.bg, 0.15);
+        col.copy(pal.muted).lerp(pal.accent, 0.35);
         linColor(col, gu.uPath.value as THREE.Vector3);
-        col.copy(pal.accent2).lerp(pal.muted, 0.25);
+        col.copy(pal.accent2).lerp(pal.fg, 0.06);
         linColor(col, gu.uEdge.value as THREE.Vector3);
         ground.position.set(camX, 0, camZ - 150);
 
@@ -1190,8 +1216,11 @@ export const goldenAvenue: SceneDef = {
         linColor(col, bu.uBirch.value as THREE.Vector3);
         col.copy(pal.accent).lerp(pal.accent2, 0.35);
         linColor(col, bu.uBounce.value as THREE.Vector3);
-        bu.uBirchK.value = num(p, 'birch', 0);
-        dabMat.uniforms.uDabScale.value = num(p, 'canopy', 1);
+        bu.uBirchK.value = birchK;
+        // lower quality rungs (the look drawn smaller than the output): fewer, slightly bigger dabs
+        const coarse = quality.current().sceneScale < 1;
+        dabGeo.instanceCount = coarse ? av.nCoarse : av.nDabs;
+        dabMat.uniforms.uDabScale.value = num(p, 'canopy', 1) * (coarse ? 1.15 : 1);
 
         const lu = leafMat.uniforms;
         (lu.uCamPos.value as THREE.Vector3).copy(camera.position);
@@ -1252,8 +1281,8 @@ export const goldenAvenue: SceneDef = {
         cu.tScene.value = sceneRT.texture;
         cu.tBloom.value = blu[2].texture;
         (cu.uVP.value as THREE.Vector2).set(vp.x * 0.5 + 0.5, vp.y * 0.5 + 0.5);
-        cu.uBloomK.value = glowK * 0.16 * (1 + 0.5 * kickS + 0.4 * gEnv);
-        cu.uGlowK.value = glowK * (1 + 0.25 * kickS + 0.3 * gEnv + 0.3 * tension);
+        cu.uBloomK.value = glowK * 0.16 * (1 + 0.5 * kickS + 0.2 * gEnv);
+        cu.uGlowK.value = glowK * (1 + 0.25 * kickS + 0.15 * gEnv + 0.3 * tension);
         linColor(pal.bg, cu.uGlowTint.value as THREE.Vector3).multiplyScalar(sunI);
         col.copy(pal.accent2).lerp(pal.fg, 0.25);
         (cu.uShade.value as THREE.Vector3).set(col.r, col.g, col.b).divideScalar(Math.max(col.r, col.g, col.b, 0.01));
