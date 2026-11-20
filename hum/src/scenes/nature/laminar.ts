@@ -80,18 +80,20 @@ const SIM_SIZE = new THREE.Vector2(8, 6.8);
 const POOL_FAR = 3.2; // far edge of the pool (z = -POOL_FAR)
 const G = 9.81;
 
-/** jet slots: nozzle (x, z) → landing (x, z), base apex height (m) */
+/** jet slots: nozzle (x, z) → landing (x, z), base apex height (m). */
+// staggered in depth and pointing every which way, so each arc reads on its own: across the
+// frame, away from the camera along its axis, and back towards it
 const SLOTS: { n: [number, number]; l: [number, number]; h: number }[] = [
-  { n: [-0.95, 0.3], l: [0.95, 0.3], h: 0.46 },
-  { n: [1.55, -0.55], l: [-0.3, -0.8], h: 0.6 },
-  { n: [-1.95, -1.35], l: [0.3, -1.2], h: 0.72 },
-  { n: [0.5, -2.35], l: [2.6, -2.0], h: 0.85 },
-  { n: [-0.45, -2.15], l: [-2.7, -2.5], h: 0.9 },
-  { n: [-1.7, 0.1], l: [-0.55, -1.55], h: 0.52 },
-  { n: [1.75, 0.45], l: [0.6, -1.15], h: 0.5 },
+  { n: [-1.0, -1.1], l: [0.8, -0.35], h: 0.55 }, // the hero: a diagonal coming towards us
+  { n: [0.3, 0.25], l: [1.55, -2.2], h: 0.74 }, // mostly along the axis, away
+  { n: [2.0, -2.65], l: [-0.5, -2.3], h: 0.98 }, // far, high, right to left
+  { n: [-0.6, -2.85], l: [-1.15, -0.3], h: 0.82 }, // far to near, towards us
+  { n: [1.2, 0.35], l: [0.3, -0.5], h: 0.36 }, // near, small and low
+  { n: [-2.2, -2.3], l: [-0.7, -3.0], h: 0.62 }, // far left
+  { n: [-1.55, -0.75], l: [-2.0, -3.0], h: 0.7 }, // left, receding
 ];
 /** the order jets join in as the song grows */
-const ORDER = [0, 1, 2, 5, 6, 3, 4];
+const ORDER = [0, 1, 3, 2, 5, 6, 4];
 
 /* ───────────────────────── GLSL ───────────────────────── */
 
@@ -329,9 +331,11 @@ vec3 lmJetPos(int j, float u) {
   float L = uNoiseNow - u;
   vec3 side = normalize(vec3(-v.z, 0.0, v.x) + vec3(1e-5, 0.0, 0.0));
   // the nozzle's tiny wobble, carried out along the arc by the water itself
-  float w1 = tnoise(vec2(L * 1.7, float(j) * 13.1)) - 0.5;
+  // every nozzle is a little different: its own wobble, plus a slow wander of its own
+  float wk = 0.55 + 0.9 * fract(sin(float(j) * 12.9898) * 43758.5453);
+  float w1 = tnoise(vec2(L * 1.7, float(j) * 13.1)) - 0.5 + 0.8 * (tnoise(vec2(L * 0.31 + 17.0, float(j) * 4.3)) - 0.5);
   float w2 = tnoise(vec2(L * 2.3 + 51.0, float(j) * 7.7)) - 0.5;
-  v += (side * w1 + vec3(0.0, w2 * 0.6, 0.0)) * uWob * length(v);
+  v += (side * w1 + vec3(0.0, w2 * 0.6, 0.0)) * uWob * wk * length(v);
   return uNoz[j].xyz + v * u + 0.5 * uGrav * u * u;
 }
 // signed distance (in flight time) to the nearest end of a piece of water; >0 inside one
@@ -360,7 +364,7 @@ attribute float aJet;
 uniform float uRings, uPxK;
 ${JET_LIB}
 varying vec3 vWorld, vC, vT;
-varying float vR, vU, vSpeed, vDrds, vJet, vA;
+varying float vR, vRb, vU, vSpeed, vDrds, vJet, vA;
 void main() {
   int j = int(aJet + 0.5);
   vec4 Jp = uJet[j];
@@ -373,18 +377,24 @@ void main() {
   float spd = length(tg) / du;
   tg = normalize(tg);
   float r0 = uNoz[j].w;
+  float v0 = length(lmVel(j, u));
+  // continuity: the stream fattens where it slows at the top of the arc and slims as it falls
+  // again; and it leaves the nozzle through a small swelling (the meniscus at the orifice)
+  float cont = clamp(sqrt(v0 / max(spd, 0.05)), 0.8, 1.45);
+  float bulge = 1.0 + 0.6 * exp(-u * v0 / (2.4 * r0));
+  float rb = r0 * cont * bulge;
   // Rayleigh-Plateau: varicose ripples (wavelength ~9 radii) that grow with flight time
   float L = uNoiseNow - u;
-  float fL = length(lmVel(j, u)) / (9.0 * r0);
+  float fL = v0 / (9.0 * r0);
   float amp = Jp.z * exp(Jp.y * u) * (0.35 + 1.3 * tnoise(vec2(L * 1.3, float(j) * 5.0 + 20.0)));
   amp = min(amp, 1.5);
   float ph = TAU * fL * L + 3.0 * tnoise(vec2(L * 0.9, float(j) * 3.0 + 60.0));
-  float r = r0 * max(0.0, 1.0 + amp * sin(ph));
-  float drds = -r0 * amp * cos(ph) * TAU * fL / max(spd, 0.1);
+  float r = rb * max(0.0, 1.0 + amp * sin(ph));
+  float drds = -rb * amp * cos(ph) * TAU * fL / max(spd, 0.1);
   float uEnd, glow;
   float d = lmSeg(j, u, uEnd, glow) * spd;
-  float margin = r0 * 1.8 + 3.0 * du * spd;
-  float wid = (Jp.w > 0.5 && d > -margin) ? r0 * (1.0 + amp) * 1.2 : 0.0;
+  float margin = rb * 1.8 + 3.0 * du * spd;
+  float wid = (Jp.w > 0.5 && d > -margin) ? rb * (1.0 + amp) * 1.2 : 0.0;
   vec3 toC = c - cameraPosition;
   float dist = length(toC);
   if (wid > 0.0) wid += 1.5 * uPxK * dist;
@@ -394,6 +404,7 @@ void main() {
   vC = c;
   vT = tg;
   vR = r;
+  vRb = rb;
   vU = u;
   vSpeed = max(spd, 0.05);
   vDrds = r > 0.0 ? drds : 0.0;
@@ -412,7 +423,8 @@ uniform vec3 uAbsorb;
 ${JET_LIB}
 ${ENV}
 varying vec3 vWorld, vC, vT;
-varying float vR, vU, vSpeed, vDrds, vJet, vA;
+varying float vR, vRb, vU, vSpeed, vDrds, vJet, vA;
+uniform float uCoreFade, uSpecK;
 
 vec3 lmBehind(vec3 P, vec3 d) {
   if (uReflPass > 0.5) return lmAll(P, d);
@@ -453,7 +465,7 @@ void main() {
   vec3 n;
   bool capped = false;
   vec3 ce = vec3(0.0);
-  float rc = uNoz[j].w * 1.05;
+  float rc = vRb * 1.05;
   if (inside >= 0.0) {
     cov = clamp((r - dAx) / pw + 0.5, 0.0, 1.0);
     if (cov <= 0.0 || r <= 0.0) discard;
@@ -530,10 +542,31 @@ void main() {
   // the inner light: guided from the nozzle, leaking where the stream is disturbed
   float att = exp(-max(uf, 0.0) * uAtt);
   vec3 gc = uGlowCol[j] * glow * att;
-  float thick = path / (2.0 * max(r, rc * 0.5));
+  float thick = clamp(path / (2.0 * max(r, rc * 0.5)), 0.0, 1.0);
   float scat = uScatter + 1.6 * min(vA, 1.0) + abs(m1) * micro * 4.0;
-  // guided light shows as a luminous core; surface flaws and the TIR rims let some out
-  col += gc * (0.035 * thick * thick + scat * thick * 0.5 + trapped * 0.05);
+  // guided light shows as a thin hot core, brightest just out of the nozzle and fading along the
+  // arc; surface flaws, the TIR rims and the broken ends of a bolt let some out. The rest of the
+  // rod stays clear glass
+  float nearN = exp(-max(uf, 0.0) * uCoreFade);
+  float ax = dAx / max(r, 1e-4);
+  float core = exp(-ax * ax * 14.0) * (0.6 + 0.4 * nearN);
+  col += gc * (core * (0.02 + 0.9 * nearN) + scat * thick * 0.12 + trapped * 0.02 + (capped ? 0.35 * thick : 0.0));
+
+  // the lamps: sharp glints off the surface (strongest at grazing angles, so lamps behind the jets
+  // draw bright rims) and lamps seen straight through the rod, focused to a hot point by the lens
+  vec3 spec = vec3(0.0);
+  for (int i = 0; i < 8; i++) {
+    vec4 Lm = uLamps[i];
+    if (Lm.w <= 0.0) continue;
+    vec3 Ld = normalize(Lm.xyz - P);
+    vec3 hv = normalize(Ld - rd);
+    float ndh = max(dot(n, hv), 0.0);
+    float Fh = min(0.02 + 0.98 * pow(1.0 - max(dot(Ld, hv), 0.0), 5.0), 0.35);
+    // (the pool's half-size reflection only gets the soft lobe: sharp glints would alias into beads)
+    spec += Lm.w * Fh * (uReflPass > 0.5 ? pow(ndh, 50.0) * 0.25 : pow(ndh, 420.0) * 3.0 + pow(ndh, 50.0) * 0.06);
+    spec += Lm.w * pow(max(dot(rd3, Ld), 0.0), 900.0) * 0.35 * (1.0 - trapped);
+  }
+  col += uLampCol * spec * uSpecK;
 
   // trapped bubbles, carried along: each catches the inner light as a spark
   float cellL = Lf * 9.0;
@@ -1019,6 +1052,8 @@ export const laminar: SceneDef = {
         uMicro: { value: 0.05 },
         uBubbles: { value: 0.2 },
         uScatter: { value: 0.1 },
+        uCoreFade: { value: 5 },
+        uSpecK: { value: 0.1 },
         uGlowCol: { value: glowU },
         uAbsorb: { value: new THREE.Vector3(0.9, 0.25, 0.18) },
       },
@@ -1307,8 +1342,20 @@ export const laminar: SceneDef = {
       const tension = Math.min(1, Math.max(a.build, frame.feel.tension));
       const builds = num(p, 'builds', 1);
       const cuts = num(p, 'cuts', 1);
-      const grow = THREE.MathUtils.clamp(((I - 0.22) / 0.6) * builds + tension * 0.35 * builds, 0, 1);
-      const want = a.playing ? Math.max(1, Math.min(maxJ, 1 + Math.round((maxJ - 1) * grow))) : Math.max(1, Math.min(maxJ, nActive));
+      // hold back: one jet for quiet parts, two for a verse, a build adds them one by one, and every
+      // jet only plays once a drop has landed
+      const sec = frame.feel.section;
+      const peak = sec === 'drop' || frame.feel.release > 0.35;
+      const below = Math.max(1, maxJ - 1);
+      let want: number;
+      if (!frame.analysis) want = 1 + Math.round((maxJ - 1) * THREE.MathUtils.clamp((I - 0.3) / 0.55, 0, 1) * builds);
+      else if (peak) want = maxJ;
+      else if (sec === 'chorus') want = below - (I < 0.6 ? 1 : 0);
+      else if (sec === 'build' || tension > 0.3) want = 2 + Math.round(tension * builds * (maxJ - 3));
+      else if (sec === 'verse' || sec === 'bridge') want = I > 0.3 ? 2 : 1;
+      else want = I > 0.55 ? 2 : 1;
+      want = Math.max(1, Math.min(want, peak ? maxJ : below));
+      if (!a.playing) want = Math.max(1, Math.min(maxJ, nActive));
       if (preDrop) return;
       if (nActive < want) {
         const j = jets[ORDER[nActive]];
@@ -1439,7 +1486,9 @@ export const laminar: SceneDef = {
         const arc = num(p, 'arc', 1);
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
-          const target = SLOTS[ji].h * arc * (0.86 + 0.22 * I + 0.32 * tension * builds + 0.3 * dropBoost * builds);
+          // each jet breathes on its own slow pressure swell, so no two arcs move in step
+          const breathe = 1 + 0.07 * Math.sin(clock * (0.17 + 0.05 * ji) + ji * 1.9) + 0.03 * Math.sin(clock * (0.61 + 0.13 * ji) + ji * 4.1);
+          const target = SLOTS[ji].h * arc * breathe * (0.86 + 0.22 * I + 0.32 * tension * builds + 0.3 * dropBoost * builds);
           j.H = approach(j.H, Math.min(target, 1.9), 1.6, dt);
           launchVel(j, j.H, j.vel);
         }
@@ -1490,7 +1539,10 @@ export const laminar: SceneDef = {
         const thick = num(p, 'thickness', 1);
         const glow = num(p, 'glow', 1);
         const pair = bool(p, 'pair', false);
-        const lightLvl = glow * (setting === 1 ? 0.9 : setting === 2 ? 0.45 : 0.5) * (0.7 + 0.3 * I + 0.25 * dEnv + 0.1 * kickEnv);
+        // at night a lone jet in a quiet passage carries the whole picture, so it burns brighter
+        // than each of the many in a chorus
+        const lift = setting === 1 ? 1.6 - 0.7 * I : 0.7 + 0.3 * I;
+        const lightLvl = glow * (setting === 1 ? 0.9 : setting === 2 ? 0.45 : 0.5) * (lift + 0.25 * dEnv + 0.1 * kickEnv);
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
           nozU[ji].set(j.noz.x, j.noz.y, j.noz.z, 0.016 * thick * (1 + 0.08 * ((ji * 0.37) % 1)));
@@ -1516,7 +1568,8 @@ export const laminar: SceneDef = {
           const seedA = (0.0008 + 0.03 * Math.pow(dis, 1.5)) * (1 - 0.5 * quiet);
           jetU[ji].set(j.uL + 0.08, growth, seedA, visible ? 1 : 0);
           j.light = approach(j.light, j.active ? 1 : 0.12, 2, dt);
-          tmpC.copy(pair && ji % 2 === 1 ? pal.accent2 : pal.accent);
+          // no two lamps in the nozzles are quite the same colour
+          tmpC.copy(pair && ji % 2 === 1 ? pal.accent2 : pal.accent).lerp(pal.fg, 0.08 + 0.3 * ((ji * 0.618) % 1));
           linColor(tmpC, glowU[ji]).multiplyScalar(lightLvl * j.light * 1.6);
           landU[ji].set(j.land.x, j.land.y, j.foam, j.burst);
           nozLU[ji].set(j.noz.x, j.noz.z, j.light * (j.open ? 1 : 0.5), j.open ? 1 : 0);
@@ -1646,6 +1699,10 @@ export const laminar: SceneDef = {
         ju.tBg.value = bgRT.texture;
         (ju.uViewProj.value as THREE.Matrix4).copy(viewProj);
         ju.uAtt.value = setting === 1 ? 0.35 : 0.55;
+        // at night the guided light carries further along the arc
+        ju.uCoreFade.value = setting === 1 ? 3.5 : 5;
+        // dusk has no dark sky for the rods to stand out against: they read by their glints
+        ju.uSpecK.value = setting === 0 ? 0.15 : 0.1;
         ju.uMicro.value = 0.022 + 0.2 * (1 - ord) * (1 - ord);
         ju.uBubbles.value = Math.min(0.85, 0.12 + 0.35 * a.air + 0.15 * a.hat + 0.45 * (1 - ord));
         ju.uScatter.value = 0.06 + 0.1 * (1 - ord);
