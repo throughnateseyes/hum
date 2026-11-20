@@ -11,6 +11,7 @@ import { textWall } from './textWall';
 import { signalScan } from './signalScan';
 import { softOrbs } from './softOrbs';
 import { prism } from './prism';
+import { lensing } from './lensing';
 
 export const scenes: SceneDef[] = [liquidMarble, aura, chromeBlobs, slitSmear, topo, subPressure, flowHair, glyphMosaic];
 
@@ -19,3 +20,6 @@ scenes.push(textWall);
 
 // looks built from the reference boards
 scenes.push(signalScan, softOrbs, prism);
+
+// light bending round a mass
+scenes.push(lensing);

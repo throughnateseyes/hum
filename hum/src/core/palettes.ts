@@ -112,6 +112,12 @@ export const PALETTES: Palette[] = [
   { id: 'garden-botanical', name: 'Garden Botanical', bg: '#16142c', fg: '#f7ecd8', accent: '#ff5638', accent2: '#ffbf2e', muted: '#2f9a5c' },
   { id: 'garden-coral', name: 'Garden Coral', bg: '#f09a30', fg: '#fbf7ef', accent: '#1f5bd0', accent2: '#e2304e', muted: '#86bff2' },
   { id: 'garden-doodle', name: 'Garden Doodle', bg: '#1a3122', fg: '#f6ffc4', accent: '#b4ee3a', accent2: '#ffe24a', muted: '#3d9449' },
+  // overprint
+  { id: 'overprint-cream', name: 'Overprint Cream', bg: '#f2e5bd', fg: '#262447', accent: '#4f9a98', accent2: '#e4577b', muted: '#a8dcd0' },
+  { id: 'overprint-night', name: 'Overprint Night', bg: '#1d2038', fg: '#f1e4c4', accent: '#3d9d96', accent2: '#ef6a6f', muted: '#e5b54a' },
+  // lensing
+  { id: 'lensing-pastel', name: 'Lensing Pastel', bg: '#050507', fg: '#f4f1ff', accent: '#ffd27a', accent2: '#7ff0d0', muted: '#9a8cff' },
+  { id: 'lensing-ember', name: 'Lensing Ember', bg: '#0b0710', fg: '#fff1e4', accent: '#ff7a59', accent2: '#ffd36e', muted: '#c552d8' },
 ];
 
 export function getPalette(id: string): Palette {
