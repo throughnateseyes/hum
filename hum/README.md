@@ -226,9 +226,19 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   tip on kicks), **Dot Assembly** (dots pack into the song's title, a few more docking on each kick),
   **Gradient Cubes** (a toy box that rolls with the beat) and **Signal Scan** (the last seconds of
   the song as a black-and-white line-scan recording).
-- **Style chips** at the top of the Looks list filter by family (Worlds, Light, Particles, Forms,
-  Print, Type, Data, Photo, Boards) alongside the mood chips; with no song loaded the list is grouped
-  by family. The Scenes tab is grouped the same way.
+- **Looks come in families.** The Looks list shows one card per look idea (Willow, Night Windows,
+  Wing…), not every colourway of it. The little swatches on a card are its **takes**, the same idea
+  in another palette or mood (Willow by day and by moonlight); click one to switch. Search finds a look
+  by name, idea, take or tag. **Part** filters to looks that do that job in a song (Intro, Verse,
+  Build, Drop, Break, Bridge, Outro), and with a song loaded **Playing now** follows the part under
+  the playhead. **Theme** filters by what a look is of (Nature, Night city, Club, Light, Paper,
+  Graphic, Type, Retro tech, Data, Photo, Boards). With a song loaded the list stays **Ranked for this
+  track**; with no song it's grouped by theme. Looks you saved sit under **Yours**. The Scenes tab is
+  grouped by style.
+- **Takes strip** (top of the right column): the family of the look on screen, what it's best for
+  ("Best for intro, verse, breakdown · drifts · quiet to lively") and every take, built-in and your
+  own, one click each. **Save take** keeps what's on screen (colours, sliders, effects) as a new take
+  of that family; Director looks are filed under the family of the scene they're built on.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -351,9 +361,24 @@ start-up delay, measured once per session, so sound and picture line up to the s
   step at 2:41.* The same spectra feed the section finder, so analysis got about 20% faster, not
   slower. Major and minor triads only (a G7 reads as G); busy, distorted mixes get chord qualities
   wrong more often than the key.
-- **Style families** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
-  `form`, `print`, `type`, `data`, `photo`, `board`). The library filters and groups by them, and the
-  video planner keeps a part's shots inside one family.
+- **Styles** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
+  `form`, `print`, `type`, `data`, `photo`, `board`). The Scenes tab groups by them, and the video
+  planner leans towards keeping a part's shots inside one style.
+- **Look families and fit** (`src/presets/families.ts`, `src/presets/fit.ts`). A family is one look
+  idea; its takes are the presets that are that idea in another palette or setting. Ids never change:
+  the family table groups existing preset ids, so saved plans, taste memory and custom looks keep
+  working. Each family carries hand-judged **fit**: the song parts it serves best (`roles`, best
+  first), the energy range it feels right at, how it moves (`still`, `drifting`, `pulsing`,
+  `explosive`), its themes, and the families it **pairs** with or **clashes** with. A take shifts its
+  family's energy range a little by its own tags. `fitScore(look, part, energy)` and
+  `neighbourScore(a, b)` are what the planner uses: picking a look for each part
+  (`tastefulRoles`), the rotation inside a part (`relatedLooks`, judged at that part's own energy),
+  the drop look and the board interlude all score by fit, and takes of one family count as the
+  same look. Two takes never sit side by side or rotate together, because with Song colours on they
+  look almost alike. The Director gets one line per family with its fit, pairs, clashes and takes
+  (`compactLooks` in `server/planPrompt.ts`; the format is explained once in the cached system
+  prompt), and the shortlist sends 30 families with up to 3 takes each (`src/director/shortlist.ts`).
+  At 300 looks that's 37% fewer characters than one line per look.
 - **Shared engines for scenes:** `tnoise` / `tfbm` read a shared noise texture (several times cheaper
   than computed noise; `src/core/noise.ts`), and `Flock` (`src/core/flock.ts`) steers a few thousand
   bodies for anything made of a crowd.
@@ -388,7 +413,17 @@ start-up delay, measured once per session, so sound and picture line up to the s
   stall on a compile. Dev console: `await __hum.perf.moments()`, `__hum.perf.rungs()`,
   `__hum.perf.hitch(ids, 'async')` time frames at 1080p (`src/dev/perfProbe.ts`).
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
-- **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
+- **Adding a look:** an entry in `src/presets/library.ts`. Tags matter: the analyser matches on them,
+  and they're what fit is guessed from when a look has none. Then file it:
+  - *a new take of an existing family*: add its id to that family's `takes` in
+    `src/presets/families.ts` with a short name (the first take is the one cards lead with), or put
+    `family: '<family id>', variant: '<take name>'` on the preset itself;
+  - *a new idea*: add a family entry to `FAMILY_TABLE` with `roles`, `energy`, `motion`, `themes` and
+    any `pairs` / `clashes` (a one-take family can be keyed by the look's own id);
+  - *nothing*: the look shows as a family of its own with fit inferred from its tags and style. That
+    works, but hand-judged fit plans better. A preset can also carry a partial `fit` to correct only
+    what the guess gets wrong.
+  In dev the console warns about family entries that name looks or families that don't exist.
 
 Colour management is off on purpose: palette hex values go into shaders untouched.
 

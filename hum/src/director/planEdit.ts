@@ -8,6 +8,7 @@
  * get their cut, and the saved plan for the song is updated (planCache.ts).
  */
 import { lookStyle } from '../core/styles';
+import { familyIdOf, familyOf } from '../presets/fit';
 import { cleanPlanTransition } from '../core/transitionList';
 import type { TrackAnalysis } from '../core/types';
 import { allLooks, ensureDropCuts, findLook, sectionDrops, type VideoPlan } from '../state/plan';
@@ -108,7 +109,7 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
   // prompt cache after the first one
   const looks = allLooks()
     .filter((p) => getScene(p.sceneId))
-    .map((p) => ({ id: p.id, tags: p.tags.slice(0, 4), style: lookStyle(p) }));
+    .map((p) => ({ id: p.id, tags: p.tags.slice(0, 4), style: lookStyle(p), family: familyIdOf(p), roles: familyOf(p).fit.roles.slice(0, 3) }));
   const drops = sectionDrops(a);
   let res: Response;
   try {
