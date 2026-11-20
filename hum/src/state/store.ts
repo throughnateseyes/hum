@@ -20,6 +20,7 @@ import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { PRESETS } from '../presets';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
+import { keepPlan } from './planCache';
 import { isTransitionId, type TransitionId } from '../core/transitionList';
 import { isFinishId, type FinishId } from '../core/direction';
 
@@ -165,6 +166,8 @@ export interface StudioState extends LookState {
   clearChat: () => void;
   set: (patch: Partial<StudioState>) => void;
   flash: (msg: string) => void;
+  /** how busy one part's pop-up windows are in the video plan: 0 none … 3 lots (saved with the plan) */
+  setPartPops: (sectionIndex: number, level: number) => void;
 }
 
 export const HAND_DEFAULT: HandStyle = { on: true, fps: 60, wobble: 0.5, inks: 3, paper: 0.6, misprint: 0.45, lines: 0.35 };
@@ -448,5 +451,15 @@ export const useStudio = create<StudioState>((set, get) => ({
     clearTimeout(toastTimer);
     set({ toast: msg });
     toastTimer = setTimeout(() => set({ toast: null }), 2600);
+  },
+  setPartPops: (sectionIndex, level) => {
+    const { plan, analysis } = get();
+    if (!plan || !analysis || plan.looks.length !== analysis.sections.length) return;
+    if (sectionIndex < 0 || sectionIndex >= analysis.sections.length) return;
+    const pops = analysis.sections.map((_, j) => plan.pops?.[j] ?? 1);
+    pops[sectionIndex] = Math.max(0, Math.min(3, Math.round(level)));
+    const next = { ...plan, pops };
+    set({ plan: next });
+    keepPlan(next);
   },
 }));

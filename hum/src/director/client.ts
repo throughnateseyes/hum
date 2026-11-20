@@ -494,6 +494,8 @@ export interface PlanRequest {
   wps?: number[];
   /** this render's suggested type family (seeded), so takes vary */
   lyricTake?: TypeFamily;
+  /** a mood picked by the person (presets/moods.ts): `looks` then holds only its world's looks */
+  mood?: { name: string; world: string; finish: string; transitions: string };
 }
 export type PlanReply =
   | {
@@ -539,6 +541,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         lyrics: req.lyrics,
         ...(req.taste ? { taste: req.taste } : {}),
         ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
+        ...(req.mood ? { mood: req.mood } : {}),
         accessCode,
       }),
       opts,

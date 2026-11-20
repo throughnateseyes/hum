@@ -101,6 +101,18 @@ export function forgetPlans() {
   }
 }
 
+/**
+ * Save the plan on screen for the loaded song now, and keep saving its changes. A plan changed by
+ * hand (the part sheet) is the person's video, so it's kept whoever planned it.
+ */
+export function keepPlan(plan: VideoPlan) {
+  const s = useStudio.getState();
+  if (!s.track || s.track.source === 'mic' || !s.analysis || plan.looks.length !== s.analysis.sections.length) return;
+  const key = planKey(s.track.name, s.analysis, s.lyrics);
+  savePlan(key, plan);
+  watchPlan(key, plan, s.analysis);
+}
+
 /* ── keep the saved plan up to date as the person edits it ── */
 
 let watching: { key: string; plan: VideoPlan; analysis: TrackAnalysis } | null = null;

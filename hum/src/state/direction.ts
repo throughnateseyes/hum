@@ -10,6 +10,7 @@
 import { FINISH_MOTION, finishName, TRANSITION_SETS, type Direction, type FinishId, type TransitionSetId } from '../core/direction';
 import { lookStyle, type StyleId } from '../core/styles';
 import type { Preset, TrackAnalysis } from '../core/types';
+import { moodFinish, type Mood } from '../presets/moods';
 import type { TransitionId } from '../core/transitionList';
 import type { VideoPlan } from './plan';
 import { useStudio, type StudioState } from './store';
@@ -132,5 +133,24 @@ export function localDirection(a: TrackAnalysis, looks: (Preset | undefined)[], 
     transitions,
     type: TYPE_HINT[finish][hard ? 1 : 0],
     why: `${finishName(finish)}: the whole video ${WHY[finish]}${main ? `, around “${main.name}”` : ''}, with ${TRANSITION_SETS[transitions].ai}.`,
+  };
+}
+
+/**
+ * The direction of a video planned in a mood (presets/moods.ts): the mood's own finish (its soft or
+ * its loud one, by the song) and transition set. `type` keeps a type hint another planner chose.
+ */
+export function moodDirection(a: TrackAnalysis, mood: Mood, looks: (Preset | undefined)[], type?: string): Direction {
+  const ar = a.mood.arousal;
+  const finish = moodFinish(mood, ar);
+  const transitions = mood.transitions;
+  const m = a.character?.mood ?? a.tags[0] ?? '';
+  const hard = !(SOFT.includes(m) || ar < 0.3) && ar > 0.62;
+  const main = looks.find(Boolean);
+  return {
+    finish,
+    transitions,
+    type: type ?? TYPE_HINT[finish][hard ? 1 : 0],
+    why: `${mood.name}: one world all the way through, ${WHY[finish]}${main ? `, around “${main.name}”` : ''}, with ${TRANSITION_SETS[transitions].ai}.`,
   };
 }

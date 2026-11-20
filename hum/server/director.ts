@@ -422,6 +422,25 @@ function capBytes(s: string, max: number): string {
   return s.slice(0, lo);
 }
 
+/**
+ * mood: { name, world, finish, transitions } → the few lines that keep a plan in one world. The app
+ * sends only that world's looks with it, so this says why the list is short and what to vary instead.
+ */
+export function describeMood(m: unknown): string {
+  if (!isObj(m) || typeof m.name !== 'string' || !m.name.trim()) return '';
+  const s = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[^\w\s,.&'-]/g, '').replace(/\s+/g, ' ').trim().slice(0, n) : '');
+  const finish = (FINISH_IDS as readonly string[]).includes(m.finish as string) ? (m.finish as string) : '';
+  const transitions = (TRANSITION_SET_IDS as readonly string[]).includes(m.transitions as string) ? (m.transitions as string) : '';
+  const world = s(m.world, 120);
+  return [
+    `Mood: ${s(m.name, 24)}${world ? ` (${world})` : ''}. The person picked this mood so the whole video stays in one world.`,
+    'Every look listed belongs to it: use only those. Let the parts differ in intensity, by take and by neighbouring families of this world, never by an unrelated scene.',
+    finish || transitions ? `Set direction to${finish ? ` finish ${finish}` : ''}${finish && transitions ? ',' : ''}${transitions ? ` transitions ${transitions}` : ''}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 /** character: { genre, confidence, instruments, mood } → one line */
 function describeCharacter(c: unknown): string {
   if (!isObj(c) || typeof c.genre !== 'string') return '';
@@ -605,6 +624,10 @@ ${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
     mode === 'plan'
       ? [`Wish: ${prompt || '(none — direct it from the music)'}`]
       : [`Request: ${prompt || '(no words — design from the track)'}`];
+  if (mode === 'plan') {
+    const mood = describeMood(body.mood);
+    if (mood) parts.push(mood);
+  }
   if (track) parts.push(`Track analysis:\n${track}`);
   if (mode === 'plan') {
     const character = describeCharacter(body.character);

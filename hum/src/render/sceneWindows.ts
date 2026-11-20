@@ -9,7 +9,8 @@ import { getScene } from '../scenes';
 import { lum, makeInk, rgba, setFont, MONO } from '../scenes/board/kit';
 import type { Ink } from '../scenes/board/kit';
 import { resolveParams } from '../state/modulation';
-import { allLooks, findLook, relatedLooks, sectionIndexAt, songTinted } from '../state/plan';
+import { allLooks, findLook, playingMood, relatedLooks, sectionIndexAt, songTinted } from '../state/plan';
+import { moodFilter } from '../presets/moods';
 import type { WindowKind } from '../state/store';
 import { FxChain } from './fxChain';
 import { paperInk } from './popups';
@@ -381,12 +382,14 @@ export class SceneWindows {
 
   /** looks related to the main one when the song map knows it, else the same style family, then anything */
   private pickLook(base: Omit<FrameContext, 'params'>, opts: { mainPresetId: string | null; mainSceneId: string }): Preset | null {
+    // a video planned in a mood keeps its windows in that world too
+    const inMood = moodFilter(playingMood());
     const ok = (p: Preset) => {
       const d = getScene(p.sceneId);
-      return !!d && d.category !== 'board' && !d.showsLyrics && p.id !== opts.mainPresetId && this.allowed(p.sceneId, opts.mainSceneId);
+      return !!d && d.category !== 'board' && !d.showsLyrics && p.id !== opts.mainPresetId && this.allowed(p.sceneId, opts.mainSceneId) && (!inMood || inMood(p));
     };
     const main = findLook(opts.mainPresetId);
-    const related = main && base.analysis ? relatedLooks(main.id, base.analysis).map((id) => findLook(id)).filter((p): p is Preset => !!p && ok(p)) : [];
+    const related = main && base.analysis ? relatedLooks(main.id, base.analysis, [], undefined, undefined, inMood).map((id) => findLook(id)).filter((p): p is Preset => !!p && ok(p)) : [];
     const fam = main ? lookStyle(main) : sceneStyle(getScene(opts.mainSceneId));
     const rest = allLooks().filter((p) => !p.custom && ok(p) && !related.includes(p));
     const tiers = [related, rest.filter((p) => lookStyle(p) === fam), rest.filter((p) => lookStyle(p) !== fam)];
