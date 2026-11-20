@@ -37,22 +37,11 @@ type Mode = 'main' | 'paste' | 'search';
  */
 export function LyricsChip() {
   const status = useStudio((s) => s.lyricsStatus);
-  const lyrics = useStudio((s) => s.lyrics);
-  const note = useStudio((s) => s.lyricsNote);
   const style = useStudio((s) => s.lyricStyle);
-  const font = useStudio((s) => s.lyricFont);
-  const onBoards = useStudio((s) => s.lyricsOnBoards);
   const sync = useStudio((s) => s.lyricsSync);
-  const matched = useStudio((s) => s.lyricsMatched);
-  const query = useStudio((s) => s.lyricsQuery);
-  const autoSync = useStudio((s) => s.lyricsAutoSync);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>('main');
-  const [more, setMore] = useState(false);
-  const [text, setText] = useState('');
-  const [offset, setOffset] = useState(0);
+  const [wide, setWide] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!open) return;
@@ -61,12 +50,6 @@ export function LyricsChip() {
     };
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
-  }, [open]);
-  useEffect(() => {
-    if (!open) {
-      setMode('main');
-      setOffset(0);
-    }
   }, [open]);
 
   if (status === 'idle' && !sync) return null;
@@ -87,6 +70,68 @@ export function LyricsChip() {
             : canListen
               ? 'Add lyrics'
               : 'No lyrics';
+
+  return (
+    <div className="lyr" ref={box}>
+      <button className={`lyr-chip ${sync ? 'searching' : status}`} onClick={() => status !== 'searching' && setOpen(!open)}>
+        {sync || status === 'searching' ? <span className="spin" /> : <i className="lyr-dot" />}
+        {label}
+      </button>
+      {open && (
+        <div className={`lyr-pop ${wide ? 'wide' : ''}`}>
+          <LyricsBody onClose={() => setOpen(false)} onMode={(m) => setWide(m === 'search')} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The phone's Lyrics panel (in the bottom sheet): the same as the chip's popover, laid out in the
+ * sheet. `onClose` closes the sheet when an action moves on (tap timing, a search result picked).
+ */
+export function LyricsPanel({ onClose }: { onClose: () => void }) {
+  const status = useStudio((s) => s.lyricsStatus);
+  const sync = useStudio((s) => s.lyricsSync);
+  const track = useStudio((s) => s.track);
+  if (status === 'idle' && !sync)
+    return (
+      <p className="sheet-empty">
+        {!track ? 'Load a song and Hum finds its lyrics on its own.' : track.source === 'file' ? 'Looking for this song’s lyrics…' : 'Demos and live sound have no lyrics.'}
+      </p>
+    );
+  return (
+    <div className="lyr-panel">
+      <LyricsBody onClose={onClose} />
+    </div>
+  );
+}
+
+/** what the lyrics popover holds: the lyrics found, sync, style and font, and More */
+function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mode) => void }) {
+  const status = useStudio((s) => s.lyricsStatus);
+  const lyrics = useStudio((s) => s.lyrics);
+  const note = useStudio((s) => s.lyricsNote);
+  const style = useStudio((s) => s.lyricStyle);
+  const font = useStudio((s) => s.lyricFont);
+  const onBoards = useStudio((s) => s.lyricsOnBoards);
+  const sync = useStudio((s) => s.lyricsSync);
+  const matched = useStudio((s) => s.lyricsMatched);
+  const query = useStudio((s) => s.lyricsQuery);
+  const autoSync = useStudio((s) => s.lyricsAutoSync);
+  const [mode, setModeState] = useState<Mode>('main');
+  const [more, setMore] = useState(false);
+  const [text, setText] = useState('');
+  const [offset, setOffset] = useState(0);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const setMode = (m: Mode) => {
+    setModeState(m);
+    onMode?.(m);
+  };
+  const setOpen = (v: boolean) => {
+    if (!v) onClose();
+  };
+  const canListen = canSyncLyrics();
   const who = lyrics ? [lyrics.artist, lyrics.title].filter(Boolean).join(' — ') : '';
   /** the words to listen for: the lines on screen, or the untimed words */
   const words = lyrics?.lines.length ? lyrics.lines.map((l) => l.text).join('\n') : (lyrics?.plain ?? '');
@@ -120,13 +165,7 @@ export function LyricsChip() {
   };
 
   return (
-    <div className="lyr" ref={box}>
-      <button className={`lyr-chip ${sync ? 'searching' : status}`} onClick={() => status !== 'searching' && setOpen(!open)}>
-        {sync || status === 'searching' ? <span className="spin" /> : <i className="lyr-dot" />}
-        {label}
-      </button>
-      {open && (
-        <div className={`lyr-pop ${mode === 'search' ? 'wide' : ''}`}>
+    <>
           {sync ? (
             <>
               <div className="lyr-h">Syncing to the singing</div>
@@ -321,9 +360,7 @@ export function LyricsChip() {
               )}
             </>
           )}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 

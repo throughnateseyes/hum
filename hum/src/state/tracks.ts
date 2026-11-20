@@ -8,13 +8,20 @@ import { DEMO_TRACKS } from '../audio/demoTracks';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { useStudio, type TrackInfo } from './store';
+import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
 
 const demoCache = new Map<string, Blob>();
 let loadToken = 0;
 
-/** Load audio, start playing, analyse it, then theme the stage from the analysis. */
+/**
+ * Load audio, analyse it, then either plan its video and play it from the top (one-tap start, the
+ * default: see oneTap.ts), or play it at once and theme the stage from the analysis (one-tap off).
+ * Call it straight from the tap, click or drop that chose the song: that gesture is what lets the
+ * song play once it's ready.
+ */
 export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean } = {}) {
   const token = ++loadToken;
+  const oneTap = useStudio.getState().oneTap && opts.autoTheme !== false;
   // the last song's lyrics may still be being listened to: stop that, it's no use now
   cancelListening();
   lastFile = info.source === 'file' ? { blob, name: info.name } : null;
@@ -23,13 +30,19 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   retimed = null;
   songBuf = null;
   const st = useStudio.getState();
-  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
+  st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false, needsTap: false });
   const ctx = audioEngine.ensureContext();
+  if (oneTap) {
+    // still inside the gesture: unlock the player now, it plays once the video is planned
+    audioEngine.unlock();
+    beginStartup();
+  } else endStartup();
   try {
     await audioEngine.loadFile(blob, null);
-    void audioEngine.play().catch(() => {});
+    if (!oneTap) void audioEngine.play().catch(() => {});
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     if (token !== loadToken) return;
+    if (oneTap) startupKnows(buf.duration);
     songBuf = buf;
     if (info.source === 'file') lastBuf = buf;
     // lyrics are looked up alongside the analysis (demo tracks are instrumental)
@@ -41,7 +54,14 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     if (token !== loadToken) return;
     audioEngine.setAnalysis(analysis);
     useStudio.getState().set({ analysis, analyzing: false });
-    if (opts.autoTheme !== false) {
+    if (oneTap) {
+      // no parts to plan (a very short or very even sound): just play it
+      if (analysis.sections.length) void planAndPlay(analysis, () => token === loadToken);
+      else {
+        endStartup();
+        void tapToPlay();
+      }
+    } else if (opts.autoTheme !== false) {
       const pick = analysis.suggestedPresets.map((id) => PRESETS.find((p) => p.id === id)).find(Boolean);
       if (pick) {
         useStudio.getState().applyPreset(pick);
@@ -51,6 +71,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   } catch (e) {
     console.error(e);
     if (token === loadToken) {
+      endStartup();
       useStudio.getState().set({ analyzing: false });
       useStudio.getState().flash('Could not read that audio file');
     }
@@ -467,7 +488,8 @@ export function forgetSavedLyrics() {
 export async function loadDemo(id: string) {
   const d = DEMO_TRACKS.find((t) => t.id === id);
   if (!d) return;
-  audioEngine.ensureContext();
+  // still inside the tap that picked it: let the song start on its own once it's planned
+  audioEngine.unlock();
   let blob = demoCache.get(id);
   if (!blob) {
     blob = d.render();
@@ -484,7 +506,8 @@ export async function useMic() {
     songBuf = null;
     lastBuf = null;
     lastFile = null;
-    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
+    endStartup();
+    useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, needsTap: false, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   } catch {
     useStudio.getState().flash('Microphone permission was denied');
   }
@@ -523,11 +546,14 @@ export async function useTab() {
   songBuf = null;
   lastBuf = null;
   lastFile = null;
-  useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
+  endStartup();
+  useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, needsTap: false, analysis: null, analyzing: false, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   flash('Listening to the tab. Play the song there.');
 }
 
 export async function handleFiles(files: FileList | File[]) {
+  // a drop is a gesture: use it to let the song start once it's planned (a picked file was unlocked by the tap that opened the picker)
+  audioEngine.unlock();
   const list = Array.from(files);
   // music videos work too: the browser decodes their soundtrack
   const audio = list.find((f) => f.type.startsWith('audio/') || f.type.startsWith('video/') || /\.(mp3|wav|m4a|aac|ogg|flac|opus|mp4|m4v|mov|webm)$/i.test(f.name));

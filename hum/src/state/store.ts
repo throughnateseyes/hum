@@ -43,6 +43,13 @@ export type LyricsStatus = 'idle' | 'searching' | 'found' | 'plain' | 'none' | '
 /** progress while pasted lyrics are being synced to the song */
 export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: number } | null;
 
+/**
+ * One-tap start: what a newly loaded song is doing on its way to a playing video (the stage shows one
+ * calm progress state for it). 'listen': being decoded and analysed; 'plan': the video being planned.
+ * `since` (ms) and `duration` (s, the song's length once known) let the stage pace its progress bar.
+ */
+export type Startup = { step: 'listen' | 'plan'; since: number; duration: number } | null;
+
 export interface ClipProgress {
   phase: 'prep' | 'rec' | 'save';
   frac: number;
@@ -140,6 +147,12 @@ export interface StudioState extends LookState {
   transitionBeats: number;
   /** the finish over every look: 'auto' follows the playing video's Direction (else Hand-drawn when it's on) */
   finish: 'auto' | FinishId;
+  /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
+  oneTap: boolean;
+  /** a one-tap start under way (null when nothing is loading) */
+  startup: Startup;
+  /** the song is ready but the browser wouldn't start sound without a tap: the stage shows a big play button */
+  needsTap: boolean;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -220,6 +233,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
       lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
       lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
+      oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
     };
   } catch {
     return {};
@@ -254,6 +268,7 @@ function persist(s: StudioState) {
         transition: s.transition,
         transitionBeats: s.transitionBeats,
         finish: s.finish,
+        oneTap: s.oneTap,
       }),
     );
   } catch {
@@ -342,6 +357,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
   finish: persisted.finish ?? 'auto',
+  oneTap: persisted.oneTap ?? true,
+  startup: null,
+  needsTap: false,
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -442,7 +460,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

@@ -6,6 +6,7 @@
  * plays. Choosing audio is the one big action; demos, the microphone and a tab are quiet extras.
  */
 import { useEffect, useRef } from 'react';
+import { audioEngine } from '../audio/engine';
 import { DEMO_TRACKS } from '../audio/demoTracks';
 import { useStudio } from '../state/store';
 import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from '../state/tracks';
@@ -182,7 +183,12 @@ export function Welcome() {
 
       <button
         className="wl-choose"
-        onClick={() => input.current?.click()}
+        onClick={() => {
+          // this tap is the gesture that lets the song play once it's planned (the picker's own
+          // change event doesn't count as one on iPhone)
+          audioEngine.unlock();
+          input.current?.click();
+        }}
         onPointerEnter={() => (hot.current = true)}
         onPointerLeave={() => (hot.current = false)}
         onFocus={() => (hot.current = true)}

@@ -28,7 +28,7 @@ import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
 import { isTweak } from './editIntent';
 import { localDirect } from './local';
-import { postDirector } from './access';
+import { aiAllowedQuietly, postDirector } from './access';
 import { cleanPlanTransition, type PlanTransition } from '../core/transitionList';
 import { LYRIC_MEDIUMS, LYRIC_MOMENTS, TYPE_FAMILIES, type LyricMedium, type LyricMoment, type LyricPart, type TypeFamily } from '../state/lyricPlan';
 
@@ -403,6 +403,8 @@ export interface DirectOptions {
   /** defaults to '/api/director' */
   endpoint?: string;
   signal?: AbortSignal;
+  /** nobody pressed a button for this (one-tap start): never open the access gate, stay offline instead */
+  quiet?: boolean;
 }
 
 function fallback(req: DirectorRequest, reason: string): DirectorResponse {
@@ -526,6 +528,7 @@ export type PlanReply =
  */
 export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): Promise<PlanReply> {
   let res: Response;
+  if (opts.quiet && !aiAllowedQuietly()) return { ok: false, reason: 'The AI director needs an access code or is off here, so this is the offline plan.' };
   try {
     res = await postDirector(
       (accessCode) => ({

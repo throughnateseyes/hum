@@ -867,16 +867,60 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
   if (cacheKey && !wish.trim() && !opts.fresh) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     if (saved) {
-      startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim());
+      void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim());
       watchPlan(cacheKey, saved, a);
       return;
     }
   }
   s.set({ planning: true });
+  const { plan, reason } = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a), { wish });
+  // the song may have changed while Claude was thinking
+  const now = useStudio.getState();
+  if (now.analysis !== a) {
+    now.set({ planning: false });
+    return;
+  }
+  if (cacheKey && plan.source === 'claude') {
+    savePlan(cacheKey, plan);
+    watchPlan(cacheKey, plan, a);
+  }
+  now.set({ planning: false });
+  void startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim());
+}
+
+/** the saved Claude plan for the loaded song, if there is one (Make a video plays it again for free) */
+export function savedPlanFor(a: TrackAnalysis): { plan: VideoPlan; key: string } | null {
+  const s = useStudio.getState();
+  const key = s.track ? planKey(s.track.name, a, s.lyrics) : null;
+  const plan = key ? savedPlan(key, a, (id) => !!findLook(id)) : null;
+  return key && plan ? { plan, key } : null;
+}
+
+/** remember a Claude plan for this song and keep its saved copy up to date as it's edited */
+export function keepPlan(plan: VideoPlan, a: TrackAnalysis) {
+  const s = useStudio.getState();
+  if (!s.track || plan.source !== 'claude') return;
+  const key = planKey(s.track.name, a, s.lyrics);
+  savePlan(key, plan);
+  watchPlan(key, plan, a);
+}
+
+/** an offline plan with its lyric video planned too (what one-tap start plays first) */
+export async function offlineVideoPlan(a: TrackAnalysis, lyr: Lyrics | null): Promise<VideoPlan> {
+  const { getScene } = await import('../scenes');
+  return withLyricPlan(freshLocalPlan(a), a, lyr, null, getScene, (Math.random() * 2 ** 31) | 0);
+}
+
+/**
+ * Ask Claude for a plan for this song (the offline plan, with its lyric plan, when Claude isn't
+ * reachable or says no). `quiet`: nobody pressed a button (one-tap start), so the access gate never
+ * opens and a site that wants a code just gets the offline plan.
+ */
+export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, offline: VideoPlan, opts: { wish?: string; quiet?: boolean } = {}): Promise<{ plan: VideoPlan; reason: string }> {
+  const wish = opts.wish ?? '';
   const { requestPlan } = await import('../director/client');
   const { familyPayload, shortlistLooks } = await import('../director/shortlist');
   const { getScene } = await import('../scenes');
-  const lyr = s.lyrics;
   const taste = tasteSummary(a);
   // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
   // cost: the families that suit this song (all of them when there's a wish), each family on one
@@ -889,7 +933,6 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
     ),
     a,
   );
-  const offline = freshLocalPlan(a);
   let plan: VideoPlan = offline;
   let reason = '';
   let claudeLyric: { family: TypeFamily | null; parts: (LyricPart | null)[] } | null = null;
@@ -933,6 +976,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
       },
       // the saved access code is sent by the client; a missing or wrong one opens the access gate,
       // which retries this request once it's unlocked (closing it keeps the offline plan)
+      { quiet: opts.quiet },
     );
     if (r.ok) claudeLyric = r.lyric;
     if (r.ok) {
@@ -957,29 +1001,33 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
   } catch (e) {
     reason = String(e);
   }
-  plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
-  // the song may have changed while Claude was thinking
-  const now = useStudio.getState();
-  if (now.analysis !== a) {
-    now.set({ planning: false });
-    return;
-  }
-  if (cacheKey && plan.source === 'claude') {
-    savePlan(cacheKey, plan);
-    watchPlan(cacheKey, plan, a);
-  }
-  now.set({ planning: false });
-  startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim());
+  // an offline plan already carries its lyric plan
+  if (plan !== offline || !offline.lyricPlan) plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
+  return { plan, reason };
 }
 
-/** put a plan on, say so in the chat and play the song from the top */
-function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string) {
+/**
+ * Put a plan on, say so in the chat and play the song from the top. Resolves true once sound has
+ * really started, false when the browser wants a tap first (or `play` is false: the caller plays).
+ */
+export function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string, opts: { play?: boolean } = {}): Promise<boolean> {
   const now = useStudio.getState();
   rememberPlan(a, planSignature(plan));
   now.set({ plan, planOn: true, autoPilot: false });
   now.pushChat({ role: 'director', mode: 'plan', title: plan.title, text, source: plan.source, via: plan.via });
   audioEngine.seek(0);
-  void audioEngine.play().catch(() => {});
+  if (opts.play === false) return Promise.resolve(false);
+  return audioEngine.start().then((ok) => {
+    useStudio.getState().set({ needsTap: !ok });
+    return ok;
+  });
+}
+
+/** the lyrics arrived (or changed) after this plan was made: give it a lyric plan for them */
+export async function withLyricsNow(plan: VideoPlan, a: TrackAnalysis, lyr: Lyrics | null): Promise<VideoPlan> {
+  const { getScene } = await import('../scenes');
+  const bare: VideoPlan = { ...plan, lyricPlan: undefined, note: plan.note.replace(/ Lyrics: .*$/, '') };
+  return withLyricPlan(bare, a, lyr, null, getScene, plan.lyricPlan?.seed ?? ((Math.random() * 2 ** 31) | 0));
 }
 
 /* ───────────────────────── taste memory ───────────────────────── */

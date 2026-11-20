@@ -160,6 +160,8 @@ export function PerformControls() {
   const seekable = useStudio((s) => !!s.track && s.track.source !== 'mic');
   const [playing, setPlaying] = useState(audioEngine.playing);
   const [shown, setShown] = useState(true);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
   const timer = useRef<number | undefined>(undefined);
   const hovering = useRef(false);
   const dragging = useRef(false);
@@ -181,7 +183,18 @@ export function PerformControls() {
       }, ms);
     };
     wakeRef.current = wake;
-    const onPointer = (e: PointerEvent) => wake(e.pointerType === 'touch' ? TOUCH_IDLE_MS : IDLE_MS);
+    const onPointer = (e: PointerEvent) => {
+      // a touch on the picture is a tap or a swipe (stageGestures.ts): a tap toggles the bar below
+      if (e.pointerType === 'touch' && (e.target as HTMLElement).closest?.('.stage-frame')) return;
+      wake(e.pointerType === 'touch' ? TOUCH_IDLE_MS : IDLE_MS);
+    };
+    const onStageTap = () => {
+      if (shownRef.current && !dragging.current) {
+        window.clearTimeout(timer.current);
+        setShown(false);
+      } else wake(TOUCH_IDLE_MS);
+    };
+    window.addEventListener('hum:stage-tap', onStageTap);
     const onKey = () => wake();
     // the pointer left the window: nothing to hover, so get out of the way
     const onOut = (e: MouseEvent) => {
@@ -197,6 +210,7 @@ export function PerformControls() {
     document.addEventListener('mouseout', onOut);
     return () => {
       window.clearTimeout(timer.current);
+      window.removeEventListener('hum:stage-tap', onStageTap);
       window.removeEventListener('pointermove', onPointer);
       window.removeEventListener('pointerdown', onPointer);
       window.removeEventListener('keydown', onKey);
