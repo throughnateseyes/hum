@@ -84,9 +84,9 @@ const params: ParamDef[] = [
 
 const SIM_W = 512;
 const SIM_H = 256;
-const ROW_N = 40;
-const ROW_P = 1408;
-const MINI_N = 60;
+const ROW_N = 24;
+const ROW_P = 2560;
+const MINI_N = 48;
 const MINI_P = 512;
 const SHOT_N = 10;
 const SLOTS = 5;
@@ -116,6 +116,8 @@ const miniX = (j: number) => -54 + (108 * j) / (MINI_N - 1);
 const miniZ = (x: number) => -56 - 12 * (x / 54) ** 2;
 const shotX = (s: number) => -56 + (112 * s) / (SHOT_N - 1);
 const CROWN_Z = -66;
+/** by day the small jets ring the aerator's foot at this radius (m) */
+const RING_R = 2.6;
 const slotIndex = (s: number, j: number) => (j === 0 ? SHOT0 + s : SLOT0 + s * (SLOTS - 1) + (j - 1));
 
 /* ───────────────────────── GLSL: simulation ───────────────────────── */
@@ -226,7 +228,7 @@ void main() {
       vec2 rr = normalize(vec2(rb - 0.5, rc - 0.5) + 1e-4);
       float pw = clamp(n1.w / 35.0, 0.3, 1.2);
       v0 = vec3(rr.x * (3.0 + 9.0 * rd), 2.0 + 10.0 * re, rr.y * (3.0 + 9.0 * rd)) * pw;
-      role = 1.0;
+      role = 0.0;
     }
     p0.y = 0.1;
     float a = uT - te;
@@ -357,7 +359,10 @@ void main() {
   float sw = 1.0 - m;
   if (sw < 0.03) return;
   vec3 head = P.xyz;
-  vec3 tail = P.xyz - V.xyz * uShutter;
+  // the rising core is a glassy rope: its droplets smear longer, so they join up into one strand
+  float apexT0 = V.w > 999.0 ? V.w - 1000.0 : max(V.w, 0.1);
+  float core = V.w < -1.5 ? 0.0 : 1.0 - smoothstep(0.15, 0.6, age / max(apexT0, 0.1));
+  vec3 tail = P.xyz - V.xyz * uShutter * (1.0 + 2.2 * core);
   if (uMirror > 0.5) { head.y = -head.y; tail.y = -tail.y; }
   vec4 ch = projectionMatrix * viewMatrix * vec4(head, 1.0);
   vec4 ct = projectionMatrix * viewMatrix * vec4(tail, 1.0);
@@ -371,7 +376,7 @@ void main() {
   // a droplet's blur: tight in the rising stream, wider once it breaks up past the top of its arc
   float apexT = V.w > 999.0 ? V.w - 1000.0 : max(V.w, 0.1);
   float brk = V.w < -1.5 ? 1.0 : smoothstep(0.55, 1.3, age / max(apexT, 0.1));
-  float size = mix(0.1, 0.2, fract(I.w * 13.7)) * mix(1.0, 2.6, brk) * (1.0 + 1.5 * m);
+  float size = mix(0.1, 0.2, fract(I.w * 13.7)) * mix(1.0, 1.8, brk) * (1.0 + 1.5 * m);
   float wpx = size * uFocal / ch.w;
   float w = max(wpx, 1.2);
   float along = position.x;
@@ -383,7 +388,7 @@ void main() {
   if (V.w < -1.5) fade = splash * splash;
   vec3 lc = fsLight(n, P.xyz, 1.0);
   // the droplet's light is spread over its smear (energy kept, so long fast streaks are fainter)
-  vCol = lc * uGain * (1.44 / ((max(len, 4.0) + w) * w)) * sw * fade * (1.0 - 0.8 * splash) * (1.0 - 0.4 * brk);
+  vCol = lc * uGain * (1.44 / ((max(len, 4.0) + w) * w)) * sw * fade * (1.0 - 0.8 * splash * (1.0 - 0.6 * uDay)) * (1.0 - 0.55 * brk) * (1.0 + 0.5 * core);
 }
 `;
 
@@ -417,6 +422,7 @@ void main() {
   float age, m, splash;
   fsState(P, V, L, age, m, splash);
   float mw = max(m, splash * 0.12);
+  if (V.w > 999.0) mw *= 1.0 - smoothstep(0.6, 2.0, age - (V.w - 1000.0) * 0.9);
   if (mw < 0.02) return;
   vec3 c = P.xyz;
   if (uMirror > 0.5) c.y = -c.y;
@@ -463,13 +469,13 @@ void main() {
   vec4 n2 = NZ(n, 2);
   vec4 Lr = NZ(n, 4);
   float H = n1.w * n1.w / (2.0 * ${G.toFixed(2)});
-  float R = 5.0 + 0.25 * min(Lr.w, 40.0);
+  float R = 3.6 + 0.12 * min(Lr.w, 40.0);
   vR = R;
   vec3 wp = vec3(b.x + position.x * R, 0.03, b.z + position.y * R);
   gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
   vQ = position.xy;
   vLight = Lr.rgb;
-  vAct = clamp(n2.x, 0.0, 1.0) * smoothstep(0.4, 3.0, n1.w);
+  vAct = clamp(n2.x, 0.0, 1.0) * smoothstep(0.4, 3.0, n1.w) * (1.0 - NZ(n, 5).w);
   vSeed = aN;
   vRing = (1.2 + 0.08 * min(H, 30.0)) / R;
 }
@@ -486,7 +492,7 @@ void main() {
   float r = length(vQ);
   if (r > 1.0) discard;
   // dapples: a jittered cell pattern turning slowly, wobbling with the ripples
-  vec2 q = rot2(uT * 0.05 + vSeed) * vQ * 3.6;
+  vec2 q = rot2(uT * 0.05 + vSeed) * vQ * 2.8;
   q += 0.25 * vec2(sin(q.y * 1.7 + uT * 1.3), cos(q.x * 1.9 - uT * 1.1));
   vec2 id = floor(q);
   vec2 f = fract(q);
@@ -501,22 +507,22 @@ void main() {
     if (d < best) { best = d; bid = id + o; }
   }
   float hh = hash21(bid + vSeed);
-  float blob = (1.0 - smoothstep(0.04, 0.2, best)) * step(0.3, hh);
+  float blob = (1.0 - smoothstep(0.05, 0.26, best)) * step(0.25, hh);
   vec3 tint = hh < 0.53 ? uC1 : hh < 0.76 ? uC2 : uC3;
   vec3 lc = mix(vLight, tint * (0.3 + dot(vLight, vec3(0.33))), 0.65);
   float fall = exp(-r * r * 2.2);
-  vec3 col = vLight * (exp(-r * r * 40.0) * 0.3 + exp(-r * r * 9.0) * 0.08); // the hot spot over the lamps
-  col += vLight * fall * 0.03;
-  col += lc * blob * fall * 0.3 * uDapple;
+  vec3 col = vLight * (exp(-r * r * 30.0) * 0.12 + exp(-r * r * 6.0) * 0.025); // the hot spot over the lamps
+  col += vLight * fall * 0.01;
+  col += lc * blob * fall * 0.14 * uDapple;
   col *= (1.0 - uDay) * vAct;
   // froth: a ring of white water churned up at the jet's foot
   float rr = r / max(vRing, 0.02);
-  float ring = exp(-fsSq((rr - 0.9) / 0.45)) + 0.6 * exp(-rr * rr * 3.0);
+  float ring = exp(-fsSq((rr - 0.9) / 0.4)) + 0.3 * exp(-rr * rr * 3.0);
   float n1 = tnoise(vQ * vR * 1.3 + vec2(uT * 1.7, -uT * 1.3) + vSeed * 7.0);
   float n2 = tnoise(vQ * vR * 3.1 - vec2(uT * 2.3, uT * 0.9) + vSeed * 3.0);
-  float froth = ring * smoothstep(0.35, 0.8, n1 * 0.65 + n2 * 0.5) * vAct;
+  float froth = ring * smoothstep(0.45, 0.95, n1 * 0.65 + n2 * 0.5) * vAct;
   vec3 fc = mix(vLight * 0.8 + uFoam * 0.05, uSunCol * 0.55 + uFoam * 0.2, uDay);
-  col += fc * froth * 0.25;
+  col += fc * froth * mix(0.14, 0.1, uDay);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -581,42 +587,74 @@ vec3 fsCity(float az, float e, out float cov) {
   return col;
 }
 
-// the far shore: a line of trees (willows among them), lamps along a path at its foot
+// the far shore: trees of every size and spacing (a willow or two among them), lamps along a path at
+// its foot. Each tree is a trunk and a lumpy crown with a ragged leafy edge; a willow's crown hangs in
+// strands down to the water.
 vec3 fsShore(float az, float e, inout float cov) {
   float base = fsShoreE();
-  float x = az * 70.0;
-  float crowns = 0.0;
+  float tall = 1.0 + 8.0 * uDay;
+  float sc = 0.0068 * tall;
+  float x = az * mix(70.0, 19.0, uDay);
   float k = floor(x);
+  float crowns = 0.0;
   float shade = 0.0;
-  float tall = 1.0 + 4.5 * uDay;
-  for (int j = -1; j <= 1; j++) {
+  float isWillow = 0.0;
+  float trunk = 0.0;
+  for (int j = -2; j <= 2; j++) {
     float c = k + float(j);
+    if (hash11(c * 8.11) < 0.16) continue;
     float h = hash11(c * 3.17);
-    float rad = (0.45 + 0.7 * h);
-    float cx = c + 0.5 + (hash11(c * 1.9) - 0.5) * 0.6;
-    float ce = base + (0.0022 + 0.0075 * h * h) * tall;
-    float willow = step(0.7, hash11(c * 5.3));
-    vec2 d = vec2((x - cx) / rad, (e - ce) / (rad * 0.0068 * tall * (1.0 + willow * 0.5)));
-    // a willow hangs: its crown drapes lower and ragged
-    if (willow > 0.5 && d.y < 0.0) d.y *= 0.55 + 0.25 * tnoise(vec2(x * 9.0, 0.0));
-    float rough = tnoise(vec2(x * 6.0, e * 900.0 / tall)) * 0.35;
-    float inside = 1.0 - smoothstep(0.85 - rough, 1.0 - rough, length(d));
-    if (inside > crowns) { crowns = inside; shade = d.y; }
+    float size = 0.45 + 1.1 * h * h + 0.35 * hash11(c * 4.4);
+    float cx = c + 0.5 + (hash11(c * 1.9) - 0.5) * 0.95;
+    float willow = step(0.88, hash11(c * 5.3));
+    // broad round crowns that overlap their neighbours, the odd tall narrow one (a poplar)
+    float poplar = step(0.9, hash11(c * 12.3)) * (1.0 - willow);
+    float hw = size * (0.75 + 0.55 * hash11(c * 2.7)) * (1.0 + 0.5 * willow) * (1.0 - 0.35 * poplar);
+    float ch = size * (0.7 + 0.45 * hash11(c * 6.1)) * (1.0 + 0.35 * poplar);
+    float trunkH = (0.05 + 0.1 * hash11(c * 9.7)) * ch;
+    float dx = (x - cx) / hw;
+    // the trunk, a little off true
+    float tx = x - cx - 0.08 * hw * (e - base) / sc;
+    if (abs(tx) < 0.02 + 0.02 * size && e < base + sc * (trunkH + 0.3 * ch)) trunk = 1.0;
+    if (abs(dx) > 1.25) continue;
+    // a lumpy top made of a few lobes, and a ragged leafy edge
+    float lobes = 0.8 + 0.12 * cos(dx * (4.0 + 4.0 * hash11(c * 7.7)) + c * 1.3) + 0.12 * tnoise(vec2(x * 2.3, c));
+    float top = base + sc * (trunkH + ch * pow(max(0.0, 1.0 - dx * dx), 0.4) * lobes);
+    float bottom = base + sc * trunkH * (1.0 - 0.9 * willow) * (0.8 + 0.4 * tnoise(vec2(x * 3.1, c * 2.0)));
+    float rag = (tnoise(vec2(x * 6.0, (e - base) / sc * 3.0)) * 0.7 + tnoise(vec2(x * 17.0, (e - base) / sc * 9.0)) * 0.3 - 0.5) * 0.16 * sc * ch;
+    float edgeW = 0.04 * sc;
+    float inside = smoothstep(-edgeW, edgeW, top + rag - e) * smoothstep(-edgeW, edgeW, e - bottom - rag * 0.6);
+    if (willow > 0.5) {
+      // hanging strands below the dome, thinning toward the water
+      float dome = base + sc * (trunkH + 0.45 * ch);
+      float strand = tnoise(vec2(x * 38.0, 0.0)) + tnoise(vec2(x * 81.0, 1.7)) * 0.5;
+      float hang = clamp((dome - e) / max(dome - bottom, 1e-5), 0.0, 1.0);
+      inside *= e > dome ? 1.0 : step(0.55 + 0.6 * hang, strand + 0.25);
+    }
+    if (inside > crowns) {
+      crowns = inside;
+      shade = clamp((e - bottom) / max(top - bottom, 1e-5), 0.0, 1.0);
+      isWillow = willow;
+    }
   }
+  trunk *= 1.0 - crowns;
+  trunk *= step(base - 0.0005, e);
   // a softer, paler canopy further back fills the gaps
   float back = base + (0.0035 + 0.0035 * tnoise(vec2(az * 22.0, 3.0)) + 0.002 * tnoise(vec2(az * 90.0, 7.0))) * tall;
-  float far = step(e, back) * step(base - 0.001, e) * (1.0 - crowns);
-  float trunk = step(e, base + 0.0022);
-  float t = max(max(crowns, far), trunk * step(base - 0.001, e));
+  float far = step(e, back) * step(base - 0.001, e) * (1.0 - crowns) * (1.0 - trunk);
+  float t = max(max(crowns, far), trunk);
   vec3 col = vec3(0.0);
   if (t > 0.0) {
-    // by day: lit green tops, deep shadow below; by night: near-black, a little city light on the tops
-    float lightSide = 0.5 + 0.5 * shade;
-    float leaf = tnoise(vec2(x * 14.0, e * 3000.0 / tall));
-    vec3 dayC = uFoliage * (0.12 + 0.55 * lightSide * lightSide) * (0.55 + 0.7 * leaf) * uSunCol * 0.55;
-    vec3 nightC = uSkyLo * 0.06 + uCityGlow * 0.05 * lightSide;
-    vec3 farC = mix(uSkyLo * 0.035, mix(dayC * 0.6, uSkyLo * 0.8, 0.45), uDay);
-    col = mix(mix(nightC, dayC, uDay), farC, far);
+    // by day: sunlit tops, deep shade below, clumps of leaves; by night: near-black, city light on the tops
+    float leaf = tnoise(vec2(x * 9.0, (e - base) / sc * 7.0)) * 0.6 + tnoise(vec2(x * 23.0, (e - base) / sc * 17.0)) * 0.4;
+    vec3 fol = uFoliage * mix(vec3(1.0), vec3(1.2, 1.25, 0.75), isWillow);
+    vec3 dayC = fol * (0.1 + 0.6 * pow(shade, 1.4)) * (0.45 + 0.9 * leaf) * uSunCol * 0.5;
+    vec3 nightC = uSkyLo * 0.06 + uCityGlow * 0.05 * shade;
+    vec3 farC = mix(uSkyLo * 0.035, mix(uFoliage * uSunCol * 0.32 * (0.7 + 0.5 * leaf), uSkyLo * 0.8, 0.3), uDay);
+    vec3 trunkC = mix(uSkyLo * 0.03, uFoliage * 0.06 + vec3(0.02, 0.015, 0.01), uDay);
+    col = mix(nightC, dayC, uDay);
+    col = mix(col, farC, far);
+    col = mix(col, trunkC, trunk);
     cov = max(cov, t);
   }
   // lamps along the shore path (night)
@@ -629,7 +667,9 @@ vec3 fsShore(float az, float e, inout float cov) {
   return col;
 }
 
-vec3 fsSky(vec3 rd) {
+// eShore: the elevation at which to look up the far shore (the direct one, or for a ray bounced off
+// the water, where on the trees it lands, so the reflection hangs from the shore line)
+vec3 fsSky(vec3 rd, float eShore) {
   float e = asin(clamp(rd.y, -1.0, 1.0));
   float az = atan(rd.x, -rd.z);
   vec3 col = mix(uSkyLo, uSkyHi, smoothstep(0.0, 0.55, e));
@@ -647,10 +687,10 @@ vec3 fsSky(vec3 rd) {
   float cl = tfbm(vec2(az * 3.0, e * 9.0) + vec2(uTime * 0.004, 0.0), 4);
   col = mix(col, uSunCol * 0.42, smoothstep(0.1, 0.6, cl) * 0.5 * uDay * smoothstep(0.02, 0.2, e));
   float cov;
-  vec3 city = fsCity(az, e, cov);
+  vec3 city = fsCity(az, eShore, cov);
   col = mix(col, city, cov * (1.0 - uDay));
   float sc = 0.0;
-  vec3 shore = fsShore(az, e, sc);
+  vec3 shore = fsShore(az, eShore, sc);
   col = mix(col, shore, sc);
   return col;
 }
@@ -664,9 +704,10 @@ vec3 fsWaterN(vec2 p, float foot, float chop) {
     vec2 d = vec2(cos(ang), sin(ang));
     float k = 6.2831853 / lam;
     float w = sqrt(${G.toFixed(2)} * k);
-    float ph = dot(d, p) * k - w * uWaveT + float(i) * 1.7;
-    float fade = 1.0 - smoothstep(0.35, 1.0, foot / lam);
-    float slope = 0.04 * (1.0 + chop * (i > 2 ? 3.0 : 1.0)) * (0.6 + 0.8 * tnoise(p * 0.02 + float(i) * 7.0));
+    // the crests wander (a warped phase), so far off they don't line up into regular bands
+    float ph = dot(d, p) * k - w * uWaveT + float(i) * 1.7 + 3.0 * tnoise(p * (0.6 / lam) + float(i) * 3.1);
+    float fade = 1.0 - smoothstep(0.25, 0.7, foot / lam);
+    float slope = 0.04 * mix(1.0, 0.5, uDay) * (1.0 + chop * (i > 2 ? 3.0 : 1.0)) * (0.6 + 0.8 * tnoise(p * 0.02 + float(i) * 7.0));
     g += d * cos(ph) * slope * fade;
     lam *= 0.6;
     ang += 2.13;
@@ -683,7 +724,7 @@ void main() {
   vec3 col;
   float e = asin(clamp(rd.y, -1.0, 1.0));
   if (e > fsShoreE()) {
-    col = fsSky(rd);
+    col = fsSky(rd, e);
   } else {
     float t = -uCamPos.y / min(rd.y, -1e-4);
     vec3 hp = uCamPos + rd * t;
@@ -695,7 +736,10 @@ void main() {
     rr.y = max(rr.y, 0.002);
     float cosi = clamp(dot(-rd, n), 0.0, 1.0);
     float F = 0.02 + 0.98 * pow(1.0 - cosi, 5.0);
-    vec3 refl = fsSky(normalize(rr));
+    vec3 rn = normalize(rr);
+    // the bounced ray climbs from this spot on the water: the height it reaches at the far bank, seen from the eye
+    float hitH = max(uShore - t, 0.0) * rn.y / max(length(rn.xz), 1e-3);
+    vec3 refl = fsSky(rn, fsShoreE() + atan(hitH / uShore));
     // the jets mirrored: sampled through the ripples and smeared down a little, like light on a lake
     vec2 dist = vec2(n.x, n.z) * vec2(0.35, 0.9) * clamp(30.0 / t, 0.15, 1.5) * 0.12;
     vec3 jets = vec3(0.0);
@@ -844,6 +888,7 @@ export const fountainShow: SceneDef = {
   style: 'world',
   tags: ['euphoric', 'cinematic', 'epic', 'uplifting', 'celebratory', 'anthemic', 'romantic', 'energetic', 'dynamic', 'pop', 'edm', 'nature', 'realistic', 'spacious'],
   params,
+  handInks: 4,
   modulations: [],
   create(init) {
     const { renderer, shared } = init;
@@ -1004,6 +1049,8 @@ export const fountainShow: SceneDef = {
         uFoam: { value: new THREE.Vector3() },
       },
       ...additive,
+      // the quads lie flat on the lake, seen from above: both faces
+      side: THREE.DoubleSide,
     });
     const poolMesh = new THREE.Mesh(poolGeo, poolMat);
     poolMesh.frustumCulled = false;
@@ -1147,6 +1194,8 @@ export const fountainShow: SceneDef = {
     let camYaw = 0;
     let camFov = 0;
     let camPitch = 0;
+    // 0 = up at the rail, 1 = down on the water's edge close to the jets (quiet parts)
+    let camNear = 0;
     let lookH = 10;
     let avgH = 10;
     let glowR = 0;
@@ -1155,20 +1204,28 @@ export const fountainShow: SceneDef = {
     const tmpC = new THREE.Color();
     const lin = (c: THREE.Color) => [Math.pow(c.r, 2.2), Math.pow(c.g, 2.2), Math.pow(c.b, 2.2)];
 
-    // fixed places
-    for (let i = 0; i < ROW_N; i++) {
-      const x = rowX(i);
-      put(ROW0 + i, 0, x, 0, rowZ(x), 0);
-    }
-    for (let j = 0; j < MINI_N; j++) {
-      const x = miniX(j);
-      put(MINI0 + j, 0, x, 0, miniZ(x), 0);
-    }
-    put(CROWN, 0, 0, 0, CROWN_Z, 0);
-    for (let s = 0; s < SHOT_N; s++) {
-      const x = shotX(s) + (s === 4 ? 3 : s === 5 ? -3 : 0);
-      for (let j = 0; j < SLOTS; j++) put(slotIndex(s, j), 0, x, 0, rowZ(x) - 5, 1);
-    }
+    // fixed places. Night: the long show on the lake. Park (by day): one aerator in a pond, the small
+    // jets in a ring round its foot as the low crown, the shooters as surges up its middle.
+    let parkLayout: boolean | null = null;
+    const layout = (park: boolean) => {
+      parkLayout = park;
+      for (let i = 0; i < ROW_N; i++) {
+        const x = rowX(i);
+        put(ROW0 + i, 0, x, 0, rowZ(x), 0);
+      }
+      for (let j = 0; j < MINI_N; j++) {
+        const a = (j / MINI_N) * Math.PI * 2;
+        const x = park ? Math.sin(a) * RING_R : miniX(j);
+        put(MINI0 + j, 0, x, 0, park ? CROWN_Z + Math.cos(a) * RING_R : miniZ(x), 0);
+        put(MINI0 + j, 5, 0, 1, 0, park ? 0.85 : 0.8);
+      }
+      put(CROWN, 0, 0, 0, CROWN_Z, 0);
+      for (let s = 0; s < SHOT_N; s++) {
+        const x = shotX(s) + (s === 4 ? 3 : s === 5 ? -3 : 0);
+        for (let j = 0; j < SLOTS; j++) put(slotIndex(s, j), 0, park ? 0 : x, 0, park ? CROWN_Z : rowZ(x) - 5, 1);
+      }
+    };
+    layout(false);
 
     const fireShooter = (s: number, at: number, h: number, pulse: number, smoothK: number) => {
       const j = shotSlot[s] % SLOTS;
@@ -1220,7 +1277,7 @@ export const fountainShow: SceneDef = {
         const u = -0.85 + 1.7 * clamp01((nt.midi - leadLo) / (leadHi - leadLo));
         for (let i = 0; i < ROW_N; i++) {
           const ui = (i / (ROW_N - 1)) * 2 - 1;
-          const w = Math.exp(-(((ui - u) / 0.055) ** 2));
+          const w = Math.exp(-(((ui - u) / 0.08) ** 2));
           if (w > 0.01) melody[i] = Math.max(melody[i], w * env);
         }
         any = true;
@@ -1243,6 +1300,8 @@ export const fountainShow: SceneDef = {
         const swayK = num(p, 'sway', 1);
         const day = num(p, 'day', 0);
         const colourK = num(p, 'colour', 0.75);
+        const park = day > 0.5;
+        if (park !== parkLayout) layout(park);
 
         /* tempo clock: the song's beat while it plays, a slow drift while paused */
         if (au.playing && au.bpm > 0) beats = au.beatCount + au.beatPhase;
@@ -1272,12 +1331,16 @@ export const fountainShow: SceneDef = {
         const bar = beats / 4;
         const pat = plan.pattern;
         const dropT = f.sinceDrop;
+        // verses often play only every other jet: fewer, clearer strands
+        const sparse = hsh(plan.seed + 2.2) < 0.65;
         let tgtSum = 0;
         for (let i = 0; i < ROW_N; i++) {
           const u = (i / (ROW_N - 1)) * 2 - 1;
           // a little humanised lag per jet (wild shows are sloppier)
-          const lag = (hsh(i * 3.3) - 0.5) * 0.18 * wildK;
+          const lag = (hsh(i * 3.3) - 0.5) * 0.18 * wildK + (hsh(i * 2.9) - 0.5) * 0.12;
           const b = beats - lag;
+          // no two jets quite the same height
+          const hv = 1 + (hsh(i * 5.1 + 0.7) - 0.5) * 0.22;
           const sway = (ph: number, per: number) => Math.sin((Math.PI * 2 * b) / per + ph);
           let h = 0;
           let tilt = 0;
@@ -1297,31 +1360,33 @@ export const fountainShow: SceneDef = {
             }
             case 'sway': {
               const ph = pat === 0 ? 0 : pat === 1 ? (u < 0 ? Math.PI : 0) : pat === 2 ? (i % 2) * Math.PI : u * Math.PI;
-              h = (10 + 16 * e) * (1 + 0.18 * kickEnv);
-              tilt = 0.42 * swayK * sway(ph, 4);
+              h = (10 + 16 * e) * (1 + 0.18 * kickEnv) * hv;
+              tilt = 0.24 * swayK * sway(ph, 8);
+              if (sparse && i % 2) rate = 0;
               break;
             }
             case 'wave': {
               const dir = Math.floor(bar / 2) % 2 ? 1 : -1;
               const w = Math.sin(Math.PI * 2 * (b / 4) - u * 2.6 * dir);
-              h = (8 + 24 * e) * (0.32 + 0.68 * (0.5 + 0.5 * w)) * (1 + 0.15 * kickEnv);
+              h = (8 + 24 * e) * (0.32 + 0.68 * (0.5 + 0.5 * w)) * (1 + 0.15 * kickEnv) * hv;
               tilt = 0.16 * swayK * Math.cos(Math.PI * 2 * (b / 4) - u * 2.6 * dir) * dir;
               break;
             }
             case 'fan': {
-              h = (22 + 18 * e) * (1 + 0.25 * snareEnv);
+              h = (22 + 18 * e) * (1 + 0.25 * snareEnv) * hv;
               tilt = u * 0.5 + 0.12 * swayK * sway(0, 2);
               K = 3;
               fan = 0.05;
               break;
             }
             case 'cross': {
-              h = (12 + 14 * e) * (1 + 0.2 * snareEnv);
-              tilt = (i % 2 ? 1 : -1) * 0.45 * swayK * sway(0, 8);
+              h = (12 + 14 * e) * (1 + 0.2 * snareEnv) * hv;
+              tilt = (i % 2 ? 1 : -1) * 0.36 * swayK * sway(0, 8);
+              if (sparse && i % 4 > 1) rate = 0;
               break;
             }
             case 'swirl': {
-              h = (12 + 16 * e) * (1 + 0.15 * kickEnv);
+              h = (12 + 16 * e) * (1 + 0.15 * kickEnv) * hv;
               K = 6;
               fan = 0.2 + 0.08 * Math.sin(b * Math.PI * 0.5);
               rot = b * Math.PI * 0.5 * (i % 2 ? 1 : -1) + i;
@@ -1347,7 +1412,7 @@ export const fountainShow: SceneDef = {
           }
           h *= hK * breath * settleK;
           tilt *= 1 - 0.5 * settle;
-          if (inhale) rate = 0;
+          if (inhale || park) rate = 0;
           // the jets fade up over half a second after a change of formation (they're on valves)
           rowH[i] = approach(rowH[i], h, h > rowH[i] ? 7 : 3, dt);
           rowTilt[i] = approach(rowTilt[i], tilt, 9, dt);
@@ -1359,7 +1424,7 @@ export const fountainShow: SceneDef = {
           const n = ROW0 + i;
           const tl = rowTilt[i] + wv;
           put(n, 1, Math.sin(tl), Math.cos(tl), (Math.sin(t * 0.7 + i) * 0.5) * (0.01 + 0.05 * wildK), speedFor(rowH[i]) * flutter);
-          put(n, 2, rowRate[i], 0.05 + 0.35 * wildK + 0.006 * rowH[i] * wildK, (0.08 + 0.12 * wildK) * num(p, 'mist', 1), 0);
+          put(n, 2, rowRate[i], 0.04 + 0.3 * wildK + 0.006 * rowH[i] * wildK, (0.03 + 0.06 * wildK) * num(p, 'mist', 1), 0);
           put(n, 3, 0, aer, fan, K);
           put(n, 5, rot, 0.92, 0, 0);
         }
@@ -1367,7 +1432,7 @@ export const fountainShow: SceneDef = {
 
         /* ── the front row of small jets ── */
         const chaseK = num(p, 'chasers', 1);
-        if (plan.mini === 'chase' && au.hatHit && chaseK > 0) {
+        if (!park && plan.mini === 'chase' && au.hatHit && chaseK > 0) {
           const hgt = (3.5 + 5 * au.hat * (0.5 + e)) * hK * chaseK;
           const step = 1 + Math.floor(e * 2);
           for (let k = 0; k < step; k++) {
@@ -1384,6 +1449,19 @@ export const fountainShow: SceneDef = {
         for (let j = 0; j < MINI_N; j++) {
           const n = MINI0 + j;
           const u = (j / (MINI_N - 1)) * 2 - 1;
+          if (park) {
+            // the aerator's low crown: a ring of jets leaning outward, pulsing on the beat
+            const a = (j / MINI_N) * Math.PI * 2;
+            const lean = 0.5 + 0.08 * Math.sin(t * 0.7 + j * 1.3) * wildK;
+            const hr = (2.4 + 2.6 * e + 1.2 * ten) * (1 + 0.4 * kickEnv) * hK * breath * (0.92 + 0.16 * hsh(j * 3.7));
+            miniH[j] = approach(miniH[j], inhale ? 0 : hr, 10, dt);
+            put(n, 0, get(n, 0, 0), 0, get(n, 0, 2), 0);
+            put(n, 1, Math.sin(a) * Math.sin(lean), Math.cos(lean), Math.cos(a) * Math.sin(lean), speedFor(miniH[j]));
+            put(n, 2, inhale ? 0 : 1, 0.12 + 0.3 * wildK, 0.1 * num(p, 'mist', 1), 0);
+            put(n, 3, 0, 0.18, 0, 1);
+            put(n, 5, 0, 1, 0, 0.85);
+            continue;
+          }
           if (plan.mini === 'chase') {
             miniH[j] *= Math.exp(-dt * 3);
             // the chasers keep their own fired state (burst); only spread and mist here
@@ -1413,19 +1491,21 @@ export const fountainShow: SceneDef = {
           const wv = Math.sin(t * 1.1 + j * 4.7) * (0.01 + 0.06 * wildK);
           put(n, 0, get(n, 0, 0), 0, get(n, 0, 2), 0);
           put(n, 1, wv, 1, Math.sin(t * 0.8 + j) * 0.02 * wildK, speedFor(miniH[j]));
-          put(n, 2, miniRate[j], 0.05 + 0.3 * wildK + aer * 0.4, aer > 0 ? 0.25 : 0.06, 0);
+          put(n, 2, miniRate[j], 0.05 + 0.3 * wildK + aer * 0.4, aer > 0 ? 0.2 : 0.02, 0);
           put(n, 3, 0, aer, 0, 1);
-          put(n, 5, 0, 1, 0, 0);
+          // (row 5 w: how much dimmer this nozzle's light pool is; the small jets stand close together)
+          put(n, 5, 0, 1, 0, 0.8);
         }
 
         /* ── the centre crown: a tall plume with a low fan of needles round it ── */
-        const crownWant =
-          (plan.form === 'rest' ? 7 + 9 * e : plan.form === 'drop' ? 26 : plan.form === 'build' ? 8 + 20 * clamp01(Math.max(au.build, ten)) : 10 + 10 * e) * hK * breath;
+        const crownWant = park
+          ? (8 + 12 * e + 8 * ten + 10 * Math.exp(-f.sinceDrop * 0.4)) * (1 + 0.12 * kickEnv) * hK * breath
+          : (plan.form === 'rest' ? 7 + 9 * e : plan.form === 'drop' ? 26 : plan.form === 'build' ? 8 + 20 * clamp01(Math.max(au.build, ten)) : 10 + 10 * e) * hK * breath;
         crownH = approach(crownH, inhale ? 0 : crownWant, 3, dt);
         put(CROWN, 1, 0, 1, 0, speedFor(crownH));
-        put(CROWN, 2, inhale ? 0 : 1, 0.25 + 0.6 * wildK, 0.15 * num(p, 'mist', 1), 0);
-        put(CROWN, 3, 0, 0.1, 0.75, 26);
-        put(CROWN, 5, t * 0.05, 0.55, 0, 0);
+        put(CROWN, 2, inhale ? 0 : 1, 0.25 + 0.6 * wildK, (park ? 0.3 : 0.15) * num(p, 'mist', 1), 0);
+        put(CROWN, 3, 0, park ? 0.16 : 0.1, park ? 0.42 : 0.75, 26);
+        put(CROWN, 5, t * 0.05, park ? 0.62 + 0.1 * kickEnv : 0.55, 0, 0);
 
         /* ── shooters ── */
         const shootK = num(p, 'shooters', 1);
@@ -1435,11 +1515,11 @@ export const fountainShow: SceneDef = {
           // the money shot: every shooter at once, staggered out from the middle
           for (let s = 0; s < SHOT_N; s++) {
             const us = Math.abs((s / (SHOT_N - 1)) * 2 - 1);
-            fireShooter(s, t + us * 0.12 + hsh(s + t) * 0.03 * wildK, (78 + 12 * hsh(s * 1.7)) * hK * Math.min(shootK, 1.2), 1.1, smoothK);
+            fireShooter(s, t + us * 0.12 + hsh(s + t) * 0.03 * wildK, (park ? 26 + 8 * hsh(s * 1.7) : 78 + 12 * hsh(s * 1.7)) * hK * Math.min(shootK, 1.2), 1.1, smoothK);
           }
           shake = 1;
-        } else if (au.kickHit && plan.shot !== 'off' && shootK > 0 && e > 0.3 && !inhale) {
-          const hgt = (30 + 48 * Math.min(1, au.kick) * (0.4 + 0.6 * e)) * hK * shootK;
+        } else if (au.kickHit && (park || plan.shot !== 'off') && shootK > 0 && e > 0.3 && !inhale) {
+          const hgt = park ? crownH * (1.25 + 0.4 * Math.min(1, au.kick)) * shootK : (30 + 48 * Math.min(1, au.kick) * (0.4 + 0.6 * e)) * hK * shootK;
           const ready = (s: number) => t - shotLast[s] > 1.9;
           if (plan.shot === 'pairs') {
             // pairs stepping out from the centre
@@ -1579,7 +1659,7 @@ export const fountainShow: SceneDef = {
           { x: 5, yaw: -0.02, fov: -5 },
         ];
         const fr = frames[plan.frame % frames.length];
-        const wideFor = plan.form === 'drop' || plan.form === 'fan' ? 8 : plan.form === 'rest' ? -5 : plan.form === 'build' ? -3 + 4 * clamp01(ten) : 0;
+        const wideFor = plan.form === 'drop' || plan.form === 'fan' ? 8 : plan.form === 'rest' ? 3 : plan.form === 'build' ? -3 + 4 * clamp01(ten) : 0;
         const fovY0 = 37 + fr.fov + wideFor;
         // portrait: keep enough of the width
         const tanY = Math.max(Math.tan((fovY0 * Math.PI) / 360), Math.tan((44 * Math.PI) / 360) / Math.max(aspect, 0.1));
@@ -1593,7 +1673,12 @@ export const fountainShow: SceneDef = {
         const horizonAt = 0.3;
         const basePitch = Math.atan(Math.tan((camFov * Math.PI) / 360) * (1 - 2 * horizonAt));
         // (the foot of the show, its glow and its reflection, stays in frame even when the water climbs)
-        const pitchT = basePitch + Math.min(Math.atan(lookH / 80) * 0.3, 0.12) - Math.atan(CAM_Y / 75) * 0.5;
+        // quiet parts walk down to the water's edge, close enough to see the coloured light on the lake
+        camNear = first ? (plan.form === 'rest' ? 1 : 0) : approach(camNear, plan.form === 'rest' ? 1 : 0, 0.45, dt);
+        const nearE = camNear * camNear * (3 - 2 * camNear);
+        const camZ = park ? -38 : -30 * nearE;
+        const camY = park ? 2.4 : CAM_Y - 1.8 * nearE;
+        const pitchT = basePitch + Math.min(Math.atan(lookH / (80 + camZ)) * 0.3, 0.12) - Math.atan(camY / (75 + camZ)) * 0.5;
         camPitch = camPitch === 0 ? pitchT : approach(camPitch, pitchT, 0.8, dt);
         const hh = num(p, 'handheld', 1);
         const tt = t;
@@ -1607,11 +1692,11 @@ export const fountainShow: SceneDef = {
         camera.near = 1;
         camera.far = 6000;
         camera.updateProjectionMatrix();
-        camera.position.set(camX + Math.sin(tt * 0.19) * 0.25 * hh, CAM_Y + Math.sin(tt * 0.37) * 0.05 * hh, 0);
+        camera.position.set(camX * (park ? 0.25 : 1 - 0.6 * nearE) + Math.sin(tt * 0.19) * 0.25 * hh, camY + Math.sin(tt * 0.37) * 0.05 * hh, camZ);
         camera.rotation.order = 'YXZ';
         camera.rotation.set(
           camPitch + ny + breathY + Math.sin(tt * 37) * 0.002 * sh,
-          camYaw - camX * 0.0025 + nx + Math.sin(tt * 31) * 0.002 * sh,
+          camYaw * (park ? 0.4 : 1) - camX * 0.0025 + nx + Math.sin(tt * 31) * 0.002 * sh,
           roll,
         );
         camera.updateMatrixWorld();
@@ -1645,13 +1730,13 @@ export const fountainShow: SceneDef = {
           (m.uniforms.uRes.value as THREE.Vector2).set(m === streakM ? W : reflRT!.width, m === streakM ? Hh : reflRT!.height);
           m.uniforms.uShutter.value = (1 / 30) * (0.8 + 0.4 * smoothK);
         }
-        streakM.uniforms.uGain.value = streakGain * (1 + 1.6 * dayK);
+        streakM.uniforms.uGain.value = streakGain * (1 + 2.4 * dayK);
         streakR.uniforms.uGain.value = streakGain * 0.8;
         const mistK = num(p, 'mist', 1);
         for (const m of [mistM, mistR]) {
           (m.uniforms.uRes.value as THREE.Vector2).set(m === mistM ? mistRT!.width : reflRT!.width, m === mistM ? mistRT!.height : reflRT!.height);
           m.uniforms.uMistSize.value = 0.8 + 0.5 * wildK;
-          m.uniforms.uGain.value = 0.006 * mistK * (1 - 0.7 * dayK);
+          m.uniforms.uGain.value = 0.0045 * mistK * (1 - 0.25 * dayK);
         }
 
         /* reflection: the particles mirrored in the lake (fewer of them, at half size) */
@@ -1659,7 +1744,7 @@ export const fountainShow: SceneDef = {
         const reflFrac = 0.45;
         pGeo.instanceCount = Math.floor(N * frac * reflFrac);
         streakR.uniforms.uGain.value = (streakGain * 0.8) / reflFrac;
-        mistR.uniforms.uGain.value = (0.006 * mistK) / reflFrac;
+        mistR.uniforms.uGain.value = (0.0045 * mistK) / reflFrac;
         renderer.setRenderTarget(reflRT);
         renderer.setClearColor(0x000000, 1);
         renderer.clear(true, false, false);
@@ -1678,7 +1763,9 @@ export const fountainShow: SceneDef = {
         bu.uCity.value = num(p, 'city', 1);
         waveT += dt * (0.7 + 0.5 * f.gust);
         bu.uWaveT.value = waveT;
-        bu.uChop.value = clamp01(0.2 + 0.6 * e + 0.5 * flash + 0.3 * wildK);
+        bu.uChop.value = clamp01(0.2 + 0.6 * e + 0.5 * flash + 0.3 * wildK) * (1 - 0.6 * dayK);
+        // a park pond: the far bank is near
+        bu.uShore.value = SHORE + (150 - SHORE) * dayK;
         bu.uPix.value = (2 * ty) / Hh;
         bu.uReflGain.value = 1;
         const bgLin = lin(pal.bg);
@@ -1707,7 +1794,7 @@ export const fountainShow: SceneDef = {
         /* pools + streaks */
         pu.uFocal.value = focal;
         pGeo.instanceCount = Math.floor(N * frac);
-        streakM.uniforms.uGain.value = streakGain * (1 + 1.6 * dayK);
+        streakM.uniforms.uGain.value = streakGain * (1 + 2.4 * dayK);
         syncMaterial(poolMat, frame, params);
         const pl = poolMat.uniforms;
         pl.uT.value = t;
@@ -1726,7 +1813,7 @@ export const fountainShow: SceneDef = {
 
         /* mist */
         pu.uFocal.value = focal * (mistRT!.height / Hh);
-        mistM.uniforms.uGain.value = 0.006 * mistK * (1 - 0.7 * dayK);
+        mistM.uniforms.uGain.value = 0.0045 * mistK * (1 - 0.25 * dayK);
         renderer.setRenderTarget(mistRT);
         renderer.setClearColor(0x000000, 1);
         renderer.clear(true, false, false);
