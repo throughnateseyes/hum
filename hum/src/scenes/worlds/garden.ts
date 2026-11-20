@@ -1665,6 +1665,8 @@ export const garden: SceneDef = {
   tags: ['playful', 'joyful', 'hopeful', 'quirky', 'warm', 'psychedelic', 'tender', 'happy', 'uplifting', 'organic', 'nature', 'graphic', 'tactile', 'indie', 'pop', 'folk', 'acoustic', 'dreamy', 'whimsical'],
   params,
   modulations: [],
+  // leaves are the muted role, which the default 3-ink hand finish drops: print this one with all 4
+  handInks: 4,
   create(init) {
     const { shared } = init;
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);

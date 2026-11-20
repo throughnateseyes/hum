@@ -395,6 +395,10 @@ export interface SceneDef {
   /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);
    *  big lyrics over it are hidden unless the user asks for them anyway */
   showsLyrics?: boolean;
+  /** the fewest printing inks this scene still reads with under the hand-drawn finish (4 = every
+   *  palette role, muted included). The finish prints with more inks while the scene plays, never fewer
+   *  than the person chose, and full colour (0 inks) is left alone */
+  handInks?: 1 | 2 | 3 | 4;
   create(init: SceneInit): SceneInstance;
 }
 
