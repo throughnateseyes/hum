@@ -103,7 +103,6 @@ uniform vec3 uSkyTop, uSkyHor, uSkyGlow, uFoliage, uLampCol, uStone, uKeyCol, uW
 uniform vec4 uLamps[8];
 uniform float uEnvT, uFocus, uAperture;
 
-vec3 lmLin(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
 
 // far root of a vertical cylinder around (c.x, c.y) in xz (we are inside it)
 float lmCyl(vec3 ro, vec3 rd, vec2 c, float R) {
@@ -643,9 +642,7 @@ varying vec2 vQ;
 varying float vA, vKind;
 varying vec3 vCol;
 void main() {
-  float hx = max(abs(vQ.x) - (abs(vQ.x) > 1.0 ? 0.0 : 0.0), 0.0);
   float len = max(abs(vQ.x) - 1.0, 0.0);
-  float sx = abs(vQ.x) > 1.0 ? 1.0 : 0.0;
   float d = vKind > 1.5 ? length(vQ) : length(vec2(len, vQ.y));
   float a = smoothstep(1.0, vKind > 1.5 ? 0.0 : 0.45, d) * vA;
   if (a < 0.003) discard;
