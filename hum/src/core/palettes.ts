@@ -134,6 +134,12 @@ export const PALETTES: Palette[] = [
   { id: 'undercode-poster', name: 'Undercode Poster', bg: '#050906', fg: '#e3ffd6', accent: '#46d872', accent2: '#1d5b31', muted: '#9a9f9b' },
   { id: 'undercode-amber', name: 'Undercode Amber', bg: '#0b0502', fg: '#ffeccb', accent: '#ffa21f', accent2: '#6e3305', muted: '#5c4a3a' },
   { id: 'undercode-redline', name: 'Undercode Redline', bg: '#a90f1a', fg: '#ffffff', accent: '#ffd3cf', accent2: '#3a0207', muted: '#e86a70' },
+  // precast: the concrete reads along bg / muted / accent2 / fg by lightness (four separate greys, so the
+  // hand-drawn finish gives lit face, shade and deep shadow an ink each), accent is the window glow only
+  { id: 'precast-winter', name: 'Precast Winter', bg: '#eceae5', fg: '#232428', accent: '#ef7d4f', accent2: '#7c7e80', muted: '#b3b7bb' },
+  { id: 'precast-sun', name: 'Precast Sun', bg: '#ecdfc6', fg: '#15110d', accent: '#e2733a', accent2: '#a08a6a', muted: '#cdb995' },
+  { id: 'precast-night', name: 'Precast Night', bg: '#0b0d12', fg: '#d9d4c8', accent: '#ff9d3c', accent2: '#45444a', muted: '#8e8a84' },
+  { id: 'precast-relief', name: 'Precast Relief', bg: '#d9d8d3', fg: '#18191c', accent: '#e5c25c', accent2: '#6f706e', muted: '#a5a6a2' },
 ];
 
 export function getPalette(id: string): Palette {

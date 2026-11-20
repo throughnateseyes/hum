@@ -673,4 +673,15 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     pairs: ['prism', 'tunnel-vision', 'particle-columns', 'overprint', 'swarm-bloom'],
     clashes: ['willow', 'diary', 'retro-desktop', 'garden'],
   },
+  precast: {
+    name: 'Precast',
+    blurb: 'Brutalism as pattern: a facade of hundreds of identical concrete cells with the light raking into each one. The sun sweeps the shadows with the song, kicks ripple through the grid, snares flick the windows, and every drop turns the cells into the next module.',
+    takes: { precast: 'Winter', 'precast-coffer': 'Coffer', 'precast-night': 'Night', 'precast-sawtooth': 'Sawtooth' },
+    roles: ['verse', 'peak', 'build', 'intro', 'outro'],
+    energy: [0.2, 0.95],
+    motion: 'pulsing',
+    themes: ['graphic', 'city'],
+    pairs: ['night-windows', 'glass-planes', 'signal-scan', 'contours', 'tracking-hud', 'ridgeline-press'],
+    clashes: ['confetti', 'gradient-cubes', 'kaleido-candy', 'bead-fire', 'jellies', 'word-drop'],
+  },
 };

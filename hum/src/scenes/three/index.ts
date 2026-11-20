@@ -15,6 +15,7 @@ import { gradientCubes } from './gradientCubes';
 import { neurones } from './neurones';
 import { dotAssembly } from './dotAssembly';
 import { undercode } from './undercode';
+import { precast } from './precast';
 
 export const scenes: SceneDef[] = [clayOrb, pointSwarm, ridgeline, ringTunnel, monolithGrid, silk, paperVisualizer, pixelCube, flipCards];
 
@@ -26,3 +27,5 @@ scenes.push(gradientCubes, neurones, dotAssembly);
 
 // code rain and bullet time
 scenes.push(undercode);
+// Brutalism as pattern: a facade of identical precast cells
+scenes.push(precast);
