@@ -129,6 +129,12 @@ export const PALETTES: Palette[] = [
   { id: 'golden-avenue', name: 'Golden Avenue', bg: '#fff1c6', fg: '#4a2b20', accent: '#f4c21c', accent2: '#e0841f', muted: '#f1d27c' },
   { id: 'golden-avenue-dusk', name: 'Avenue at Dusk', bg: '#ffd3ba', fg: '#3a2130', accent: '#f4a64e', accent2: '#cc5f62', muted: '#eaa98a' },
   { id: 'golden-avenue-birch', name: 'Birch Avenue', bg: '#edf1f2', fg: '#22262f', accent: '#dfc882', accent2: '#4b5c72', muted: '#b5c3cd' },
+  // precast: the concrete reads along bg / muted / accent2 / fg by lightness (four separate greys, so the
+  // hand-drawn finish gives lit face, shade and deep shadow an ink each), accent is the window glow only
+  { id: 'precast-winter', name: 'Precast Winter', bg: '#e6e4df', fg: '#2a2b2f', accent: '#f39260', accent2: '#8e8f8d', muted: '#c3c5c6' },
+  { id: 'precast-sun', name: 'Precast Sun', bg: '#ecdfc6', fg: '#15110d', accent: '#e2733a', accent2: '#a08a6a', muted: '#cdb995' },
+  { id: 'precast-night', name: 'Precast Night', bg: '#0b0d12', fg: '#d9d4c8', accent: '#ff9d3c', accent2: '#45444a', muted: '#8e8a84' },
+  { id: 'precast-relief', name: 'Precast Relief', bg: '#d9d8d3', fg: '#18191c', accent: '#e5c25c', accent2: '#6f706e', muted: '#a5a6a2' },
 ];
 
 export function getPalette(id: string): Palette {
