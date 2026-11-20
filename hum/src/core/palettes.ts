@@ -37,6 +37,12 @@ export const PALETTES: Palette[] = [
   { id: 'laminar-dusk', name: 'Laminar Dusk', bg: '#2b3b5e', fg: '#fff0dc', accent: '#a6eaff', accent2: '#eea56a', muted: '#2f4032' },
   { id: 'laminar-night', name: 'Laminar Night', bg: '#0b0f1a', fg: '#ffe9cc', accent: '#5fd4ff', accent2: '#ffad5c', muted: '#232838' },
   { id: 'laminar-studio', name: 'Laminar Studio', bg: '#cdd1d4', fg: '#ffffff', accent: '#bfe6ff', accent2: '#e8c39a', muted: '#6c7276' },
+  // fountain show: night (bg = night sky, fg = white water, accent / accent2 = underwater lights, muted = city glow); day (bg = sky, muted = trees)
+  { id: 'fountain-night', name: 'Fountain Night', bg: '#0a1222', fg: '#eef4ff', accent: '#3f8cff', accent2: '#f4b860', muted: '#6a4a36' },
+  { id: 'fountain-amber', name: 'Fountain Amber', bg: '#0d0b10', fg: '#fff0da', accent: '#ffad55', accent2: '#ff6f5a', muted: '#4a3426' },
+  { id: 'fountain-neon', name: 'Fountain Neon', bg: '#08061a', fg: '#f5f0ff', accent: '#ff3fb8', accent2: '#2fe0ff', muted: '#3c2058' },
+  { id: 'fountain-gold', name: 'Fountain Gold', bg: '#070a14', fg: '#fff7e8', accent: '#ffcf70', accent2: '#8cc0ff', muted: '#4a3a26' },
+  { id: 'fountain-park', name: 'Fountain Park', bg: '#8fb8e6', fg: '#fffaf0', accent: '#e8a0a8', accent2: '#ffd98a', muted: '#4f7a38' },
   /* looks built from the reference boards */
   // gradient cubes
   { id: 'toy-box', name: 'Toy Box', bg: '#7d5a50', fg: '#ff8de4', accent: '#ff431a', accent2: '#2247e6', muted: '#7cc63f' },
