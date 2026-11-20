@@ -140,6 +140,13 @@ export const PALETTES: Palette[] = [
   { id: 'precast-sun', name: 'Precast Sun', bg: '#ecdfc6', fg: '#15110d', accent: '#e2733a', accent2: '#a08a6a', muted: '#cdb995' },
   { id: 'precast-night', name: 'Precast Night', bg: '#0b0d12', fg: '#d9d4c8', accent: '#ff9d3c', accent2: '#45444a', muted: '#8e8a84' },
   { id: 'precast-relief', name: 'Precast Relief', bg: '#d9d8d3', fg: '#18191c', accent: '#e5c25c', accent2: '#6f706e', muted: '#a5a6a2' },
+  // massing: bg = sky, fg = voids and core, accent = lit concrete, accent2 = concrete in shade,
+  // muted = the one extra (half-light grey, window amber, moss, ember) at the luminance of an existing ink
+  // so the hand print doesn't spend it on plain grey
+  { id: 'massing-beton', name: 'Béton Brut', bg: '#4f86d0', fg: '#121418', accent: '#ece4d3', accent2: '#6c6965', muted: '#aaa398' },
+  { id: 'massing-overcast', name: 'Massing Overcast', bg: '#c9cbcc', fg: '#0f1012', accent: '#8e8a84', accent2: '#4b4946', muted: '#c4781e' },
+  { id: 'massing-overgrown', name: 'Massing Overgrown', bg: '#9fc3d8', fg: '#14170f', accent: '#e2dccb', accent2: '#64625c', muted: '#447d1e' },
+  { id: 'massing-night', name: 'Massing Night', bg: '#0e1420', fg: '#050506', accent: '#d2ccc0', accent2: '#4a4744', muted: '#a3180e' },
 ];
 
 export function getPalette(id: string): Palette {
