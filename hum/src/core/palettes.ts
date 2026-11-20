@@ -108,6 +108,10 @@ export const PALETTES: Palette[] = [
   // ribbon type
   { id: 'gig-poster', name: 'Gig Poster', bg: '#ff4a26', fg: '#141210', accent: '#f6a8e2', accent2: '#d3ec7c', muted: '#8f86f7' },
   { id: 'after-hours-tape', name: 'After Hours Tape', bg: '#0f1016', fg: '#f3eee3', accent: '#ff5b37', accent2: '#e8dfcb', muted: '#4a43d6' },
+  // garden
+  { id: 'garden-botanical', name: 'Garden Botanical', bg: '#16142c', fg: '#f7ecd8', accent: '#ff5638', accent2: '#ffbf2e', muted: '#2f9a5c' },
+  { id: 'garden-coral', name: 'Garden Coral', bg: '#f09a30', fg: '#fbf7ef', accent: '#1f5bd0', accent2: '#e2304e', muted: '#86bff2' },
+  { id: 'garden-doodle', name: 'Garden Doodle', bg: '#1a3122', fg: '#f6ffc4', accent: '#b4ee3a', accent2: '#ffe24a', muted: '#3d9449' },
 ];
 
 export function getPalette(id: string): Palette {
