@@ -8,6 +8,7 @@ import { observer } from './observer';
 import { retroDesktop } from './retroDesktop';
 import { orrery } from './orrery';
 import { nightTrain } from './nightTrain';
+import { goldenAvenue } from './goldenAvenue';
 
 /** worlds: places and living things, drawn rather than photographed */
-export const scenes: SceneDef[] = [willow, nightWindows, signalForest, jellies, shoal, observer, retroDesktop, orrery, nightTrain];
+export const scenes: SceneDef[] = [willow, nightWindows, signalForest, jellies, shoal, observer, retroDesktop, orrery, nightTrain, goldenAvenue];
