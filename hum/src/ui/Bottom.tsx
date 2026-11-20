@@ -1,3 +1,4 @@
+import { activeFinish, setFinish } from '../state/direction';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
@@ -7,24 +8,27 @@ import { assignLook, findLook, interludeLength, makeVideo, sectionIndexAt, secti
 import { presetToLook } from '../presets/apply';
 import { useStudio, type PopupMode } from '../state/store';
 import { LAYER_MIME, Slider, Toggle } from './controls';
-import { Pause, Play, Plus, Sparkle, Wave } from './Icons';
+import { Film, Pause, Play, Plus, Sparkle, Wave } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { peekHandlers } from './Peek';
 import { noteHandPick } from '../state/taste';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
 import { Volume } from './Volume';
+import { RangeOverlay, RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 
 /**
  * Three rows: the transport and the feel controls, one timeline (the song's parts with their looks
  * on top, the waveform under them, one playhead through both), and the live layer meters.
  */
 export function Bottom() {
+  // render mode: the song map picks a stretch and the meter row becomes the render row
+  const rendering = useRenderMode((s) => s.on);
   return (
     <div className="bottom">
       <TopRow />
       <Timeline />
-      <LayerStrip />
+      {rendering ? <RenderBar /> : <LayerStrip />}
     </div>
   );
 }
@@ -45,9 +49,10 @@ function TopRow() {
         const p = audioEngine.playing;
         setPlaying((prev) => (prev !== p ? p : prev));
         const f = audioEngine.frame;
-        if (timeRef.current) {
-          timeRef.current.textContent = audioEngine.kind === 'mic' ? 'Live' : `${fmtTime(f.time)} / ${fmtTime(f.duration)}`;
-        }
+        const el = timeRef.current;
+        // the text changes once a second: only touch the page when it does
+        const text = audioEngine.kind === 'mic' ? 'Live' : `${fmtTime(f.time)} / ${fmtTime(f.duration)}`;
+        if (el && el.textContent !== text) el.textContent = text;
       }),
     [],
   );
@@ -102,6 +107,7 @@ function Timeline() {
   const planning = useStudio((s) => s.planning);
   const plan = useStudio((s) => s.plan);
   const bdOpen = useBreakdown((s) => s.open);
+  const renderOn = useRenderMode((s) => s.on);
   const canvas = useRef<HTMLCanvasElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const lane = useRef<HTMLDivElement>(null);
@@ -117,20 +123,34 @@ function Timeline() {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(
-    () =>
-      onFrame(() => {
-        const f = audioEngine.frame;
-        const d = analysis?.duration || f.duration;
-        const t = audioEngine.kind === 'mic' ? 0 : audioEngine.currentTime;
-        drawWave(canvas.current, analysis, t, d);
-        if (head.current) {
-          head.current.style.display = d > 0 && audioEngine.kind !== 'mic' ? '' : 'none';
-          head.current.style.left = `${d > 0 ? (t / d) * 100 : 0}%`;
-        }
-      }),
-    [analysis],
-  );
+  // the waveform's size comes from a ResizeObserver, so the frame loop never reads layout
+  const waveSize = useRef({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => (waveSize.current = { w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    waveSize.current = { w: el.clientWidth, h: el.clientHeight };
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let lastLeft = '';
+    let lastShow = '';
+    return onFrame(() => {
+      const f = audioEngine.frame;
+      const d = analysis?.duration || f.duration;
+      const t = audioEngine.kind === 'mic' ? 0 : audioEngine.currentTime;
+      drawWave(canvas.current, waveSize.current, analysis, t, d);
+      const el = head.current;
+      if (el) {
+        const show = d > 0 && audioEngine.kind !== 'mic' ? '' : 'none';
+        const left = `${d > 0 ? Math.round((t / d) * 10000) / 100 : 0}%`;
+        if (show !== lastShow) el.style.display = lastShow = show;
+        if (left !== lastLeft) el.style.left = lastLeft = left;
+      }
+    });
+  }, [analysis]);
 
   const seek = (e: React.PointerEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -173,13 +193,18 @@ function Timeline() {
             ))}
         </div>
         <div className="tl-head" ref={head} />
+        {renderOn && analysis && secs.length > 0 && <RangeOverlay a={analysis} />}
       </div>
       <div className="tl-side">
         <button
           className="btn primary tl-make has-tip tip-left"
           disabled={planning || !analysis || !secs.length}
-          onClick={() => void makeVideo()}
-          data-tip="Claude gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top."
+          onClick={() => void makeVideo('', { fresh: hasPlan })}
+          data-tip={
+            hasPlan
+              ? 'Ask Claude for a fresh take on this song: new looks for every part, played from the top.'
+              : 'Claude gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top. A song you’ve made a video for before plays its saved video, free.'
+          }
         >
           {planning ? <span className="spin" /> : <Sparkle width={13} height={13} />}
           {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
@@ -192,6 +217,15 @@ function Timeline() {
         >
           <Wave width={14} height={14} />
           Breakdown
+        </button>
+        <button
+          className={`btn tl-render has-tip tip-left ${renderOn ? 'on' : ''}`}
+          disabled={!analysis || !secs.length}
+          onClick={toggleRenderMode}
+          data-tip="Pick a stretch of the song and make it into videos: the same moments at 9:16, 4:5, 1:1 or 16:9"
+        >
+          <Film width={14} height={14} />
+          Render
         </button>
       </div>
     </div>
@@ -348,36 +382,67 @@ function SectionRow({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
   );
 }
 
-function drawWave(c: HTMLCanvasElement | null, a: TrackAnalysis | null, t: number, d: number) {
+/** the song's waveform drawn once per size in both colours (played, still to come), see drawWave */
+let waveCache: { a: TrackAnalysis; w: number; h: number; dpr: number; played: HTMLCanvasElement; ahead: HTMLCanvasElement; px: number } | null = null;
+
+function waveLayer(a: TrackAnalysis, w: number, h: number, dpr: number, color: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * dpr);
+  c.height = Math.round(h * dpr);
+  const g = c.getContext('2d')!;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const ov = a.overview;
+  const mid = h / 2;
+  g.fillStyle = color;
+  for (let x = 0; x < w; x += 2) {
+    const i0 = Math.floor((x / w) * ov.length);
+    const i1 = Math.max(i0 + 1, Math.floor(((x + 2) / w) * ov.length));
+    let v = 0;
+    for (let i = i0; i < i1 && i < ov.length; i++) v = Math.max(v, ov[i]);
+    const hh = Math.max(0.5, v * (h * 0.44));
+    g.fillRect(x, mid - hh, 1.4, hh * 2);
+  }
+  // part boundaries
+  g.fillStyle = 'rgba(23,23,26,0.12)';
+  for (const s of a.sections.slice(1)) g.fillRect(Math.round((s.start / a.duration) * w), 0, 1, h);
+  return c;
+}
+
+/**
+ * The timeline waveform. For a song it's two pictures made once per size (the played part dark, the
+ * rest light), and each frame only copies them in when the playhead has moved a pixel, so a playing
+ * song costs almost nothing here. Before analysis it draws the live waveform.
+ */
+function drawWave(c: HTMLCanvasElement | null, size: { w: number; h: number }, a: TrackAnalysis | null, t: number, d: number) {
   if (!c) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = c.clientWidth;
-  const h = c.clientHeight;
+  const { w, h } = size;
   if (!w || !h) return;
   if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
     c.width = Math.round(w * dpr);
     c.height = Math.round(h * dpr);
+    waveCache = null;
   }
   const g = c.getContext('2d')!;
+  if (a) {
+    let wc = waveCache;
+    if (!wc || wc.a !== a || wc.w !== w || wc.h !== h || wc.dpr !== dpr) {
+      wc = waveCache = { a, w, h, dpr, played: waveLayer(a, w, h, dpr, '#17171a'), ahead: waveLayer(a, w, h, dpr, '#c9c5bb'), px: -1 };
+    }
+    // the playhead in device pixels, on the 2-px bar grid the bars are drawn on
+    const px = Math.round(Math.max(0, Math.min(1, d > 0 ? t / d : 0)) * w / 2) * 2 * dpr;
+    if (px === wc.px) return;
+    wc.px = px;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, c.width, c.height);
+    g.drawImage(wc.ahead, 0, 0);
+    if (px > 0) g.drawImage(wc.played, 0, 0, px, c.height, 0, 0, px, c.height);
+    return;
+  }
+  waveCache = null;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  const prog = d > 0 ? t / d : 0;
-  if (a) {
-    const ov = a.overview;
-    const mid = h / 2;
-    for (let x = 0; x < w; x += 2) {
-      const i0 = Math.floor((x / w) * ov.length);
-      const i1 = Math.max(i0 + 1, Math.floor(((x + 2) / w) * ov.length));
-      let v = 0;
-      for (let i = i0; i < i1 && i < ov.length; i++) v = Math.max(v, ov[i]);
-      const hh = Math.max(0.5, v * (h * 0.44));
-      g.fillStyle = x / w < prog ? '#17171a' : '#c9c5bb';
-      g.fillRect(x, mid - hh, 1.4, hh * 2);
-    }
-    // part boundaries
-    g.fillStyle = 'rgba(23,23,26,0.12)';
-    for (const s of a.sections.slice(1)) g.fillRect(Math.round((s.start / a.duration) * w), 0, 1, h);
-  } else if (audioEngine.kind !== 'none') {
+  if (audioEngine.kind !== 'none') {
     // live waveform while analysing / mic
     const wf = audioEngine.frame.waveform;
     g.beginPath();
@@ -397,7 +462,7 @@ function drawWave(c: HTMLCanvasElement | null, a: TrackAnalysis | null, t: numbe
 
 /** one-click hand-drawn finish (its settings live in the Look tab) */
 function HandToggle() {
-  const on = useStudio((s) => s.hand.on);
+  const on = useStudio((s) => activeFinish(s) === 'hand');
   return (
     <label className="sw boxed has-tip tip-left" data-tip="Choppy frames, wobbly lines, ink on paper. Fine-tune it in the Look tab. (H)">
       <Toggle on={on} onChange={() => toggleHand()} />
@@ -406,10 +471,11 @@ function HandToggle() {
   );
 }
 
+/** Hand-drawn is one of the finishes: on picks it, off picks Clean (the Finish picker in the Look tab can go back to Auto) */
 export function toggleHand() {
-  const s = useStudio.getState();
-  s.set({ hand: { ...s.hand, on: !s.hand.on } });
-  s.flash(s.hand.on ? 'Hand-drawn off' : 'Hand-drawn on. Fine-tune it in the Look tab');
+  const on = activeFinish(useStudio.getState()) === 'hand';
+  setFinish(on ? 'clean' : 'hand');
+  useStudio.getState().flash(on ? 'Hand-drawn off (Finish: Clean)' : 'Hand-drawn on. Fine-tune it in the Look tab');
 }
 
 /** the pop-up windows over the picture: one switch for all of them (when they show lives in the Look tab) */
@@ -455,22 +521,26 @@ function ImpactKnob() {
 
 function LayerStrip() {
   const refs = useRef<(HTMLDivElement | null)[]>([]);
-  useEffect(
-    () =>
-      onFrame(() => {
-        const f = audioEngine.frame;
-        LAYERS.forEach((l, i) => {
-          const el = refs.current[i];
-          if (!el) return;
-          const v = Math.max(0, Math.min(1, f.layers[l.id] ?? 0));
+  useEffect(() => {
+    const meterV: number[] = [];
+    const meterHit: boolean[] = [];
+    return onFrame(() => {
+      const f = audioEngine.frame;
+      LAYERS.forEach((l, i) => {
+        const el = refs.current[i];
+        if (!el) return;
+        // a 1% step is invisible on a meter this size; when nothing moves (paused, silence) nothing is written
+        const v = Math.round(Math.max(0, Math.min(1, f.layers[l.id] ?? 0)) * 100) / 100;
+        const hit = (l.id === 'kick' && f.kick > 0.6) || (l.id === 'snare' && f.snare > 0.6) || (l.id === 'hat' && f.hat > 0.6) || (l.id === 'drop' && f.drop > 0.5);
+        if (meterV[i] !== v) {
+          meterV[i] = v;
           (el.children[0] as HTMLElement).style.transform = `scaleY(${v})`;
           (el.children[1] as HTMLElement).style.bottom = `${v * 100}%`;
-          const hit = (l.id === 'kick' && f.kick > 0.6) || (l.id === 'snare' && f.snare > 0.6) || (l.id === 'hat' && f.hat > 0.6) || (l.id === 'drop' && f.drop > 0.5);
-          el.classList.toggle('hit', hit);
-        });
-      }),
-    [],
-  );
+        }
+        if (meterHit[i] !== hit) el.classList.toggle('hit', (meterHit[i] = hit));
+      });
+    });
+  }, []);
   return (
     <div className="layer-strip">
       {LAYERS.map((l, i) => (

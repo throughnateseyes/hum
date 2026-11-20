@@ -22,6 +22,9 @@ import { moodOf, pickTransition, resolveTransition, type PickContext, type Trans
 import { affinityIn, contextFor, EXPLORE, planSignature, recentPlans, rememberPlan, record, rng, setTransitionProbe, tasteSummary } from './taste';
 import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type LyricPart, type LyricPlan, type TypeFamily } from './lyricPlan';
 import { profileFor } from '../render/lyricProfiles';
+import type { Direction } from '../core/direction';
+import { localDirection, preferredTransitions } from './direction';
+import { planKey, savedPlan, savePlan, watchPlan } from './planCache';
 
 export interface VideoPlan {
   title: string;
@@ -46,6 +49,8 @@ export interface VideoPlan {
   transitions?: (PlanTransition | null)[];
   /** lyric video: how the words appear in each section, its type family and seed (missing → made up per song, see lyricPlan.ts) */
   lyricPlan?: LyricPlan;
+  /** the video's Direction: one finish and one transition set for the whole video, plus a type hint (core/direction.ts) */
+  direction?: Direction;
 }
 
 export const LABEL_NAME: Record<TrackSection['label'], string> = {
@@ -192,7 +197,7 @@ export interface Shot {
   pick?: Omit<PickContext, 'seed' | 'prev' | 'room'>;
   section: number;
   /** what the cut lands on */
-  on: 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric';
+  on: 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'resolve';
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -211,6 +216,35 @@ function busyness(a: TrackAnalysis, sec: TrackSection): number {
   const hits = countIn(L.kick, sec.start, sec.end) + countIn(L.snare, sec.start, sec.end) + 0.6 * countIn(L.hat, sec.start, sec.end);
   const notes = L.bass.filter((n) => n.t >= sec.start && n.t < sec.end).length + 0.5 * L.lead.filter((n) => n.t >= sec.start && n.t < sec.end).length;
   return clamp01((hits / len - 0.8) / 6 + notes / len / 8);
+}
+
+/* ───────────────────────── harmony ───────────────────────── */
+
+/** the nearest chord change to t within `within` seconds (t itself when there is none) */
+export function snapToChord(t: number, changes: number[], within: number): number {
+  let best = t;
+  let d = within;
+  for (const c of changes) {
+    const e = Math.abs(c - t);
+    if (e <= d) {
+      d = e;
+      best = c;
+    }
+    if (c > t + within) break;
+  }
+  return best;
+}
+
+/**
+ * Section i plays an earlier part again, turned up (a second chorus louder than the first), or sits
+ * in a key the song lifted into: either way it should feel bigger, so it cuts a little faster.
+ */
+export function turnedUp(a: TrackAnalysis, i: number): number {
+  const h = a.harmony?.sections[i];
+  if (!h) return 0;
+  let v = h.lift ? 0.1 : 0;
+  if (h.repeatOf !== undefined && a.sections[i].energy >= a.sections[h.repeatOf].energy - 0.02) v += 0.06;
+  return v;
 }
 
 const PACE_MUL: Record<Pace, number> = { slow: 1.6, song: 1, fast: 0.6 };
@@ -234,7 +268,7 @@ export function sectionPacing(plan: VideoPlan, a: TrackAnalysis, i: number, pace
   const sec = a.sections[i];
   const bar = 240 / Math.max(50, Math.min(200, a.bpm || 120));
   const mood = moodOf(a);
-  const drive = clamp01(0.6 * sec.energy + 0.4 * busyness(a, sec));
+  const drive = clamp01(0.6 * sec.energy + 0.4 * busyness(a, sec) + turnedUp(a, i));
   const cap = PACE_CAP[pace];
   let bars: number;
   const given = plan.shotBars?.[i];
@@ -324,6 +358,9 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   const L = a.layers;
   const kicks = L?.kick ?? [];
   const sd = sectionDrops(a);
+  // chord changes: phrase cuts slide onto one when it's within a beat, so the picture turns with the harmony
+  const chordChanges = a.harmony?.changes ?? [];
+  const resolutions = a.harmony?.resolutions ?? [];
   // the look on screen and when it came on, so a look carried over from the last section still counts
   let lastLook = '';
   let lastChange = 0;
@@ -396,7 +433,11 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       for (let j = Math.ceil(s0 / dt) + w; j < Math.floor(s1 / dt) - w; j++) {
         const rise = ec[j + w] - ec[j - w];
         const nextRise = ec[j + 1 + w] - ec[j + 1 - w];
-        if (rise > 0.2 && rise >= prevRise && rise >= nextRise && ec[j + w] > sec.energy) events.push({ t: snapBeat(j * dt), on: 'hit', pri: 3 });
+        // the loudness curve is coarse, so a new layer is placed by the chord change it comes in with when there's one close
+        if (rise > 0.2 && rise >= prevRise && rise >= nextRise && ec[j + w] > sec.energy) {
+          const at = snapToChord(j * dt, chordChanges, 1.5 * beat);
+          events.push({ t: at === j * dt ? snapBeat(at) : at, on: 'hit', pri: 3 });
+        }
         prevRise = rise;
       }
     }
@@ -406,10 +447,12 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       const t = lines[k].t;
       if (t > s0 && t < s1 && (k === 0 || t - lines[k - 1].end >= bar * 0.75)) events.push({ t: snapBeat(t), on: 'lyric', pri: 2 });
     }
-    // the phrase grid, nudged onto a lyric line when one starts nearby
+    // where the harmony comes home: a natural place for the picture to change or settle
+    for (const r of resolutions) if (r.t > s0 && r.t < s1 && r.strength >= 0.5) events.push({ t: r.t, on: 'resolve', pri: 2 });
+    // the phrase grid, nudged onto a lyric line when one starts nearby, else onto a chord change
     for (let t = s0 + P.shotLen; t < s1 - 0.5; t += P.shotLen) {
       const line = lines.find((l) => Math.abs(l.t - t) < Math.min(bar * 0.5, P.shotLen * 0.25));
-      events.push({ t: line ? snapBeat(line.t) : t, on: line ? 'lyric' : 'phrase', pri: 1 });
+      events.push({ t: line ? snapBeat(line.t) : snapToChord(t, chordChanges, beat), on: line ? 'lyric' : 'phrase', pri: 1 });
     }
     // keep the most meaningful cuts that are far enough apart
     events.sort((x, y) => y.pri - x.pri || x.t - y.t);
@@ -428,7 +471,7 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     for (const c of [...cuts, { t: s1, on: 'section' as const }]) {
       while (c.t - prev > budget) {
         const n = Math.ceil((c.t - prev) / budget);
-        const t = sec.start + Math.round((prev + (c.t - prev) / n - sec.start) / beat) * beat;
+        const t = snapToChord(sec.start + Math.round((prev + (c.t - prev) / n - sec.start) / beat) * beat, chordChanges, beat);
         if (t - prev < 1 || c.t - t < 1) break;
         filled.push({ t, on: 'phrase' });
         prev = t;
@@ -455,9 +498,10 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   // transitions, now that every shot's neighbours are known: picked from the music, or the plan's own
   // choice for that section; strong drops always cut
   let prev: TransitionId | undefined;
+  const prefer = preferredTransitions(plan);
   out.forEach((sh, k) => {
     const room = Math.min(sh.t - (out[k - 1]?.t ?? -1e9), (out[k + 1]?.t ?? a.duration) - sh.t);
-    const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room });
+    const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room, prefer });
     const own = plan.transitions?.[sh.section];
     const ownId = sh.on === 'section' || sh.on === 'interlude' ? own?.into : own?.within;
     if (ownId && !sh.strongDrop && k > 0) {
@@ -514,7 +558,7 @@ export function planTick(f: AudioFrame) {
   const next = shots[k + 1];
   if (next && f.playing && next.t - t < 2.5) {
     const nl = findLook(next.lookId);
-    if (nl && nl.id !== s.presetId) live.stage?.prewarm(nl.sceneId);
+    if (nl && nl.id !== s.presetId) live.stage?.prewarm(nl.sceneId, nl.effects);
   }
   if (hold) {
     if (hold.plan === s.plan && t >= hold.from - 0.5 && t < hold.until) return;
@@ -529,6 +573,18 @@ export function planTick(f: AudioFrame) {
   // a shot reached by seeking or pausing gets a short crossfade instead of its own transition
   if (live.stage) live.stage.nextTransition = recolour ? { id: 'crossfade', ms: 600, seed: k } : f.playing && since < 0.35 ? resolved(sh, k) : { id: 'crossfade', ms: f.playing ? 400 : 250, seed: k };
   s.applyPreset(songTinted(look));
+}
+
+/**
+ * The sequencer's own memory (a look held after a hand pick, the colours last put on screen), so a
+ * render can start it fresh and put it back afterwards.
+ */
+export function planSequencerState(): { hold: typeof hold; lastTint: string } {
+  return { hold, lastTint };
+}
+export function restorePlanSequencer(st: { hold: typeof hold; lastTint: string }) {
+  hold = st.hold;
+  lastTint = st.lastTint;
 }
 
 /** how long a board interlude plays at the top of a section: 4 bars, at most ~45% of the section */
@@ -730,11 +786,14 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number } = {}): Video
     return pools.get(key)!;
   });
   const names = sectionNames(a.sections);
+  // one direction for the whole video: a finish and a motion vocabulary that fit its looks and the song
+  const direction = localDirection(a, looks.map((id) => findLook(id)), opts.seed ?? Math.round(a.duration * 7));
   return ensureDropCuts({
     title: 'Song map',
     note: `Calm sections lean on “${calm.name}”, the body on “${main.name}”, and the big moments on “${peak.name}”, each rotating through a few related looks in time with the music. Parts that sound alike share their looks.${
       boardPick && interludes[at] ? ` ${names[at]} opens with “${boardPick.name}” for a few bars, and little windows pop up on the big moments.` : ''
-    }`,
+    } ${direction.why ?? ''}`.trim(),
+    direction,
     looks,
     why: [],
     source: 'local',
@@ -751,15 +810,33 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number } = {}): Video
  * Plan a video for the loaded song: Claude picks a look per section (offline plan if Claude isn't
  * reachable), then the song restarts from the top with the song map on.
  */
-export async function makeVideo(wish = '') {
+export async function makeVideo(wish = '', opts: { fresh?: boolean } = {}) {
   const s = useStudio.getState();
   const a = s.analysis;
   if (!a || s.planning) return;
+  // cost: a song that already has a plan from Claude plays it again without a new request
+  // ("Remake video" and typed wishes always ask again), see planCache.ts
+  const cacheKey = s.track ? planKey(s.track.name, a, s.lyrics) : null;
+  if (cacheKey && !wish.trim() && !opts.fresh) {
+    const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
+    if (saved) {
+      startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim());
+      watchPlan(cacheKey, saved, a);
+      return;
+    }
+  }
   s.set({ planning: true });
   const { requestPlan } = await import('../director/client');
+  const { shortlistLooks } = await import('../director/shortlist');
   const { getScene } = await import('../scenes');
-  const looks = allLooks().filter((p) => getScene(p.sceneId));
   const lyr = s.lyrics;
+  const taste = tasteSummary(a);
+  // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
+  const looks = shortlistLooks(
+    allLooks().filter((p) => getScene(p.sceneId)),
+    a,
+    { wish, keep: taste ? [...taste.liked.map((x) => x.id), ...taste.avoid] : [], categoryOf: (p) => getScene(p.sceneId)?.category ?? '' },
+  );
   const offline = freshLocalPlan(a);
   let plan: VideoPlan = offline;
   let reason = '';
@@ -785,12 +862,9 @@ export async function makeVideo(wish = '') {
           };
         }),
         ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
-        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p) })),
+        looks: looks.map((p) => ({ id: p.id, name: p.name, description: p.description, tags: p.tags, category: getScene(p.sceneId)?.category ?? '', style: lookStyle(p), ...(p.custom ? { custom: true } : {}) })),
         // taste memory: a short anonymous summary (look ids, tags, counts) and the last plan's looks
-        ...(() => {
-          const taste = tasteSummary(a);
-          return taste ? { taste } : {};
-        })(),
+        ...(taste ? { taste } : {}),
         // lyric video: how overlay lyrics fit each look, and how wordy each section is
         ...lyricRequest(a, lyr, looks, getScene, lyricSeed),
       },
@@ -813,6 +887,8 @@ export async function makeVideo(wish = '') {
         rotate: r.rotate,
         shotBars: r.shotBars,
         transitions: r.transitions,
+        // Claude's direction, else one picked offline around Claude's looks
+        direction: r.direction ?? localDirection(a, r.looks.map((id, i) => findLook(id ?? offline.looks[i])), lyricSeed),
       }, a);
     } else reason = r.reason;
   } catch (e) {
@@ -825,16 +901,20 @@ export async function makeVideo(wish = '') {
     now.set({ planning: false });
     return;
   }
+  if (cacheKey && plan.source === 'claude') {
+    savePlan(cacheKey, plan);
+    watchPlan(cacheKey, plan, a);
+  }
+  now.set({ planning: false });
+  startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim());
+}
+
+/** put a plan on, say so in the chat and play the song from the top */
+function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string) {
+  const now = useStudio.getState();
   rememberPlan(a, planSignature(plan));
-  now.set({ plan, planOn: true, autoPilot: false, planning: false });
-  now.pushChat({
-    role: 'director',
-    mode: 'plan',
-    title: plan.title,
-    text: plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim(),
-    source: plan.source,
-    via: plan.via,
-  });
+  now.set({ plan, planOn: true, autoPilot: false });
+  now.pushChat({ role: 'director', mode: 'plan', title: plan.title, text, source: plan.source, via: plan.via });
   audioEngine.seek(0);
   void audioEngine.play().catch(() => {});
 }

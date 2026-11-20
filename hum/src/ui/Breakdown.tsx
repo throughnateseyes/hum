@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { audioEngine } from '../audio/engine';
-import type { TrackAnalysis, TrackNote } from '../core/types';
+import { chordPace } from '../audio/harmony';
+import type { TrackAnalysis, TrackHarmony, TrackNote } from '../core/types';
 import { onFrame } from '../state/live';
 import { sectionNames } from '../state/plan';
 import { useStudio } from '../state/store';
@@ -11,7 +12,7 @@ import { GROUP_INK, GROUP_TINT, dropList, fmtTime } from './song';
 /**
  * The song breakdown: everything Hum heard in the song, laid out on one time axis — the waveform,
  * energy and the three bands, the parts and drops, the drum hits, the bass and lead notes as a piano
- * roll, and where the voice is. The playhead runs across it; click or drag anywhere to move.
+ * roll, where the voice is, and the harmony: the chords, and how far from home they are. The playhead runs across it; click or drag anywhere to move.
  */
 
 export const useBreakdown = create<{ open: boolean }>(() => ({ open: false }));
@@ -32,7 +33,7 @@ const C = {
   vocal: '#c94040',
 };
 
-type LaneId = 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
+type LaneId = 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'chords' | 'tension' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
 interface Lane {
   id: LaneId;
   label: string;
@@ -112,7 +113,8 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
   const L = a.layers;
   const drops = dropList(a);
   const names = useMemo(() => sectionNames(a.sections), [a]);
-  const key = (a as TrackAnalysis & { key?: string }).key;
+  const harm = a.harmony;
+  const harmonyNote = useMemo(() => (harm ? harmonyWords(harm, a, names) : ''), [harm, a, names]);
   const ch = a.character;
 
   const lanes = useMemo(() => {
@@ -126,6 +128,11 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
       { id: 'mid', label: 'Mid', sub: 'voice, keys, leads', h: 26 },
       { id: 'high', label: 'High', sub: 'hats, air', h: 26 },
     ];
+    if (harm) {
+      // right under the energy: the chords, and how far from home they are
+      const at = spec.findIndex((l) => l.id === 'energy') + 1;
+      spec.splice(at, 0, { id: 'chords', label: 'Chords', sub: `${harm.changes.length} changes`, h: 26 }, { id: 'tension', label: 'Tension', sub: 'far from home', h: 26 });
+    }
     if (L) {
       spec.push(
         { id: 'kick', label: 'Kick', sub: `${L.kick.length} hits`, h: 18 },
@@ -142,7 +149,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
       y += l.h + GAP;
       return lane;
     });
-  }, [L]);
+  }, [L, harm]);
   const H = lanes.length ? lanes[lanes.length - 1].y + lanes[lanes.length - 1].h : 0;
 
   useLayoutEffect(() => {
@@ -196,7 +203,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
         <Fact cap k="Genre" v={ch ? `${ch.genre}` : '—'} note={ch ? `${Math.round(ch.confidence * 100)}% sure` : 'not judged yet'} />
         <Fact cap k="Mood" v={mood || '—'} />
         <Fact k="Tempo" v={`${Math.round(a.bpm)} bpm`} />
-        {key && <Fact k="Key" v={key} />}
+        {harm && <Fact k="Key" v={harm.key.name} note={harmonyNote} />}
         <Fact k="Length" v={fmtTime(a.duration)} note={`${a.sections.length} parts · ${drops.length} drop${drops.length === 1 ? '' : 's'}`} />
         <div className="bd-fact wide">
           <span className="k">Instruments</span>
@@ -435,6 +442,34 @@ function draw(
   curve(g, a.midCurve, lane('mid')!, C.mid, v0, span, d, w);
   curve(g, a.highCurve, lane('high')!, C.high, v0, span, d, w);
 
+  // harmony: a box per chord (minor chords a shade darker), resolutions as a dot, tension as a curve
+  const HM = a.harmony;
+  const cl = lane('chords');
+  if (HM && cl) {
+    for (const c of HM.chords) {
+      if (c.root < 0 || !visible(c.t, c.end)) continue;
+      const x0 = Math.max(0, X(c.t));
+      const x1 = Math.min(w, X(c.end));
+      const on = t >= c.t && t < c.end;
+      g.fillStyle = c.minor ? 'rgba(143,71,196,0.16)' : 'rgba(47,75,255,0.12)';
+      if (on) g.fillStyle = c.minor ? 'rgba(143,71,196,0.32)' : 'rgba(47,75,255,0.26)';
+      g.fillRect(x0 + 0.5, cl.y + 3, Math.max(1, x1 - x0 - 1), cl.h - 6);
+      if (x1 - x0 > 18) {
+        g.fillStyle = C.ink;
+        g.textAlign = 'left';
+        g.fillText(c.name, x0 + 4, cl.y + cl.h / 2 + 1);
+      }
+    }
+    for (const r of HM.resolutions) {
+      if (!visible(r.t)) continue;
+      g.beginPath();
+      g.arc(X(r.t), cl.y + cl.h - 3, 1.5 + 1.5 * r.strength, 0, Math.PI * 2);
+      g.fillStyle = C.mid;
+      g.fill();
+    }
+    curve(g, HM.tension, lane('tension')!, C.vocal, v0, span, d, w);
+  }
+
   const L = a.layers;
   if (L) {
     ticks(g, L.kick, lane('kick')!, C.ink, 1, X, v0, v1, t);
@@ -481,6 +516,22 @@ function draw(
     g.lineTo(x, ru.y + ru.h);
     g.fill();
   }
+}
+
+/** "chords change every 2 beats in the chorus · lifts up a step at 2:41", in plain words */
+function harmonyWords(H: TrackHarmony, a: TrackAnalysis, names: string[]): string {
+  const parts: string[] = [];
+  const rated = H.sections.map((s, i) => ({ i, b: s.beatsPerChord, len: a.sections[i].end - a.sections[i].start })).filter((x) => x.b > 0);
+  if (rated.length) {
+    // the part that matters most for the picture: the chorus or drop if there is one, else the longest
+    const big = rated.filter((x) => a.sections[x.i].label === 'chorus' || a.sections[x.i].label === 'drop');
+    const pick = (big.length ? big : rated).sort((p, q) => q.len - p.len)[0];
+    const where = big.length ? ` in the ${names[pick.i].replace(/ \d+$/, '').toLowerCase()}` : '';
+    parts.push(`chords change ${chordPace(pick.b)}${where}`);
+  }
+  for (const k of H.keyChanges.slice(0, 2)) parts.push(k.lift ? `lifts ${k.semitones === 1 ? 'a half step' : 'a step'} at ${fmtTime(k.t)}` : `to ${k.to} at ${fmtTime(k.t)}`);
+  if (H.key.confidence < 0.3) parts.push('not sure of the key');
+  return parts.join(' · ');
 }
 
 function niceStep(raw: number) {

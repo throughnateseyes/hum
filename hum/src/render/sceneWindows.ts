@@ -13,6 +13,7 @@ import { allLooks, findLook, relatedLooks, sectionIndexAt, songTinted } from '..
 import type { WindowKind } from '../state/store';
 import { FxChain } from './fxChain';
 import { paperInk } from './popups';
+import { dryRun } from './warmup';
 
 /**
  * Scene windows: framed windows over the picture that each play ANOTHER look live, so looks stack up
@@ -170,6 +171,9 @@ const smooth = (a: number, b: number, x: number) => {
 const tmpColor = new THREE.Color();
 
 export class SceneWindows {
+  /** set by the quality governor (src/render/quality.ts): most windows open at once, and whether they run effects */
+  cap = 3;
+  effects = true;
   private wins: Win[] = [];
   /** the next window's look, created and drawn once ahead of time so opening it doesn't stall on a compile */
   private warm: Slot | null = null;
@@ -227,7 +231,7 @@ export class SceneWindows {
     const t = base.time;
     const a = base.audio;
     const spb = 60 / (a.bpm > 30 ? a.bpm : 110);
-    const level = Math.max(0, Math.min(3, Math.round(opts.level)));
+    const level = Math.max(0, Math.min(3, this.cap, Math.round(opts.level)));
     const sk = `${opts.mainPresetId ?? ''}|${opts.mainSceneId}`;
     if (sk !== this.seedKey) {
       this.seedKey = sk;
@@ -258,8 +262,9 @@ export class SceneWindows {
     });
     // warm the next look on a frame where nothing opens, so the compile never lands on a beat
     if (level > 0 && !busy && !this.warm) {
-      this.warm = this.makeSlot(r, base, opts);
-      if (this.warm) this.renderSlot(r, base, this.warm);
+      const slot = (this.warm = this.makeSlot(r, base, opts));
+      // compiled in the background (warmup.ts): a render that draws nothing, so no frame waits for it
+      if (slot) void dryRun(r, () => this.renderSlot(r, base, slot));
     }
     if (!this.wins.length) return;
 
@@ -496,7 +501,8 @@ export class SceneWindows {
       slot.failed = true;
     }
     const chain: { inst: EffectInstance; def: EffectDef; params: ParamValues }[] = [];
-    for (const inst of slot.look.effects) {
+    // the quality governor can leave a window's effects out (an empty chain hands back the plain picture)
+    if (this.effects) for (const inst of slot.look.effects) {
       const def = getEffect(inst.effectId);
       if (!def) continue;
       let p = slot.fxParams.get(inst.instanceId);

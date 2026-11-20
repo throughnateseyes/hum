@@ -49,6 +49,11 @@ function effectLine(e: EffectDef, detail: number): string {
 export interface CatalogInputs {
   scenes?: SceneDef[];
   effects?: EffectDef[];
+  /**
+   * For a small edit of the current look ("warmer", "less busy"): only this scene gets its params, the
+   * others are listed by id and tags. About half the size, so the edit is quicker and cheaper.
+   */
+  focusSceneId?: string;
 }
 
 /** Build the prompt catalog from the live registries (or supplied lists). */
@@ -60,7 +65,11 @@ export function buildCatalog(inputs: CatalogInputs = {}): string {
     const out: string[] = [];
     out.push('PARAM FORMAT: id n min..max=default | id c=#hex | id b=bool | id s[options]=default');
     out.push(`\nSCENES (${scenes.length}) — id [category,flags] tags — description`);
-    for (const s of scenes) out.push(sceneLine(s, detail));
+    const focus = inputs.focusSceneId && scenes.some((s) => s.id === inputs.focusSceneId) ? inputs.focusSceneId : null;
+    if (focus) {
+      for (const s of scenes) if (s.id === focus) out.push(sceneLine(s, 2));
+      out.push('Other scenes (keep the current one unless the request asks for a different scene): ' + scenes.filter((s) => s.id !== focus).map((s) => s.id).join(', '));
+    } else for (const s of scenes) out.push(sceneLine(s, detail));
     out.push(`\nEFFECTS (${effects.length}) — chain order = array order`);
     for (const e of effects) out.push(effectLine(e, detail));
     out.push('\nPALETTES — id: bg fg accent accent2 muted (light/dark)');

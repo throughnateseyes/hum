@@ -7,6 +7,7 @@
  * Env:
  *   HUM_CLAUDE_BIN    path to the claude binary (default: found on PATH or in the usual install dirs)
  *   HUM_CLI_MODEL     model alias or id for the CLI (default 'sonnet')
+ *   HUM_CLI_EDIT_MODEL  model for small edits to a plan or a look (default 'haiku'; 'main' = HUM_CLI_MODEL)
  *   HUM_TIMEOUT_MS    per-request timeout (default 180000)
  */
 import { spawn } from 'node:child_process';
@@ -38,11 +39,14 @@ interface CliJson {
 export function cliBackend(env: DirectorEnv): LocalBackend | null {
   const bin = findClaudeBin(env);
   if (!bin) return null;
-  const model = env.HUM_CLI_MODEL?.trim() || 'sonnet';
+  const mainModel = env.HUM_CLI_MODEL?.trim() || 'sonnet';
+  // small edits ("make the chorus calmer") run on the small model, like the API path (server/models.ts)
+  const editModel = env.HUM_CLI_EDIT_MODEL?.trim() || 'haiku';
   const timeoutMs = Number(env.HUM_TIMEOUT_MS) || 180_000;
 
   return (req: LocalRequest) =>
     new Promise<LocalResult>((resolve) => {
+      const model = req.tier === 'small' ? (editModel === 'main' ? mainModel : editModel) : mainModel;
       const args = [
         '-p',
         '--output-format', 'json',

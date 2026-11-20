@@ -148,6 +148,68 @@ export interface TrackAnalysis {
   dropInfo?: TrackDrop[];
   /** what kind of song this is, judged from the sound (missing on older analyses) */
   character?: TrackCharacter;
+  /** key, chords, harmonic tension and key changes (missing on older analyses, see src/audio/harmony.ts) */
+  harmony?: TrackHarmony;
+}
+
+/** a key: its home note (0 = C … 11 = B) and mode */
+export interface TrackKey {
+  tonic: number;
+  minor: boolean;
+  /** e.g. 'A minor', 'Eb major' */
+  name: string;
+  /** 0..1 */
+  confidence: number;
+}
+
+/** a chord heard over a stretch of beats (major and minor triads only: a G7 reads as G) */
+export interface TrackChord {
+  t: number;
+  end: number;
+  /** pitch class of the root, 0 = C (−1 = no chord) */
+  root: number;
+  minor: boolean;
+  /** e.g. 'Am', 'F', 'Eb'; 'N' when nothing chord-like is sounding */
+  name: string;
+}
+
+/** where the harmony comes home: V → I, or tension falling onto the home chord */
+export interface TrackResolution {
+  t: number;
+  /** 0..1: 1 is a full V → I cadence */
+  strength: number;
+  from: string;
+  to: string;
+}
+
+/** the harmony of one section (same order as `sections`) */
+export interface SectionHarmony {
+  key: TrackKey;
+  /** beats per chord on average (0 = no chords heard) */
+  beatsPerChord: number;
+  changesPerBar: number;
+  /** mean harmonic tension 0..1 */
+  tension: number;
+  /** this section sits in a key the song lifted up to (a half or whole step up, usually the last chorus) */
+  lift?: boolean;
+  /** an earlier section whose chords this one plays again, how closely (0..1) and moved by how many semitones */
+  repeatOf?: number;
+  repeatSim?: number;
+  transpose?: number;
+}
+
+export interface TrackHarmony {
+  key: TrackKey;
+  /** how far the recording sits off A440, in semitones */
+  tuning: number;
+  chords: TrackChord[];
+  /** times (s) where the chord changes; they sit on beats */
+  changes: number[];
+  resolutions: TrackResolution[];
+  keyChanges: { t: number; section: number; from: string; to: string; semitones: number; lift: boolean }[];
+  sections: SectionHarmony[];
+  /** 0..1 harmonic tension, same resolution as `energyCurve`: 0 at home, high on a dominant or a clash */
+  tension: Float32Array;
 }
 
 /** one pitched note heard in a layer */

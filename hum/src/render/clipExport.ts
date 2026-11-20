@@ -39,7 +39,7 @@ const slug = (s: string) =>
  * look, plan and lyrics on the stage, then download it. The stage keeps showing on screen (switched to
  * 9:16 while it records) but draws at the full clip size. Esc cancels.
  */
-export async function exportClip(win?: ClipWindow): Promise<void> {
+export async function exportClip(win?: ClipWindow, size: { w: number; h: number } = { w: CLIP_W, h: CLIP_H }): Promise<void> {
   if (running) return;
   const st = useStudio.getState();
   const blocked = clipBlocker(st);
@@ -111,12 +111,13 @@ export async function exportClip(win?: ClipWindow): Promise<void> {
   running = { cancel: () => cancel() };
   window.addEventListener('keydown', onKey, true);
   document.addEventListener('visibilitychange', onHidden);
-  set({ phase: 'prep', frac: 0, start: w.start, end: w.end });
+  set({ phase: 'prep', frac: 0, start: w.start, end: w.end, size: `${size.w}×${size.h}` });
 
-  // draw at clip size, show 9:16 on screen so the preview matches the file
-  useStudio.getState().set({ aspect: '9:16' });
+  // draw at clip size, show the same frame on screen so the preview matches the file
+  const r = size.w / size.h;
+  useStudio.getState().set({ aspect: r < 0.7 ? '9:16' : r < 0.95 ? '4:5' : r < 1.2 ? '1:1' : '16:9' });
   live.stage?.setPeek(null, null);
-  stage.setOutputSize({ w: CLIP_W, h: CLIP_H });
+  stage.setOutputSize(size);
 
   audioEngine.pause();
   audioEngine.seek(Math.max(0, w.start - PREROLL));
@@ -130,7 +131,7 @@ export async function exportClip(win?: ClipWindow): Promise<void> {
   const finish = () => {
     if (done || !rec) return;
     done = true;
-    set({ phase: 'save', frac: 1, start: w.start, end: w.end });
+    set({ phase: 'save', frac: 1, start: w.start, end: w.end, size: `${size.w}×${size.h}` });
     const r = rec;
     r.onstop = () => {
       const type = mime || 'video/webm';
@@ -179,7 +180,7 @@ export async function exportClip(win?: ClipWindow): Promise<void> {
     const frac = Math.max(0, Math.min(1, (t - w.start) / (w.end - w.start)));
     if (Math.abs(frac - lastFrac) > 0.004) {
       lastFrac = frac;
-      set({ phase: 'rec', frac, start: w.start, end: w.end });
+      set({ phase: 'rec', frac, start: w.start, end: w.end, size: `${size.w}×${size.h}` });
     }
   };
   raf = requestAnimationFrame(loop);

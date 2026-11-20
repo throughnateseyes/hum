@@ -9,6 +9,16 @@
 @import '@fontsource-variable/oswald';
 @import '@fontsource-variable/jetbrains-mono';
 @import '@fontsource-variable/caveat';
+/* lyric type (src/render/lyricFonts.ts): Instrument Serif for emotional display lines (with its true
+   italic), Fraunces for serif captions and heavier serif lines (its optical sizes keep small text
+   sturdy), Inter Tight for headlines and subtitles, Archivo for condensed lines (its width axis
+   replaces Oswald and opens up on held notes) */
+@import '@fontsource/instrument-serif/400.css';
+@import '@fontsource/instrument-serif/400-italic.css';
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/fraunces/full-italic.css';
+@import '@fontsource-variable/inter-tight/wght.css';
+@import '@fontsource-variable/archivo/wdth.css';
 
 :root {
   --canvas: #f1f0ec;

@@ -9,6 +9,7 @@
 import type { TrackAnalysis, TrackSection } from '../core/types';
 import { TRANSITIONS, type TransitionId } from '../core/transitionList';
 import { useStudio } from './store';
+import { playingDirection, preferredTransitions } from './direction';
 
 export interface TransitionSpec {
   id: TransitionId;
@@ -17,7 +18,7 @@ export interface TransitionSpec {
 }
 
 /** what a look change lands on */
-export type TransitionMoment = 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'manual' | 'auto';
+export type TransitionMoment = 'section' | 'interlude' | 'phrase' | 'hit' | 'drop' | 'vocal' | 'lyric' | 'resolve' | 'manual' | 'auto';
 
 /** moods that want slow dissolves and longer shots */
 const SOFT_MOODS = ['melancholic', 'heartbroken', 'tender', 'dreamy', 'wistful', 'calm', 'bittersweet', 'spacious', 'warm', 'brooding'];
@@ -53,6 +54,8 @@ export interface PickContext {
   seed: number;
   /** the transition used last, to avoid twice in a row */
   prev?: TransitionId;
+  /** the video's motion vocabulary (its Direction's transition set): these are favoured, others thinned */
+  prefer?: TransitionId[];
 }
 
 type Weights = Partial<Record<TransitionId, number>>;
@@ -68,7 +71,26 @@ function rng(seed: number) {
   };
 }
 
+/** the transition set the pick being made leans on (set by pickTransition for the length of one pick) */
+let leaning: TransitionId[] | undefined;
+
+/**
+ * Lean a weight table toward the video's transition set: its members count three times as much and
+ * the rest a third, and members the moment didn't offer join in lightly so the set is always heard.
+ * Cuts keep their weight: they're punctuation in every style.
+ */
+function lean(w: Weights): Weights {
+  if (!leaning?.length) return w;
+  const out: Weights = {};
+  const vals = Object.values(w).filter((v) => v! > 0) as number[];
+  const mean = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
+  for (const [id, v] of Object.entries(w) as [TransitionId, number][]) out[id] = id === 'cut' ? v : leaning.includes(id) ? v * 3 : v / 3;
+  for (const id of leaning) if (id !== 'cut' && !(id in w)) out[id] = mean * 0.6;
+  return out;
+}
+
 function choose(w: Weights, rand: () => number, prev?: TransitionId): TransitionId {
+  w = lean(w);
   const all = Object.entries(w).filter(([, v]) => v! > 0) as [TransitionId, number][];
   const fresh = all.filter(([id]) => id !== prev || id === 'cut');
   const entries = fresh.length ? fresh : all;
@@ -92,6 +114,15 @@ const clampBpm = (bpm: number) => Math.max(50, Math.min(200, bpm || 120));
 
 /** pick a transition for a look change in a song with analysis `a` (null: no song loaded) */
 export function pickTransition(a: TrackAnalysis | null, c: PickContext): TransitionSpec {
+  leaning = c.prefer;
+  try {
+    return pickFor(a, c);
+  } finally {
+    leaning = undefined;
+  }
+}
+
+function pickFor(a: TrackAnalysis | null, c: PickContext): TransitionSpec {
   const rand = rng(c.seed);
   const mood: SongMood = a ? moodOf(a) : 'mid';
   const bpm = a?.bpm || 120;
@@ -141,6 +172,12 @@ export function pickTransition(a: TrackAnalysis | null, c: PickContext): Transit
     if (label === 'drop' || label === 'chorus' || (c.energy ?? 0) > 0.7) return fit(choose({ cut: 4, push: 1, slit: 1, glyph: 1, mosaic: 1 }, rand, c.prev), vary(0.15, 0.3));
     if (calm) return fit(choose({ cut: 2, push: 1, iris: 1, wipe: 1, noise: 1 }, rand, c.prev), vary(0.4, 0.8));
     return fit(choose({ cut: 3, push: 2, mosaic: 1, slit: 1 }, rand, c.prev), vary(0.2, 0.35));
+  }
+
+  // the harmony coming home: the picture settles into the new look rather than snapping to it
+  if (c.on === 'resolve') {
+    const w: Weights = mood === 'hard' ? { push: 2, iris: 2, cut: 1, luma: 1 } : { luma: 3, crossfade: 2, 'fade-bg': 1, ripple: 1 };
+    return fit(choose(w, rand, c.prev), mood === 'soft' ? vary(1.6, 2.6) : mood === 'mid' ? vary(0.8, 1.4) : vary(0.3, 0.5));
   }
 
   if (c.on === 'vocal' || c.on === 'lyric') {
@@ -196,7 +233,8 @@ export function transitionForNow(on: TransitionMoment, songTime: number | null, 
     label = sec?.label;
     energy = sec?.energy;
   }
-  const spec = pickTransition(songTime !== null ? a : null, { on, label, energy, seed, strongDrop, room: on === 'manual' ? 2.6 : undefined });
+  const prefer = preferredTransitions(playingDirection(s) ? s.plan : null);
+  const spec = pickTransition(songTime !== null ? a : null, { on, label, energy, seed, strongDrop, room: on === 'manual' ? 2.6 : undefined, prefer });
   return resolveTransition(spec, { strongDrop, seed });
 }
 

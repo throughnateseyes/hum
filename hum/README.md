@@ -31,6 +31,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   plays the song from the top. Each part is cut into short shots on musical phrases, rotating
   through 2–4 related looks: busy parts cut faster, calm parts hold longer, extra cuts land when the
   kick or bass comes back, a vocal starts or a lyric line begins, and every big drop is a hard cut.
+  Cuts follow the harmony too: a phrase cut slides onto a chord change when one is within a beat,
+  a chord coming home (V → I) is a place for the picture to settle with a soft dissolve, and a part
+  that repeats an earlier one louder, or sits in a key the song has lifted into, cuts a little faster.
   Transitions come from a library of 15 (crossfade, fades through the background colour or black,
   light and cloud dissolves, film burn, ink, soft wipe, iris, ripple, mosaic, glyphs, zoom push,
   slit-scan, cut), timed in beats and picked to fit the moment: long dissolves in calm parts, wipes
@@ -38,8 +41,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   drop. Dissolves step forward on kicks. **Transition** (Look tab) pins one for everything (videos,
   auto-pilot and your own picks) or Cut, and **Length** sets it in beats.
   **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
-  a part (hold ⌥ to change only that one), or pick a look while a part plays. Picking a scene
+  a part (hold ⌥ to change only that one), or pick a look while a part plays, or ask in words in the
+  Director's **Video** mode ("calmer chorus", "something brighter on the drop", "fewer pop-ups"):
+  only the parts you mention change, on the small model, for a fraction of a cent. Picking a scene
   pauses the song map.
+  **Saved videos:** the last video Claude made for a song stays in this browser (24 songs), edits
+  included, so **Make a video** on a song you've done before plays it straight away with no new
+  request. **Remake video** (or typing a wish) always asks Claude for a fresh take.
 - **Your taste.** Hum learns what you like as you use it. While a video plays (or any look is on
   screen), hover the stage and press **♥ Keep** (`K`) on looks you love or **✕ Skip** (`X`) on ones
   you don't; Skip also takes that look out of the part and moves on. Looks you pick from the list
@@ -55,8 +63,10 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   (look ids, tags, section names and counts) with a plan you asked for.
 - **Breakdown** (button by the timeline, or `B`) shows how Hum took the song apart: its genre,
   mood and instruments, the parts, every drop with how big it is and why, the waveform, energy and
-  low / mid / high lanes, kick, snare and hat hits, a piano roll of the bass and lead notes, and
-  where the vocals are. Click anywhere to jump there.
+  low / mid / high lanes, the key and chords ("A minor · chords change every bar in the chorus", a box
+  per chord, a dot where the harmony comes home, and a tension lane for how far from home it is),
+  kick, snare and hat hits, a piano roll of the bass and lead notes, and where the vocals are. Click
+  anywhere to jump there.
 - **Overlays** (switch by the timeline) turns the pop-up windows off or back on.
 - **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
   (or its name, like `Artist - Title.mp3`; music-video rips work too, with "(Official Video)",
@@ -67,9 +77,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   chip by artist and song, or paste a lrclib.net link.
   Only the title, artist and length are sent, never the audio. The chip beside the track name shows
   what was found. It also switches between **Auto** (the default, a lyric video: see *Auto lyrics*
-  below), **Subtitles**, **Big words** (one line at a time, word by
-  word), **Cutouts** (the same big line as a ransom note: each word or letter cut from a different
-  clipping, slapped down as it's sung) and **Off**. On looks that already type the words out (Diary,
+  below), **Subtitles** (a quiet caption), **Big words** (one display line at a time, each word
+  revealed as it's sung), **Collage** (the line as a paper collage: one printed scrap per word, laid
+  down as it's sung) and **Off**. On looks that already type the words out (Diary,
   Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
   get no lyrics, but you can **paste them** in the chip. Hum then times each line by listening for
@@ -78,19 +88,41 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
 - **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
-  subtitles for verses and wordy parts, big words or cutouts for choruses and drops, a word or two in
-  a calm corner for builds and intros, and the look's own lyric components where it has them (the
-  Diary typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments
-  land too: one giant word on the biggest drop, a burst of cutouts on one chorus. The choice comes from
-  each part's label, energy, words per second and the look planned there; the whole song keeps one
-  type family (serif, grotesk, condensed, mono, rounded or typewriter, picked to fit its mood) and one
-  motion (soft fades, blur-ins, slams or shaking type). **Make a video** plans the lyrics together with
+  captions for verses and wordy parts, display lines for choruses and drops, an aside in a margin for
+  builds, intros and breaks, and the look's own lyric components where it has them (the Diary
+  typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments land
+  too: one giant word on the biggest drop (the key word huge on a third, the rest of the line as a
+  small kicker above it), and on loud songs, rarely, one drop line laid down as a paper collage.
+  The choice comes from each part's label, energy, words per second and the look planned there.
+- **Lyric type** is set like a motion designer would set it (`src/render/lyricAuto.ts`): one line at
+  a time, sentence case (lines that arrive in capitals are set back to sentence case), no trailing
+  commas, rows balanced so there's no lone word, hung from a margin or a third of the picture rather
+  than centred in a box. The whole song keeps one type family, picked to fit its mood:
+  *serif* (Instrument Serif for display lines, the key word in its true italic, and the giant word;
+  Fraunces for captions and heavier serif lines), *grotesk* (Inter Tight, set tight), *condensed*
+  (Archivo narrowed on its width axis, in capitals; Oswald is no longer used) or *mono* (JetBrains
+  Mono typed out letter by letter with a caret, IBM Plex Mono captions). The motion comes from the
+  voice: words rise out of a mask at their baseline as they're sung (slowly for tender songs, quickly
+  for loud ones), tracking opens on held notes (and on Archivo the width steps out too), the weight
+  settles as a word lands on loud songs, and lines leave with a quick soft fade. Nothing bounces,
+  wobbles or shakes. Captions keep the whole line up quietly and brighten each word with a wipe.
+  Everything stays in the middle and lower third, and 9:16 frames keep clear of the bottom band where
+  Reels and TikTok put their own captions.
+- **Words in the world.** Some looks host the line themselves (`src/render/lyricHosts.ts`): in
+  **Night Windows** it's a neon sign over the city whose tubes sit dark until each word is sung, then
+  flicker on and buzz with the kick; on **Still Water** the words float on the pool like the leaves,
+  each landing as it's sung, casting a shadow on the pebbles and wobbling with the rings. Hosted
+  lines get no scrim; they still read the picture under them and keep themselves legible in the
+  world's own terms (the wall behind the sign darkens and each tube sits in a dark halo over a bright
+  city; floating words sit in a soft dark of the water over bright caustics). More looks can join by
+  adding a host (the file's header has the pattern and a few ideas).
+- **Make a video** plans the lyrics together with
   the looks (Claude when it's connected, the offline planner otherwise), with a fresh seed each time,
   so two videos of the same song read differently. The chip shows what Auto chose for the part that's
   playing and why. Every style is **guarded for legibility**: every other frame Hum shrinks the
   picture under the text to 96×54 and checks it, then picks the calmest place for the line, an ink
   that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
-  soft plate, a band, or a torn paper strip on paper looks), easing between them so nothing flickers
+  feathered scrim, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
   when a cut changes the picture. The per-look lyric profiles and the audit behind them are in
   [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
 - While a new song is being analysed, the Hum mark floats on the stage, breathing with the music.
@@ -117,6 +149,35 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   wear them too. Only hue moves, so each look keeps its own lights and darks and stays readable.
   *Song colours* (Look tab → Video): *Blend* (the default) meets halfway, *Match* puts every look on
   the main look's colours, *Off* leaves them alone. See `docs/song-colours.jpg`.
+- **Direction.** Every video commits to one direction, so it feels made rather than shuffled: one
+  world (the looks' style family), one set of colours (Song colours), one **finish** and one way of
+  moving (a transition set). Parts then change how big they feel, not what style they're in. Claude
+  picks the direction with the plan; offline, Hum picks it from the main looks' world and the song's
+  mood (calm acoustic songs lean to ink wash, warm cinematic ones to film, playful pop to riso, lo-fi
+  and retro to tape). The plan's note says what it chose.
+- **Finishes** are one surface laid over every look in the video, like shooting the whole thing on the
+  same film stock. After colour it's the biggest thing that makes a video hang together. Each takes its
+  paper and inks from the colours on screen, so it agrees with Song colours, and each moves with the
+  music without shouting:
+  - *Film*: 16mm grain that changes every frame, the picture swaying in the gate (more in gusts of
+    wind), a red-orange glow round bright things, a little flicker on kicks, a soft vignette, dust,
+    the odd scratch and rounded gate corners on dark looks.
+  - *Riso*: a risograph print in two or three inks from the palette on off-white paper, grainy, never
+    perfectly solid, each ink a little out of line, and the registration jumps on every snare.
+  - *Ink wash*: sumi ink on rice paper. The look's background becomes bare paper and what it draws
+    becomes soft washes that bleed along the fibres and darken at their edges; vivid parts become
+    watered-down colour. A drop wets the paper and the ink spreads. Calm and spacious on purpose.
+  - *Tape*: an old VHS tape: soft, colour smeared sideways and late, lines that shake on hits, a
+    tracking roll sweeping down the picture on the drop, and the torn lines along the bottom.
+  - *Hand-drawn*: the hand-drawn finish (below).
+  - *Clean*: nothing.
+  **Finish** (Look tab → Video) is *Auto* by default: each video uses its own direction's finish, and
+  outside a video it's Hand-drawn when that's switched on, else Clean. Pick one to use it everywhere.
+  The Hand-drawn switch (`H`) is the same control: on picks Hand-drawn, off picks Clean. A video's
+  transitions lean on its set (*soft* dissolves, *film* burns and fades to black, *graphic* wipes and
+  slit-scans, *organic* ink and ripples, *kinetic* cuts and pushes, *glitch* mosaics and glyphs); big
+  drops still cut. Finishes go over the picture and under pop-ups, windows and lyrics, and cost under
+  1 ms a frame at 1080p.
 - **Text wall, particle columns, glass planes, tracking HUD.** **Text Wall** (*Redacted*,
   *Highlighter*) fills the page with the song's lyrics, knocks words out and snaps red, yellow,
   blue and cyan boxes onto them on the beat; the sung line lights up wherever it appears and drops
@@ -175,10 +236,32 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   blue tick on a slider shows its live, modulated value.
 - **Director** (bottom of the right column, `/` to focus): a chat with history. Describe a feeling →
   a *Look*; switch to *New scene* → Claude writes a brand-new GLSL scene that's compiled live (errors
-  show in the Scene tab).
+  show in the Scene tab); with a video made, *Video* changes it in plain words. A short tweak of the
+  look on screen ("warmer", "less busy", "more grain") goes to the small model with a shorter catalog.
+- **Render quality** (Look tab → Advanced) is the most detail Hum draws. When frames run late Hum
+  eases off by itself, cheapest first: fewer pop-up scene windows, then the main picture drawn a
+  little smaller, then effects at that size, then a lighter hand-drawn finish. It tries the detail
+  back when there's room, and waits longer after each try that didn't hold, so it settles instead of
+  flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Record** captures video + audio (MP4 where supported, else WebM). The camera icon saves a PNG.
+- **Render** (button by the song map) makes videos without you timing a thing. The song map turns
+  into a picker: drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold
+  ⌥ to snap to beats), drag an edge or the middle to adjust, click a part to take that whole part,
+  or use **Best part** (the strongest 15–30 s, built around the biggest drop or hook) or **Whole
+  song**. Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
+  for the Instagram feed, **1:1** 1080×1080, **16:9** 1920×1080), pick 30 or 60 fps and press
+  **Render**. Each size is made one after another and downloads as it's done, named like
+  `pressure-0m24s-0m30s-1080x1920.mp4`; the stage shows the frames as they're made and Esc cancels.
+  Nothing plays while it works and it never drops a frame, however heavy the look: Hum draws every
+  frame itself from the song file, at its own pace (often faster than real time). The same stretch
+  comes out exactly the same every time, and every size shows the same moments: the same cuts,
+  transitions, pop-ups, windows, lyrics and Song colours that playback shows there. Afterwards the
+  look, the playhead and the stage are back as they were. **Clip for TikTok** (top right) does this
+  in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
+  fall back to recording the stretch live while it plays, and say so.
+- **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
+  camera icon saves a PNG.
 - Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
 
 ## How it's built
@@ -188,6 +271,7 @@ audio file / mic
   → AudioEngine (src/audio/engine.ts)      real-time: 6 bands, onset envelopes, beat phase, energy, build, drop
   → analyzeTrack (src/audio/analysis*.ts)  offline worker: bpm, sections (harmony/timbre self-similarity,
                                            bar-aligned, repeats grouped), drops, mood, tags, preset ranking
+  → harmony (src/audio/harmony.ts)         in the same worker: chroma, chords, key, key changes, tension
   → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
   → taste memory (src/state/taste.ts)      Keep / Skip and hand picks, in context; biases every pick
@@ -197,10 +281,27 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → FxChain (src/render/fxChain.ts)        stackable GLSL passes (src/fx/defs)
   → transition (src/render/transitions.ts) blends the outgoing look (still playing) into the new one;
                                            picked by src/state/transitionPick.ts
-  → impact, pop-ups, lyrics, hand-drawn     (src/render/stage.ts, popups.ts, lyricLayer.ts, handPass.ts)
+  → impact, finish (src/render/finishPass.ts, picked by the video's Direction: src/core/direction.ts,
+    src/state/direction.ts), then pop-ups and lyrics; or hand-drawn over all of it (handPass.ts)
   → scene windows (src/render/sceneWindows.ts)  other looks, each rendered at its window's size, framed over the picture
   → screen / MediaRecorder
 ```
+
+**Rendering a video** (`src/render/timeline.ts`) runs the same chain without the speakers or the
+clock. A second, hidden stage draws each frame at a fixed frame rate. Its sound comes from
+`OfflineAudioFrames` (`src/audio/offlineFrames.ts`): the decoded song, a Blackman window over the last
+4096 samples and an FFT that matches the browser's AnalyserNode to a thousandth of a dB, fed to its
+own copy of the engine's listening code (`src/audio/frameDsp.ts`, which the live engine uses too), at
+60 steps a second. The beat grid is set from the song's tempo and kicks, so the beat count depends
+only on where in the song you are. During each frame `performance.now`, `Date.now` and
+`Math.random` are swapped for the render's clock and per-frame seeded dice (re-seeded for the scene,
+windows, pop-ups and lyrics, so sizes don't drift apart), and the plan's sequencer talks to the hidden
+stage. Each video starts drawing 3 s early (frames thrown away) and listening 12 s early, so Feel,
+flocks, wind, windows and the levels have settled. Frames go to WebCodecs' H.264 encoder (High
+profile, level picked from the size, about 18 Mbps at 1080p30, a keyframe every 2 s) and the song's
+slice to its AAC encoder (48 kHz stereo, 40 ms fade in, 350 ms fade out); `src/render/mp4.ts` writes
+the MP4 (moov first, so it plays while it downloads, and an edit list that skips the AAC encoder's
+start-up delay, measured once per session, so sound and picture line up to the sample).
 
 - `src/core/` — the contracts (`types.ts`), the shared GLSL header + function library (`glsl.ts`),
   and helpers to define scenes (`defineShaderScene`, `defineCanvasScene`, `defineThreeScene`).
@@ -211,6 +312,26 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   `warmth`. It also carries a small shared world: wind direction, gusts and a time of day that runs
   from dawn to dusk over the song. Looks with wind, weather or a light source read them from there,
   so a cut between looks keeps the same weather and light.
+- **Harmony** (`src/audio/harmony.ts`, `analysis.harmony`) is music theory worked out on the device,
+  no AI. Eight times a second a 4096-point spectrum is folded onto the 12 notes (spectral peaks only,
+  placed by their exact frequency after the song's tuning is measured, so a track a little sharp or
+  flat still reads right), with a separate low-end chroma for the bass note. Averaged per beat, each
+  beat gets the major or minor chord that fits best, smoothed so chords don't flicker (changing chord
+  costs less on a bar line); each change is then placed from the 8 Hz frames and landed on the nearest
+  beat or half-beat. The key (song and per section, with a confidence) comes from key profiles over
+  the chords' notes, which chords belong to it, how much time sits on its home chord and V → I moves;
+  the relative major and minor share every note, so the song's first and last chords decide between
+  them. A section that clearly moves to another key is a key change, and up a half or whole step it
+  is a *lift* (`sections[i].lift`). Tension per beat is how far the chord is from home (I 0, IV 0.35,
+  V 0.75, outside the key 0.65) plus dissonance; resolutions are V → I, IV → I, bVII → I or tension
+  falling onto home. Sections whose chords repeat an earlier part with the same name (even
+  transposed) join its group (`repeatOf`, `transpose`). Feel reads it: harmonic tension adds a little
+  to `tension` (`feel.harmony`), a resolution gives a soft `release`, a major key is a touch warmer
+  and a minor one cooler, and a lift brightens `warmth` (`feel.lift`). The song summary the director
+  reads ends with one line, e.g. *Harmony: A minor; chords change about every bar; lifts up a whole
+  step at 2:41.* The same spectra feed the section finder, so analysis got about 20% faster, not
+  slower. Major and minor triads only (a G7 reads as G); busy, distorted mixes get chord qualities
+  wrong more often than the key.
 - **Style families** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
   `form`, `print`, `type`, `data`, `photo`, `board`). The library filters and groups by them, and the
   video planner keeps a part's shots inside one family.
@@ -231,6 +352,22 @@ AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   `node scripts/look-shot.mjs --preset willow-print --out sheet.png` renders a contact sheet of the
   song's key moments in a headless browser and prints shader errors and the frame cost
   (`--scene <id>`, `--mod <file>` for a scene not registered yet, `--portrait`, `--at 16,32.1`).
+  `/solo.html?finish=clean,film,riso,ink,tape,hand` (or `"finish"` in the `--look` JSON) shows each
+  finish side by side for every moment and reports what each finish pass costs.
+  Add `&lyrics=auto` (or `subtitle`, `big`, `cutout`) to the solo page, or a `lyrics` entry in the
+  `--look` json, to draw lyric type over the look: test lyrics are sung in every part (with held
+  notes), and `{ "lyrics": { "style": "auto", "family": "serif", "motion": "tender", "parts":
+  ["sparse", "subtitle", "sparse", "big+giant", "sparse", "subtitle"] } }` fixes the plan per part so
+  sheets compare shot for shot.
+- **Smooth frames:** the quality governor (`src/render/quality.ts`) watches frame times from the
+  stage's own loop and steps detail down and back up (see Render quality above). Anything that renders
+  frame by frame for export must call `quality.freeze(true)` first (and `freeze(false)` after) so
+  every frame gets full detail; the stage also ignores the governor while `setOutputSize` pins an
+  output size. `quality.force(n)` pins a rung to look at it. Shaders for the song map's next look,
+  its effects and the next pop-up window compile in the background ahead of the cut
+  (`src/render/warmup.ts`, `renderer.compileAsync` with KHR_parallel_shader_compile), so cuts don't
+  stall on a compile. Dev console: `await __hum.perf.moments()`, `__hum.perf.rungs()`,
+  `__hum.perf.hitch(ids, 'async')` time frames at 1080p (`src/dev/perfProbe.ts`).
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
 - **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
 
@@ -256,9 +393,10 @@ Limits (all in `server/limits.ts`, every one optional):
 
 Spend is counted from each response's real token usage at the model's price. A request is refused
 once today's total has reached the cap, so a cap can go over by at most the calls already running
-(about $0.04 each for Make a video). Refused requests fall back to the offline director. If Redis
+(about $0.03 each for Make a video). Refused requests fall back to the offline director. If Redis
 can't be reached, the counts drop to memory for that request instead of failing. Each call is logged
-as `[hum-director] plan for sam: $0.0410 (today $0.53)` in the function logs. Your Claude
+as `[hum-director] plan on claude-sonnet-5-5 for sam: $0.0213 (today $0.53) · …tokens…` in the
+function logs. Your Claude
 subscription in `npm run dev` skips the limits and the access codes (it only answers your own computer).
 
 In the app, an AI action that comes back needing a code opens a small box (`src/ui/AccessGate.tsx`,
@@ -266,6 +404,28 @@ logic in `src/director/access.ts`): the code is checked with the free `mode: "ch
 Claude call, same rule as a real request), saved, and the action retries. Closing it keeps the offline
 result. On a site with no key the box explains how to run Hum yourself instead.
 
-Rough costs on Sonnet 5.5: Make a video ≈ $0.04, describe a feeling → look ≈ $0.02–0.03, a new
-GLSL scene ≈ $0.05–0.10. `HUM_MODEL=claude-haiku-5-5` is about 20× cheaper. Also set a monthly spend
-limit for the key in the Anthropic Console as the hard backstop.
+What each action costs (a 12-part song with lyrics; "warm" = the fixed rules were read from the
+prompt cache because someone asked within the last 5 minutes):
+
+| Action | Model | Tokens in / out | Cost |
+|---|---|---|---|
+| Make a video | Sonnet 5.5 | ~9,400 (4,200 cacheable) / ~1,050 | ≈ $0.031 cold, $0.021 warm |
+| Make a video again on the same song | — | none (saved in the browser) | $0 |
+| Change the video in words (*Video* mode) | Haiku 5.5 | ~4,200 (3,500 cacheable) / ~900 | ≈ $0.001 |
+| Describe a feeling → look | Sonnet 5.5 | ~14,400 (13,000 cacheable) / ~800 | ≈ $0.044 cold, $0.011 warm |
+| Tweak the look on screen ("warmer") | Haiku 5.5 | ≤ 14,400 / ~800 | ≈ $0.002 |
+| A new GLSL scene | Sonnet 5.5 | ~7,000 (mostly cacheable) / up to 16,000 | ≈ $0.05–0.10 |
+
+Which model does what (all optional, `server/models.ts`):
+
+| Setting | Used for | Default |
+|---|---|---|
+| `HUM_MODEL` | everything below unless set | `claude-sonnet-5-5` |
+| `HUM_PLAN_MODEL` | Make a video | `HUM_MODEL` |
+| `HUM_SHADER_MODEL` | New scene | `HUM_MODEL` |
+| `HUM_EDIT_MODEL` | small edits: changing a video in words, tweaking the look on screen (`main` = use `HUM_MODEL`) | `claude-haiku-5-5` |
+| `HUM_CLI_MODEL` / `HUM_CLI_EDIT_MODEL` | the same split for your subscription in `npm run dev` | `sonnet` / `haiku` |
+
+`HUM_MODEL=claude-haiku-5-5` makes everything about 20× cheaper, at some cost to the plans. Each
+call is logged with its tokens (`… · 5236 in, 4170 from cache, 0 into cache, 1045 out`). Also set a
+monthly spend limit for the key in the Anthropic Console as the hard backstop.

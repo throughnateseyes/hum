@@ -19,10 +19,15 @@ import { planTick, popLevelAt } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
 import { HandPass } from './handPass';
+import { FinishPass } from './finishPass';
+import { activeFinish } from '../state/direction';
 import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
 import { live as liveState } from '../state/live';
+import type { HandStyle } from '../core/types';
+import { FULL, quality, type QualityRung } from './quality';
+import { dryRun, warmEffects } from './warmup';
 
 THREE.ColorManagement.enabled = false;
 
@@ -98,6 +103,21 @@ interface Running extends ResolvedTransition {
   center: [number, number];
 }
 
+/**
+ * One frame of a render (render/timeline.ts): the render's own clock and the song's sound at that
+ * moment stand in for the wall clock and the live engine, so the same frame comes out every time.
+ */
+export interface OfflineTick {
+  /** the render clock (ms); the scenes' time is (now − the clock's origin) / 1000 */
+  now: number;
+  /** seconds since the last frame */
+  dt: number;
+  /** what the song sounds like at this frame */
+  audio: AudioFrame;
+  /** called before each layer draws (scene, windows, pop-ups, lyrics), so a render can keep each layer's dice its own */
+  phase?: (layer: 'scene' | 'windows' | 'popups' | 'lyrics') => void;
+}
+
 const BREATHES = new Set<TransitionId>(TRANSITIONS.filter((t) => t.breathes).map((t) => t.id));
 const tmpColor = new THREE.Color();
 
@@ -127,6 +147,8 @@ export class Stage {
   private raf = 0;
   private last = performance.now();
   private t0 = performance.now();
+  /** the clock of the frame being drawn (ms): the wall clock live, the render's clock in a render */
+  private clockNow = performance.now();
   private frameNo = 0;
   private palette: ResolvedPalette;
   private placeholder: PhotoAsset | null = null;
@@ -163,6 +185,8 @@ export class Stage {
   private lastDrawing = -1;
   private drawingNo = 0;
   private prevHit = { kick: 0, snare: 0, drop: 0 };
+  /** the video's finish (film, riso, ink wash, tape) over the finished picture; see present() */
+  private finishPass: FinishPass;
   width = 2;
   height = 2;
   fps = 60;
@@ -223,6 +247,7 @@ export class Stage {
         this.blitQuad.render(this.renderer, target);
       },
     };
+    this.finishPass = new FinishPass(this.shared.noiseTex);
     const sceneOpts = { depthBuffer: true, samples: 4 } as const;
     this.sceneRT = makeRenderTarget(2, 2, sceneOpts);
     this.prevRT = makeRenderTarget(2, 2, sceneOpts);
@@ -281,26 +306,63 @@ export class Stage {
       w = Math.max(2, Math.round(cssW * dpr));
       h = Math.max(2, Math.round(cssH * dpr));
     }
-    if (w === this.width && h === this.height) return;
+    // quality governor: the main look (and maybe its effects) can draw smaller than the output
+    const sw = Math.max(2, Math.round(w * this.rung.sceneScale));
+    const sh = Math.max(2, Math.round(h * this.rung.sceneScale));
+    const fw = this.rung.fxAtSceneScale ? sw : w;
+    const fh = this.rung.fxAtSceneScale ? sh : h;
+    if (w === this.width && h === this.height && sw === this.sceneW && sh === this.sceneH && fw === this.fxW && fh === this.fxH) return;
     this.width = w;
     this.height = h;
-    this.sceneRT.setSize(w, h);
-    this.prevRT.setSize(w, h);
+    this.sceneW = sw;
+    this.sceneH = sh;
+    this.fxW = fw;
+    this.fxH = fh;
+    this.sceneRT.setSize(sw, sh);
+    this.prevRT.setSize(sw, sh);
     this.mixRT.setSize(w, h);
     this.stillRT.setSize(w, h);
-    this.fxOut.setSize(w, h);
+    this.fxOut.setSize(fw, fh);
     this.impactRT.setSize(w, h);
     this.holdRT.setSize(w, h);
     this.holdReady = false;
-    this.fx.setSize(w, h);
-    this.current?.inst.resize?.(w, h);
-    this.out?.live?.inst.resize?.(w, h);
-    this.warm?.inst.resize?.(w, h);
+    this.fx.setSize(fw, fh);
+    this.current?.inst.resize?.(sw, sh);
+    this.out?.live?.inst.resize?.(sw, sh);
+    this.warm?.inst.resize?.(sw, sh);
+  }
+
+  /* ── quality governor (src/render/quality.ts) ── */
+  private rung: QualityRung = FULL;
+  private sceneW = 2;
+  private sceneH = 2;
+  private fxW = 2;
+  private fxH = 2;
+  private handLite: HandStyle | null = null;
+
+  /** take the governor's rung for this frame (full detail while rendering at a fixed output size) */
+  private applyRung() {
+    const want = this.outSize && quality.forced === null ? FULL : quality.current();
+    if (want === this.rung) return;
+    const resize = want.sceneScale !== this.rung.sceneScale || want.fxAtSceneScale !== this.rung.fxAtSceneScale;
+    this.rung = want;
+    this.sceneWindows.cap = want.windows;
+    this.sceneWindows.effects = want.windowFx;
+    if (resize) this.setSize(this.css.w, this.css.h);
+  }
+
+  /** the hand-drawn style to draw with: the person's, or a lighter copy when the governor asks */
+  private handStyle(style: HandStyle): HandStyle {
+    if (!this.rung.handLite || style.misprint === 0) return style;
+    if (this.handLite?.wobble !== style.wobble || this.handLite.inks !== style.inks || this.handLite.paper !== style.paper || this.handLite.lines !== style.lines) this.handLite = { ...style, misprint: 0 };
+    return this.handLite;
   }
 
   start() {
-    const loop = () => {
+    const loop = (now: number) => {
       this.raf = requestAnimationFrame(loop);
+      // only frames shown on screen teach the quality governor (not captures or offline renders)
+      quality.sample(now);
       this.tick();
     };
     this.raf = requestAnimationFrame(loop);
@@ -425,19 +487,34 @@ export class Stage {
     return c;
   }
 
-  /** Create a scene now (shaders compile, buffers allocate) so switching to it later is instant. */
-  prewarm(id: string) {
+  /**
+   * Create a scene now (buffers allocate, shaders compile in the background, see warmup.ts) so
+   * switching to it later is instant. `effects`: the look's effects, compiled ahead too.
+   */
+  prewarm(id: string, effects: readonly { effectId: string }[] = []) {
+    this.prewarmEffects(effects);
     if (this.warm?.id === id || this.width <= 2) return;
     const def = getScene(id);
     if (!def) return;
     this.warm?.inst.dispose();
     this.warm = null;
     try {
-      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared }), born: performance.now(), params: {} };
+      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared }), born: this.clockNow, params: {} };
       this.warmFresh = true;
     } catch (e) {
       console.warn('[hum] prewarm failed', e);
     }
+  }
+
+  private fxWarm: { key: string; dispose: () => void } | null = null;
+
+  /** compile the next look's effects in the background (kept until the next look's are warmed) */
+  private prewarmEffects(effects: readonly { effectId: string }[]) {
+    const defs = effects.map((e) => getEffect(e.effectId)).filter((d): d is EffectDef => !!d);
+    const key = defs.map((d) => d.id).join(',');
+    if (this.fxWarm?.key === key) return;
+    this.fxWarm?.dispose();
+    this.fxWarm = defs.length ? { key, dispose: warmEffects(this.renderer, this.shared, defs, this.mixRT).dispose } : null;
   }
 
   /** a new instance of scene `id` (the prewarmed one when it matches) */
@@ -449,7 +526,7 @@ export class Stage {
       if (this.warm?.id === id) {
         inst = this.warm.inst;
         this.warm = null;
-      } else inst = def.create({ renderer: this.renderer, width: this.width, height: this.height, shared: this.shared });
+      } else inst = def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared });
     } catch (e) {
       console.error(e);
       useStudio.getState().set({ shaderError: String(e) });
@@ -532,18 +609,37 @@ export class Stage {
     this.fxOutParams.clear();
   }
 
-  private tick() {
-    const now = performance.now();
-    const dt = Math.min(0.1, (now - this.last) / 1000);
+  /** Start the render clock at `originMs` (scene time 0), for a stage that a render drives. */
+  resetClock(originMs: number) {
+    this.t0 = this.last = this.clockNow = originMs;
+    this.frameNo = 0;
+  }
+
+  /** Draw one frame of a render at the render's time with the song's sound then (no wall clock, no live engine). */
+  renderFrame(o: OfflineTick) {
+    this.tick(o);
+  }
+
+  /** Let the song's Feel (tension, afterglow, wind) catch up through a stretch that isn't drawn: a render's run-up. */
+  primeFeel(audio: AudioFrame, dt: number) {
+    this.feel.update(audio, useStudio.getState().analysis, dt);
+  }
+
+  private tick(o?: OfflineTick) {
+    const now = o ? o.now : performance.now();
+    const dt = o ? o.dt : Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    this.clockNow = now;
     this.fps = this.fps * 0.95 + (1 / Math.max(dt, 1e-3)) * 0.05;
     this.frameNo++;
-    audioEngine.sensitivity = useStudio.getState().sensitivity;
-    const raw = audioEngine.update(dt);
+    if (!o) audioEngine.sensitivity = useStudio.getState().sensitivity;
+    const raw = o ? o.audio : audioEngine.update(dt);
     autopilotTick(raw);
     planTick(raw);
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
     const s = useStudio.getState();
+    const finish = activeFinish(s);
+    const handOn = finish === 'hand';
     const audio = this.shape(raw, s.impact);
     const feel = this.feel.update(raw, s.analysis, dt);
 
@@ -557,6 +653,7 @@ export class Stage {
 
     resolvePalette(s.palette, this.palette);
     if (!s.sceneId || this.width <= 2) return; // wait for the first real layout size
+    this.applyRung();
     this.syncLook(s, audio, now);
     this.seen = { sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette };
     if (!this.current) return;
@@ -565,13 +662,13 @@ export class Stage {
     // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
     // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
     const hit = this.hitEdge(audio);
-    if (s.hand.on && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
+    if (handOn && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
       this.shared.blit(this.holdRT.texture, null);
       this.resolveSnapshots();
       return;
     }
     this.lastDrawing = time;
-    if (!s.hand.on) this.holdReady = false;
+    if (!handOn) this.holdReady = false;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
     const photos = s.photos.length ? s.photos : [this.placeholder];
@@ -600,21 +697,25 @@ export class Stage {
       r.clear(true, true, false);
       this.compilingScene = live === this.current;
       try {
-        live.inst.render({ ...base, palette, params }, target);
+        live.inst.render({ ...base, width: this.sceneW, height: this.sceneH, palette, params }, target);
       } catch (e) {
         console.error(e);
       }
       this.compilingScene = false;
     };
 
-    // draw a prewarmed scene once (into the spare buffer) so its shaders are compiled before the cut
-    if (this.warm && this.warmFresh && !this.out) {
+    // compile a prewarmed scene's shaders in the background before its cut: it goes through one
+    // render that draws nothing (warmup.ts), so this frame doesn't wait for the compile either
+    if (this.warm && this.warmFresh) {
       this.warmFresh = false;
+      const warm = this.warm;
       const defaults: ParamValues = {};
-      for (const d of this.warm.def.params) defaults[d.id] = d.default;
-      drawScene(this.warm, this.prevRT, defaults);
+      for (const d of warm.def.params) defaults[d.id] = d.default;
+      r.setRenderTarget(this.prevRT);
+      void dryRun(r, () => warm.inst.render({ ...base, width: this.sceneW, height: this.sceneH, params: defaults }, this.prevRT));
     }
 
+    o?.phase?.('scene');
     const curParams = resolveParams(this.current.def.params, s.sceneParams, s.modulations, 'scene', audio.layers, this.current.params);
     liveState.scene = curParams;
     liveState.fx = this.fxParams;
@@ -639,7 +740,7 @@ export class Stage {
       live.push({ inst, def, params: out });
     }
     this.fx.prune(ids);
-    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.width, height: this.height, time, audio, feel, palette: this.palette });
+    let finalTex = this.fx.run(r, this.sceneRT.texture, live, { width: this.fxW, height: this.fxH, time, audio, feel, palette: this.palette });
     finalTex = this.runTransition(finalTex, base, audio, time, dt, now);
     // the hover preview borrows a corner of the canvas before the main frame covers it
     this.renderPeek(base, s.impact, now);
@@ -649,7 +750,7 @@ export class Stage {
     const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
-    if (s.hand.on) {
+    if (handOn) {
       // everything (lyrics too) goes through the hand-drawn finish, then is held until the next drawing
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
@@ -659,29 +760,45 @@ export class Stage {
       }
       // the lyric legibility guard looks at the picture before pop-ups and lyrics go over it
       if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
+      o?.phase?.('windows');
       this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT });
+      o?.phase?.('popups');
       this.popups.render(r, base, this.impactRT, pops.instruments);
+      o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
-      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: s.hand, palette: this.palette, width: this.width, height: this.height, drawing });
+      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else {
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
-        this.shared.blit(this.impactRT.texture, null);
+        this.present(this.impactRT.texture, finish, base);
         if (lyricOpts) this.lyricLayer.sample(r, this.impactRT.texture, this.shared.blit);
       } else {
-        this.shared.blit(finalTex, null);
+        this.present(finalTex, finish, base);
         if (lyricOpts) this.lyricLayer.sample(r, finalTex, this.shared.blit);
       }
+      o?.phase?.('windows');
       this.sceneWindows.render(r, base, winOpts);
+      o?.phase?.('popups');
       this.popups.render(r, base, null, pops.instruments);
+      o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
     }
     this.resolveSnapshots();
+  }
+
+  /**
+   * Finish hook (Direction): put the finished picture on screen through the video's finish, or as it
+   * is for Clean. Pop-ups, scene windows and lyrics go over it afterwards. The finish reads time,
+   * audio and Feel from the frame context only.
+   */
+  private present(tex: THREE.Texture, finish: ReturnType<typeof activeFinish>, base: Omit<FrameContext, 'params'>) {
+    const drawn = this.finishPass.render(this.renderer, tex, null, finish, { time: base.time, dt: base.dt, audio: base.audio, feel: base.feel, palette: base.palette, width: base.width, height: base.height });
+    if (!drawn) this.shared.blit(tex, null);
   }
 
   /** blend the outgoing look into `inTex` while a transition runs; returns what goes on screen */
@@ -707,7 +824,7 @@ export class Stage {
       r.setClearColor(out.pal.c.bg, 1);
       r.clear(true, true, false);
       try {
-        out.live.inst.render({ ...base, palette: out.pal, params }, this.prevRT);
+        out.live.inst.render({ ...base, width: this.sceneW, height: this.sceneH, palette: out.pal, params }, this.prevRT);
       } catch (e) {
         console.error(e);
       }
@@ -720,7 +837,7 @@ export class Stage {
         resolveParams(def.params, inst.params, look.modulations, `fx.${inst.instanceId}`, audio.layers, o);
         chain.push({ inst, def, params: o });
       }
-      outTex = this.fxOut.run(r, this.prevRT.texture, chain, { width: this.width, height: this.height, time, audio, palette: out.pal });
+      outTex = this.fxOut.run(r, this.prevRT.texture, chain, { width: this.fxW, height: this.fxH, time, audio, palette: out.pal });
     }
     const t = Math.min(1, Math.max(0, (p - 0.3) / 0.4));
     this.trPass.render(r, tr.id, outTex, inTex, this.mixRT, {
@@ -744,7 +861,7 @@ export class Stage {
   get transition(): { id: TransitionId; p: number; ms: number } | null {
     const tr = this.tr;
     if (!tr) return null;
-    const lin = Math.min(1, (performance.now() - tr.start) / tr.ms);
+    const lin = Math.min(1, (this.clockNow - tr.start) / tr.ms);
     return { id: tr.id, p: lin + tr.boost * (1 - lin), ms: tr.ms };
   }
 
@@ -783,8 +900,10 @@ export class Stage {
     this.impactRT.dispose();
     this.holdRT.dispose();
     this.hand.dispose();
+    this.finishPass.dispose();
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
+    this.fxWarm?.dispose();
     this.lyricLayer.dispose();
     this.popups.dispose();
     this.sceneWindows.dispose();

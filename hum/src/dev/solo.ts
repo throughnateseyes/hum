@@ -9,6 +9,17 @@
  *     &look=<json>                           { palette: id | {bg,fg,accent,accent2,muted}, sceneParams, effects, modulations }
  *     &w=1280&h=720
  *     &windows=1                             scene windows on (other looks playing in windows over this one)
+ *     &lyrics=auto | subtitle | big | cutout | <json>   draw lyric type over the look (test lyrics sung in every
+ *                                            part, see testLyricsSung). The json fixes the Auto plan so shots compare:
+ *                                            { style: 'auto', family: 'serif', motion: 'tender',
+ *                                              parts: ['sparse', 'subtitle', 'sparse', 'big+giant', 'sparse', 'subtitle'] }
+ *                                            (one per section: intro, verse, build, drop, break, outro; "+giant" / "+burst"
+ *                                            adds a moment). The look json may carry the same as `lyrics`.
+ *     &finish=film                           a finish over the picture (clean, film, riso, ink, tape, hand);
+ *                                            several (finish=clean,film,riso) put each one side by side for
+ *                                            every time on the sheet. Also `finish` in the look JSON.
+ *
+ *   shots() also returns finishMs: what each finish pass alone costs per frame at this size.
  *
  *   await __solo.ready                       → { ok, errors }
  *   await __solo.shots({ times: [4, 16, 32.1], from: 0 })  → { sheet: <png data url>, errors, ms }
@@ -26,17 +37,33 @@ import { getEffect } from '../fx';
 import { PRESETS } from '../presets';
 import { presetToLook, type LookState } from '../presets/apply';
 import { FxChain } from '../render/fxChain';
+import { FinishPass, isGpuFinish, type FinishContext } from '../render/finishPass';
+import { HandPass } from '../render/handPass';
+import { isFinishId, type FinishId } from '../core/direction';
 import { SceneWindows, windowLevels } from '../render/sceneWindows';
 import { getScene, registerScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { popLevelAt } from '../state/plan';
-import { useStudio } from '../state/store';
-import { TEST_SONG, sectionAt, testAnalysis, testFrame, testLyrics } from './testSong';
+import { HAND_DEFAULT, useStudio } from '../state/store';
+import { LyricLayer } from '../render/lyricLayer';
+import type { Treatment } from '../render/lyricAuto';
+import { setLyricPlanOverride, type LyricMedium, type LyricMoment, type TypeFamily } from '../state/lyricPlan';
+import type { LyricStyle } from '../state/store';
+import { TEST_SONG, sectionAt, testAnalysis, testFrame, testLyrics, testLyricsSung } from './testSong';
 
 THREE.ColorManagement.enabled = false;
 
+interface LyricSpec {
+  style?: LyricStyle;
+  family?: TypeFamily;
+  motion?: Treatment;
+  parts?: string[];
+  seed?: number;
+}
 interface LookSpec {
+  finish?: string | string[];
+  lyrics?: string | LyricSpec;
   palette?: string | Palette;
   sceneParams?: ParamValues;
   effects?: Preset['effects'];
@@ -98,6 +125,14 @@ function buildLook(def: SceneDef): LookState {
   });
 }
 
+/** the lyrics option: from the url, else from the look json */
+function lyricSpec(): LyricSpec | null {
+  const raw = q.get('lyrics') ?? (q.get('look') ? ((JSON.parse(q.get('look')!) as LookSpec).lyrics ?? null) : null);
+  if (!raw) return null;
+  if (typeof raw !== 'string') return raw;
+  return raw.trim().startsWith('{') ? (JSON.parse(raw) as LyricSpec) : { style: raw as LyricStyle };
+}
+
 async function boot() {
   const canvas = document.getElementById('solo') as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, preserveDrawingBuffer: true });
@@ -139,11 +174,30 @@ async function boot() {
   const withWindows = q.get('windows') === '1';
   if (withWindows) useStudio.setState({ popups: 'always', windowKind: 'looks' });
   useStudio.setState({ track: { name: `${TEST_SONG.artist} - ${TEST_SONG.title}`, source: 'file' }, lyrics: testLyrics(), analysis: testAnalysis() });
-  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable'].map((f) => document.fonts.load(`16px "${f}"`).catch(() => null)));
+  await Promise.all(['Inter Variable', 'IBM Plex Mono', 'Playfair Display Variable', 'Oswald Variable', 'JetBrains Mono Variable', 'Caveat Variable', 'Instrument Serif', 'italic 16px "Instrument Serif', 'Fraunces Variable', 'italic 16px "Fraunces Variable', 'Inter Tight Variable', 'Archivo Variable'].map((f) => document.fonts.load(f.startsWith('italic') ? `${f}"` : `16px "${f}"`).catch(() => null)));
 
   const def = await loadScene();
   const look = buildLook(def);
   const palette = resolvePalette(look.palette);
+  const lyr = lyricSpec();
+  const lyricLayer = lyr ? new LyricLayer() : null;
+  if (lyr && lyricLayer) {
+    lyricLayer.probe.readAsync = false;
+    const lyrics = testLyricsSung();
+    useStudio.setState({ lyrics, lyricStyle: lyr.style ?? 'auto', presetId: q.get('preset'), sceneId: def.id });
+    if (lyr.parts) {
+      setLyricPlanOverride({
+        seed: lyr.seed ?? 7,
+        family: lyr.family ?? 'grotesk',
+        motion: lyr.motion ?? 'punchy',
+        source: 'local',
+        parts: testAnalysis().sections.map((_, i) => {
+          const [medium, moment] = (lyr.parts![i] ?? 'subtitle').split('+');
+          return { medium: medium as LyricMedium, moment: (moment as LyricMoment) || null, why: 'fixed by the solo harness' };
+        }),
+      });
+    }
+  }
   const sceneRT = makeRenderTarget(W, H, { depthBuffer: true, samples: 4 });
   const fx = new FxChain(shared);
   fx.setSize(W, H);
@@ -156,6 +210,21 @@ async function boot() {
     .map((inst: EffectInstance) => ({ inst, def: getEffect(inst.effectId) }))
     .filter((c): c is { inst: EffectInstance; def: EffectDef } => !!c.def)
     .map((c) => ({ ...c, params: fxParams.set(c.inst.instanceId, {}).get(c.inst.instanceId)! }));
+
+  // finishes to show (see the header): the first is drawn every frame, the rest side by side on captures
+  const spec = (q.get('look') ? JSON.parse(q.get('look')!) : {}) as LookSpec;
+  const rawFinish = q.get('finish') ?? (Array.isArray(spec.finish) ? spec.finish.join(',') : spec.finish) ?? 'clean';
+  const finishIds = rawFinish.split(',').map((x) => x.trim()).filter(isFinishId);
+  if (!finishIds.length) finishIds.push('clean');
+  const finishes = new Map<FinishId, FinishPass>(finishIds.filter(isGpuFinish).map((id) => [id, new FinishPass(shared.noiseTex)]));
+  const hand = new HandPass();
+  const fin: { tex: THREE.Texture | null; ctx: FinishContext | null } = { tex: null, ctx: null };
+  const present = (id: FinishId) => {
+    const { tex, ctx } = fin;
+    if (!tex || !ctx) return;
+    if (id === 'hand') hand.render(renderer, tex, null, { style: HAND_DEFAULT, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
+    else if (!finishes.get(id)?.render(renderer, tex, null, id, ctx)) shared.blit(tex, null);
+  };
 
   let inst: SceneInstance | null = null;
   let windows: SceneWindows | null = null;
@@ -212,12 +281,21 @@ async function boot() {
     }
     for (const c of chain) resolveParams(c.def.params, c.inst.params, look.modulations, `fx.${c.inst.instanceId}`, audio.layers, c.params);
     const tex = fx.run(renderer, sceneRT.texture, chain, { width: W, height: H, time: ctx.time, audio, feel: ctx.feel, palette });
-    shared.blit(tex, null);
+    // finishes: every one steps its own state each frame; the first is drawn (the others when captured)
+    fin.tex = tex;
+    fin.ctx = { time: ctx.time, dt, audio, feel: ctx.feel, palette, width: W, height: H };
+    for (const p of finishes.values()) p.advance(fin.ctx);
+    present(finishIds[0]);
     if (windows) {
       const { params: _p, ...base } = ctx;
       void _p;
       const level = windowLevels(popLevelAt(audio.time), 'looks', def.category === 'board').looks;
       windows.render(renderer, base, { level, mainPresetId: q.get('preset'), mainSceneId: def.id, target: null });
+    }
+    if (lyricLayer) {
+      const s = useStudio.getState();
+      lyricLayer.sample(renderer, tex, shared.blit);
+      lyricLayer.render(renderer, { lines: s.lyrics!.lines, t, style: s.lyricStyle, palette, width: W, height: H, audio, dt });
     }
   };
 
@@ -225,10 +303,13 @@ async function boot() {
 
   async function shots(o: ShotOptions) {
     const times = [...o.times].sort((a, b) => a - b);
-    const cols = o.cols ?? Math.min(times.length, W >= H ? 3 : 6);
+    // several finishes: each time gets a cell per finish, side by side
+    const nf = finishIds.length;
+    const cells = times.length * nf;
+    const cols = o.cols ?? (nf > 1 ? nf : Math.min(times.length, W >= H ? 3 : 6));
     const cw = o.cell ?? (W >= H ? 560 : 300);
     const ch = Math.round((cw * H) / W);
-    const rows = Math.ceil(times.length / cols);
+    const rows = Math.ceil(cells / cols);
     const sheet = document.createElement('canvas');
     sheet.width = cols * cw;
     sheet.height = rows * (ch + 22);
@@ -247,11 +328,16 @@ async function boot() {
         step(left > 1.5 ? 1 / 30 : Math.min(1 / 60, left));
         if (++n % 40 === 0) await new Promise((r) => setTimeout(r, 0));
       }
-      const x = (i % cols) * cw;
-      const y = Math.floor(i / cols) * (ch + 22);
-      g.drawImage(canvas, 0, 0, W, H, x, y + 22, cw, ch);
-      g.fillStyle = '#ddd';
-      g.fillText(`${fmt(times[i])}  ${sectionAt(times[i]).label}${audio.kick > 0.6 ? '  kick' : ''}${audio.drop > 0.5 ? '  DROP' : ''}`, x + 6, y + 11);
+      for (let k = 0; k < nf; k++) {
+        const cell = i * nf + k;
+        if (k > 0) present(finishIds[k]);
+        const x = (cell % cols) * cw;
+        const y = Math.floor(cell / cols) * (ch + 22);
+        g.drawImage(canvas, 0, 0, W, H, x, y + 22, cw, ch);
+        g.fillStyle = '#ddd';
+        g.fillText(`${fmt(times[i])}  ${sectionAt(times[i]).label}${audio.kick > 0.6 ? '  kick' : ''}${audio.drop > 0.5 ? '  DROP' : ''}${nf > 1 || finishIds[0] !== 'clean' ? `  · ${finishIds[k]}` : ''}`, x + 6, y + 11);
+      }
+      if (nf > 1) present(finishIds[0]);
     }
 
     // rough cost of one frame at this size: 60 frames, then wait for the GPU by reading a pixel back
@@ -270,7 +356,17 @@ async function boot() {
     const ms = Math.max(0, performance.now() - t0 - idle) / 60;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     const gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'unknown';
-    return { sheet: sheet.toDataURL('image/png'), errors, ms: Math.round(ms * 10) / 10, gpu };
+    // each finish alone: 120 draws of it over the last frame ('clean' is the plain copy it replaces)
+    const finishMs: Record<string, number> = {};
+    for (const id of ['clean', ...finishIds.filter((x) => x !== 'clean')] as FinishId[]) {
+      present(id);
+      drain();
+      const f0 = performance.now();
+      for (let i = 0; i < 120; i++) present(id);
+      drain();
+      finishMs[id] = Math.round((Math.max(0, performance.now() - f0 - idle) / 120) * 100) / 100;
+    }
+    return { sheet: sheet.toDataURL('image/png'), errors, ms: Math.round(ms * 10) / 10, gpu, finishMs };
   }
 
   return { shots, scene: def.id };

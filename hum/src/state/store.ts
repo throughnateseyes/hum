@@ -20,6 +20,7 @@ import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
 import { isTransitionId, type TransitionId } from '../core/transitionList';
+import { isFinishId, type FinishId } from '../core/direction';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
@@ -47,6 +48,10 @@ export interface ClipProgress {
   /** the stretch of the song being recorded (s) */
   start: number;
   end: number;
+  /** render timeline: the size being made ("1080×1920"), and which of how many */
+  size?: string;
+  index?: number;
+  count?: number;
 }
 
 export interface ChatMsg {
@@ -130,6 +135,8 @@ export interface StudioState extends LookState {
   transition: 'auto' | TransitionId;
   /** transition length in beats (0 = picked from the song) */
   transitionBeats: number;
+  /** the finish over every look: 'auto' follows the playing video's Direction (else Hand-drawn when it's on) */
+  finish: 'auto' | FinishId;
 
   applyPreset: (p: Preset) => void;
   setScene: (id: string) => void;
@@ -202,6 +209,7 @@ function loadPersisted(): Partial<StudioState> {
       pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
       transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
       transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
+      finish: j.finish === 'auto' || isFinishId(j.finish) ? j.finish : undefined,
       // a style only sticks once the user has picked one; before that every song gets Auto
       lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
       lyricStylePicked: j.lyricStylePicked === true,
@@ -239,6 +247,7 @@ function persist(s: StudioState) {
         pace: s.pace,
         transition: s.transition,
         transitionBeats: s.transitionBeats,
+        finish: s.finish,
       }),
     );
   } catch {
@@ -325,6 +334,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   pace: persisted.pace ?? 'song',
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
+  finish: persisted.finish ?? 'auto',
 
   applyPreset: (p) => {
     const look = presetToLook(p);
@@ -419,7 +429,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

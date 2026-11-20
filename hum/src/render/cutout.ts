@@ -1,64 +1,69 @@
 import type { Palette } from '../core/types';
 import { hash, hex, lum, mix, rgba } from '../scenes/board/kit';
 import type { RGB } from '../scenes/board/kit';
+import { FACES } from './lyricFonts';
 
 /**
- * Newspaper-cutout lyrics: a ransom note. Each word (or, for some short words, each letter) is
- * its own clipping: a different typeface, weight and case, on a little paper scrap of a different
- * tone, a bit crooked and off the line. Everything is seeded by the line and word, so a line looks
- * the same on every frame and every replay. Ink is chosen per scrap for contrast against its own
- * paper, so it stays readable over any scene, light or dark.
+ * Collage lyrics: each word clipped from a printed page and laid down as it's sung. Meant as a
+ * one-off moment (a big drop), so it is built to look like real paste-up rather than a ransom note:
+ *
+ *   - a small, consistent set of printed faces (a headline serif, a magazine italic, a heavy
+ *     grotesk, condensed capitals), whole words only, never a different font per letter
+ *   - three or four paper stocks (newsprint, white, black, one tone from the look) with grain and
+ *     fibres, scissor-cut sides and one torn edge that shows the paper's white core
+ *   - placed deliberately on a shared baseline, barely tilted, each scrap settling flat with its
+ *     shadow tightening as it lands
+ *
+ * Everything is seeded by the line and word, so a line looks the same on every frame and replay.
  */
+
+interface Clip {
+  family: string;
+  stretch?: CanvasFontStretch;
+  weight: number;
+  italic: boolean;
+  case: 'asis' | 'lower' | 'upper';
+  track: number;
+}
+
+/** a newspaper headline serif, a magazine italic, a heavy grotesk, condensed capitals */
+const CLIPS: Clip[] = [
+  { family: FACES.fraunces, weight: 800, italic: false, case: 'asis', track: -0.02 },
+  { family: FACES.instrument, weight: 400, italic: true, case: 'lower', track: 0 },
+  { family: FACES.tight, weight: 800, italic: false, case: 'lower', track: -0.03 },
+  { family: FACES.archivo, stretch: 'condensed', weight: 700, italic: false, case: 'upper', track: 0.02 },
+];
+
+const INK: RGB = [24, 22, 20];
+const WHITE: RGB = [249, 247, 241];
+const NEWS: RGB = [233, 228, 212];
 
 interface Piece {
   text: string;
   font: string;
+  stretch: CanvasFontStretch;
+  track: number;
   paper: RGB;
   ink: RGB;
-  /** scrap size (before the row scale) and where the text sits in it */
+  dark: boolean;
   w: number;
   h: number;
   asc: number;
   padX: number;
   rot: number;
   dy: number;
-  /** jitter for the four corners: x0,y0, x1,y1, x2,y2, x3,y3 (fractions of the font size) */
-  jag: number[];
-  /** faint lines of "newsprint" behind the letters */
-  print: boolean;
+  /** which edge is torn: 0 top, 1 bottom */
+  torn: number;
+  /** small corner offsets for the scissor cuts (fractions of the font size) */
+  cut: number[];
+  seed: number;
   size: number;
 }
 
-interface WordCut {
-  pieces: Piece[];
-  w: number;
-  h: number;
-}
-
 export interface CutoutLayout {
-  /** per word: where its scraps go, already scaled to fit */
-  words: { x: number; y: number; cut: WordCut }[];
+  words: { x: number; y: number; t: number; p: Piece }[];
   scale: number;
 }
-
-/** canvas font for a family index: [style, weight, family] */
-const FACES: [string, number, string][] = [
-  ['normal', 900, '"Arial Black", "Helvetica Neue", Arial, sans-serif'],
-  ['italic', 700, 'Georgia, "Times New Roman", serif'],
-  ['normal', 400, '"Times New Roman", Times, serif'],
-  ['normal', 400, 'Impact, Haettenschweiler, "Arial Narrow", sans-serif'],
-  ['normal', 700, '"Courier New", Courier, monospace'],
-  ['normal', 600, '"American Typewriter", "Courier New", serif'],
-  ['normal', 800, 'Inter, -apple-system, system-ui, sans-serif'],
-  ['normal', 700, 'Didot, "Bodoni 72", "Bodoni MT", Georgia, serif'],
-  ['normal', 700, 'Futura, "Trebuchet MS", sans-serif'],
-  ['normal', 700, 'Rockwell, "Roboto Slab", Georgia, serif'],
-  ['italic', 900, '"Helvetica Neue", Arial, sans-serif'],
-];
-
-const BLACK: RGB = [22, 20, 18];
-const WHITE: RGB = [250, 248, 242];
-const RED: RGB = [196, 32, 38];
 
 /** WCAG contrast ratio */
 function contrast(a: RGB, b: RGB) {
@@ -74,23 +79,16 @@ function contrast(a: RGB, b: RGB) {
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
-/** paper scraps for this palette: newsprint and magazine stock, plus the scene's own colours */
-function papers(p: Palette): { c: RGB; w: number }[] {
-  const ac = hex(p.accent);
-  const ac2 = hex(p.accent2);
-  const fg = hex(p.fg);
-  const bg = hex(p.bg);
-  return [
-    { c: [236, 231, 216], w: 3 }, // newsprint
-    { c: [251, 250, 246], w: 2 }, // white stock
-    { c: [240, 222, 160], w: 1 }, // yellowed
-    { c: BLACK, w: 2 },
-    { c: [198, 162, 112], w: 1 }, // kraft
-    { c: mix(ac, WHITE, 0.08), w: 2 },
-    { c: mix(ac2, WHITE, 0.12), w: 1 },
-    // the scene's ink as paper, so the note belongs to the look
-    { c: lum(bg) > 0.5 ? mix(fg, BLACK, 0.1) : mix(fg, WHITE, 0.1), w: 1 },
+/** the stocks for this look: newsprint and white mostly, some black, one tone of the look's accent */
+function stocks(p: Palette): { c: RGB; w: number }[] {
+  const tone = mix(hex(p.accent), WHITE, 0.12);
+  const list: { c: RGB; w: number }[] = [
+    { c: NEWS, w: 3 },
+    { c: WHITE, w: 2.2 },
+    { c: INK, w: 1.4 },
   ];
+  if (contrast(tone, INK) >= 4.5 || contrast(tone, WHITE) >= 4.5) list.push({ c: tone, w: 1.1 });
+  return list;
 }
 
 function pick<T>(list: { c: T; w: number }[], r: number): T {
@@ -103,114 +101,148 @@ function pick<T>(list: { c: T; w: number }[], r: number): T {
   return list[list.length - 1].c;
 }
 
-/** an ink that reads on this paper: the accent or red when they contrast enough, else black/white */
-function inkFor(paper: RGB, accent: RGB, r: number): RGB {
-  const options: RGB[] = r < 0.25 ? [accent, RED] : r < 0.4 ? [RED, accent] : [];
-  for (const c of options) if (contrast(c, paper) >= 4.5 && Math.abs(lum(c) - lum(paper)) > 0.25) return c;
-  return contrast(BLACK, paper) >= contrast(WHITE, paper) ? BLACK : WHITE;
+function caseOf(s: string, c: Clip['case']) {
+  return c === 'upper' ? s.toUpperCase() : c === 'lower' ? s.toLowerCase() : s;
 }
 
-function casing(s: string, r: number) {
-  if (r < 0.45) return s.toUpperCase();
-  if (r < 0.68) return s.toLowerCase();
-  return s;
+let grain: HTMLCanvasElement | null = null;
+/** paper grain and fibres, made once and laid over every light scrap */
+function grainTile(): HTMLCanvasElement {
+  if (grain) return grain;
+  const c = document.createElement('canvas');
+  c.width = c.height = 192;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, 192, 192);
+  const img = g.getImageData(0, 0, 192, 192);
+  for (let i = 0; i < 192 * 192; i++) {
+    const n = hash(i, 3, 9);
+    const v = 255 - Math.floor(n * n * n * 46);
+    img.data[i * 4] = v;
+    img.data[i * 4 + 1] = v - 2;
+    img.data[i * 4 + 2] = v - 6;
+  }
+  g.putImageData(img, 0, 0);
+  // fibres: short faint strokes
+  g.strokeStyle = 'rgba(120,105,80,0.10)';
+  g.lineWidth = 0.7;
+  for (let k = 0; k < 70; k++) {
+    const x = hash(k, 1, 4) * 192;
+    const y = hash(k, 2, 4) * 192;
+    const a = hash(k, 3, 4) * Math.PI;
+    const l = 4 + hash(k, 4, 4) * 12;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + 2, y + Math.sin(a) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
+    g.stroke();
+  }
+  grain = c;
+  return c;
 }
 
-function makePiece(g: CanvasRenderingContext2D, text: string, size: number, seed: number, pal: Palette, letter: boolean): Piece {
+function makePiece(g: CanvasRenderingContext2D, word: string, size: number, seed: number, pal: Palette, clipIdx: number): Piece {
   const R = (k: number) => hash(seed, k, 77);
-  const [style, weight, family] = FACES[Math.floor(R(1) * FACES.length) % FACES.length];
-  const sz = size * (letter ? 0.92 + R(2) * 0.42 : 0.82 + R(2) * 0.36);
-  const font = `${style} ${weight} ${sz.toFixed(1)}px ${family}`;
+  const clip = CLIPS[clipIdx];
+  // Instrument Serif is small on its body: set it up a size so the scraps match
+  const sz = size * (clip.case === 'upper' ? 0.9 : clip.family === FACES.instrument ? 1.22 : 1) * (0.94 + R(2) * 0.12);
+  const font = `${clip.italic ? 'italic ' : ''}${clip.weight} ${sz.toFixed(1)}px ${clip.family}`;
+  const text = caseOf(word, clip.case);
   g.font = font;
+  g.fontStretch = clip.stretch ?? 'normal';
+  g.letterSpacing = `${(sz * clip.track).toFixed(2)}px`;
   const m = g.measureText(text);
-  const asc = Math.max(m.actualBoundingBoxAscent || sz * 0.72, sz * 0.5);
-  const desc = Math.max(m.actualBoundingBoxDescent || 0, sz * 0.04);
-  const padX = sz * (letter ? 0.1 + R(3) * 0.12 : 0.12 + R(3) * 0.16);
-  const padY = sz * (0.08 + R(4) * 0.12);
-  const paper = pick(papers(pal), R(5));
-  const jag: number[] = [];
-  for (let k = 0; k < 8; k++) jag.push((R(10 + k) - 0.5) * 0.09);
+  g.letterSpacing = '0px';
+  g.fontStretch = 'normal';
+  const asc = Math.max(m.actualBoundingBoxAscent || sz * 0.72, sz * 0.55);
+  const desc = Math.max(m.actualBoundingBoxDescent || 0, sz * 0.06);
+  const padX = sz * (0.16 + R(3) * 0.1);
+  const padY = sz * (0.12 + R(4) * 0.08);
+  const paper = pick(stocks(pal), R(5));
+  const dark = lum(paper) < 0.35;
+  let ink: RGB = dark ? WHITE : INK;
+  // now and then the headline is printed in the look's accent, when it reads on the stock
+  const ac = hex(pal.accent);
+  if (!dark && R(6) < 0.25 && contrast(ac, paper) >= 4.5) ink = ac;
+  const cut: number[] = [];
+  for (let k = 0; k < 8; k++) cut.push((R(10 + k) - 0.5) * 0.05);
   return {
     text,
     font,
+    stretch: clip.stretch ?? 'normal',
+    track: sz * clip.track,
     paper,
-    ink: inkFor(paper, hex(pal.accent), R(6)),
-    w: m.width + padX * 2,
+    ink,
+    dark,
+    w: m.width - sz * clip.track + padX * 2,
     h: asc + desc + padY * 2,
     asc: asc + padY,
     padX,
-    rot: (R(7) - 0.5) * (letter ? 0.36 : 0.16),
-    dy: (R(8) - 0.5) * sz * 0.16,
-    jag,
-    print: R(9) < 0.3,
+    rot: (R(7) - 0.5) * 0.05,
+    dy: (R(8) - 0.5) * sz * 0.06,
+    torn: R(9) < 0.5 ? 0 : 1,
+    cut,
+    seed,
     size: sz,
   };
 }
 
-/** lay a line out once: scraps per word, wrapped and scaled to fit the frame */
+/** lay a line out once: one scrap per word, on shared baselines, scaled to fit the box */
 export function buildCutout(
   g: CanvasRenderingContext2D,
-  words: string[],
+  words: { text: string; t: number }[],
   lineIdx: number,
   W: number,
   H: number,
   pal: Palette,
-  o: { box?: { x0: number; y0: number; x1: number; y1: number }; scale?: number; burst?: boolean } = {},
+  o: { box?: { x0: number; y0: number; x1: number; y1: number }; scale?: number; burst?: boolean; align?: 'left' | 'center' } = {},
 ): CutoutLayout {
-  const base = Math.min(H * 0.1, W * 0.07) * (o.scale ?? 1);
-  const box = o.box ?? { x0: W * 0.07, y0: H * 0.14, x1: W * 0.93, y1: H * 0.86 };
-  const cuts: WordCut[] = words.map((word, i) => {
+  const base = Math.min(H, W) * 0.085 * (o.scale ?? 1);
+  const box = o.box ?? { x0: W * 0.07, y0: H * 0.4, x1: W * 0.93, y1: H * 0.86 };
+  let prevClip = -1;
+  const pieces: Piece[] = words.map((w, i) => {
     const seed = lineIdx * 257 + i * 31 + 7;
-    const R = (k: number) => hash(seed, k, 5);
-    const clean = word.replace(/\s+/g, '');
-    const letters = clean.length >= 2 && clean.length <= 6 && R(1) < 0.34;
-    const pieces: Piece[] = letters
-      ? [...clean].map((ch, k) => makePiece(g, R(20 + k) < 0.55 ? ch.toUpperCase() : ch.toLowerCase(), base, seed * 13 + k + 1, pal, true))
-      : [makePiece(g, casing(clean, R(2)), base, seed * 13, pal, false)];
-    const gap = base * 0.03;
-    // a burst throws the clippings down harder: more tilt, more scatter
-    if (o.burst)
-      for (const p of pieces) {
-        p.rot *= 2.4;
-        p.dy *= 2.6;
-      }
-    return { pieces, w: pieces.reduce((a, p) => a + p.w, 0) + gap * (pieces.length - 1), h: Math.max(...pieces.map((p) => p.h)) };
+    let ci = Math.floor(hash(seed, 1, 5) * CLIPS.length) % CLIPS.length;
+    if (ci === prevClip) ci = (ci + 1 + Math.floor(hash(seed, 2, 5) * (CLIPS.length - 1))) % CLIPS.length;
+    prevClip = ci;
+    const p = makePiece(g, w.text.replace(/\s+/g, ''), base, seed * 13, pal, ci);
+    if (o.burst) p.rot *= 2;
+    return p;
   });
-
-  const space = base * (o.burst ? 0.5 : 0.36);
+  const gap = base * 0.14;
   const maxW = box.x1 - box.x0;
   const maxH = box.y1 - box.y0;
   let scale = 1;
-  for (let tries = 0; tries < 8; tries++) {
+  for (let tries = 0; tries < 10; tries++) {
     const rows: number[][] = [[]];
     let x = 0;
-    cuts.forEach((c, i) => {
-      const cw = c.w * scale;
+    pieces.forEach((p, i) => {
+      const pw = p.w * scale;
       const row = rows[rows.length - 1];
-      if (row.length && x + space * scale + cw > maxW) {
+      if (row.length && x + gap * scale + pw > maxW) {
         rows.push([i]);
-        x = cw;
+        x = pw;
       } else {
         row.push(i);
-        x += (row.length > 1 ? space * scale : 0) + cw;
+        x += (row.length > 1 ? gap * scale : 0) + pw;
       }
     });
-    const rowH = rows.map((r) => Math.max(...r.map((i) => cuts[i].h)) * scale);
-    const lead = base * 0.14 * scale;
+    const rowH = rows.map((r) => Math.max(...r.map((i) => pieces[i].h)) * scale);
+    const lead = base * 0.1 * scale;
     const totalH = rowH.reduce((a, b) => a + b, 0) + lead * (rows.length - 1);
-    const widest = Math.max(...cuts.map((c) => c.w * scale));
-    if ((rows.length > 4 || totalH > maxH || widest > maxW) && tries < 7) {
-      scale *= 0.86;
+    const widest = Math.max(...pieces.map((p) => p.w * scale));
+    if ((rows.length > 3 || totalH > maxH || widest > maxW) && tries < 9) {
+      scale *= 0.88;
       continue;
     }
     const out: CutoutLayout['words'] = [];
-    let y = box.y0 + (maxH - totalH) / 2;
+    let y = box.y1 - totalH;
     rows.forEach((row, ri) => {
-      const rw = row.reduce((a, i) => a + cuts[i].w * scale, 0) + space * scale * (row.length - 1);
-      let rx = box.x0 + (maxW - rw) / 2;
+      const rw = row.reduce((a, i) => a + pieces[i].w * scale, 0) + gap * scale * (row.length - 1);
+      // a little indent on alternate rows, like pasted-up lines
+      let rx = (o.align === 'left' ? box.x0 + (ri % 2) * base * 0.5 * scale : box.x0 + (maxW - rw) / 2);
       for (const i of row) {
-        out.push({ x: rx, y: y + rowH[ri] / 2, cut: cuts[i] });
-        rx += cuts[i].w * scale + space * scale;
+        out.push({ x: rx, y: y + rowH[ri] / 2, t: words[i].t, p: pieces[i] });
+        rx += pieces[i].w * scale + gap * scale;
       }
       y += rowH[ri] + lead;
     });
@@ -219,63 +251,92 @@ export function buildCutout(
   return { words: [], scale };
 }
 
-function scrap(g: CanvasRenderingContext2D, p: Piece, j: number) {
+/** the scrap's outline: scissor-cut sides, one torn edge */
+function outline(g: CanvasRenderingContext2D, p: Piece) {
   const s = p.size;
   const x0 = -p.w / 2;
   const y0 = -p.h / 2;
+  const x1 = p.w / 2;
+  const y1 = p.h / 2;
+  const c = p.cut.map((v) => v * s);
+  const tornY = p.torn === 0 ? y0 : y1;
+  const steps = Math.max(8, Math.round(p.w / (s * 0.07)));
+  const rnd = (k: number) => hash(p.seed, k + 100, 13) - 0.5;
   g.beginPath();
-  g.moveTo(x0 + p.jag[0] * s * j, y0 + p.jag[1] * s * j);
-  g.lineTo(x0 + p.w + p.jag[2] * s * j, y0 + p.jag[3] * s * j);
-  g.lineTo(x0 + p.w + p.jag[4] * s * j, y0 + p.h + p.jag[5] * s * j);
-  g.lineTo(x0 + p.jag[6] * s * j, y0 + p.h + p.jag[7] * s * j);
+  g.moveTo(x0 + c[0], y0 + c[1]);
+  if (p.torn === 0) for (let i = 1; i < steps; i++) g.lineTo(x0 + ((x1 - x0) * i) / steps, tornY + rnd(i) * s * 0.06);
+  g.lineTo(x1 + c[2], y0 + c[3]);
+  g.lineTo(x1 + c[4], y1 + c[5]);
+  if (p.torn === 1) for (let i = steps - 1; i > 0; i--) g.lineTo(x0 + ((x1 - x0) * i) / steps, tornY + rnd(i) * s * 0.06);
+  g.lineTo(x0 + c[6], y1 + c[7]);
   g.closePath();
 }
 
-/** draw the sung words of a laid-out line; the newest one slaps down (pop 1 → 0) */
-export function drawCutout(g: CanvasRenderingContext2D, L: CutoutLayout, sung: number, pop: number, alpha: number) {
+/** is a scrap still settling at time t? */
+export function cutoutMoving(L: CutoutLayout, t: number): boolean {
+  return L.words.some((w) => t >= w.t - 0.02 && t < w.t + LAND + 0.03);
+}
+
+const LAND = 0.16;
+
+/** draw the scraps sung by time t; each lands flat with its shadow tightening */
+export function drawCutout(g: CanvasRenderingContext2D, L: CutoutLayout, t: number, alpha: number) {
+  const tile = grainTile();
+  const pat = g.createPattern(tile, 'repeat');
   g.save();
   g.textBaseline = 'alphabetic';
   g.textAlign = 'left';
-  const n = Math.min(sung, L.words.length);
-  for (let wi = 0; wi < n; wi++) {
-    const { x, y, cut } = L.words[wi];
-    const newest = wi === n - 1;
-    const k = L.scale * (newest ? 1 + 0.28 * pop : 1);
-    let px = x + (newest ? cut.w * L.scale * 0.5 * (1 - (1 + 0.28 * pop)) : 0);
-    const gap = cut.pieces.length > 1 ? (cut.w - cut.pieces.reduce((a, p) => a + p.w, 0)) / (cut.pieces.length - 1) : 0;
-    for (const p of cut.pieces) {
-      const cx = px + (p.w * k) / 2;
-      const cy = y + p.dy * L.scale;
-      g.save();
-      g.translate(cx, cy);
-      g.rotate(p.rot + (newest ? pop * 0.12 : 0));
-      g.scale(k, k);
-      g.globalAlpha = alpha;
-      // lift off the picture with a soft offset shadow
-      g.save();
-      g.translate(p.size * 0.05, p.size * 0.08);
-      scrap(g, p, 1);
-      g.fillStyle = 'rgba(0,0,0,0.32)';
-      g.fill();
-      g.restore();
-      scrap(g, p, 1);
-      g.fillStyle = rgba(p.paper);
-      g.fill();
-      if (p.print) {
-        // faint text lines from the page it was cut out of
-        g.save();
-        g.clip();
-        g.fillStyle = rgba(p.ink, 0.07);
-        const lh = p.size * 0.16;
-        for (let ly = -p.h / 2 + lh * 0.6; ly < p.h / 2; ly += lh) g.fillRect(-p.w / 2, ly, p.w, lh * 0.38);
-        g.restore();
-      }
-      g.font = p.font;
-      g.fillStyle = rgba(p.ink);
-      g.fillText(p.text, -p.w / 2 + p.padX, -p.h / 2 + p.asc);
-      g.restore();
-      px += (p.w + gap) * k;
+  for (const { x, y, t: wt, p } of L.words) {
+    const age = t - wt;
+    if (age < 0) continue;
+    const k = Math.min(1, age / LAND);
+    const e = 1 - (1 - k) ** 3;
+    const lift = 1 - e;
+    const sc = L.scale * (1 + 0.035 * lift);
+    g.save();
+    g.translate(x + (p.w * L.scale) / 2, y + p.dy * L.scale - lift * p.size * 0.12 * L.scale);
+    g.rotate(p.rot);
+    g.scale(sc, sc);
+    g.globalAlpha = alpha * Math.min(1, age / 0.05);
+    // shadow on the picture: wide and soft while it's in the air, tight once it's down
+    g.save();
+    g.shadowColor = `rgba(0,0,0,${(0.34 - 0.12 * lift) * alpha})`;
+    g.shadowBlur = p.size * (0.06 + 0.3 * lift) * L.scale;
+    g.shadowOffsetY = p.size * (0.03 + 0.12 * lift) * L.scale;
+    outline(g, p);
+    g.fillStyle = rgba(p.paper);
+    g.fill();
+    g.restore();
+    // the paper: grain and fibres on light stock, a faint sheen on black
+    g.save();
+    outline(g, p);
+    g.clip();
+    if (!p.dark && pat) {
+      g.globalCompositeOperation = 'multiply';
+      g.fillStyle = pat;
+      g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      g.globalCompositeOperation = 'source-over';
+    } else {
+      g.fillStyle = 'rgba(255,255,255,0.05)';
+      g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * 0.45);
     }
+    // the torn edge shows the paper's white core
+    const tornY = p.torn === 0 ? -p.h / 2 : p.h / 2;
+    g.strokeStyle = rgba(p.dark ? [236, 232, 222] : [255, 254, 250], p.dark ? 0.85 : 0.9);
+    g.lineWidth = p.size * 0.05;
+    g.beginPath();
+    const steps = Math.max(8, Math.round(p.w / (p.size * 0.07)));
+    for (let i = 0; i <= steps; i++) g.lineTo(-p.w / 2 + (p.w * i) / steps, tornY + (hash(p.seed, i + 100, 13) - 0.5) * p.size * 0.06);
+    g.stroke();
+    g.restore();
+    g.font = p.font;
+    g.fontStretch = p.stretch;
+    g.letterSpacing = `${p.track.toFixed(2)}px`;
+    g.fillStyle = rgba(p.ink);
+    g.fillText(p.text, -p.w / 2 + p.padX, -p.h / 2 + p.asc);
+    g.letterSpacing = '0px';
+    g.fontStretch = 'normal';
+    g.restore();
   }
   g.restore();
 }
