@@ -153,6 +153,8 @@ export interface StudioState extends LookState {
   transitionBeats: number;
   /** the finish over every look: 'auto' follows the playing video's Direction (else Hand-drawn when it's on) */
   finish: 'auto' | FinishId;
+  /** the person picked a finish themselves; until then every video is Hand-drawn (the house look) */
+  finishPicked: boolean;
   /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
   oneTap: boolean;
   /** a one-tap start under way (null when nothing is loading) */
@@ -238,7 +240,9 @@ function loadPersisted(): Partial<StudioState> {
       pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
       transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
       transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
-      finish: j.finish === 'auto' || isFinishId(j.finish) ? j.finish : undefined,
+      // a finish only sticks once the person has picked one (an old saved Auto doesn't count)
+      finish: j.finishPicked === true && (j.finish === 'auto' || isFinishId(j.finish)) ? j.finish : undefined,
+      finishPicked: j.finishPicked === true,
       // a style only sticks once the user has picked one; before that every song gets Auto
       lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
       lyricStylePicked: j.lyricStylePicked === true,
@@ -280,6 +284,7 @@ function persist(s: StudioState) {
         transition: s.transition,
         transitionBeats: s.transitionBeats,
         finish: s.finish,
+        finishPicked: s.finishPicked,
         oneTap: s.oneTap,
       }),
     );
@@ -369,7 +374,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   pace: persisted.pace ?? 'song',
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
-  finish: persisted.finish ?? 'auto',
+  // Hand-drawn is the house look: a plan's own finish only shows once the person picks Auto
+  finish: persisted.finish ?? 'hand',
+  finishPicked: persisted.finishPicked ?? false,
   oneTap: persisted.oneTap ?? true,
   startup: null,
   needsTap: false,
