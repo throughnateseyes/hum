@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { useStudio, type Aspect } from '../state/store';
-import { Pause, Play, X } from './Icons';
+import { Pause, Play, Shrink } from './Icons';
+import { SeekBar, SeekTime } from './SeekBar';
 import { Volume } from './Volume';
 
 export const FRAMES: { id: Aspect; name: string; hint: string }[] = [
@@ -142,38 +143,64 @@ export function FramePicker({ labels = false, tipBelow = true }: { labels?: bool
 
 /* ───────────── controls while performing ───────────── */
 
-/** shows on any mouse move or tap, fades after a moment of stillness, and hides the cursor with it */
+/** the bar fades this long after the pointer last moved (a tap on a touch screen keeps it a little longer) */
+const IDLE_MS = 2500;
+const TOUCH_IDLE_MS = 3500;
+
+/**
+ * A slim bar along the bottom, video-player style: the seek line on top (see SeekBar), and under it
+ * play / pause, the time and the part you're in, volume, the frame and the way out. It shows on any
+ * mouse move, tap or key, fades after a moment of stillness or when the pointer leaves the window,
+ * and hides the cursor with it. Only the page draws it: recordings and renders take the picture
+ * from the canvas, so it never shows up in them.
+ */
 export function PerformControls() {
   const perform = useStudio((s) => s.perform);
+  const clip = useStudio((s) => !!s.clip);
+  const seekable = useStudio((s) => !!s.track && s.track.source !== 'mic');
   const [playing, setPlaying] = useState(audioEngine.playing);
   const [shown, setShown] = useState(true);
+  const timer = useRef<number | undefined>(undefined);
+  const hovering = useRef(false);
+  const dragging = useRef(false);
+  const wakeRef = useRef<(ms?: number) => void>(() => {});
 
   useEffect(() => {
     if (!perform) return;
     const id = window.setInterval(() => setPlaying(audioEngine.playing), 250);
     return () => window.clearInterval(id);
   }, [perform]);
-  const timer = useRef<number | undefined>(undefined);
-  const hovering = useRef(false);
 
   useEffect(() => {
     if (!perform) return;
-    const wake = () => {
+    const wake = (ms = IDLE_MS) => {
       setShown(true);
       window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => {
-        if (!hovering.current) setShown(false);
-      }, 2200);
+        if (!hovering.current && !dragging.current) setShown(false);
+      }, ms);
+    };
+    wakeRef.current = wake;
+    const onPointer = (e: PointerEvent) => wake(e.pointerType === 'touch' ? TOUCH_IDLE_MS : IDLE_MS);
+    const onKey = () => wake();
+    // the pointer left the window: nothing to hover, so get out of the way
+    const onOut = (e: MouseEvent) => {
+      if (e.relatedTarget || dragging.current) return;
+      window.clearTimeout(timer.current);
+      hovering.current = false;
+      setShown(false);
     };
     wake();
-    window.addEventListener('pointermove', wake);
-    window.addEventListener('pointerdown', wake);
-    window.addEventListener('keydown', wake);
+    window.addEventListener('pointermove', onPointer);
+    window.addEventListener('pointerdown', onPointer);
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mouseout', onOut);
     return () => {
       window.clearTimeout(timer.current);
-      window.removeEventListener('pointermove', wake);
-      window.removeEventListener('pointerdown', wake);
-      window.removeEventListener('keydown', wake);
+      window.removeEventListener('pointermove', onPointer);
+      window.removeEventListener('pointerdown', onPointer);
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mouseout', onOut);
     };
   }, [perform]);
 
@@ -186,17 +213,37 @@ export function PerformControls() {
   return (
     <div
       className={`perform-bar ${shown ? 'shown' : ''}`}
-      onPointerEnter={() => (hovering.current = true)}
+      onPointerEnter={(e) => {
+        if (e.pointerType !== 'touch') hovering.current = true;
+      }}
       onPointerLeave={() => (hovering.current = false)}
     >
-      <button className="btn icon ghost" aria-label={playing ? 'Pause' : 'Play'} onClick={() => audioEngine.toggle()}>
-        {playing ? <Pause width={14} height={14} /> : <Play width={14} height={14} />}
-      </button>
-      <Volume dark />
-      <FramePicker labels tipBelow={false} />
-      <button className="btn ghost" onClick={exitPerform}>
-        <X width={13} height={13} /> Exit
-      </button>
+      {seekable && !clip && (
+        <SeekBar
+          onDragChange={(v) => {
+            dragging.current = v;
+            if (!v) wakeRef.current();
+          }}
+        />
+      )}
+      <div className="pb-row">
+        <button
+          className="btn icon ghost pb-play has-tip"
+          data-tip={playing ? 'Pause  Space' : 'Play  Space'}
+          aria-label={playing ? 'Pause' : 'Play'}
+          disabled={clip || !seekable}
+          onClick={() => audioEngine.toggle()}
+        >
+          {playing ? <Pause width={16} height={16} /> : <Play width={16} height={16} />}
+        </button>
+        <SeekTime />
+        <span className="spacer" />
+        <Volume dark />
+        <FramePicker tipBelow={false} />
+        <button className="btn icon ghost pb-exit has-tip tip-left" data-tip="Exit full screen  Esc" aria-label="Exit full screen" onClick={exitPerform}>
+          <Shrink width={16} height={16} />
+        </button>
+      </div>
     </div>
   );
 }

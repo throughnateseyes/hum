@@ -691,6 +691,51 @@ export const PRESETS: Preset[] = [
     palette: 'fountain-park',
   }),
 
+  /* ───────── undercode: code rain and bullet time ───────── */
+  P({
+    id: 'undercode',
+    name: 'Undercode',
+    description: 'Phosphor-green code rains over black at three depths and an anonymous figure stands in it, drawn only by a brighter stream. Time slows through the build as rounds fly in at a raised hand; on the drop it all freezes mid-air while the camera orbits, then snaps back and the chorus rain falls upward.',
+    tags: ['electronic', 'techno', 'dark', 'futuristic', 'glitch', 'cinematic', 'intense', 'hypnotic', 'aggressive', 'drops', 'edm', 'dubstep', 'industrial', 'cold', 'driving'],
+    sceneId: 'undercode',
+    effects: [],
+    modulations: [],
+    palette: 'undercode-phosphor',
+  }),
+  P({
+    id: 'undercode-poster',
+    name: 'Undercode Poster',
+    description: 'The same story as a printed poster: the figure a halftone made of code (glyph size is the tone), sparser rain, paper tooth and flat grey dots floating over the print, frozen with everything else on the drop.',
+    tags: ['graphic', 'cinematic', 'dark', 'futuristic', 'electronic', 'hip-hop', 'minimal', 'techno', 'dramatic', 'retro', 'glitch'],
+    sceneId: 'undercode',
+    sceneParams: { print: 'poster', dots: 0.9, glow: 0.45, scan: 0, grain: 0.045, density: 0.5, trail: 0.85, depth: 0.7 },
+    effects: [],
+    modulations: [],
+    palette: 'undercode-poster',
+  }),
+  P({
+    id: 'undercode-amber',
+    name: 'Amber Terminal',
+    description: 'Undercode on an old amber monitor: hex digits and symbols in long glowing trails, heavy scanlines, a warmer and more nostalgic take on the frozen moment.',
+    tags: ['retro', 'synthwave', 'electronic', 'nostalgic', 'warm', 'dark', 'hypnotic', 'cinematic', 'lofi', 'driving', 'futuristic'],
+    sceneId: 'undercode',
+    sceneParams: { script: 'hex', scan: 0.6, glow: 1.25, trail: 1.3, speed: 0.85, density: 0.55 },
+    effects: [],
+    modulations: [],
+    palette: 'undercode-amber',
+  }),
+  P({
+    id: 'undercode-redline',
+    name: 'Redline',
+    description: 'White code on a red field, trails burning down to black: the loudest take, the rain tumbling sideways and up in the chorus and the freeze cutting hard.',
+    tags: ['aggressive', 'intense', 'heavy', 'industrial', 'dubstep', 'bass', 'drops', 'rock', 'metal', 'graphic', 'energetic', 'glitch'],
+    sceneId: 'undercode',
+    sceneParams: { script: 'script', gravity: 'tumble', glow: 0.55, scan: 0.12, speed: 1.2, density: 0.55, grain: 0.03 },
+    effects: [],
+    modulations: [],
+    palette: 'undercode-redline',
+  }),
+
   /* ───────── looks built from the reference boards ───────── */
   P({ id: 'gradient-cubes-toy-box', name: 'Toy Box', description: 'Candy-coloured gradient cubes tumbling over warm brown, rolling with every kick and bursting apart on the drop.', tags: ['playful', 'happy', 'pop', 'bouncy', 'upbeat', 'tactile', 'graphic', 'warm', 'energetic', 'uplifting'], sceneId: 'gradient-cubes', effects: [{ effectId: 'grain', params: { amount: 0.08, size: 1.2 } }], modulations: [], palette: 'toy-box' }),
   P({ id: 'gradient-cubes-sorbet', name: 'Sorbet', description: 'Fewer, softer pastel cubes drifting on cream, turning gently with the beat.', tags: ['calm', 'tender', 'dreamy', 'playful', 'pop', 'indie', 'tactile', 'warm', 'lofi', 'romantic'], sceneId: 'gradient-cubes', sceneParams: { density: 0.85, tilt: 0.45, spin: 0.6, flow: 0.7, wave: 0.75, snap: 0.35, swell: 0.35, burst: 0.5, variety: 0.2, soft: 0.9 }, effects: [{ effectId: 'grain', params: { amount: 0.1, size: 1.4 } }], modulations: [], palette: 'sorbet-cream' }),
@@ -754,4 +799,15 @@ export const PRESETS: Preset[] = [
   P({ id: 'golden-avenue', name: 'Golden Avenue', description: 'A painted avenue of ginkgo trees in full autumn gold, walked slowly toward the light: a few leaves drifting in the quiet, more as the breeze builds, and a gust on the drop that lifts a storm of leaves toward you.', tags: ['nostalgic', 'warm', 'tender', 'hopeful', 'dreamy', 'romantic', 'uplifting', 'emotional', 'cinematic', 'acoustic', 'indie', 'folk', 'pop', 'piano', 'nature', 'organic', 'bright'], sceneId: 'golden-avenue', effects: [], modulations: [], palette: 'golden-avenue' }),
   P({ id: 'golden-avenue-dusk', name: 'Avenue at Dusk', description: 'The same ginkgo avenue at the end of the day: apricot and rose leaves, plum trunks and a low peach light, walked a little slower.', tags: ['nostalgic', 'romantic', 'tender', 'warm', 'dreamy', 'melancholic', 'emotional', 'cinematic', 'indie', 'pop', 'lofi', 'slow', 'nature', 'organic'], sceneId: 'golden-avenue', sceneParams: { glow: 1.15, leaves: 0.85, walk: 0.85 }, effects: [], modulations: [], palette: 'golden-avenue-dusk' }),
   P({ id: 'golden-avenue-birch', name: 'Birch Avenue', description: 'The avenue in early winter: white birch trunks, the last pale straw leaves against a slate-blue shade, cold clear light and a thinner fall.', tags: ['calm', 'melancholic', 'nostalgic', 'tender', 'cold', 'ambient', 'spacious', 'acoustic', 'piano', 'folk', 'minimal', 'slow', 'nature', 'organic'], sceneId: 'golden-avenue', sceneParams: { birch: 1, glow: 0.85, leaves: 0.7, haze: 0.75, walk: 0.8 }, effects: [], modulations: [], palette: 'golden-avenue-birch' }),
+  /* ───────── precast: Brutalism as pattern (one family: a facade of identical concrete cells) ───────── */
+  P({ id: 'precast', name: 'Precast', description: 'The corner of a white precast block on a grey winter day, shot from below: hundreds of identical porthole windows, peach light in a few of them, bare trees swaying in front. The sun creeps round the cells with the song, kicks ripple through the grid, and the drop turns every window into a deep coffer in one sweep.', tags: ['cold', 'melancholic', 'calm', 'hypnotic', 'minimal', 'spacious', 'cinematic', 'ambient', 'post-rock', 'indie', 'slow', 'graphic', 'architecture'], sceneId: 'precast', sceneParams: { framing: 'corner', module: 'porthole', sun: 0.75, rake: 0.42, lights: 0.75, depth: 0.6, trees: 1, haze: 0.12, sky: 1, exposure: 1.4, track: 0.5, march: 0.15 }, effects: [], modulations: [], palette: 'precast-winter' }),
+  P({ id: 'precast-coffer', name: 'Precast Coffer', description: 'A curving facade of deep coffered cells in hard desert sun, receding round the bend: sand concrete, black shadow cut diagonally into every cell, the sun sweeping them as the song moves. Builds drop the sun low and long; the drop throws the light to the other side and turns the coffers into sculpted pyramids.', tags: ['heavy', 'dramatic', 'cinematic', 'driving', 'hypnotic', 'rock', 'post-rock', 'epic', 'warm', 'bold', 'graphic', 'architecture'], sceneId: 'precast', sceneParams: { framing: 'curve', module: 'coffer', sun: 1, rake: 0.32, lights: 0.15, weather: 0.6 }, effects: [], modulations: [], palette: 'precast-sun' }),
+  P({ id: 'precast-night', name: 'Precast Night', description: 'A concrete block at night, floodlit from its foot, raked from low down so the grid runs off to a vanishing point: amber windows switch on and off with the snare, kicks run a wave of light along the rows, and every window comes on at once on the drop.', tags: ['dark', 'moody', 'hypnotic', 'driving', 'techno', 'electronic', 'industrial', 'night', 'urban', 'cinematic', 'cold', 'architecture'], sceneId: 'precast', sceneParams: { framing: 'oblique', module: 'porthole', night: 1, lights: 0.55, haze: 0.3, sky: 0 }, effects: [], modulations: [], palette: 'precast-night' }),
+  P({ id: 'precast-sawtooth', name: 'Precast Sawtooth', description: 'An office block elevation of sculpted pyramid reliefs and saw-tooth piers, tracked sideways in hard beat-locked steps: relentless and mechanical. Every kick slams a wave through the windows, and each drop flips the light so the whole relief reverses.', tags: ['heavy', 'metal', 'rock', 'aggressive', 'industrial', 'mechanical', 'driving', 'intense', 'techno', 'cold', 'graphic', 'architecture'], sceneId: 'precast', sceneParams: { framing: 'front', module: 'sawtooth', sun: 0.9, rake: 0.3, march: 0.8, track: 1.1, wave: 1.1 }, effects: [], modulations: [], palette: 'precast-relief' }),
+
+  /* ───────── massing (one family: a brutalist building of heavy concrete blocks that plays the song) ───────── */
+  P({ id: 'massing', name: 'Massing', description: 'A brutalist tower of stacked, cantilevered board-formed concrete blocks, shot from low down in hard sun beside a reflecting pool. Still in the quiet, the rows breathe on the kick, the blocks strain outward through the build and slam into a new stack on the drop as the camera drops to the pool.', tags: ['heavy', 'intense', 'cinematic', 'dramatic', 'monumental', 'architectural', 'industrial', 'minimal', 'rock', 'bold', 'rhythmic', 'city'], sceneId: 'massing', sceneParams: { form: 'tower', glow: 0, plants: 0, clouds: 0.12 }, effects: [], modulations: [], palette: 'massing-beton' }),
+  P({ id: 'massing-overcast', name: 'Massing Overcast', description: 'An inverted concrete pyramid under a flat white sky, its recessed window rows lit amber from inside: soft light, slow weight, monumental and calm until the drop pushes the floors out.', tags: ['monumental', 'cinematic', 'calm', 'melancholic', 'spacious', 'slow', 'architectural', 'minimal', 'cold', 'post-rock', 'ambient', 'city'], sceneId: 'massing', sceneParams: { form: 'slab', sun: 0.12, glow: 0.6, plants: 0.05, clouds: 0.7, pool: 0.8 }, effects: [], modulations: [], palette: 'massing-overcast' }),
+  P({ id: 'massing-overgrown', name: 'Massing Overgrown', description: 'Stepped concrete terraces climbing a hill, swallowed by moss, vines and shrubs: the rows of loggias slide forward one by one on the kick and the whole hillside heaves on the drop.', tags: ['cinematic', 'organic', 'nature', 'architectural', 'hopeful', 'rhythmic', 'indie', 'post-rock', 'bright', 'city'], sceneId: 'massing', sceneParams: { form: 'terraces', sun: 0.85, plants: 0.65, glow: 0.1, stain: 0.75, pool: 0.35 }, effects: [], modulations: [], palette: 'massing-overgrown' }),
+  P({ id: 'massing-night', name: 'Massing Night', description: 'The concrete tower at night, raked by one harsh floodlight from below that dies into the dark above. Its voids burn red on the drop as the blocks crash into place, and the light strobes with the kick through the chorus. Crushing.', tags: ['heavy', 'aggressive', 'intense', 'dark', 'metal', 'rock', 'industrial', 'techno', 'dramatic', 'cinematic', 'driving', 'architectural'], sceneId: 'massing', sceneParams: { form: 'tower', night: 1, ember: 1, glow: 0.5, plants: 0, clouds: 0.12, weight: 1.3, seed: 7 }, effects: [], modulations: [], palette: 'massing-night' }),
 ];
