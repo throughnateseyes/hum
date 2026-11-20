@@ -129,6 +129,11 @@ export const PALETTES: Palette[] = [
   { id: 'golden-avenue', name: 'Golden Avenue', bg: '#fff1c6', fg: '#4a2b20', accent: '#f4c21c', accent2: '#e0841f', muted: '#f1d27c' },
   { id: 'golden-avenue-dusk', name: 'Avenue at Dusk', bg: '#ffd3ba', fg: '#3a2130', accent: '#f4a64e', accent2: '#cc5f62', muted: '#eaa98a' },
   { id: 'golden-avenue-birch', name: 'Birch Avenue', bg: '#edf1f2', fg: '#22262f', accent: '#dfc882', accent2: '#4b5c72', muted: '#b5c3cd' },
+  // undercode (bg = the void, accent = the code, accent2 = dim and distant code, fg = leading glyphs and words, muted = floating dots)
+  { id: 'undercode-phosphor', name: 'Undercode Phosphor', bg: '#010603', fg: '#d9ffe2', accent: '#29e36a', accent2: '#0b5a26', muted: '#56635a' },
+  { id: 'undercode-poster', name: 'Undercode Poster', bg: '#050906', fg: '#e3ffd6', accent: '#46d872', accent2: '#1d5b31', muted: '#9a9f9b' },
+  { id: 'undercode-amber', name: 'Undercode Amber', bg: '#0b0502', fg: '#ffeccb', accent: '#ffa21f', accent2: '#6e3305', muted: '#5c4a3a' },
+  { id: 'undercode-redline', name: 'Undercode Redline', bg: '#a90f1a', fg: '#ffffff', accent: '#ffd3cf', accent2: '#3a0207', muted: '#e86a70' },
 ];
 
 export function getPalette(id: string): Palette {

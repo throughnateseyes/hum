@@ -14,6 +14,7 @@ import { flipCards } from './flipCards';
 import { gradientCubes } from './gradientCubes';
 import { neurones } from './neurones';
 import { dotAssembly } from './dotAssembly';
+import { undercode } from './undercode';
 
 export const scenes: SceneDef[] = [clayOrb, pointSwarm, ridgeline, ringTunnel, monolithGrid, silk, paperVisualizer, pixelCube, flipCards];
 
@@ -22,3 +23,6 @@ scenes.push(particleColumns, glassPlanes, trackingHud);
 
 // looks built from the reference boards
 scenes.push(gradientCubes, neurones, dotAssembly);
+
+// code rain and bullet time
+scenes.push(undercode);
