@@ -651,6 +651,17 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     pairs: ['halftone-flow', 'specimen-tiles', 'gradient-cubes', 'ribbon-type', 'lensing'],
     clashes: ['still-water', 'gilded-clouds', 'jellies', 'datamosh'],
   },
+  undercode: {
+    name: 'Undercode',
+    blurb: 'Code rain at three depths with a figure drawn only by the stream: time slows through the build, everything hangs frozen mid-air on the drop while the camera orbits, and the chorus rain falls upward.',
+    takes: { undercode: 'Phosphor', 'undercode-poster': 'Halftone poster', 'undercode-amber': 'Amber terminal', 'undercode-redline': 'Redline' },
+    roles: ['build', 'peak', 'verse', 'intro', 'break'],
+    energy: [0.3, 1],
+    motion: 'explosive',
+    themes: ['data', 'retro'],
+    pairs: ['signal-scan', 'tracking-hud', 'terminal-swarm', 'tunnel-vision', 'datamosh'],
+    clashes: ['garden', 'willow', 'golden-avenue', 'confetti', 'soft-orbs'],
+  },
   lensing: {
     name: 'Lensing',
     blurb: 'Gradient threads of light bending round a glowing orb that grows heavier with the bass, flaring and whipping the lines outward on the drop.',
