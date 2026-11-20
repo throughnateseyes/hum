@@ -173,6 +173,35 @@ export const Image = (p: SVGProps<SVGSVGElement>) => (
     <circle cx="15.5" cy="9" r="1.5" />
   </svg>
 );
+/** a stack of looks (the phone's Looks tab) */
+export const Looks = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="4" y="7" width="16" height="13" rx="2.2" />
+    <path d="M7 4h10" />
+    <path d="m4.5 17 4.5-4.5 3.5 3.5 2-2 5 4.5" />
+  </svg>
+);
+/** two sliders (look settings) */
+export const Sliders = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+    <circle cx="15" cy="7" r="2" />
+    <circle cx="9" cy="17" r="2" />
+  </svg>
+);
+/** lines of words (lyrics) */
+export const Quote = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M4 6.5h16M4 11.5h11M4 16.5h13" />
+  </svg>
+);
+/** the share arrow out of a box (iOS style) */
+export const Share = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M12 3.5v11M8 7.5l4-4 4 4" />
+    <path d="M7 10.5H5.5v9h13v-9H17" />
+  </svg>
+);
 export const Grid = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <rect x="3.5" y="3.5" width="17" height="17" rx="2" />

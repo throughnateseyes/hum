@@ -49,6 +49,20 @@ export interface RenderRequest {
   fps: 30 | 60;
   /** what the stretch is, for the message at the end (e.g. "the drop at 1:04") */
   label?: string;
+  /**
+   * Hand the files back instead of downloading them (the phone's Share clip opens the share sheet
+   * with them). The caller then says how it went; renderVideos only reports a failure.
+   */
+  keep?: boolean;
+}
+
+/** what a render made: the files (kept ones only), whether it was cancelled, and why it failed */
+export interface RenderResult {
+  files: { blob: Blob; name: string; size: RenderSize }[];
+  cancelled: boolean;
+  failure: string | null;
+  /** recorded live while it played (this browser can't encode video by itself) */
+  live?: boolean;
 }
 
 /** frames drawn before the in-point and thrown away, so the look has settled (s) */
@@ -267,16 +281,16 @@ function drawPreview(src: HTMLCanvasElement) {
  * as it's done. Esc cancels. Browsers that can't encode video themselves get the live recording
  * instead (the first size only), with a note.
  */
-export async function renderVideos(req: RenderRequest): Promise<void> {
+export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
   const st = useStudio.getState();
   const blocked = renderBlocker(st);
   if (running || blocked) {
     st.flash(blocked ?? 'A video is already being made.');
-    return;
+    return { files: [], cancelled: false, failure: blocked ?? 'A video is already being made.' };
   }
   if (!req.sizes.length) {
     st.flash('Pick at least one size.');
-    return;
+    return { files: [], cancelled: false, failure: 'Pick at least one size.' };
   }
   const buf = songBuffer();
   const why = buf ? await offlineBlocker() : 'The song is still loading.';
@@ -285,8 +299,12 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
     const size = req.sizes[0];
     st.flash(`${why} Recording it live instead (${size.id} only), so keep this tab in front.`);
     const win: ClipWindow = { start: req.start, end: req.end, anchor: req.start, why: req.label ?? 'your selection' };
-    await exportClip(win, { w: size.w, h: size.h });
-    return;
+    if (!req.keep) {
+      await exportClip(win, { w: size.w, h: size.h });
+      return { files: [], cancelled: false, failure: null, live: true };
+    }
+    const got = await new Promise<{ blob: Blob; name: string } | null>((resolve) => void exportClip(win, { w: size.w, h: size.h }, { onDone: resolve }));
+    return { files: got ? [{ ...got, size }] : [], cancelled: !got, failure: null, live: true };
   }
 
   const start = Math.max(0, req.start);
@@ -322,6 +340,7 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
   quality.freeze(true);
   audioEngine.pause();
   const saved: string[] = [];
+  const kept: RenderResult['files'] = [];
   let failure: string | null = null;
   const t0 = performance.now();
   try {
@@ -346,7 +365,8 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
       }, () => cancelled || useStudio.getState().track !== track);
       if (useStudio.getState().track !== track) throw new Cancelled();
       const name = renderFileName(songName, start, end, size);
-      download(blob, name);
+      if (req.keep) kept.push({ blob, name, size });
+      else download(blob, name);
       saved.push(size.id);
     }
   } catch (e) {
@@ -370,22 +390,27 @@ export async function renderVideos(req: RenderRequest): Promise<void> {
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
   const len = Math.round(end - start);
   const flash = useStudio.getState().flash;
+  lastRenderStats = { seconds: Number(secs), frames: Math.round((end - start) * req.fps) * saved.length, sizes: saved };
+  if (req.keep) {
+    if (failure) flash(`The video couldn't be made: ${failure}`);
+    return { files: kept, cancelled, failure };
+  }
   if (failure) flash(`The video couldn't be made: ${failure}`);
   else if (cancelled && !saved.length) flash('Render cancelled');
   else if (cancelled) flash(`Render stopped. Saved ${saved.join(', ')}.`);
   else flash(`Saved ${saved.length === 1 ? `a ${len} s ${saved[0]} video` : `${saved.length} videos (${saved.join(', ')}), ${len} s each`}${req.label ? `, from ${req.label}` : ''} · made in ${secs} s`);
-  lastRenderStats = { seconds: Number(secs), frames: Math.round((end - start) * req.fps) * saved.length, sizes: saved };
+  return { files: [], cancelled, failure };
 }
 
 /** One click: the song's best 15–30 s as a vertical 1080×1920 video at 30 fps (the "Clip for TikTok" button). */
-export function clipForTikTok(): Promise<void> {
+export async function clipForTikTok(): Promise<void> {
   const a = useStudio.getState().analysis;
   if (!a) {
     useStudio.getState().flash('Still listening to the song. Try again in a moment.');
-    return Promise.resolve();
+    return;
   }
   const w = pickClip(a);
-  return renderVideos({ start: w.start, end: w.end, sizes: [RENDER_SIZES[0]], fps: 30, label: w.why });
+  await renderVideos({ start: w.start, end: w.end, sizes: [RENDER_SIZES[0]], fps: 30, label: w.why });
 }
 
 /** how the last render went (for the dev console and tests) */

@@ -43,6 +43,12 @@ export const currentCode = () => readAccessCode() || memoryCode;
 type ServerNeed = 'unknown' | 'open' | 'code' | 'off';
 let need: ServerNeed = 'unknown';
 
+/**
+ * Could an AI request go ahead without asking the person anything? False when the site has AI off, or
+ * wants a code and none is saved. Background requests (one-tap start) check this and stay offline.
+ */
+export const aiAllowedQuietly = () => need !== 'off' && !(need === 'code' && !currentCode());
+
 export type CheckResult = 'ok' | 'wrong' | 'off' | 'unknown';
 
 /** Ask the server whether `code` works, without calling Claude. 'unknown' = couldn't tell. */
@@ -147,7 +153,10 @@ async function errorOf(res: Response): Promise<string> {
  * caller to read as before; when the person closes the gate, that's the 403 / 501 response, so the
  * caller's offline fallback runs. `buildBody` gets the code to send each time it's (re)tried.
  */
-export async function postDirector(buildBody: (accessCode: string | undefined) => unknown, opts: { endpoint?: string; signal?: AbortSignal; accessCode?: string } = {}): Promise<Response> {
+export async function postDirector(
+  buildBody: (accessCode: string | undefined) => unknown,
+  opts: { endpoint?: string; signal?: AbortSignal; accessCode?: string; quiet?: boolean } = {},
+): Promise<Response> {
   const endpoint = opts.endpoint ?? ENDPOINT;
   let code = opts.accessCode || currentCode();
   /** the gate opens at most once per press: closing it means "go on without AI" */
@@ -155,6 +164,8 @@ export async function postDirector(buildBody: (accessCode: string | undefined) =
   let entered = false;
   const ask = async (mode: GateMode, error = '') => {
     asked = true;
+    // a request nobody pressed a button for (one-tap start) never opens the gate: it stays offline
+    if (opts.quiet) return 'dismissed' as GateOutcome;
     const r = await askForAccess(mode, error, opts.signal);
     if (r === 'unlocked') {
       code = currentCode();

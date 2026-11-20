@@ -19,6 +19,34 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 
 - **Drop audio** anywhere (mp3 / wav / m4a / flac), pick a built-in demo (*Pressure* — 140 bpm
   halftime bass with a build and a drop; *Driftwood* — 72 bpm rain and piano), or use the mic.
+- **One tap.** Drop a song (or pick a file or a demo) and that's it: Hum listens to it, plans the
+  video and plays it from the top, with one calm progress note on the stage ("Listening to the
+  song", then "Planning the video") instead of a stack of messages. It starts on the offline plan
+  straight away and never waits on the network; meanwhile lyrics are looked up and Claude makes a
+  take of its own in the background (when the director is reachable and allowed, without asking
+  for an access code). Claude's plan takes over at the next part change (two seconds early, so the
+  transition lands on the line), unless you've already changed the video yourself; lyrics that
+  turn up later are timed in as they arrive. A song Claude has planned before plays its saved plan
+  at once. The tap or drop that loaded the song is what lets it play; if the browser still won't
+  start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Look
+  tab, Video) turns it off: then a song just plays, and Make a video is up to you.
+- **On a phone** (a touch screen up to 760 px wide, or a phone on its side) Hum has its own layout:
+  the picture on top at full width, play/pause, the time, the part you're in and the song map
+  under it, and a slim tab row at the bottom (**Looks**, **Settings**, **Lyrics**, **Export**). Each
+  tab opens its panel in a bottom sheet: drag its handle between peek, half and full, flick it, or
+  pull it down to close (tap the handle to swap half and full). Held sideways, the picture fills
+  the left and the controls and panels share a column on the right. On the picture: **swipe left
+  or right** to step through looks (the other takes of the look on screen first, then the looks
+  that sit with it in the part that's playing, then everything else; a small note names each one),
+  **swipe up** for the panels and down to put them away, **tap** for the controls on the picture
+  (full screen, Keep / Skip), **double-tap** for full screen. Add `?phone=1` (or `?phone=0`) to
+  the address to force the phone layout on or off. Computers and tablets keep the layout below.
+- **Share clip** (phone: Export). Pick 15, 30 or 60 s (or the stretch you picked on the song map),
+  and Hum renders that much around the song's biggest drop as a 1080×1920 vertical video, frame by
+  frame with its sound, with a progress bar and Cancel. When it's done, **Share to Instagram or
+  TikTok** opens the phone's share sheet with the MP4; where a browser can't share files it saves
+  the video instead, with a note on where to find it. The file is H.264 (High profile, BT.709) with
+  AAC-LC stereo sound in an MP4 with the index up front, which is what Instagram and TikTok take.
 - **Drop photos** anywhere — photo scenes and the instrument boards dissolve, mosh and rebuild them
   (a new photo every 4 bars).
 - **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any

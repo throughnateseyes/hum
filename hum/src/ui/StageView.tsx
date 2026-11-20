@@ -2,13 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import { Stage } from '../render/stage';
 import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
-import { LoadingStage } from './Loading';
+import { LoadingStage, TapToPlay } from './Loading';
 import { TasteHud } from './Taste';
 import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
 import { fmtPrecise, RenderPreview, useRenderMode } from './RenderBar';
 import { togglePerform } from './Perform';
 import { Expand, Shrink } from './Icons';
+import { lastTouchTap, useStageGestures } from './stageGestures';
+import { useStageUi } from './layout';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -23,7 +25,10 @@ export function StageView() {
   const clip = useStudio((s) => s.clip);
   const hasTrack = useStudio((s) => !!s.track);
   const scrub = useRenderMode((s) => s.scrub);
+  const controls = useStageUi((s) => s.controls);
   const [size, setSize] = useState({ w: 800, h: 450 });
+  // touch: swipe for looks, swipe up for the panels, tap for the controls, double-tap for full screen
+  useStageGestures(frame);
 
   useEffect(() => {
     const stage = new Stage(canvas.current!);
@@ -64,9 +69,10 @@ export function StageView() {
 
   return (
     <div className="stage-wrap" ref={wrap}>
-      <div className="stage-frame" ref={frame} style={{ width: size.w, height: size.h }}>
+      <div className={`stage-frame ${controls ? 'ctl' : ''}`} ref={frame} style={{ width: size.w, height: size.h }}>
         <canvas ref={canvas} />
         <LoadingStage />
+        <TapToPlay />
         <TasteHud />
         {/* volume over the picture, shown while the pointer is on it (phones keep it in the play row) */}
         {hasTrack && !clip && (
@@ -95,8 +101,21 @@ export function StageView() {
             </span>
           )}
         </div>
+        <LookToast />
         <WelcomeLayer />
       </div>
+    </div>
+  );
+}
+
+/** the light note a swipe leaves: the look's name (and its take), sliding in from the swipe's side */
+function LookToast() {
+  const look = useStageUi((s) => s.look);
+  if (!look) return null;
+  return (
+    <div key={look.key} className={`look-toast ${look.dir > 0 ? 'from-right' : 'from-left'}`} aria-live="polite">
+      <b>{look.name}</b>
+      {look.sub && <span>{look.sub}</span>}
     </div>
   );
 }
@@ -111,7 +130,10 @@ const IDLE_MS = 2200;
  * it, a full-window view where it doesn't (iPhone).
  */
 function FullscreenButton({ frame, perform }: { frame: RefObject<HTMLDivElement | null>; perform: boolean }) {
-  const [shown, setShown] = useState(false);
+  const [hovered, setShown] = useState(false);
+  // a touch screen: a tap on the picture shows it with the other controls (stageGestures.ts)
+  const tapped = useStageUi((s) => s.controls);
+  const shown = hovered || tapped;
   const timer = useRef<number | undefined>(undefined);
   const over = useRef(false);
 
@@ -124,7 +146,6 @@ function FullscreenButton({ frame, perform }: { frame: RefObject<HTMLDivElement 
       timer.current = window.setTimeout(() => !over.current && setShown(false), ms);
     };
     const onMove = (e: PointerEvent) => e.pointerType !== 'touch' && wake();
-    const onDown = (e: PointerEvent) => e.pointerType === 'touch' && wake(3200);
     const onLeave = (e: PointerEvent) => {
       if (e.pointerType === 'touch') return;
       window.clearTimeout(timer.current);
@@ -134,17 +155,17 @@ function FullscreenButton({ frame, perform }: { frame: RefObject<HTMLDivElement 
     const onDouble = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
       if (t.closest('button, a, input, textarea, select, label, .welcome, .taste-hud, .stage-vol')) return;
+      // a double-tap is handled by the touch gestures already
+      if (Date.now() - lastTouchTap < 700) return;
       e.preventDefault();
       togglePerform();
     };
     el.addEventListener('pointermove', onMove);
-    el.addEventListener('pointerdown', onDown);
     el.addEventListener('pointerleave', onLeave);
     el.addEventListener('dblclick', onDouble);
     return () => {
       window.clearTimeout(timer.current);
       el.removeEventListener('pointermove', onMove);
-      el.removeEventListener('pointerdown', onDown);
       el.removeEventListener('pointerleave', onLeave);
       el.removeEventListener('dblclick', onDouble);
     };

@@ -1,0 +1,86 @@
+/* ───────── bottom sheet (Sheet.tsx) ───────── */
+.sheet-track {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top) + 8px);
+  bottom: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  background: var(--panel);
+  border-radius: 16px 16px 0 0;
+  box-shadow:
+    0 -1px 0 rgba(0, 0, 0, 0.06),
+    0 -12px 40px -12px rgba(20, 20, 30, 0.28);
+  overflow: hidden;
+  pointer-events: auto;
+  visibility: hidden;
+  transition:
+    height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s linear 0.3s;
+  will-change: height;
+}
+.sheet.open {
+  visibility: visible;
+  transition:
+    height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 0s;
+}
+.sheet.dragging {
+  transition: none;
+}
+/* the handle and heading: the place to grab it (the page never scrolls or zooms from here) */
+.sheet-grab {
+  flex: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.sheet-handle-btn {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+}
+.sheet-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line-2);
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 40px;
+  padding: 0 var(--s-4) var(--s-2);
+}
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet.open {
+    transition: none;
+  }
+}

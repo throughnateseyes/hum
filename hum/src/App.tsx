@@ -3,10 +3,8 @@ import { audioEngine } from './audio/engine';
 import { DEMO_TRACKS } from './audio/demoTracks';
 import { PRESETS } from './presets';
 import { allScenes, getScene } from './scenes';
-import { live } from './state/live';
 import { useStudio } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
-import { Recorder, download } from './render/recorder';
 import { clipBlocker } from './render/clipExport';
 import { clipForTikTok, renderBlocker } from './render/timeline';
 import { openRenderBar, useRenderMode } from './ui/RenderBar';
@@ -27,8 +25,9 @@ import { Breakdown } from './ui/Breakdown';
 import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
 import { jumpPart, seekBy, SEEK_STEP } from './ui/SeekBar';
 import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, togglePerform, usePerformSync } from './ui/Perform';
-
-const recorder = new Recorder();
+import { saveStill, toggleRecording } from './ui/capture';
+import { useLayout, useLayoutWatch } from './ui/layout';
+import { PhoneDock } from './ui/Phone';
 
 export default function App() {
   const perform = useStudio((s) => s.perform);
@@ -37,6 +36,10 @@ export default function App() {
   const dragDepth = useRef(0);
   usePerformSync();
   useVolumeSync();
+  // phones (touch, up to 760 px) get their own layout: ui/layout.ts, ui/Phone.tsx
+  useLayoutWatch();
+  const phone = useLayout((s) => s.phone);
+  const land = useLayout((s) => s.land);
 
   // initial look
   useEffect(() => {
@@ -103,7 +106,7 @@ export default function App() {
 
   return (
     <div
-      className={`app ${perform ? 'perform' : ''} ${over ? 'dropzone-over' : ''}`}
+      className={`app ${perform ? 'perform' : ''} ${over ? 'dropzone-over' : ''} ${phone ? 'phone' : ''} ${phone && land ? 'land' : ''}`}
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
         dragDepth.current++;
@@ -125,19 +128,23 @@ export default function App() {
       }}
       style={{ position: 'relative' }}
     >
-      <Topbar />
-      <Library />
-      <PeekWindow />
+      {phone ? <PhoneTopbar /> : <Topbar />}
+      {!phone && <Library />}
+      {!phone && <PeekWindow />}
       <TapSync />
       <main className="center">
         <StageView />
         <Breakdown />
         <Bottom />
       </main>
-      <div className="right">
-        <Inspector />
-        <DirectorPanel />
-      </div>
+      {phone ? (
+        <PhoneDock />
+      ) : (
+        <div className="right">
+          <Inspector />
+          <DirectorPanel />
+        </div>
+      )}
       <PerformControls />
       <AccessGate />
       {toast && <div className="toast">{toast}</div>}
@@ -153,35 +160,13 @@ function shuffle() {
 
 function Topbar() {
   const recording = useStudio((s) => s.recording);
-  const set = useStudio((s) => s.set);
-  const flash = useStudio((s) => s.flash);
   const input = useRef<HTMLInputElement>(null);
 
-  const toggleRec = async () => {
-    const stage = live.stage;
-    if (!stage) return;
-    if (!recorder.active) {
-      try {
-        recorder.start(stage.canvas);
-        set({ recording: true });
-      } catch (e) {
-        flash(`Recording isn't supported here: ${String(e)}`);
-      }
-    } else {
-      const blob = await recorder.stop();
-      set({ recording: false });
-      const ext = recorder.mime.includes('mp4') ? 'mp4' : 'webm';
-      download(blob, `hum-${Date.now()}.${ext}`);
-      flash(`Saved a ${ext.toUpperCase()} clip`);
-    }
+  // the tap that opens the picker is the gesture that lets the song start once it's planned
+  const openFiles = () => {
+    audioEngine.unlock();
+    input.current?.click();
   };
-
-  const still = async () => {
-    const url = await live.stage?.snapshot();
-    if (url) download(url, `hum-${Date.now()}.png`);
-  };
-
-  const openFiles = () => input.current?.click();
 
   return (
     <header className="topbar">
@@ -216,12 +201,12 @@ function Topbar() {
         <span className="tb-div" />
         {/* everything that saves what you see, as one group: a still, a live recording, a rendered video */}
         <div className="tb-export" role="group" aria-label="Save a picture or video">
-          <button className="btn icon has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void still()}>
+          <button className="btn icon has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void saveStill()}>
             <Camera width={15} height={15} />
           </button>
           <button
             className={`btn rec has-tip tip-below ${recording ? 'on' : ''}`}
-            onClick={() => void toggleRec()}
+            onClick={() => void toggleRecording()}
             data-tip={recording ? 'Stop and save the clip' : 'Record what plays, live, with sound'}
             aria-label={recording ? 'Stop recording' : 'Record'}
           >
@@ -235,6 +220,37 @@ function Topbar() {
           <Expand width={13} height={13} /> Perform
         </button>
       </div>
+    </header>
+  );
+}
+
+/** the phone's top bar: the song (and where songs come from) and a way to open one; the rest is in the dock */
+function PhoneTopbar() {
+  const input = useRef<HTMLInputElement>(null);
+  const openFiles = () => {
+    audioEngine.unlock();
+    input.current?.click();
+  };
+  return (
+    <header className="topbar ph-top">
+      <div className="brand" aria-label="hum">
+        <span className="brand-mark" />
+      </div>
+      <SourceMenu onOpenFiles={openFiles} />
+      <button className="btn icon ghost ph-open" aria-label="Open a song" onClick={openFiles}>
+        <Upload width={18} height={18} />
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="audio/*,video/*,image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          if (e.target.files) void handleFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
     </header>
   );
 }

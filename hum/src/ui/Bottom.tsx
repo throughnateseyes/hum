@@ -18,6 +18,7 @@ import { Volume } from './Volume';
 import { RangeOverlay, RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 import { MoodRow } from './Moods';
 import { PartSheet, togglePartSheet, usePartSheet } from './PartSheet';
+import { openPanel, useLayout } from './layout';
 
 /**
  * Three rows: the transport and the feel controls, one timeline (the song's parts with their looks
@@ -26,14 +27,27 @@ import { PartSheet, togglePartSheet, usePartSheet } from './PartSheet';
 export function Bottom() {
   // render mode: the song map picks a stretch and the meter row becomes the render row
   const rendering = useRenderMode((s) => s.on);
+  // a phone keeps the render row in its Export panel (the meters are for dragging, which touch can't do)
+  const phone = useLayout((s) => s.phone);
   return (
     <div className="bottom">
       <TopRow />
       <Timeline />
       {!rendering && <MoodRow />}
-      {rendering ? <RenderBar /> : <LayerStrip />}
+      {phone ? null : rendering ? <RenderBar /> : <LayerStrip />}
       <PartSheet />
     </div>
+  );
+}
+
+/** how hard it reacts, the hand-drawn finish and the pop-ups (the phone shows them in Look settings) */
+export function FeelControls() {
+  return (
+    <>
+      <ImpactKnob />
+      <HandToggle />
+      <OverlaysSwitch />
+    </>
   );
 }
 
@@ -44,6 +58,7 @@ function TopRow() {
   const planOn = useStudio((s) => s.planOn);
   const [playing, setPlaying] = useState(false);
   const timeRef = useRef<HTMLSpanElement>(null);
+  const partRef = useRef<HTMLSpanElement>(null);
   const [tap, setTap] = useState<number[]>([]);
   const hasPlan = !!plan && !!analysis && plan.looks.length === analysis.sections.length;
 
@@ -57,6 +72,13 @@ function TopRow() {
         // the text changes once a second: only touch the page when it does
         const text = audioEngine.kind === 'mic' ? 'Live' : `${fmtTime(f.time)} / ${fmtTime(f.duration)}`;
         if (el && el.textContent !== text) el.textContent = text;
+        // the part playing (shown on phones, where the song map's names get small)
+        const pe = partRef.current;
+        const a = useStudio.getState().analysis;
+        if (pe) {
+          const name = a?.sections.length && audioEngine.kind === 'file' ? partName(a, audioEngine.currentTime) : '';
+          if (pe.textContent !== name) pe.textContent = name;
+        }
       }),
     [],
   );
@@ -82,6 +104,7 @@ function TopRow() {
         <span className="time" ref={timeRef}>
           0:00 / 0:00
         </span>
+        <span className="time part-now" ref={partRef} />
         <span className="time bpm">{analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}</span>
         <button className="btn sm has-tip" data-tip="Tap along 4+ times to set the tempo" onClick={onTap}>
           Tap tempo
@@ -100,6 +123,14 @@ function TopRow() {
       </div>
     </div>
   );
+}
+
+/** the name of the part playing at t ("Chorus 2"), names worked out once per song */
+const partNames = new WeakMap<TrackAnalysis, string[]>();
+function partName(a: TrackAnalysis, t: number): string {
+  let names = partNames.get(a);
+  if (!names) partNames.set(a, (names = sectionNames(a.sections)));
+  return names[sectionIndexAt(a.sections, t)] ?? '';
 }
 
 /* ───────────────────────── the timeline ───────────────────────── */
@@ -225,7 +256,13 @@ function Timeline() {
         <button
           className={`btn tl-render has-tip tip-left ${renderOn ? 'on' : ''}`}
           disabled={!analysis || !secs.length}
-          onClick={toggleRenderMode}
+          onClick={() => {
+            // a phone: the render row lives in the Export panel (the song map still shows the stretch)
+            if (useLayout.getState().phone) {
+              if (!useRenderMode.getState().on) toggleRenderMode();
+              openPanel('export', 'peek');
+            } else toggleRenderMode();
+          }}
           data-tip="Pick a stretch of the song and make it into videos: the same moments at 9:16, 4:5, 1:1 or 16:9"
         >
           <Film width={14} height={14} />
