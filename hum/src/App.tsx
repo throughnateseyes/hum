@@ -25,6 +25,7 @@ import { keepNow, skipNow } from './ui/Taste';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
 import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
+import { jumpPart, seekBy, SEEK_STEP } from './ui/SeekBar';
 import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, togglePerform, usePerformSync } from './ui/Perform';
 
 const recorder = new Recorder();
@@ -64,9 +65,15 @@ export default function App() {
         exitPerform();
       } else if ((e.key === 'a' || e.key === 'A') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         cycleFrame(e.shiftKey ? -1 : 1);
-      } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && s.perform && audioEngine.kind === 'file' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // full screen is for watching: ← → move through the song like a video player, ⇧ by whole parts
+        e.preventDefault();
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
+        if (e.shiftKey) jumpPart(dir);
+        else seekBy(dir * SEEK_STEP);
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === ']' || e.key === '[') {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
-        const j = (i + (e.key === 'ArrowRight' ? 1 : -1) + PRESETS.length) % PRESETS.length;
+        const j = (i + (e.key === 'ArrowRight' || e.key === ']' ? 1 : -1) + PRESETS.length) % PRESETS.length;
         if (PRESETS[j]) {
           noteHandPick(PRESETS[j], 'browse');
           pickLook(PRESETS[j]);
