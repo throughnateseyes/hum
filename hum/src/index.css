@@ -407,6 +407,53 @@ textarea:focus-visible {
 .btn.clip.on .lbl-wide {
   font-variant-numeric: tabular-nums;
 }
+/* the top bar's save group: still, record, render, clip, joined into one control */
+.tb-export {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--h);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  margin-right: var(--s-1);
+}
+.tb-export > .btn {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.tb-export > .btn + .btn {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+.tb-export > .btn:first-child {
+  border-radius: calc(var(--r-ctl) - 1px) 0 0 calc(var(--r-ctl) - 1px);
+}
+.tb-export > .btn:last-child {
+  border-radius: 0 calc(var(--r-ctl) - 1px) calc(var(--r-ctl) - 1px) 0;
+}
+.tb-export > .btn:hover {
+  background: var(--panel-2);
+}
+.tb-export > .btn.rec.on {
+  background: var(--rec);
+}
+.tb-export > .btn.clip.on {
+  background: var(--ink-2);
+}
+.tb-export > .btn.icon {
+  width: calc(var(--h) - 2px);
+}
+.btn.tb-render.on {
+  background: var(--accent);
+  color: #fff;
+}
+.tb-export > .btn.tb-render.on:hover {
+  background: var(--accent);
+}
+.btn.tb-render.off {
+  color: var(--ink-3);
+}
 .btn[disabled] {
   opacity: 0.45;
   pointer-events: none;
@@ -2596,6 +2643,7 @@ html.perform-idle * {
     display: none;
   }
   .tb-right .btn.rec,
+  .tb-right .btn.tb-render,
   .tb-right .btn.clip:not(.on) {
     width: var(--h);
     padding: 0;
@@ -2809,6 +2857,11 @@ html.perform-idle * {
 }
 .lyr-wrong {
   margin-left: -8px;
+}
+/* the switch for syncing new songs on their own */
+.lyr-auto {
+  font-size: var(--fs-2);
+  white-space: normal;
 }
 .lyr-row {
   display: flex;
@@ -3868,6 +3921,60 @@ html.perform-idle * {
   opacity: 1;
   pointer-events: auto;
 }
+/* full screen on the stage: top-right of the picture, in with the pointer, out when it rests */
+.stage-fs {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(20, 20, 18, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.2s,
+    background 0.12s,
+    transform 0.12s;
+}
+.stage-fs.shown,
+.stage-fs:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.stage-fs:hover {
+  background: rgba(20, 20, 18, 0.78);
+  transform: scale(1.06);
+}
+.stage-fs:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.app.perform .stage-fs {
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+}
+/* while a render edge is dragged: which moment the stage is showing */
+.hud-pill.scrub {
+  background: var(--accent);
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-fs {
+    transition: none;
+  }
+}
+
 /* Perform has its own bar; a touch screen can't hover, so the play row keeps it there */
 .perform .stage-vol {
   display: none;

@@ -395,6 +395,10 @@ export interface SceneDef {
   /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);
    *  big lyrics over it are hidden unless the user asks for them anyway */
   showsLyrics?: boolean;
+  /** the fewest printing inks this scene still reads with under the hand-drawn finish (4 = every
+   *  palette role, muted included). The finish prints with more inks while the scene plays, never fewer
+   *  than the person chose, and full colour (0 inks) is left alone */
+  handInks?: 1 | 2 | 3 | 4;
   create(init: SceneInit): SceneInstance;
 }
 
@@ -470,6 +474,41 @@ export interface Preset {
   hand?: HandStyle;
   /** created by the AI director or the user */
   custom?: boolean;
+  /**
+   * The look family this is a take of (src/presets/families.ts). Built-in looks are placed by the
+   * families table; a look can also name its family here (custom takes do). Missing → it is a family
+   * of its own.
+   */
+  family?: string;
+  /** short name of this take inside its family ("Moonlight", "Neon"); missing → from the table or the name */
+  variant?: string;
+  /** fit for a look that is its own family and isn't in the families table (missing parts are inferred from tags) */
+  fit?: Partial<LookFit>;
+}
+
+/* ───────── look families: what part of a song a look is for ───────── */
+
+/**
+ * The job a look does in a song. Section labels map onto these: chorus and drop are both `peak`,
+ * break is `break` (a breakdown).
+ */
+export type LookRole = 'intro' | 'verse' | 'build' | 'peak' | 'break' | 'bridge' | 'outro';
+/** how a look moves most of the time: barely, slowly, on the beat, or in bursts */
+export type LookMotion = 'still' | 'drifting' | 'pulsing' | 'explosive';
+/** what a look is of (subject matter), for the library filter; a family has one or two */
+export type LookTheme = 'nature' | 'city' | 'club' | 'light' | 'paper' | 'graphic' | 'type' | 'retro' | 'data' | 'photo' | 'board';
+
+export interface LookFit {
+  /** the parts it serves best, best first */
+  roles: LookRole[];
+  /** the energy it feels right at, 0 still … 1 flat out */
+  energy: [number, number];
+  motion: LookMotion;
+  themes: LookTheme[];
+  /** families it sits well next to (in a rotation or the next part) */
+  pairs: string[];
+  /** families it fights with */
+  clashes: string[];
 }
 
 /** the hand-drawn finish over the whole frame (see src/render/handPass.ts) */

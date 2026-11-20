@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { STYLES, lookStyle, sceneStyle, type StyleId } from '../core/styles';
-import type { Preset, SceneCategory } from '../core/types';
-import { PRESETS } from '../presets';
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { STYLES, sceneStyle } from '../core/styles';
+import type { LookRole, LookTheme, Preset, SceneCategory, TrackAnalysis } from '../core/types';
 import { allScenes, getScene } from '../scenes';
 import { presetToLook } from '../presets/apply';
+import { bestTake, familyIdOf, familyOf, fitScore, ROLES, takeName, THEMES, withCustom, type LookFamily } from '../presets/fit';
+import { audioEngine } from '../audio/engine';
 import { live } from '../state/live';
-import { pickLook, pickScene } from '../state/plan';
+import { findLook, partEnergy, pickLook, pickScene, sectionIndexAt, sectionNames } from '../state/plan';
+import './library.css';
 import { sceneLook, useStudio } from '../state/store';
 import { handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
@@ -56,10 +58,10 @@ export const STATIC_THUMBS: Record<string, string> = Object.fromEntries(
   ]),
 );
 
-function Thumb({ p }: { p: Preset }) {
+export function Thumb({ p }: { p: Preset }) {
   const captured = useThumb(p.id);
   const url = STATIC_THUMBS[p.id] ?? captured;
-  if (url) return <img src={url} alt="" />;
+  if (url) return <img src={url} alt="" loading="lazy" decoding="async" />;
   const cat = getScene(p.sceneId)?.category ?? 'field';
   const { bg, fg, accent, accent2 } = p.palette;
   return (
@@ -115,36 +117,108 @@ export function Library() {
   );
 }
 
-const MOODS = ['all', 'heavy', 'sad', 'dreamy', 'calm', 'euphoric', 'glitch', 'photo', 'minimal'];
+/* ───────── looks: one card per family, filtered by the job it does and what it's of ───────── */
+
+type PartFilter = LookRole | 'now' | 'all';
+
+/** short chip labels for the parts (the full names are the chips' tooltips) */
+const PART_CHIP: Record<LookRole, string> = { intro: 'Intro', verse: 'Verse', build: 'Build', peak: 'Drop', break: 'Break', bridge: 'Bridge', outro: 'Outro' };
+/** a family "fits" a part when it scores at least this (presets/fit.ts fitScore) */
+const FITS = 0.35;
+
+/** the section playing now, polled twice a second while something needs it */
+function useSectionNow(a: TrackAnalysis | null, on: boolean): number {
+  const [i, setI] = useState(-1);
+  useEffect(() => {
+    if (!a || !on) return;
+    const tick = () => setI(sectionIndexAt(a.sections, audioEngine.currentTime));
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [a, on]);
+  return a && on ? i : -1;
+}
+
+/** lower-case text a family is found by: its name, idea, takes, tags and themes */
+const searchText = new WeakMap<LookFamily, string>();
+function haystack(f: LookFamily): string {
+  let s = searchText.get(f);
+  if (!s) {
+    const themes = f.fit.themes.map((t) => THEMES.find((x) => x.id === t)?.label ?? t);
+    s = [f.name, f.blurb, ...themes, ...f.takes.flatMap((p) => [p.name, takeName(p), p.description, ...p.tags])].join(' ').toLowerCase();
+    searchText.set(f, s);
+  }
+  return s;
+}
 
 function Looks() {
   const presetId = useStudio((s) => s.presetId);
   const custom = useStudio((s) => s.customPresets);
   const analysis = useStudio((s) => s.analysis);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
-  const [mood, setMood] = useState('all');
-  const [style, setStyle] = useState<StyleId | 'all'>('all');
-  const suggested = analysis?.suggestedPresets ?? [];
-  const ranked = suggested.length > 0 && mood === 'all' && style === 'all';
+  const [part, setPart] = useState<PartFilter>('all');
+  const [theme, setTheme] = useState<LookTheme | 'all'>('all');
+  const [query, setQuery] = useState('');
+  const q = useDeferredValue(query.trim().toLowerCase());
+  const suggested = analysis?.suggestedPresets ?? EMPTY;
+  const nowIdx = useSectionNow(analysis, part === 'now');
+  const nowSec = analysis && nowIdx >= 0 ? analysis.sections[nowIdx] : null;
+  const nowName = analysis && nowIdx >= 0 ? sectionNames(analysis.sections)[nowIdx] : '';
+  const currentFamily = useMemo(() => {
+    const p = presetId ? findLook(presetId) : undefined;
+    return p ? familyIdOf(p) : null;
+  }, [presetId]);
 
-  const list = useMemo(() => {
-    let l = PRESETS.filter((p) => getScene(p.sceneId));
-    if (style !== 'all') l = l.filter((p) => lookStyle(p) === style);
-    if (mood !== 'all') l = l.filter((p) => p.tags.includes(mood) || (mood === 'photo' && getScene(p.sceneId)?.category === 'photo'));
-    if (suggested.length) {
-      const rank = (p: Preset) => {
+  const { families, loose } = useMemo(() => withCustom(custom), [custom]);
+  const usable = useMemo(() => families.filter((f) => f.takes.some((p) => getScene(p.sceneId))), [families]);
+  const filtering = part !== 'all' || theme !== 'all' || !!q;
+  const ranked = suggested.length > 0 && !filtering;
+
+  const { list, near } = useMemo((): { list: LookFamily[]; near: boolean } => {
+    const rankOf = (f: LookFamily) => {
+      let r = 999;
+      for (const p of f.takes) {
         const i = suggested.indexOf(p.id);
-        return i < 0 ? 999 : i;
+        if (i >= 0 && i < r) r = i;
+      }
+      return r;
+    };
+    let l = usable;
+    if (theme !== 'all') l = l.filter((f) => f.fit.themes.includes(theme));
+    if (q) l = l.filter((f) => q.split(/\s+/).every((w) => haystack(f).includes(w)));
+    // the job: families that fit the part, best fit first (the part playing now is judged at its own energy)
+    const fitOf =
+      part === 'now'
+        ? nowSec && analysis
+          ? (f: LookFamily) => fitScore(bestTake(f, suggested), nowSec.label, partEnergy(analysis, nowIdx))
+          : null
+        : part !== 'all'
+          ? (f: LookFamily) => fitScore(bestTake(f, suggested), part)
+          : null;
+    if (fitOf) {
+      // the fit decides who's in; the song's ranking only nudges the order (up to +0.25 for its first pick)
+      const nudge = (f: LookFamily) => {
+        const r = rankOf(f);
+        return r < suggested.length ? 0.25 * (1 - r / suggested.length) : 0;
       };
-      l = [...l].sort((a, b) => rank(a) - rank(b));
+      const all = l.map((f) => ({ f, fit: fitOf(f) })).sort((x, y) => y.fit + nudge(y.f) - (x.fit + nudge(x.f)));
+      const fits = all.filter((x) => x.fit >= FITS - 0.16);
+      // nothing of this theme does the job: the closest few rather than an empty panel
+      if (!fits.length && all.length) return { list: all.slice(0, 4).map((x) => x.f), near: true };
+      return { list: fits.map((x) => x.f), near: false };
     }
-    return l;
-  }, [mood, style, suggested]);
-  // with no song to rank against and no filter, the looks are listed family by family
-  const groups = useMemo(
-    () => (ranked || style !== 'all' || mood !== 'all' ? null : STYLES.map((s) => ({ ...s, looks: list.filter((p) => lookStyle(p) === s.id) })).filter((g) => g.looks.length)),
-    [ranked, style, mood, list],
-  );
+    // a search lists name matches first ("night" → Night Windows before a look that mentions midnight)
+    const tier = (f: LookFamily) => (!q ? 0 : f.name.toLowerCase().includes(q) ? 0 : f.takes.some((p) => takeName(p).toLowerCase().includes(q)) ? 1 : 2);
+    if (suggested.length || q) return { list: [...l].sort((a, b) => tier(a) - tier(b) || rankOf(a) - rankOf(b)), near: false };
+    return { list: l, near: false };
+  }, [usable, theme, q, part, nowSec, nowIdx, analysis, suggested]);
+
+  // with no song to rank against and no filter, families are listed theme by theme
+  const groups = useMemo(() => {
+    if (ranked || filtering) return null;
+    return THEMES.map((t) => ({ id: t.id as string, label: t.label, hint: t.hint, looks: list.filter((f) => f.fit.themes[0] === t.id) })).filter((g) => g.looks.length);
+  }, [ranked, filtering, list]);
+  const top = useMemo(() => new Set(ranked ? list.slice(0, 3).map((f) => f.id) : []), [ranked, list]);
 
   // capture a thumbnail for whatever look is showing
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -154,41 +228,60 @@ function Looks() {
     timer.current = setTimeout(() => void captureThumb(presetId), 1600);
   }, [presetId]);
 
+  const title =
+    part === 'now'
+      ? nowName
+        ? `${near ? 'Closest for' : 'Fits'} ${nowName}`
+        : 'Play the song to fit the part'
+      : part !== 'all'
+        ? `${near ? 'Closest for' : 'Fits'} the ${ROLES.find((r) => r.id === part)?.label.toLowerCase()}`
+        : ranked
+          ? 'Ranked for this track'
+          : 'Looks';
+
   return (
     <>
-      <div className="filter-row">
-        <span className="filter-name">Style</span>
-        <button className={`chip ${style === 'all' ? 'on' : ''}`} onClick={() => setStyle('all')}>
-          All
+      <div className="lib-search">
+        <input className="txt" type="search" placeholder={`Search ${usable.length} looks…`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search looks" />
+      </div>
+      <div className="filter-row slide" role="group" aria-label="Part of the song">
+        <span className="filter-name" title="The job a look does in a song">Part</span>
+        <button className={`chip ${part === 'all' ? 'on' : ''}`} onClick={() => setPart('all')}>
+          Any
         </button>
-        {STYLES.map((s) => (
-          <button key={s.id} className={`chip ${style === s.id ? 'on' : ''}`} title={s.hint} onClick={() => setStyle(style === s.id ? 'all' : s.id)}>
-            {s.label}
+        {analysis && (
+          <button className={`chip now ${part === 'now' ? 'on' : ''}`} title="Looks that fit the part of the song playing now" onClick={() => setPart(part === 'now' ? 'all' : 'now')}>
+            Playing now
+          </button>
+        )}
+        {ROLES.map((r) => (
+          <button key={r.id} className={`chip ${part === r.id ? 'on' : ''}`} title={`${r.label}: ${r.hint}`} onClick={() => setPart(part === r.id ? 'all' : r.id)}>
+            {PART_CHIP[r.id]}
           </button>
         ))}
       </div>
-      <div className="filter-row">
-        <span className="filter-name">Mood</span>
-        {MOODS.map((m) => (
-          <button key={m} className={`chip ${mood === m ? 'on' : ''}`} onClick={() => setMood(m)}>
-            {m[0].toUpperCase() + m.slice(1)}
+      <div className="filter-row slide" role="group" aria-label="Theme">
+        <span className="filter-name" title="What a look is of">Theme</span>
+        <button className={`chip ${theme === 'all' ? 'on' : ''}`} onClick={() => setTheme('all')}>
+          Any
+        </button>
+        {THEMES.map((t) => (
+          <button key={t.id} className={`chip ${theme === t.id ? 'on' : ''}`} title={t.hint} onClick={() => setTheme(theme === t.id ? 'all' : t.id)}>
+            {t.label}
           </button>
         ))}
       </div>
-      {custom.length > 0 && (
+      {custom.length > 0 && !filtering && (
         <>
           <div className="section-h">
             <span className="label">Yours</span>
+            <span className="label">{custom.length}</span>
           </div>
           <div className="cards">
             {custom.map((p) => (
               <div key={p.id} style={{ position: 'relative' }}>
-                <PresetCard p={p} on={presetId === p.id} onClick={() => handPick(p)} />
-                <button
-                  className="btn icon sm ghost card-del"
-                  onClick={() => deleteCustomPreset(p.id)}
-                  title="Delete look"
-                >
+                <PresetCard p={p} on={presetId === p.id} sub={!loose.includes(p) ? `A take of ${familyOf(p).name}` : undefined} onClick={() => handPick(p)} />
+                <button className="btn icon sm ghost card-del" onClick={() => deleteCustomPreset(p.id)} title="Delete look">
                   <X width={12} height={12} />
                 </button>
               </div>
@@ -196,29 +289,92 @@ function Looks() {
           </div>
         </>
       )}
-      {(groups ?? [{ id: 'all', label: ranked ? 'Ranked for this track' : 'Looks', hint: '', looks: list }]).map((g) => (
+      {(groups ?? [{ id: 'all', label: title, hint: '', looks: list }]).map((g) => (
         <div key={g.id}>
           <div className="section-h" title={g.hint || undefined}>
             <span className="label">{g.label}</span>
             <span className="label">{g.looks.length}</span>
           </div>
           <div className="cards">
-            {g.looks.map((p) => (
-              <PresetCard key={p.id} p={p} on={presetId === p.id} suggested={suggested.slice(0, 3).includes(p.id)} onClick={() => handPick(p)} />
+            {g.looks.map((f) => (
+              <FamilyCard key={f.id} f={f} take={bestTake(f, suggested)} on={currentFamily === f.id} presetId={presetId} fits={top.has(f.id)} />
             ))}
           </div>
         </div>
       ))}
-      {list.length === 0 && <p className="panel-intro">No looks match both filters.</p>}
+      {list.length === 0 && <p className="panel-intro">{part === 'now' && !nowName ? 'Play the song and the looks that fit the part playing will show here.' : 'No looks match. Try another part or theme.'}</p>}
     </>
   );
 }
+
+const EMPTY: string[] = [];
 
 /** a look clicked in the library counts toward the person's taste */
 function handPick(p: Preset) {
   noteHandPick(p, 'pick');
   pickLook(p);
 }
+
+/**
+ * One card per family: the take it would play (the one that suits the song, else the last one used),
+ * its name and idea, and a swatch per take; click a swatch to play that take straight away.
+ */
+const FamilyCard = memo(function FamilyCard({ f, take, on, presetId, fits }: { f: LookFamily; take: Preset; on: boolean; presetId: string | null; fits: boolean }) {
+  const showing = on ? (f.takes.find((p) => p.id === presetId) ?? take) : take;
+  return (
+    <div className={`card fam ${on ? 'on' : ''}`}>
+      <button
+        className="card-hit"
+        draggable
+        onDragStart={(e) => {
+          hidePeek();
+          e.dataTransfer.setData(LOOK_MIME, showing.id);
+          e.dataTransfer.effectAllowed = 'copy';
+        }}
+        {...peekHandlers({
+          key: showing.id,
+          title: f.takes.length > 1 ? `${f.name} · ${takeName(showing)}` : f.name,
+          hint: 'Click to use this look',
+          poster: STATIC_THUMBS[showing.id],
+          getLook: () => (useStudio.getState().presetId === showing.id ? null : presetPeekLook(showing)),
+        })}
+        onClick={() => {
+          hidePeek();
+          handPick(showing);
+        }}
+        aria-label={`${f.name}${f.takes.length > 1 ? `, ${f.takes.length} takes` : ''}`}
+      />
+      <div className="thumb">
+        <Thumb p={showing} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div className="title">
+          <span>{f.name}</span>
+          {fits && <span className="suggested">Fits</span>}
+        </div>
+        <div className="desc">{f.blurb}</div>
+        {f.takes.length > 1 && (
+          <div className="takes" role="group" aria-label={`${f.name} takes`}>
+            {f.takes.map((p) => (
+              <button
+                key={p.id}
+                className={`take-dot ${p.id === showing.id ? 'on' : ''}`}
+                title={takeName(p)}
+                aria-label={takeName(p)}
+                style={{ background: `linear-gradient(135deg, ${p.palette.bg} 50%, ${p.palette.accent} 50%)` }}
+                onClick={() => {
+                  hidePeek();
+                  handPick(p);
+                }}
+              />
+            ))}
+            <span className="takes-n">{f.takes.length} takes</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 /** hover a scene row to preview it (current colours and effects), click to switch */
 function sceneRowProps(id: string, name: string, pick: () => void) {
@@ -249,7 +405,7 @@ function presetPeekLook(p: Preset) {
   return l;
 }
 
-function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; suggested?: boolean; onClick: () => void }) {
+function PresetCard({ p, on, suggested, sub, onClick }: { p: Preset; on: boolean; suggested?: boolean; sub?: string; onClick: () => void }) {
   return (
     <button
       className={`card ${on ? 'on' : ''}`}
@@ -279,7 +435,7 @@ function PresetCard({ p, on, suggested, onClick }: { p: Preset; on: boolean; sug
           <span>{p.name}</span>
           {suggested && <span className="suggested">Fits</span>}
         </div>
-        <div className="desc">{p.description}</div>
+        <div className="desc">{sub ?? p.description}</div>
       </div>
     </button>
   );

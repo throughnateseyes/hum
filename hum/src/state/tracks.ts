@@ -1,7 +1,7 @@
 import { audioEngine } from '../audio/engine';
 import { analyzeTrack } from '../audio/analysis';
 import { findLyrics, toLyrics, type LrclibRecord } from '../audio/lyrics';
-import { alignLyrics, listenForWords, offsetByVocals, shift, spreadLyrics, type HeardWord } from '../audio/align';
+import { alignLyrics, cancelListening, ListenCancelled, listenForWords, offsetByVocals, shift, spreadLyrics, type HeardWord } from '../audio/align';
 import type { LyricLine, Lyrics } from '../core/types';
 import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
@@ -15,9 +15,12 @@ let loadToken = 0;
 /** Load audio, start playing, analyse it, then theme the stage from the analysis. */
 export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean } = {}) {
   const token = ++loadToken;
+  // the last song's lyrics may still be being listened to: stop that, it's no use now
+  cancelListening();
   lastFile = info.source === 'file' ? { blob, name: info.name } : null;
   lastBuf = null;
   lastHeard = null;
+  retimed = null;
   songBuf = null;
   const st = useStudio.getState();
   st.set({ track: info, analysis: null, analyzing: true, plan: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
@@ -59,7 +62,12 @@ export async function lookUpLyrics(blob: Blob, name: string, duration: number, t
   // lyrics pasted or fixed by hand for this song before win over anything found
   const saved = loadSaved(name, duration);
   if (saved) {
-    useStudio.getState().set({ lyrics: saved, lyricsStatus: 'found', lyricsNote: 'Your saved lyrics for this song' });
+    useStudio.getState().set({
+      lyrics: saved.lyrics,
+      lyricsStatus: 'found',
+      lyricsMatched: saved.matched ?? null,
+      lyricsNote: saved.auto ? 'Synced to the singing when you last played it' : 'Your saved lyrics for this song',
+    });
     return;
   }
   useStudio.getState().set({ lyricsStatus: 'searching', lyricsNote: '' });
@@ -79,9 +87,13 @@ export async function lookUpLyrics(blob: Blob, name: string, duration: number, t
       note = fixed.note;
     }
     if (l?.instrumental) useStudio.getState().set({ lyrics: null, lyricsStatus: 'instrumental', lyricsNote: what });
-    else if (l?.synced) useStudio.getState().set({ lyrics: l, lyricsStatus: 'found', lyricsNote: note });
-    else if (l?.plain) useStudio.getState().set({ lyrics: l, lyricsStatus: 'plain', lyricsNote: what });
-    else useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: `${res.reason ?? 'No lyrics found.'}${what ? ` Searched for “${what}”.` : ''}` });
+    else if (l?.synced) {
+      useStudio.getState().set({ lyrics: l, lyricsStatus: 'found', lyricsNote: note });
+      void autoSync(token);
+    } else if (l?.plain) {
+      useStudio.getState().set({ lyrics: l, lyricsStatus: 'plain', lyricsNote: what });
+      void autoSync(token);
+    } else useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: `${res.reason ?? 'No lyrics found.'}${what ? ` Searched for “${what}”.` : ''}` });
   } catch (e) {
     console.warn('[hum] lyrics lookup failed', e);
     if (token === loadToken) useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: 'Lyrics lookup failed.' });
@@ -116,44 +128,168 @@ export function canSyncLyrics() {
  * have timings (LRCLIB, the file, an earlier sync) keep them as a guide: the heard words move them
  * onto the singing, and lines nothing was heard for follow the old timing, shifted the same way.
  * Pasted words with no timing fall back to spreading the lines evenly, ready to be tapped into place.
+ *
+ * A song is only listened to once: what was heard is kept, so syncing again (other lyrics picked,
+ * pasted, or the button pressed after it synced on its own) is instant. `auto` is the sync that runs
+ * by itself after a song loads: it stays quiet when it can't help.
  */
-export async function syncPastedLyrics(text: string, keep: Partial<Pick<Lyrics, 'source' | 'title' | 'artist'>> = {}) {
+export async function syncPastedLyrics(text: string, keep: Partial<Pick<Lyrics, 'source' | 'title' | 'artist'>> = {}, opts: { auto?: boolean } = {}) {
   const buf = lastBuf;
   const st = useStudio.getState();
   if (!buf || !lastFile || st.lyricsSync) return;
   const token = loadToken;
   const prior = st.lyrics;
-  const guide = prior?.synced && prior.lines.length ? prior.lines : undefined;
-  const base: Omit<Lyrics, 'lines'> = { synced: true, source: 'pasted', plain: text, title: prior?.title, artist: prior?.artist, ...keep };
+  let guide = prior?.synced && prior.lines.length ? prior.lines : undefined;
+  let base: Omit<Lyrics, 'lines'> = { synced: true, source: 'pasted', plain: text, title: prior?.title, artist: prior?.artist, ...keep };
+  const lang = guessLanguage(text);
+  autoRunning = !!opts.auto;
   st.set({ lyricsSync: { stage: 'prepare', frac: 0 }, lyricsMatched: null });
   let lines: LyricLine[] = [];
   let matched = 0;
   let note = '';
   try {
-    const heard = await listenForWords(buf, (p) => token === loadToken && useStudio.getState().set({ lyricsSync: p }), guessLanguage(text));
+    const heard =
+      lastHeard && lastHeardLang === lang ? lastHeard : await listenForWords(buf, (p) => token === loadToken && useStudio.getState().set({ lyricsSync: p }), lang);
     if (token !== loadToken) return;
     lastHeard = heard;
+    lastHeardLang = lang;
+    // other lyrics picked (or the lines shifted) while it listened: line those up instead
+    const now = useStudio.getState().lyrics;
+    if (now !== prior) {
+      if (!now) {
+        useStudio.getState().set({ lyricsSync: null });
+        return;
+      }
+      text = now.lines.length ? now.lines.map((l) => l.text).join('\n') : (now.plain ?? '');
+      guide = now.synced && now.lines.length ? now.lines : undefined;
+      base = { synced: true, source: now.source, plain: text, title: now.title, artist: now.artist };
+    }
     const res = alignLyrics(text, heard, buf.duration, { prior: guide });
     lines = res.lines;
     matched = res.matched;
     if (matched < (guide ? 0.1 : 0.25)) note = guide ? 'Couldn’t hear enough of the words to improve the timing.' : 'Couldn’t hear many of the words, so the timing is rough. Tap to fix it.';
   } catch (e) {
-    console.warn('[hum] listening failed', e);
     if (token !== loadToken) return;
+    if (e instanceof ListenCancelled) {
+      useStudio.getState().set({ lyricsSync: null });
+      return;
+    }
+    console.warn('[hum] listening failed', e);
     note = `Couldn’t listen to the song (${e instanceof Error ? e.message : 'unknown error'}).`;
+  } finally {
+    autoRunning = false;
   }
   // too little to go on: keep the timing it had, or spread the lines evenly to tap into place
   if (guide && (!lines.length || matched < 0.1)) lines = guide;
   else if (!lines.length) lines = spreadLyrics(text, buf.duration);
   if (!lines.length) {
     useStudio.getState().set({ lyricsSync: null });
-    useStudio.getState().flash('There were no lines to sync');
+    if (!opts.auto) useStudio.getState().flash('There were no lines to sync');
+    return;
+  }
+  // on its own and no better than before: leave the lyrics as they were, with a word on why
+  if (opts.auto && lines === guide) {
+    useStudio.getState().set({ lyricsSync: null, lyricsNote: note });
     return;
   }
   const lyrics: Lyrics = { ...base, lines };
+  // synced on its own: these timings count as tried, so it doesn't listen to the same lyrics again
+  if (opts.auto) autoTried.add(lyrics);
   useStudio.getState().set({ lyrics, lyricsStatus: 'found', lyricsSync: null, lyricsMatched: lines !== guide && lines.some((l) => l.words) ? matched : null, lyricsNote: note });
-  saveLyrics();
+  saveLyrics(opts.auto);
+  if (opts.auto) {
+    if (!note) useStudio.getState().flash('Lyrics synced to the singing');
+    return;
+  }
   useStudio.getState().flash(note ? (guide ? 'Kept the timing it had' : 'Lyrics added. The timing needs a few taps') : 'Lyrics synced to the singing');
+}
+
+/** stop a sync under way (Stop in the lyrics chip); the lyrics stay as they were */
+export function stopSyncing() {
+  cancelListening();
+}
+
+/* ───────────────────────── syncing on its own ───────────────────────── */
+
+/** lyrics already considered for the automatic sync (each set of lyrics is tried once) */
+const autoTried = new WeakSet<Lyrics>();
+/** the lyrics moved onto this file by the shape of the vocals alone (a rough guess listening improves) */
+let retimed: Lyrics | null = null;
+/** the sync under way started on its own (turning the setting off stops it) */
+let autoRunning = false;
+
+/**
+ * Can this device listen to a song on its own? Computers yes. Phones and tablets keep the button:
+ * the model is a ~95 MB download and listening is slow there. Data saver and very little memory too.
+ */
+export function canAutoSync(): boolean {
+  if (typeof navigator === 'undefined' || typeof Worker === 'undefined' || typeof OfflineAudioContext === 'undefined') return false;
+  const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean; effectiveType?: string } };
+  if (/iPhone|iPad|iPod|Android|Mobile/i.test(nav.userAgent)) return false;
+  // iPadOS reports itself as a Mac: a touch screen gives it away
+  if (/Macintosh/.test(nav.userAgent) && nav.maxTouchPoints > 1) return false;
+  if (nav.deviceMemory !== undefined && nav.deviceMemory < 4) return false;
+  if (nav.connection?.saveData || /2g$/.test(nav.connection?.effectiveType ?? '')) return false;
+  return true;
+}
+
+/**
+ * Would listening make these lyrics better? Words with no timing: yes. Lines timed but not word by
+ * word (most of LRCLIB): yes, listening gives each word its moment (Big words, Collage and Auto reveal
+ * words as they're sung) and pulls lines onto the singing. Lyrics already timed word by word (by hand,
+ * on LRCLIB or in the file): no, those are better than what Whisper hears, unless they were made for
+ * another length of the song and only moved here by the shape of the vocals. Your own pasted lyrics:
+ * you sync those yourself.
+ */
+function worthSyncing(l: Lyrics): boolean {
+  if (l.instrumental || l.source === 'pasted') return false;
+  if (!l.synced) return !!l.plain?.trim();
+  if (!l.lines.length) return false;
+  if (l === retimed) return true;
+  const worded = l.lines.filter((x) => x.words?.length).length / l.lines.length;
+  return worded < 0.8;
+}
+
+/** resolves once `ok` holds (or the song changes) */
+function until(token: number, ok: (s: ReturnType<typeof useStudio.getState>) => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (ok(useStudio.getState())) return resolve();
+    const off = useStudio.subscribe((s) => {
+      if (token !== loadToken || ok(s)) {
+        off();
+        resolve();
+      }
+    });
+  });
+}
+
+/**
+ * After a song's lyrics are found: sync them to the singing on their own when that helps and the
+ * device can (the setting is on by default). It waits for the song's analysis (that picks the look,
+ * and listening would slow it down) and for any render or recording to finish (they need every frame).
+ * Saved lyrics never get here: they're your own timing, or were synced already.
+ */
+async function autoSync(token = loadToken) {
+  const st = useStudio.getState();
+  const l = st.lyrics;
+  if (!st.lyricsAutoSync || !l || !lastBuf || autoTried.has(l) || !canAutoSync() || !worthSyncing(l)) return;
+  autoTried.add(l);
+  await until(token, (s) => !!s.analysis && !s.clip && !s.recording && !s.lyricsSync);
+  if (token !== loadToken) return;
+  const now = useStudio.getState();
+  if (!now.lyricsAutoSync || now.lyrics !== l) return;
+  const words = l.lines.length ? l.lines.map((x) => x.text).join('\n') : (l.plain ?? '');
+  if (!words.trim()) return;
+  await syncPastedLyrics(words, { source: l.source, title: l.title, artist: l.artist }, { auto: true });
+}
+
+/** the setting was switched: on syncs the current song now (if it helps), off stops a sync it started */
+export function setLyricsAutoSync(on: boolean) {
+  useStudio.getState().set({ lyricsAutoSync: on });
+  const l = useStudio.getState().lyrics;
+  if (l) autoTried.delete(l);
+  if (on) void autoSync();
+  else if (autoRunning) cancelListening();
 }
 
 /** Whisper's language for the lyrics' script (it assumes English otherwise); undefined lets it be */
@@ -169,8 +305,9 @@ function guessLanguage(text: string): string | undefined {
   return undefined;
 }
 
-/** the words heard in the loaded song, once it has been listened to */
+/** the words heard in the loaded song, once it has been listened to (and the language listened for) */
 let lastHeard: HeardWord[] | null = null;
+let lastHeardLang: string | undefined;
 
 const fmtLen = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
@@ -201,9 +338,12 @@ async function retimeToFile(l: Lyrics, refDuration: number): Promise<{ lyrics: L
       })
       .filter((x) => x.end > 0 && x.t < dur);
     const sign = off >= 0 ? '+' : '−';
-    return { lyrics: { ...l, lines }, note: `${longer}; moved ${sign}${Math.abs(off).toFixed(1)} s to match the singing. Sync by listening for exact timing.` };
+    const moved: Lyrics = { ...l, lines };
+    retimed = moved;
+    return { lyrics: moved, note: `${longer}; moved ${sign}${Math.abs(off).toFixed(1)} s to match the singing.${canAutoSync() && useStudio.getState().lyricsAutoSync ? '' : ' Sync by listening for exact timing.'}` };
   } catch (e) {
     console.warn('[hum] retime failed', e);
+    retimed = l;
     return { lyrics: l, note: `${longer}; the timing may be off. Sync by listening to fix it.` };
   }
 }
@@ -221,6 +361,7 @@ export async function applyLrclibRecord(r: LrclibRecord) {
   }
   if (!l.synced) {
     useStudio.getState().set({ lyrics: l, lyricsStatus: 'plain', lyricsNote: who, lyricsMatched: null });
+    void autoSync(token);
     return;
   }
   let note = '';
@@ -233,6 +374,7 @@ export async function applyLrclibRecord(r: LrclibRecord) {
   useStudio.getState().set({ lyrics: l, lyricsStatus: 'found', lyricsNote: note, lyricsMatched: null });
   saveLyrics();
   useStudio.getState().flash(`Using lyrics for “${who}”`);
+  void autoSync(token);
 }
 
 /** move every line by dt seconds (the offset slider) */
@@ -264,7 +406,9 @@ export function tapLine(i: number, now: number) {
 
 const SAVE_KEY = 'hum.lyrics';
 const MAX_SAVED = 30;
-type SavedMap = Record<string, { at: number; lyrics: Lyrics }>;
+/** `auto`: synced on its own, not touched by hand (the first to go when the list is full) */
+type SavedEntry = { at: number; lyrics: Lyrics; auto?: boolean; matched?: number | null };
+type SavedMap = Record<string, SavedEntry>;
 
 const songKey = (name: string, duration: number) => `${name}|${Math.round(duration)}`;
 
@@ -277,9 +421,9 @@ function readSaved(): SavedMap {
   }
 }
 
-function loadSaved(name: string, duration: number): Lyrics | null {
+function loadSaved(name: string, duration: number): SavedEntry | null {
   const e = readSaved()[songKey(name, duration)];
-  return e?.lyrics?.lines?.length ? e.lyrics : null;
+  return e?.lyrics?.lines?.length ? e : null;
 }
 
 /** are there saved lyrics for the loaded song? */
@@ -287,15 +431,19 @@ export function hasSavedLyrics() {
   return !!(lastFile && lastBuf && readSaved()[songKey(lastFile.name, lastBuf.duration)]);
 }
 
-/** remember the current lyrics (pasted, synced, tapped or shifted) for the loaded song */
-export function saveLyrics() {
-  const lyrics = useStudio.getState().lyrics;
+/**
+ * Remember the current lyrics (pasted, synced, tapped or shifted) for the loaded song. Lyrics synced
+ * on its own are saved too (so the song isn't listened to again), but give way first when the list
+ * is full: your own fixes are kept longest.
+ */
+export function saveLyrics(auto = false) {
+  const { lyrics, lyricsMatched } = useStudio.getState();
   if (!lastFile || !lastBuf || !lyrics?.lines.length) return;
   try {
     const all = readSaved();
-    all[songKey(lastFile.name, lastBuf.duration)] = { at: Date.now(), lyrics };
+    all[songKey(lastFile.name, lastBuf.duration)] = { at: Date.now(), lyrics, matched: lyricsMatched, ...(auto ? { auto: true } : {}) };
     const keep = Object.entries(all)
-      .sort((a, b) => b[1].at - a[1].at)
+      .sort((a, b) => Number(!!a[1].auto) - Number(!!b[1].auto) || b[1].at - a[1].at)
       .slice(0, MAX_SAVED);
     localStorage.setItem(SAVE_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch {
@@ -331,6 +479,8 @@ export async function loadDemo(id: string) {
 export async function useMic() {
   try {
     await audioEngine.startMic();
+    cancelListening();
+    loadToken++;
     songBuf = null;
     lastBuf = null;
     lastFile = null;
@@ -368,6 +518,8 @@ export async function useTab() {
     } else flash('This browser can’t listen to another tab. Try Chrome or Edge.');
     return;
   }
+  cancelListening();
+  loadToken++;
   songBuf = null;
   lastBuf = null;
   lastFile = null;

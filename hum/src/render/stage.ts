@@ -352,10 +352,20 @@ export class Stage {
   }
 
   /** the hand-drawn style to draw with: the person's, or a lighter copy when the governor asks */
-  private handStyle(style: HandStyle): HandStyle {
+  private handStyle(chosen: HandStyle): HandStyle {
+    // a scene that needs more inks to read (its key colour on a role the default 3 inks leave out) gets them
+    const need = this.current?.def.handInks ?? 0;
+    const style = chosen.inks > 0 && chosen.inks < need ? this.withInks(chosen, need as HandStyle['inks']) : chosen;
     if (!this.rung.handLite || style.misprint === 0) return style;
     if (this.handLite?.wobble !== style.wobble || this.handLite.inks !== style.inks || this.handLite.paper !== style.paper || this.handLite.lines !== style.lines) this.handLite = { ...style, misprint: 0 };
     return this.handLite;
+  }
+
+  private handInked: HandStyle | null = null;
+  private withInks(style: HandStyle, inks: HandStyle['inks']): HandStyle {
+    const h = this.handInked;
+    if (!h || h.inks !== inks || h.wobble !== style.wobble || h.paper !== style.paper || h.lines !== style.lines || h.misprint !== style.misprint || h.fps !== style.fps) this.handInked = { ...style, inks };
+    return this.handInked!;
   }
 
   start() {

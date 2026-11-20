@@ -17,6 +17,7 @@ import { getEffect } from '../fx';
 import { getScene, registerScene } from '../scenes';
 import { makeCustomShaderScene } from '../scenes/custom';
 import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
+import { PRESETS } from '../presets';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
 import { isTransitionId, type TransitionId } from '../core/transitionList';
@@ -117,6 +118,8 @@ export interface StudioState extends LookState {
   lyricStylePicked: boolean;
   lyricsOnBoards: LyricsOnBoards;
   lyricFont: LyricFont;
+  /** sync new songs' lyrics to the singing by listening, on their own (where the device can) */
+  lyricsAutoSync: boolean;
   lyricsSync: LyricsSync;
   /** what the automatic lookup searched for (prefills the search box) */
   lyricsQuery: { title?: string; artist?: string };
@@ -153,7 +156,8 @@ export interface StudioState extends LookState {
   setPaletteColor: (key: keyof Omit<Palette, 'id' | 'name'>, hex: string) => void;
   addPhotos: (p: PhotoAsset[]) => void;
   removePhoto: (id: string) => void;
-  saveCurrentAsPreset: (name: string) => Preset;
+  /** `family`: save it as a take of that look family (src/presets/families.ts) */
+  saveCurrentAsPreset: (name: string, family?: string) => Preset;
   deleteCustomPreset: (id: string) => void;
   addCustomShader: (spec: CustomShaderSpec) => void;
   addCustomPreset: (p: Preset) => void;
@@ -215,6 +219,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricStylePicked: j.lyricStylePicked === true,
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
       lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
+      lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
     };
   } catch {
     return {};
@@ -240,6 +245,7 @@ function persist(s: StudioState) {
         lyricStylePicked: s.lyricStylePicked,
         lyricsOnBoards: s.lyricsOnBoards,
         lyricFont: s.lyricFont,
+        lyricsAutoSync: s.lyricsAutoSync,
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
         windowKind: s.windowKind,
@@ -323,6 +329,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricStylePicked: persisted.lyricStylePicked ?? false,
   lyricsOnBoards: persisted.lyricsOnBoards ?? 'hide',
   lyricFont: persisted.lyricFont ?? 'auto',
+  lyricsAutoSync: persisted.lyricsAutoSync ?? true,
   lyricsSync: null,
   lyricsQuery: {},
   lyricsMatched: null,
@@ -396,9 +403,15 @@ export const useStudio = create<StudioState>((set, get) => ({
       return { photos: s.photos.filter((x) => x.id !== id) };
     }),
 
-  saveCurrentAsPreset: (name) => {
+  saveCurrentAsPreset: (name, family) => {
     const s = get();
-    const p = lookToPreset(s, { id: uid('preset'), name, description: 'Saved from the studio', tags: ['custom'] });
+    // a take keeps the tags of the look it came from, so the planner and the analysis still know what it's for
+    const from = family ? [...s.customPresets, ...PRESETS].find((x) => x.id === s.presetId) : undefined;
+    const p = lookToPreset(s, { id: uid('preset'), name, description: family ? `Your take${from ? ` on ${from.name}` : ''}` : 'Saved from the studio', tags: from ? [...from.tags] : ['custom'] });
+    if (family) {
+      p.family = family;
+      p.variant = name;
+    }
     if (s.hand.on) p.hand = { ...s.hand };
     set({ customPresets: [p, ...s.customPresets], presetId: p.id });
     persist(get());
@@ -429,7 +442,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch) persist(get());
   },
   flash: (msg) => {
     clearTimeout(toastTimer);

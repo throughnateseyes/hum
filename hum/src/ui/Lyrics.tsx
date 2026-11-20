@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { isLrclibRef, lrclibById, searchLrclib, type LrclibRecord } from '../audio/lyrics';
 import { LYRIC_FONTS, useStudio, type LyricStyle, type LyricsOnBoards, type LyricsSync } from '../state/store';
-import { applyLrclibRecord, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, shiftAllLyrics, syncPastedLyrics } from '../state/tracks';
+import { applyLrclibRecord, canAutoSync, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, setLyricsAutoSync, shiftAllLyrics, stopSyncing, syncPastedLyrics } from '../state/tracks';
 import { LYRIC_FONT_NAME, previewFamily } from '../render/lyricFonts';
-import { Slider } from './controls';
+import { Slider, Toggle } from './controls';
 
 const STYLES: { id: LyricStyle; label: string; tip: string }[] = [
   { id: 'auto', label: 'Auto', tip: 'Directs the words like a lyric video: each part of the song gets its own way of showing them' },
@@ -45,6 +45,7 @@ export function LyricsChip() {
   const sync = useStudio((s) => s.lyricsSync);
   const matched = useStudio((s) => s.lyricsMatched);
   const query = useStudio((s) => s.lyricsQuery);
+  const autoSync = useStudio((s) => s.lyricsAutoSync);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('main');
   const [more, setMore] = useState(false);
@@ -133,6 +134,16 @@ export function LyricsChip() {
                 <i style={{ width: `${Math.round(sync.frac * 100)}%` }} />
               </div>
               <p className="lyr-p">{syncLabel(sync)}</p>
+              <p className="lyr-p">Hum listens on this computer; the song keeps playing. The lyrics show as they are until it’s done.</p>
+              <button
+                className="btn sm"
+                onClick={() => {
+                  setOpen(false);
+                  stopSyncing();
+                }}
+              >
+                Stop
+              </button>
             </>
           ) : mode === 'search' ? (
             <LyricsSearch
@@ -220,6 +231,12 @@ export function LyricsChip() {
               {more && (
                 <div className="lyr-more">
                   {note && note !== who && <p className="lyr-p">{note}</p>}
+                  {canAutoSync() && (
+                    <label className="sw lyr-auto has-tip" data-tip="After a song loads, Hum times its lyrics to the singing by listening, unless they’re already timed word by word. The first time it downloads the listening model (about 95 MB).">
+                      <Toggle on={autoSync} onChange={setLyricsAutoSync} label="Sync new songs by listening" />
+                      Sync new songs by listening
+                    </label>
+                  )}
                   {status === 'found' && (
                     <div className="lyr-offset">
                       <div className="param-top">

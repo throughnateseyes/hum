@@ -87,6 +87,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   leaves your machine). If a line is off, **Fix timing** lets you tap along as each line starts, and
   **Shift all lines** moves them all earlier or later. Pasted or fixed lyrics are remembered for that
   song.
+  **Synced on their own:** on a computer, once a song's lyrics are found (and the song has been
+  analysed), Hum listens and syncs them to the singing by itself, the chip showing the progress
+  (the model download the first time). It skips lyrics that are already timed word by word (by hand,
+  on LRCLIB or in the file, unless they were made for another length of the song), your pasted and
+  saved lyrics, demos and live sound, and it waits while a render or recording runs. A song is only
+  listened to once: syncing again, or other lyrics picked for it, reuse what was heard. A new song
+  stops a listen under way, and **Stop** in the chip does too. Phones, data saver and low-memory
+  devices keep the button instead. **Sync new songs by listening** (chip → More) turns it off.
 - **Auto lyrics** direct the words like a lyric video. Each part of the song gets its own medium:
   captions for verses and wordy parts, display lines for choruses and drops, an aside in a margin for
   builds, intros and breaks, and the look's own lyric components where it has them (the Diary
@@ -218,9 +226,19 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   tip on kicks), **Dot Assembly** (dots pack into the song's title, a few more docking on each kick),
   **Gradient Cubes** (a toy box that rolls with the beat) and **Signal Scan** (the last seconds of
   the song as a black-and-white line-scan recording).
-- **Style chips** at the top of the Looks list filter by family (Worlds, Light, Particles, Forms,
-  Print, Type, Data, Photo, Boards) alongside the mood chips; with no song loaded the list is grouped
-  by family. The Scenes tab is grouped the same way.
+- **Looks come in families.** The Looks list shows one card per look idea (Willow, Night Windows,
+  Wing…), not every colourway of it. The little swatches on a card are its **takes**, the same idea
+  in another palette or mood (Willow by day and by moonlight); click one to switch. Search finds a look
+  by name, idea, take or tag. **Part** filters to looks that do that job in a song (Intro, Verse,
+  Build, Drop, Break, Bridge, Outro), and with a song loaded **Playing now** follows the part under
+  the playhead. **Theme** filters by what a look is of (Nature, Night city, Club, Light, Paper,
+  Graphic, Type, Retro tech, Data, Photo, Boards). With a song loaded the list stays **Ranked for this
+  track**; with no song it's grouped by theme. Looks you saved sit under **Yours**. The Scenes tab is
+  grouped by style.
+- **Takes strip** (top of the right column): the family of the look on screen, what it's best for
+  ("Best for intro, verse, breakdown · drifts · quiet to lively") and every take, built-in and your
+  own, one click each. **Save take** keeps what's on screen (colours, sliders, effects) as a new take
+  of that family; Director looks are filed under the family of the scene they're built on.
 - **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
@@ -245,11 +263,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Render** (button by the song map) makes videos without you timing a thing. The song map turns
-  into a picker: drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold
-  ⌥ to snap to beats), drag an edge or the middle to adjust, click a part to take that whole part,
-  or use **Best part** (the strongest 15–30 s, built around the biggest drop or hook) or **Whole
-  song**. Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
+- **Render** (in the top bar's save group, and by the song map) makes videos without you timing a
+  thing. The song map turns into a picker: drag across it to choose a stretch (it snaps to bars and
+  to the parts' edges; hold ⌥ to snap to beats), drag an edge or the middle to adjust, double-click a
+  part to take that whole part, or use **Best part** (the strongest 15–30 s, built around the
+  biggest drop or hook) or **Whole song**. While you drag, the song pauses and the playhead and the
+  stage follow the edge you're moving, like scrubbing in a video editor: the stage shows that moment's
+  look, lyric line and how hard it hits (`src/state/scrub.ts`). Let go and a paused song stays on
+  that moment; a playing one plays on from the start of the clip (after moving the end, from 2.5 s
+  before it, so you hear the clip end). A click moves the playhead, to play from there. The row
+  underneath shows **Start** and **End** to the tenth of a second (click one to see it on the stage),
+  each with a button that sets it to the playhead (keys `I` and `O`, as in video editors). Tick the sizes you want (**9:16** 1080×1920 for TikTok, Reels and Shorts, **4:5** 1080×1350
   for the Instagram feed, **1:1** 1080×1080, **16:9** 1920×1080), pick 30 or 60 fps and press
   **Render**. Each size is made one after another and downloads as it's done, named like
   `pressure-0m24s-0m30s-1080x1920.mp4`; the stage shows the frames as they're made and Esc cancels.
@@ -261,8 +285,13 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
   fall back to recording the stretch live while it plays, and say so.
 - **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
-  camera icon saves a PNG.
-- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` perform mode · `esc` exit.
+  camera icon saves a PNG. Still, Record, Render and Clip for TikTok sit together as one group in the
+  top bar.
+- **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
+  and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
+  Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
+  allows it, a full-window view on iPhone.
+- Keys: `space` play/pause · `←/→` previous/next look · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
 
 ## How it's built
 
@@ -332,9 +361,24 @@ start-up delay, measured once per session, so sound and picture line up to the s
   step at 2:41.* The same spectra feed the section finder, so analysis got about 20% faster, not
   slower. Major and minor triads only (a G7 reads as G); busy, distorted mixes get chord qualities
   wrong more often than the key.
-- **Style families** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
-  `form`, `print`, `type`, `data`, `photo`, `board`). The library filters and groups by them, and the
-  video planner keeps a part's shots inside one family.
+- **Styles** (`src/core/styles.ts`): every scene names one (`world`, `light`, `particles`,
+  `form`, `print`, `type`, `data`, `photo`, `board`). The Scenes tab groups by them, and the video
+  planner leans towards keeping a part's shots inside one style.
+- **Look families and fit** (`src/presets/families.ts`, `src/presets/fit.ts`). A family is one look
+  idea; its takes are the presets that are that idea in another palette or setting. Ids never change:
+  the family table groups existing preset ids, so saved plans, taste memory and custom looks keep
+  working. Each family carries hand-judged **fit**: the song parts it serves best (`roles`, best
+  first), the energy range it feels right at, how it moves (`still`, `drifting`, `pulsing`,
+  `explosive`), its themes, and the families it **pairs** with or **clashes** with. A take shifts its
+  family's energy range a little by its own tags. `fitScore(look, part, energy)` and
+  `neighbourScore(a, b)` are what the planner uses: picking a look for each part
+  (`tastefulRoles`), the rotation inside a part (`relatedLooks`, judged at that part's own energy),
+  the drop look and the board interlude all score by fit, and takes of one family count as the
+  same look. Two takes never sit side by side or rotate together, because with Song colours on they
+  look almost alike. The Director gets one line per family with its fit, pairs, clashes and takes
+  (`compactLooks` in `server/planPrompt.ts`; the format is explained once in the cached system
+  prompt), and the shortlist sends 30 families with up to 3 takes each (`src/director/shortlist.ts`).
+  At 300 looks that's 37% fewer characters than one line per look.
 - **Shared engines for scenes:** `tnoise` / `tfbm` read a shared noise texture (several times cheaper
   than computed noise; `src/core/noise.ts`), and `Flock` (`src/core/flock.ts`) steers a few thousand
   bodies for anything made of a crowd.
@@ -369,7 +413,17 @@ start-up delay, measured once per session, so sound and picture line up to the s
   stall on a compile. Dev console: `await __hum.perf.moments()`, `__hum.perf.rungs()`,
   `__hum.perf.hitch(ids, 'async')` time frames at 1080p (`src/dev/perfProbe.ts`).
 - **Adding an effect:** an `EffectDef` with a fragment shader in `src/fx/defs/`.
-- **Adding a look:** an entry in `src/presets/library.ts`. Tags matter — the analyser matches on them.
+- **Adding a look:** an entry in `src/presets/library.ts`. Tags matter: the analyser matches on them,
+  and they're what fit is guessed from when a look has none. Then file it:
+  - *a new take of an existing family*: add its id to that family's `takes` in
+    `src/presets/families.ts` with a short name (the first take is the one cards lead with), or put
+    `family: '<family id>', variant: '<take name>'` on the preset itself;
+  - *a new idea*: add a family entry to `FAMILY_TABLE` with `roles`, `energy`, `motion`, `themes` and
+    any `pairs` / `clashes` (a one-take family can be keyed by the look's own id);
+  - *nothing*: the look shows as a family of its own with fit inferred from its tags and style. That
+    works, but hand-judged fit plans better. A preset can also carry a partial `fit` to correct only
+    what the guess gets wrong.
+  In dev the console warns about family entries that name looks or families that don't exist.
 
 Colour management is off on purpose: palette hex values go into shaders untouched.
 

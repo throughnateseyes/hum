@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Stage } from '../render/stage';
 import { live } from '../state/live';
 import { useStudio, type Aspect } from '../state/store';
@@ -6,7 +6,9 @@ import { LoadingStage } from './Loading';
 import { TasteHud } from './Taste';
 import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
-import { RenderPreview } from './RenderBar';
+import { fmtPrecise, RenderPreview, useRenderMode } from './RenderBar';
+import { togglePerform } from './Perform';
+import { Expand, Shrink } from './Icons';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -20,6 +22,7 @@ export function StageView() {
   const recording = useStudio((s) => s.recording);
   const clip = useStudio((s) => s.clip);
   const hasTrack = useStudio((s) => !!s.track);
+  const scrub = useRenderMode((s) => s.scrub);
   const [size, setSize] = useState({ w: 800, h: 450 });
 
   useEffect(() => {
@@ -73,7 +76,13 @@ export function StageView() {
         )}
         {/* a render draws off screen: show its frames here as they're made */}
         {clip?.count !== undefined && clip.size && <RenderPreview key={clip.size} size={clip.size} />}
+        {hasTrack && !clip && <FullscreenButton frame={frame} perform={perform} />}
         <div className="stage-hud">
+          {scrub && (
+            <span className="hud-pill scrub">
+              {scrub.edge === 'start' ? 'Start' : 'End'} · {fmtPrecise(scrub.t)}
+            </span>
+          )}
           {clip && (
             <span className="hud-pill rec">
               <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
@@ -89,5 +98,69 @@ export function StageView() {
         <WelcomeLayer />
       </div>
     </div>
+  );
+}
+
+/** controls on the stage fade out after this long without the pointer moving */
+const IDLE_MS = 2200;
+
+/**
+ * Full screen, YouTube style: a button in the picture's top-right corner that fades in when the
+ * pointer moves over the stage (a tap on a touch screen) and out again when it rests. Double-click
+ * the picture or press F for the same thing. It is Perform: real fullscreen where the browser allows
+ * it, a full-window view where it doesn't (iPhone).
+ */
+function FullscreenButton({ frame, perform }: { frame: RefObject<HTMLDivElement | null>; perform: boolean }) {
+  const [shown, setShown] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  const over = useRef(false);
+
+  useEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const wake = (ms = IDLE_MS) => {
+      setShown(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => !over.current && setShown(false), ms);
+    };
+    const onMove = (e: PointerEvent) => e.pointerType !== 'touch' && wake();
+    const onDown = (e: PointerEvent) => e.pointerType === 'touch' && wake(3200);
+    const onLeave = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return;
+      window.clearTimeout(timer.current);
+      setShown(false);
+    };
+    // double-click the picture (not a button or card on it) to go full screen and back
+    const onDouble = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('button, a, input, textarea, select, label, .welcome, .taste-hud, .stage-vol')) return;
+      e.preventDefault();
+      togglePerform();
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointerleave', onLeave);
+    el.addEventListener('dblclick', onDouble);
+    return () => {
+      window.clearTimeout(timer.current);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointerleave', onLeave);
+      el.removeEventListener('dblclick', onDouble);
+    };
+  }, [frame]);
+
+  const label = perform ? 'Exit full screen' : 'Full screen';
+  return (
+    <button
+      className={`stage-fs has-tip tip-below tip-end ${shown ? 'shown' : ''}`}
+      data-tip={perform ? 'Exit full screen  Esc' : 'Full screen  F · or double-click the picture'}
+      aria-label={label}
+      onPointerEnter={() => (over.current = true)}
+      onPointerLeave={() => (over.current = false)}
+      onClick={togglePerform}
+    >
+      {perform ? <Shrink width={18} height={18} /> : <Expand width={18} height={18} />}
+    </button>
   );
 }
