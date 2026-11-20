@@ -961,6 +961,8 @@ export const laminar: SceneDef = {
   tags: ['calm', 'dreamy', 'tender', 'romantic', 'cinematic', 'spacious', 'ambient', 'minimal', 'hypnotic', 'euphoric', 'uplifting', 'nature', 'organic', 'realistic', 'slow'],
   params,
   modulations: [],
+  /* the hedge, sky and pool each need their own ink: with three they all print as one flat navy */
+  handInks: 4,
   create(init) {
     const { renderer, shared } = init;
 
