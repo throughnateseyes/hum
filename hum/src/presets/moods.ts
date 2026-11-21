@@ -20,7 +20,7 @@ import type { Preset } from '../core/types';
 import { allFamilies, familyIdOf } from './fit';
 import { PRESETS } from './library';
 
-export const MOOD_IDS = ['brutal', 'dreamy', 'hacker', 'nature', 'club', 'paper', 'night', 'playful'] as const;
+export const MOOD_IDS = ['brutal', 'dreamy', 'hacker', 'nature', 'club', 'paper', 'night', 'playful', 'glass'] as const;
 export type MoodId = (typeof MOOD_IDS)[number];
 export const isMoodId = (v: unknown): v is MoodId => typeof v === 'string' && (MOOD_IDS as readonly string[]).includes(v);
 
@@ -115,6 +115,24 @@ export const MOODS: Mood[] = [
     transitions: 'graphic',
   },
 ];
+
+/* ───────── glass: stained glass and glass mosaics (scenes/glass) ───────── */
+MOODS.push({
+  id: 'glass',
+  name: 'Glass',
+  tip: 'Stained glass and mosaics: leaded windows, a rose window, coloured light on a wall, smalti tiles and a window that shatters. Long dissolves.',
+  world: 'stained glass and glass mosaic: jewel-coloured panes in lead with light behind them, rose windows, coloured sun on plaster, hand-cut smalti tiles',
+  looks: ['leaded-light', 'rose-window', 'andamento', 'shatter', 'chapel-wall', 'prism'],
+  finish: ['film', 'clean'],
+  transitions: 'soft',
+});
+// the glass looks that also live in other worlds
+for (const [mood, looks] of [
+  ['dreamy', ['chapel-wall', 'leaded-light', 'rose-window']],
+  ['paper', ['andamento']],
+  ['playful', ['glass-andamento-sunflower']],
+  ['club', ['glass-rose-jewel', 'glass-shatter-jewel']],
+] as const) MOODS.find((m) => m.id === mood)?.looks.push(...looks);
 
 const byId = new Map(MOODS.map((m) => [m.id, m]));
 export const moodById = (id: MoodId | null | undefined): Mood | undefined => (id ? byId.get(id) : undefined);

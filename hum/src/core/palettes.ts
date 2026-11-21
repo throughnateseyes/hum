@@ -147,6 +147,15 @@ export const PALETTES: Palette[] = [
   { id: 'massing-overcast', name: 'Massing Overcast', bg: '#c9cbcc', fg: '#0f1012', accent: '#8e8a84', accent2: '#4b4946', muted: '#c4781e' },
   { id: 'massing-overgrown', name: 'Massing Overgrown', bg: '#9fc3d8', fg: '#14170f', accent: '#e2dccb', accent2: '#64625c', muted: '#447d1e' },
   { id: 'massing-night', name: 'Massing Night', bg: '#0e1420', fg: '#050506', accent: '#d2ccc0', accent2: '#4a4744', muted: '#a3180e' },
+  // glass (scenes/glass): bg = lead, grout and the dark room, fg = the light (sun, sky, pale glass),
+  // accent2 → accent → muted = the glass inks in composition order (warm core, cool field, rim)
+  { id: 'glass-jewel', name: 'Jewel Glass', bg: '#0a0710', fg: '#ffe6b8', accent: '#1f4fd8', accent2: '#d0202e', muted: '#1f8a4c' },
+  { id: 'glass-amber', name: 'Cathedral Amber', bg: '#1a0f08', fg: '#ffe39a', accent: '#2f8fd8', accent2: '#e0561c', muted: '#e58bb0' },
+  { id: 'glass-prairie', name: 'Prairie Glass', bg: '#2a2622', fg: '#f4f1e6', accent: '#d9a21f', accent2: '#b3242c', muted: '#5f9e3a' },
+  { id: 'glass-sea', name: 'Sea Glass', bg: '#0b1416', fg: '#e8fbf6', accent: '#1fb3b0', accent2: '#f08a3c', muted: '#7fd6c8' },
+  { id: 'glass-moss', name: 'Smalti Moss', bg: '#2a241c', fg: '#f3ead8', accent: '#1f9e78', accent2: '#6a4c9c', muted: '#c9a24a' },
+  { id: 'glass-sunflower', name: 'Sunflower Glass', bg: '#1c140c', fg: '#fff1c2', accent: '#3fa3dd', accent2: '#e8890c', muted: '#f2c418' },
+  { id: 'glass-tiger', name: 'Tiger Glass', bg: '#0a0806', fg: '#fff4e2', accent: '#f26a1b', accent2: '#2a1c14', muted: '#f5c242' },
 ];
 
 export function getPalette(id: string): Palette {
