@@ -188,3 +188,13 @@ if (import.meta.env?.DEV) {
     }
   }
 }
+
+/* snow (src/scenes/snow): the crystal and the woods belong to nature, the crystal and the flurry to
+ * dreamy, the night street, black ice and the flurry to night, the chalk board to paper and playful */
+for (const [mood, ids] of [
+  ['nature', ['snow-crystal', 'dusk-woods']],
+  ['dreamy', ['=snow-crystal', 'snow-flurry']],
+  ['night', ['first-snow', 'black-ice', 'snow-flurry']],
+  ['paper', ['chalk-flakes']],
+  ['playful', ['chalk-flakes']],
+] as const) MOODS.find((m) => m.id === mood)?.looks.push(...ids);

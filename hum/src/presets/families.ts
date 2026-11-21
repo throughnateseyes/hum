@@ -753,3 +753,51 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     clashes: ['diary', 'willow', 'herbarium', 'soft-orbs', 'still-water'],
   },
 };
+
+/* ───────── snow (src/scenes/snow) ───────── */
+Object.assign(FAMILY_TABLE, {
+  'snow-crystal': {
+    name: 'Snow Crystal',
+    blurb: 'A real snow crystal growing live, steered by the song: a hexagonal plate in the quiet, arms and side branches as it grows, a full dendrite at the peak, let go on the drop as a new one starts.',
+    takes: { 'snow-crystal': 'Blue', 'black-ice': 'Black Ice' },
+    roles: ['intro', 'verse', 'break', 'outro', 'build'],
+    energy: [0.05, 0.7],
+    motion: 'drifting',
+    themes: ['nature', 'light'],
+    pairs: ['snow-flurry', 'snowfall', 'still-water', 'gilded-clouds', 'soft-orbs'],
+    clashes: ['chrome-warehouse', 'sub-pressure', 'datamosh', 'massing'],
+  },
+  'snow-flurry': {
+    name: 'Flurry',
+    blurb: 'Snowflakes tumbling through 3D space with depth of field: one hero crystal in the quiet, the camera flying through the fall as the song grows, a vortex on the drop.',
+    takes: { 'snow-flurry': 'Night' },
+    roles: ['peak', 'build', 'verse', 'intro'],
+    energy: [0.2, 1],
+    motion: 'drifting',
+    themes: ['nature', 'light'],
+    pairs: ['snow-crystal', 'snowfall', 'soft-orbs', 'jellies', 'above-the-clouds'],
+    clashes: ['precast', 'massing', 'retro-desktop', 'tracking-hud'],
+  },
+  snowfall: {
+    name: 'Snowfall',
+    blurb: 'Walking through falling snow at night: lamps coming on one per beat, wind building with the song, a white-out gust on the drop and flakes hanging still in the break.',
+    takes: { 'first-snow': 'Street', 'dusk-woods': 'Woods' },
+    roles: ['intro', 'verse', 'break', 'outro', 'peak'],
+    energy: [0.05, 0.8],
+    motion: 'drifting',
+    themes: ['nature', 'city'],
+    pairs: ['snow-crystal', 'snow-flurry', 'golden-avenue', 'night-train', 'night-windows'],
+    clashes: ['confetti', 'kaleido-candy', 'blomp-grid', 'arcade'],
+  },
+  'chalk-flakes': {
+    name: 'Chalk Flakes',
+    blurb: 'Snowflakes drawn in chalk on a blackboard, stroke by stroke: one big flake in the quiet, many small ones at the peak, the eraser sweeping the board on the drop.',
+    takes: { 'chalk-flakes': 'Chalk' },
+    roles: ['verse', 'intro', 'build', 'peak', 'outro'],
+    energy: [0.1, 0.85],
+    motion: 'drifting',
+    themes: ['paper', 'graphic'],
+    pairs: ['garden', 'diary', 'paper-visualizer', 'snow-crystal', 'confetti'],
+    clashes: ['chrome-warehouse', 'massing', 'tunnel-vision', 'sub-pressure'],
+  },
+} satisfies Record<string, FamilyDef>);
