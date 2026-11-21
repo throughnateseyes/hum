@@ -10,6 +10,7 @@
 import { FINISH_MOTION, finishName, TRANSITION_SETS, type Direction, type FinishId, type TransitionSetId } from '../core/direction';
 import { lookStyle, type StyleId } from '../core/styles';
 import type { Preset, TrackAnalysis } from '../core/types';
+import { getScene } from '../scenes';
 import { moodFinish, type Mood } from '../presets/moods';
 import type { TransitionId } from '../core/transitionList';
 import type { VideoPlan } from './plan';
@@ -24,9 +25,11 @@ export function playingDirection(s: Pick<StudioState, 'planOn' | 'plan' | 'analy
 }
 
 /** the finish to draw now */
-export function activeFinish(s: Pick<StudioState, 'finish' | 'hand' | 'planOn' | 'plan' | 'analysis'>): FinishId {
-  if (s.finish !== 'auto') return s.finish;
-  return playingDirection(s)?.finish ?? (s.hand.on ? 'hand' : 'clean');
+export function activeFinish(s: Pick<StudioState, 'finish' | 'finishPicked' | 'hand' | 'planOn' | 'plan' | 'analysis' | 'sceneId'>): FinishId {
+  const f = s.finish !== 'auto' ? s.finish : (playingDirection(s)?.finish ?? (s.hand.on ? 'hand' : 'clean'));
+  // a look that falls apart under hand-drawn (fine snow, soft glows) shows clean until the person picks a finish
+  if (f === 'hand' && !s.finishPicked && getScene(s.sceneId)?.prefersClean) return 'clean';
+  return f;
 }
 
 /** pick a finish (or Auto) in the UI; keeps the Hand-drawn switch in step */

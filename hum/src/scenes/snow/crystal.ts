@@ -391,6 +391,7 @@ export const crystal: SceneDef = {
   tags: ['dreamy', 'calm', 'tender', 'cold', 'winter', 'snow', 'crystalline', 'cinematic', 'ambient', 'piano', 'minimal', 'hypnotic', 'nature', 'organic', 'realistic', 'spacious'],
   params,
   handInks: 3,
+  prefersClean: true,
   modulations: [],
   create(init) {
     const { renderer, shared } = init;

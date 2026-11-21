@@ -229,6 +229,7 @@ export const flurry: SceneDef = {
   tags: ['dreamy', 'cinematic', 'cold', 'winter', 'snow', 'crystalline', 'hypnotic', 'spacious', 'euphoric', 'tender', 'ambient', 'electronic', 'piano', 'nature', 'magical'],
   params,
   handInks: 3,
+  prefersClean: true,
   modulations: [],
   create(init) {
     const { renderer, shared } = init;

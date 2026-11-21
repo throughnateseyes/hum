@@ -470,6 +470,7 @@ export const snowfall: SceneDef = {
   tags: ['calm', 'melancholic', 'nostalgic', 'tender', 'cold', 'winter', 'snow', 'night', 'cinematic', 'lofi', 'acoustic', 'piano', 'indie', 'ambient', 'slow', 'nature', 'city', 'realistic'],
   params,
   handInks: 3,
+  prefersClean: true,
   modulations: [],
   create(init) {
     const { renderer, shared } = init;
