@@ -101,7 +101,7 @@ export const MOODS: Mood[] = [
     name: 'Night city',
     tip: 'Lit windows, night trains, wet streets and fountains after dark. Shot on film, fades to black.',
     world: 'a city after dark: lit windows, trains, streetlight, fountains and screens',
-    looks: ['night-windows', 'night-train', 'retro-desktop-midnight', 'particle-columns', '=fountain-show', 'fountain-tender', 'fountain-gold', 'laminar-night', 'soft-orbs-night-mobile', 'soft-orbs-amber-lamps', 'precast-night', 'massing-night', 'observer-phosphor', 'glass-planes'],
+    looks: ['night-windows', 'night-train', 'retro-desktop-midnight', 'particle-columns', '=fountain-show', 'fountain-tender', 'fountain-gold', 'laminar-night', 'laminar-city', 'soft-orbs-night-mobile', 'soft-orbs-amber-lamps', 'precast-night', 'massing-night', 'observer-phosphor', 'glass-planes'],
     finish: ['film', 'film'],
     transitions: 'film',
   },

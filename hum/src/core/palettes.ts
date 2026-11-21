@@ -33,9 +33,10 @@ export const PALETTES: Palette[] = [
   { id: 'canopy', name: 'Canopy', bg: '#7fb3e3', fg: '#1d3520', accent: '#a7cf4f', accent2: '#fff6dc', muted: '#4f7d33' },
   { id: 'golden-hour', name: 'Golden Hour', bg: '#231d33', fg: '#ffeccb', accent: '#eda54a', accent2: '#c46a5e', muted: '#4b4361' },
   { id: 'still-water', name: 'Still Water', bg: '#1e4c56', fg: '#e8f4ef', accent: '#7fc7c0', accent2: '#d6a15c', muted: '#2e6a6f' },
-  // laminar: dusk garden, night plaza, studio
+  // laminar: dusk garden, night plaza, city street, studio
   { id: 'laminar-dusk', name: 'Laminar Dusk', bg: '#2b3b5e', fg: '#fff0dc', accent: '#a6eaff', accent2: '#e8a08c', muted: '#1c2620' },
   { id: 'laminar-night', name: 'Laminar Night', bg: '#0b0f1a', fg: '#ffe9cc', accent: '#5fd4ff', accent2: '#ffad5c', muted: '#232838' },
+  { id: 'laminar-city', name: 'Laminar City', bg: '#0e1426', fg: '#ffe4bd', accent: '#86e6ff', accent2: '#ff8f5a', muted: '#1d2335' },
   { id: 'laminar-studio', name: 'Laminar Studio', bg: '#cdd1d4', fg: '#ffffff', accent: '#bfe6ff', accent2: '#e0a878', muted: '#a3a8ac' },
   // fountain show: night (bg = night sky, fg = white water, accent / accent2 = underwater lights, muted = city glow); day (bg = sky, muted = trees)
   // the glow ink catches the mist and skyline too, so at night it stays a dusky cool or wine tone: a brown one prints as a mud band

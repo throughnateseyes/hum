@@ -598,11 +598,11 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
   /* ───────── water, gardens and graphic posters (second wave) ───────── */
   laminar: {
     name: 'Laminar',
-    blurb: 'Glass-rod fountain jets arcing into a pool, so smooth they look frozen: one still rod in the quiet, more on the build, cut clean into flying glass bolts on the drop.',
-    takes: { laminar: 'Dusk garden', 'laminar-night': 'Glass bolts', 'laminar-studio': 'Acrylic' },
-    roles: ['intro', 'verse', 'break', 'peak', 'outro'],
-    energy: [0.1, 0.8],
-    motion: 'drifting',
+    blurb: 'Glass-rod fountain jets dancing over a pool, out-of-focus lights glowing behind: crossing arcs in the quiet, a new pattern every phrase (leaping bolts, call and answer, cascades, scattered hops), jets gathering and trembling through the build, a volley on the drop.',
+    takes: { laminar: 'Dusk garden', 'laminar-night': 'Glass bolts', 'laminar-city': 'City night', 'laminar-studio': 'Acrylic' },
+    roles: ['intro', 'verse', 'build', 'break', 'peak', 'outro'],
+    energy: [0.1, 0.9],
+    motion: 'pulsing',
     themes: ['nature', 'light'],
     pairs: ['still-water', 'fountain-show', 'silk', 'prism', 'night-windows'],
     clashes: ['datamosh', 'arcade', 'text-wall', 'retro-desktop'],
