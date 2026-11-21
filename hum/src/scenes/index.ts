@@ -8,8 +8,9 @@ import { scenes as natureScenes } from './nature';
 import { scenes as worldScenes } from './worlds';
 import { scenes as printScenes } from './print';
 import { scenes as typeScenes } from './type';
+import { scenes as snowScenes } from './snow';
 
-const builtin: SceneDef[] = [...boardScenes, ...threeScenes, ...shaderScenes, ...photoScenes, ...natureScenes, ...worldScenes, ...printScenes, ...typeScenes];
+const builtin: SceneDef[] = [...boardScenes, ...threeScenes, ...shaderScenes, ...photoScenes, ...natureScenes, ...worldScenes, ...printScenes, ...typeScenes, ...snowScenes];
 
 for (const s of builtin) noteSceneStyle(s);
 

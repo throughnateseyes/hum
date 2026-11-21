@@ -192,3 +192,17 @@ export const LAYERS: { id: LayerId; label: string; short: string; group: 'bands'
   { id: 'beatPhase', label: 'Beat phase', short: 'Beat', group: 'time', hint: '0→1 every beat' },
   { id: 'sway', label: 'Sway', short: 'Sway', group: 'time', hint: 'Slow bar-locked sine' },
 ];
+
+/* ───────── snow (src/scenes/snow) ─────────
+ * crystal: bg = backdrop top, muted = backdrop bottom, fg = highlights, accent = cold ice, accent2 = warm interference
+ * flurry: bg = night sky, muted = the low glow, fg = snow, accent = cold glints, accent2 = warm distant lights
+ * snowfall: bg = night sky, muted = far haze and shade, fg = snow, accent = lamplight, accent2 = cold skylight
+ * chalk: bg = the board, muted = old dust, fg = white chalk, accent / accent2 = coloured chalk */
+PALETTES.push(
+  { id: 'snow-crystal', name: 'Crystal Blue', bg: '#5d66e8', fg: '#ffffff', accent: '#a8e4ff', accent2: '#f2b54e', muted: '#dcc3df' },
+  { id: 'black-ice', name: 'Black Ice', bg: '#05070c', fg: '#f2f9ff', accent: '#8fcfff', accent2: '#e8bf86', muted: '#010203' },
+  { id: 'snow-flurry', name: 'Flurry Night', bg: '#141838', fg: '#f2f5ff', accent: '#9cc8ff', accent2: '#ffc78f', muted: '#3a2f5e' },
+  { id: 'first-snow', name: 'First Snow', bg: '#0b0d14', fg: '#eceff5', accent: '#ffd6a0', accent2: '#8195bb', muted: '#3b3f4c' },
+  { id: 'dusk-woods', name: 'Dusk Woods', bg: '#26244e', fg: '#eef0ff', accent: '#ffd2a8', accent2: '#c3b0ff', muted: '#6a6398' },
+  { id: 'chalkboard', name: 'Chalkboard', bg: '#1d2422', fg: '#eef0ea', accent: '#9fd3e6', accent2: '#f2a7b8', muted: '#3a4440' },
+);
