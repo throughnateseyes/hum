@@ -4,6 +4,7 @@ import { createFullscreenQuad, makeRenderTarget } from '../../core/sceneHelpers'
 import type { FrameContext, ParamDef, SceneDef } from '../../core/types';
 import { bool, num, str } from '../../core/uniforms';
 import { approach, makeMaterial, stepDt, syncMaterial } from '../three/common';
+import { quality } from '../../render/quality';
 import { DropTimer, TONEMAP_LIB, linColor } from './volume';
 
 /**
@@ -14,7 +15,7 @@ import { DropTimer, TONEMAP_LIB, linColor } from './volume';
  *     launch velocity and on/off state go into a short history (a texture), so the rod is the locus
  *     of parcels launched at different moments: raise the pressure and the new arc grows out of the
  *     nozzle while the old one is still landing; shut the valve and the cut-off piece flies on along
- *     the arc as a glass bolt with rounded ends
+ *     the arc as a glass bolt with rounded ends; turn the nozzle and the stream bends as it sweeps
  *   - the rod is drawn as an analytic impostor: a ribbon facing the camera, and per pixel a real
  *     ray / cylinder (or end-cap sphere) intersection, Fresnel reflection of the surroundings, Snell
  *     refraction in and out (total internal reflection included), so the world behind shows through
@@ -26,17 +27,33 @@ import { DropTimer, TONEMAP_LIB, linColor } from './volume';
  *   - the jets are lit from inside the nozzle, like fibre optic: the light travels in the stream,
  *     leaks where it is disturbed and bursts out at the splash
  *   - the pool is a GPU wave equation: the plunge points stir it, bolts land with a plop, droplets
- *     fall back; it mirrors the sky, the lamps and the jets (planar reflection) over a black floor
- *   - three places: a dusk garden, a plaza at night, a clean studio
+ *     fall back, loud kicks shiver it; it mirrors the sky, the lights and the jets (planar
+ *     reflection) over a black floor
+ *   - behind it, a world full of out-of-focus lights: lanterns in the garden, string lights over the
+ *     plaza, streetlights down a city street with traffic drifting along it. They are bokeh discs
+ *     (a wide lens focused on the fountain), they breathe with the song, twinkle on the hats, dim as
+ *     the song winds up and flare on the drop, and the pool and the rods reflect them
+ *   - four places: a dusk garden, a plaza at night, a city street at night, a clean studio
  *
- * Music: quiet parts are one still rod. As the song grows, jets join one per beat and the arcs climb
- * with the build. The beat before a known drop cuts every jet (glass bolts in the air, then
- * nothing), the drop fires them all at once as a volley of bolts and they come back high and steady.
- * In loud parts some jets pulse on the kick or snare, each hit a new bolt. Phrases in the verse cut
- * a jet cleanly and relaunch it.
+ * Music: a choreographer, not a loop. Each phrase (16 beats, or a new part of the song) it picks a
+ * new pattern, seeded by the song so the same song plays the same show:
+ *   weave · duet       quiet parts: two or three long arcs crossing, slowly turning, now and then a
+ *                      stream cut and relaunched, a small jet hopping on the odd note
+ *   leapfrog           bolts hop from nozzle to nozzle around the pool, one per beat (or per hat)
+ *   call               jets on the left answer jets on the right: kick, snare, kick, snare
+ *   criss              pairs of streams crossing in X's; loud parts chop them on the kick
+ *   cascade            a row of nozzles firing one after another on every bar
+ *   scatter            nozzles everywhere, each hat a bolt in a new direction
+ *   fan                a peacock of streams opening from one spot, breathing on the kick
+ *   rise               the build: jets gather, climb, thin and tremble, the lights dim; the beat
+ *                      before the drop cuts everything, the drop fires a volley of bolts
+ * Hops are gated by the sound itself: a bolt stays open while its kick / snare / hat / note rings,
+ * so staccato hits throw short beads and held notes long rods. Loudness drives the glow, the splash
+ * and how much the pool churns.
  *
  * Palette roles: bg = sky / backdrop, fg = light (lamps, highlights), accent = the jets' inner
- * light, accent2 = warm lamps, horizon glow and the second jet colour, muted = foliage and stone.
+ * light and the cool lights, accent2 = warm lamps, horizon glow and the second jet colour, muted =
+ * foliage and stone.
  */
 
 const params: ParamDef[] = [
@@ -49,28 +66,32 @@ const params: ParamDef[] = [
     options: [
       { value: 'dusk', label: 'Dusk garden' },
       { value: 'night', label: 'Night plaza' },
+      { value: 'city', label: 'City night' },
       { value: 'studio', label: 'Studio' },
     ],
   },
-  { id: 'jets', label: 'Jets', group: 'Shape', type: 'number', min: 1, max: 7, step: 1, default: 5, hint: 'Most jets at once (quiet parts keep to one)' },
+  { id: 'jets', label: 'Jets', group: 'Shape', type: 'number', min: 2, max: 10, step: 1, default: 8, hint: 'Most jets at once (quiet parts keep to two or three)' },
   { id: 'order', label: 'Smoothness', group: 'Shape', type: 'number', min: 0, max: 1, step: 0.01, default: 0.86, hint: 'Glass-smooth laminar flow (1) or rippling, breaking, turbulent water (0)' },
   { id: 'arc', label: 'Arc height', group: 'Shape', type: 'number', min: 0.5, max: 1.6, step: 0.01, default: 1 },
   { id: 'thickness', label: 'Thickness', group: 'Shape', type: 'number', min: 0.6, max: 1.8, step: 0.01, default: 1 },
   { id: 'glow', label: 'Inner light', group: 'Color', type: 'number', min: 0, max: 2, step: 0.01, default: 1, hint: 'Light from the nozzle travels inside the stream like fibre optic' },
   { id: 'pair', label: 'Two-colour jets', group: 'Color', type: 'bool', default: false, hint: 'Every other jet is lit with the second accent' },
-  { id: 'cuts', label: 'Beat cuts', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 1, hint: 'Jets cut into flying glass bolts on kicks, phrases and drops' },
-  { id: 'builds', label: 'Build response', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 1, hint: 'More jets and higher arcs as the song grows' },
+  { id: 'bokeh', label: 'Background lights', group: 'Color', type: 'number', min: 0, max: 1.6, step: 0.01, default: 1, hint: 'Out-of-focus lanterns, string lights and streetlights behind the fountain' },
+  { id: 'surprise', label: 'Surprise', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.7, hint: 'A new pattern every phrase, jets hopping on the beat in new directions (1), or calm steady arcs (0)' },
+  { id: 'cuts', label: 'Beat cuts', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 1, hint: 'Jets cut into flying glass bolts on kicks, snares, hats and drops' },
+  { id: 'builds', label: 'Build response', group: 'Reactivity', type: 'number', min: 0, max: 1.5, step: 0.01, default: 1, hint: 'Jets gather, climb and tremble as the song winds up' },
   { id: 'roughen', label: 'Loud roughens', group: 'Reactivity', type: 'number', min: 0, max: 1, step: 0.01, default: 0.35, hint: 'Loud parts and drops stir the flow out of perfect order' },
   { id: 'speed', label: 'Speed', group: 'Motion', type: 'number', min: 0.3, max: 1, step: 0.01, default: 0.7, hint: '1 = real time; lower is slow motion' },
   { id: 'drift', label: 'Camera drift', group: 'Motion', type: 'number', min: 0, max: 1, step: 0.01, default: 0.4 },
   { id: 'grain', label: 'Film grain', group: 'Color', type: 'number', min: 0, max: 0.1, step: 0.002, default: 0.022 },
 ];
 
-const J = 7; // jet slots
+const J = 10; // jet slots
+const J_LITE = 6; // jet slots when the quality governor is easing off
 const RINGS = 320; // ribbon rings along each jet
 const HIST = 192; // launch history samples per jet
 const DELTA = 1 / 60; // seconds of sim time between history samples
-const MAX_SEG = 4; // pieces of water in flight per jet
+const MAX_SEG = 6; // pieces of water in flight per jet
 const PER = 260; // splash particles per jet
 const MAX_DROPS = 24;
 const SIM_W = 384;
@@ -79,32 +100,28 @@ const SIM_MIN = new THREE.Vector2(-4, -3.4);
 const SIM_SIZE = new THREE.Vector2(8, 6.8);
 const POOL_FAR = 3.2; // far edge of the pool (z = -POOL_FAR)
 const G = 9.81;
+const TAU = Math.PI * 2;
 
-/** jet slots: nozzle (x, z) → landing (x, z), base apex height (m). */
-// staggered in depth and pointing every which way, so each arc reads on its own: across the
-// frame, away from the camera along its axis, and back towards it
-const SLOTS: { n: [number, number]; l: [number, number]; h: number }[] = [
-  { n: [-1.0, -1.1], l: [0.8, -0.35], h: 0.55 }, // the hero: a diagonal coming towards us
-  { n: [0.3, 0.25], l: [1.55, -2.2], h: 0.74 }, // mostly along the axis, away
-  { n: [2.0, -2.65], l: [-0.5, -2.3], h: 0.98 }, // far, high, right to left
-  { n: [-0.6, -2.85], l: [-1.15, -0.3], h: 0.82 }, // far to near, towards us
-  { n: [1.2, 0.35], l: [0.3, -0.5], h: 0.36 }, // near, small and low
-  { n: [-2.2, -2.3], l: [-0.7, -3.0], h: 0.62 }, // far left
-  { n: [-1.55, -0.75], l: [-2.0, -3.0], h: 0.7 }, // left, receding
-];
-/** the order jets join in as the song grows */
-const ORDER = [0, 1, 3, 2, 5, 6, 4];
+/* the city street: two rows of streetlamps receding from z = STREET_Z0, every STREET_S metres */
+const STREET_X = 4.2;
+const STREET_Y = 3.0;
+const STREET_Z0 = -19;
+const STREET_S = 8;
+const STREET_N = 11;
 
 /* ───────────────────────── GLSL ───────────────────────── */
 
-/** The surroundings as a function of a ray: sky, trees, hedge, lamps (dusk); towers and windows
- *  (night); a cyclorama and softboxes (studio). Parallax-correct: rays start where they start. */
+/** The surroundings as a function of a ray: sky, trees, hedge, lanterns (dusk); towers, park and
+ *  string lights (night); a street of lamps and traffic between towers (city); a cyclorama and
+ *  softboxes (studio). Parallax-correct: rays start where they start. */
 const ENV = /* glsl */ `
 uniform float uSetting;
 uniform vec3 uSkyTop, uSkyHor, uSkyGlow, uFoliage, uLampCol, uStone, uKeyCol, uWinCol;
 uniform vec4 uLamps[8];
 uniform float uEnvT, uFocus, uAperture;
-
+uniform vec4 uBok;        // x gain, y sparkle seed, z sparkle amount, w drop flare
+uniform float uBokAp, uBokLite;
+uniform vec3 uBokWarm, uBokCool, uBokRed, uBokWhite;
 
 // far root of a vertical cylinder around (c.x, c.y) in xz (we are inside it)
 float lmCyl(vec3 ro, vec3 rd, vec2 c, float R) {
@@ -150,6 +167,123 @@ vec3 lmLamps(vec3 ro, vec3 rd, vec3 col) {
   return col;
 }
 
+/* ── bokeh: lights far out of focus, as soft discs with a faint bright rim ── */
+
+// how bright light number id is now: its own slow breath, a twinkle when the hats pick it, the flare
+float lmTw(float id) {
+  float h = hash11(id * 0.731 + 4.1);
+  float br = 0.7 + 0.3 * sin(uEnvT * (0.3 + 0.8 * h) + h * 40.0);
+  float sp = step(hash11(id * 1.37 + uBok.y), 0.16) * uBok.z;
+  return uBok.x * (br + sp * 1.6) + uBok.w;
+}
+// one light at L seen along the ray: its disc (and, for a lamp in the haze, a glow around it)
+float lmDisc(vec3 ro, vec3 rd, vec3 L, float b, float haze, float sz) {
+  vec3 toL = L - ro;
+  float tl = dot(toL, rd);
+  if (tl <= 0.3) return 0.0;
+  float d = length(toL - rd * tl);
+  float rc = max(uBokAp * sz * lmSharp * abs(tl - uFocus) / uFocus, 0.0035 * tl);
+  float x = d / rc;
+  float disc = smoothstep(1.0, 0.84, x) * (0.7 + 0.3 * smoothstep(0.25, 0.93, x));
+  return b / (1.0 + tl * tl * 0.0008) * (disc + haze * exp(-x * 0.8) * 0.07);
+}
+// lights scattered on a ring (radius R around c): lanterns among trees, windows across a city
+vec3 lmRing(vec3 ro, vec3 rd, vec2 c, float R, float y0, float y1, float cells, float dens, float warm, float seed) {
+  float t = lmCyl(ro, rd, c, R);
+  if (t <= 0.0) return vec3(0.0);
+  vec3 p = ro + rd * t;
+  float s = atan(p.x - c.x, -(p.z - c.y)) / TAU * cells;
+  float i0 = floor(s);
+  vec3 acc = vec3(0.0);
+  for (int k = -1; k <= 1; k++) {
+    float ci = i0 + float(k);
+    for (int q = 0; q < 2; q++) {
+      float iq = ci + float(q) * 0.5 + seed * 1000.0;
+      if (hash11(iq * 0.917 + seed) > dens) continue;
+      float az = (ci + 0.1 + 0.8 * hash11(iq * 1.71 + seed)) / cells * TAU;
+      vec3 L = vec3(c.x + R * sin(az), mix(y0, y1, hash11(iq * 2.37 + seed)), c.y - R * cos(az));
+      float h = hash11(iq * 4.7 + seed);
+      vec3 cl = h < warm ? uBokWarm : (h < warm + (1.0 - warm) * 0.8 ? uBokCool : uBokWhite);
+      // most are faint, a few burn: the way lights scatter through trees or across a city
+      float hb = hash11(iq * 3.11 + seed);
+      acc += cl * lmDisc(ro, rd, L, (0.12 + 0.95 * hb * hb * hb) * lmTw(iq), 0.0, 0.55 + 0.7 * hash11(iq * 5.3 + seed));
+    }
+  }
+  return acc;
+}
+// a row of lights along -z from P0, every S metres (n of them), moved along by 'travel' metres
+vec3 lmRow(vec3 ro, vec3 rd, vec3 P0, float S, float n, float travel, vec3 cl, float b, float haze, float dens, float seed) {
+  // closest approach of the ray to the row's line
+  vec3 w0 = ro - P0;
+  float bb = -rd.z;
+  float dd = dot(rd, w0);
+  float den = max(1.0 - bb * bb, 1e-4);
+  float sl = (-w0.z - bb * dd) / den;
+  float off = mod(travel, S);
+  float base = floor(travel / S);
+  float k0 = floor((sl - off) / S + 0.5);
+  vec3 acc = vec3(0.0);
+  for (int q = -2; q <= 2; q++) {
+    float k = k0 + float(q);
+    if (k < 0.0 || k >= n) continue;
+    float id = k - base + seed * 100.0;
+    if (hash11(id * 0.61 + seed) > dens) continue;
+    vec3 L = P0 + vec3(0.0, 0.0, -(S * k + off));
+    // the far ones fade into the haze, so a row reads as dots running away, not as a bar
+    acc += cl * lmDisc(ro, rd, L, b * lmTw(id) * exp(-(S * k + off) * 0.035), haze, 0.75);
+  }
+  return acc;
+}
+// a strand of string lights at depth z, sagging between poles every 'span' metres
+vec3 lmStrand(vec3 ro, vec3 rd, float z, float y, float sag, float span, float bulb, float x0, float x1, float seed) {
+  if (abs(rd.z) < 1e-4) return vec3(0.0);
+  float t = (z - ro.z) / rd.z;
+  if (t <= 0.0) return vec3(0.0);
+  float px = ro.x + rd.x * t;
+  float k0 = floor(px / bulb + 0.5);
+  vec3 acc = vec3(0.0);
+  for (int q = -1; q <= 1; q++) {
+    float k = k0 + float(q);
+    float x = k * bulb;
+    if (x < x0 || x > x1) continue;
+    float u = fract((x - x0) / span) * 2.0 - 1.0;
+    vec3 L = vec3(x, y - sag * (1.0 - u * u), z);
+    float h = hash11(k * 1.3 + seed);
+    vec3 cl = h < 0.78 ? uBokWarm : (h < 0.9 ? uBokCool : uBokRed);
+    acc += cl * lmDisc(ro, rd, L, 0.42 * lmTw(k + seed * 7.0), 0.0, 0.5);
+  }
+  return acc;
+}
+
+// a ring of towers at radius R around (0, cz), with a gap for a street (|x| < gap)
+vec3 lmTowers(vec3 ro, vec3 rd, vec3 col, vec3 sky, float R, float cz, float hmin, float hvar, float gap, float haze, float litT, float winK) {
+  float tb = lmCyl(ro, rd, vec2(0.0, cz), R);
+  if (tb <= 0.0) return col;
+  vec3 p = ro + rd * tb;
+  float az = atan(p.x, -(p.z - cz));
+  float s = az * R / 7.0;
+  float cell = floor(s);
+  float fx = fract(s);
+  float tall = hash11(cell * 1.37 + 3.0 + R);
+  float hb = hmin + hvar * tall * tall * hash11(cell * 0.71 + 9.0 + R) + 3.0 * hash11(cell + R);
+  float gp = step(0.08, fx) * step(fx, 0.92 - 0.3 * hash11(cell * 5.3));
+  float coc = lmCoc(tb);
+  float m = (1.0 - smoothstep(hb - coc, hb + coc, p.y)) * smoothstep(0.0, 0.08, gp + (1.0 - step(0.5, hash11(cell * 2.9))));
+  if (gap > 0.0) m *= smoothstep(gap, gap + coc + 0.4, abs(p.x));
+  vec3 facade = uFoliage * 0.12 + sky * 0.12;
+  vec2 g = vec2(fx * 7.0, p.y / 1.4);
+  vec2 gi = floor(g);
+  vec2 gf = fract(g);
+  float hf = hash21(gi + cell * 17.0);
+  float lit = step(litT - 0.1 * hash11(gi.y + cell), hf) * step(gi.y + 1.0, hb / 1.4 - 0.5);
+  float ww = min(coc * 0.6, 0.2);
+  float win = smoothstep(0.28 + ww, 0.28 - ww, abs(gf.x - 0.5)) * smoothstep(0.26 + ww, 0.26 - ww, abs(gf.y - 0.5));
+  vec3 wc = mix(uWinCol, uKeyCol * 1.6, step(0.7, hash21(gi * 1.7 + cell)));
+  facade += wc * lit * win * (0.25 + 0.6 * hash21(gi * 3.1 + cell)) * 0.7 * winK * (0.7 + 0.3 * min(uBok.x, 1.5));
+  facade = mix(facade, sky * 0.9, haze);
+  return mix(col, facade, m);
+}
+
 vec3 lmDusk(vec3 ro, vec3 rd) {
   vec3 sky = lmSky(rd);
   vec3 col = sky;
@@ -164,6 +298,12 @@ vec3 lmDusk(vec3 ro, vec3 rd) {
     float m = 1.0 - smoothstep(h - coc, h + coc, p.y);
     vec3 tree = mix(uFoliage * 0.8, sky * 0.7, 0.42);
     col = mix(col, tree, m);
+  }
+  // lanterns and fairy lights hung in the trees, far out of focus
+  bool bok = uBok.x + uBok.w > 0.001;
+  if (bok) {
+    col += lmRing(ro, rd, vec2(0.0, -1.0), 15.0, 1.6, 4.2, 100.0, 0.24, 0.85, 1.0);
+    if (uBokLite < 0.5) col += lmRing(ro, rd, vec2(0.0, -1.0), 11.5, 1.5, 3.4, 90.0, 0.2, 0.9, 2.0);
   }
   // clipped hedge
   float th = lmCyl(ro, rd, vec2(0.0, -1.0), 8.6);
@@ -184,37 +324,18 @@ vec3 lmDusk(vec3 ro, vec3 rd) {
     }
     col = mix(col, hedge, m);
   }
+  // a strand of lights strung along in front of the hedge
+  if (bok && uBokLite < 0.5) col += lmStrand(ro, rd, -6.6, 1.95, 0.3, 3.4, 0.8, -7.0, 7.0, 3.0);
   return lmLamps(ro, rd, col);
 }
 
 vec3 lmNight(vec3 ro, vec3 rd) {
   vec3 sky = lmSky(rd);
   vec3 col = sky;
-  // a city far off: towers of varied height, a few windows still lit
-  float tb = lmCyl(ro, rd, vec2(0.0, -2.0), 42.0);
-  if (tb > 0.0) {
-    vec3 p = ro + rd * tb;
-    float az = atan(p.x, -(p.z + 2.0));
-    float s = az * 42.0 / 7.0;
-    float cell = floor(s);
-    float fx = fract(s);
-    float tall = hash11(cell * 1.37 + 3.0);
-    float hb = 5.0 + 16.0 * tall * tall * hash11(cell * 0.71 + 9.0) + 3.0 * hash11(cell);
-    float gap = step(0.08, fx) * step(fx, 0.92 - 0.3 * hash11(cell * 5.3));
-    float coc = lmCoc(tb);
-    float m = (1.0 - smoothstep(hb - coc, hb + coc, p.y)) * smoothstep(0.0, 0.08, gap + (1.0 - step(0.5, hash11(cell * 2.9))));
-    vec3 facade = uFoliage * 0.12 + sky * 0.12;
-    vec2 g = vec2(fx * 7.0, p.y / 1.4);
-    vec2 gi = floor(g);
-    vec2 gf = fract(g);
-    float hf = hash21(gi + cell * 17.0);
-    float lit = step(0.8 - 0.1 * hash11(gi.y + cell), hf) * step(gi.y + 1.0, hb / 1.4 - 0.5);
-    float ww = min(coc * 0.6, 0.2);
-    float win = smoothstep(0.28 + ww, 0.28 - ww, abs(gf.x - 0.5)) * smoothstep(0.26 + ww, 0.26 - ww, abs(gf.y - 0.5));
-    vec3 wc = mix(uWinCol, uKeyCol * 1.6, step(0.7, hash21(gi * 1.7 + cell)));
-    facade += wc * lit * win * (0.25 + 0.6 * hash21(gi * 3.1 + cell)) * 0.7;
-    col = mix(col, facade, m);
-  }
+  // a city far off: towers of varied height, a few windows still lit, the city's lights low between them
+  col = lmTowers(ro, rd, col, sky, 42.0, -2.0, 5.0, 16.0, 0.0, 0.0, 0.8, 1.0);
+  bool bok = uBok.x + uBok.w > 0.001;
+  if (bok) col += lmRing(ro, rd, vec2(0.0, -2.0), 30.0, 0.6, 4.5, 120.0, 0.28, 0.55, 4.0) * 0.7;
   // a park's trees between the plaza and the city
   float tt = lmCyl(ro, rd, vec2(0.0, -1.0), 15.0);
   if (tt > 0.0) {
@@ -224,6 +345,37 @@ vec3 lmNight(vec3 ro, vec3 rd) {
     float coc = lmCoc(tt);
     float m = 1.0 - smoothstep(h - coc, h + coc, p.y + 0.3 * tfbm(vec2(az * 40.0, p.y), 2));
     col = mix(col, uFoliage * 0.25 + sky * 0.1, m);
+  }
+  if (bok) {
+    // lamps along the park paths, and string lights over the plaza
+    col += lmRing(ro, rd, vec2(0.0, -1.0), 11.0, 0.9, 3.2, 100.0, 0.22, 0.8, 5.0);
+    col += lmStrand(ro, rd, -7.4, 2.75, 0.5, 4.6, 0.95, -8.0, 8.0, 6.0);
+    if (uBokLite < 0.5) col += lmStrand(ro, rd, -5.0, 2.25, 0.35, 3.8, 0.85, -6.0, 6.0, 7.0);
+  }
+  return lmLamps(ro, rd, col);
+}
+
+vec3 lmCity(vec3 ro, vec3 rd) {
+  vec3 sky = lmSky(rd);
+  vec3 col = sky;
+  bool bok = uBok.x + uBok.w > 0.001;
+  // the far city in haze, at the end of the street
+  col = lmTowers(ro, rd, col, sky, 75.0, -2.0, 8.0, 24.0, 0.0, 0.35, 0.8, 0.5);
+  if (bok) col += lmRing(ro, rd, vec2(0.0, -2.0), 50.0, 0.4, 7.0, 110.0, 0.2, 0.5, 8.0) * 0.5;
+  // towers either side of the street
+  col = lmTowers(ro, rd, col, sky, 32.0, -2.0, 8.0, 20.0, 6.2, 0.0, 0.86, 0.35);
+  if (bok) {
+    // shop fronts and windows low down, out of focus
+    col += lmRing(ro, rd, vec2(0.0, -2.0), 20.0, 0.5, 3.5, 110.0, 0.18, 0.6, 9.0) * 0.7;
+    // streetlamps both sides, receding to the vanishing point
+    col += lmRow(ro, rd, vec3(-${STREET_X.toFixed(2)}, ${STREET_Y.toFixed(2)}, ${STREET_Z0.toFixed(1)}), ${STREET_S.toFixed(1)}, ${STREET_N.toFixed(1)}, 0.0, uLampCol * 0.06, 0.7, 0.45, 1.0, 10.0);
+    col += lmRow(ro, rd, vec3(${STREET_X.toFixed(2)}, ${STREET_Y.toFixed(2)}, ${STREET_Z0.toFixed(1)}), ${STREET_S.toFixed(1)}, ${STREET_N.toFixed(1)}, 0.0, uLampCol * 0.06, 0.7, 0.45, 1.0, 11.0);
+    // traffic: tail lights going away, headlights coming
+    col += lmRow(ro, rd, vec3(1.1, 0.55, -12.0), 7.0, 12.0, uEnvT * 6.0, uBokRed, 0.9, 0.3, 0.55, 12.0);
+    if (uBokLite < 0.5) col += lmRow(ro, rd, vec3(-1.1, 0.6, -12.0), 9.0, 10.0, -uEnvT * 5.0, uBokWhite, 0.8, 0.5, 0.45, 13.0);
+    // string lights across the street, over the plaza
+    col += lmStrand(ro, rd, -8.5, 3.4, 0.55, 5.0, 0.95, -6.0, 6.0, 14.0);
+    if (uBokLite < 0.5) col += lmStrand(ro, rd, -14.0, 4.0, 0.6, 6.0, 1.0, -5.5, 5.5, 15.0);
   }
   return lmLamps(ro, rd, col);
 }
@@ -256,10 +408,11 @@ vec3 lmStudio(vec3 ro, vec3 rd) {
   return col;
 }
 
-// anything above the water: the setting's surroundings
+// anything above the water: the setting's surroundings (0 dusk, 1 night, 2 city, 3 studio)
 vec3 lmUp(vec3 ro, vec3 rd) {
   if (uSetting < 0.5) return lmDusk(ro, rd);
   if (uSetting < 1.5) return lmNight(ro, rd);
+  if (uSetting < 2.5) return lmCity(ro, rd);
   return lmStudio(ro, rd);
 }
 // any direction (used by the rods): rays going down meet dark water that mirrors the sky
@@ -309,10 +462,10 @@ void main() {
 
 const JET_LIB = /* glsl */ `
 uniform sampler2D tHist;
-uniform float uNowK, uHistN, uDelta, uNoiseNow, uWob;
+uniform float uNowK, uHistN, uDelta, uNoiseNow, uWob, uTrem;
 uniform vec3 uGrav;
 uniform vec4 uNoz[${J}];      // nozzle xyz, w = radius
-uniform vec4 uSeg[${J * 2}];  // 4 pieces of water per jet as (head, tail) in flight time; tail < 0 = still attached
+uniform vec4 uSeg[${(J * MAX_SEG) / 2}];  // ${MAX_SEG} pieces of water per jet as (head, tail) in flight time; tail < 0 = still attached
 uniform vec4 uJet[${J}];      // x = flight time drawn, y = ripple growth, z = ripple seed amplitude, w = visible
 uniform float uGlowFade;
 
@@ -336,6 +489,12 @@ vec3 lmJetPos(int j, float u) {
   float w1 = tnoise(vec2(L * 1.7, float(j) * 13.1)) - 0.5 + 0.8 * (tnoise(vec2(L * 0.31 + 17.0, float(j) * 4.3)) - 0.5);
   float w2 = tnoise(vec2(L * 2.3 + 51.0, float(j) * 7.7)) - 0.5;
   v += (side * w1 + vec3(0.0, w2 * 0.6, 0.0)) * uWob * wk * length(v);
+  // held breath before a drop: a fine fast tremble at the nozzle, carried out along the arc
+  if (uTrem > 0.0) {
+    float t1 = tnoise(vec2(L * 15.0, float(j) * 3.7 + 90.0)) - 0.5;
+    float t2 = tnoise(vec2(L * 19.0 + 33.0, float(j) * 5.1)) - 0.5;
+    v += (side * t1 + vec3(0.0, t2, 0.0)) * uTrem * length(v);
+  }
   return uNoz[j].xyz + v * u + 0.5 * uGrav * u * u;
 }
 // signed distance (in flight time) to the nearest end of a piece of water; >0 inside one
@@ -344,8 +503,8 @@ float lmSeg(int j, float u, out float uEnd, out float glow) {
   uEnd = -10.0;
   glow = 0.0;
   for (int k = 0; k < ${MAX_SEG}; k++) {
-    vec4 s = uSeg[j * 2 + k / 2];
-    vec2 ht = (k == 0 || k == 2) ? s.xy : s.zw;
+    vec4 s = uSeg[j * ${MAX_SEG / 2} + k / 2];
+    vec2 ht = (k & 1) == 0 ? s.xy : s.zw;
     float dh = ht.x - u;
     float dt = ht.y < 0.0 ? 1e3 : u - ht.y;
     float d = min(dh, dt);
@@ -814,7 +973,9 @@ void main() {
       } else {
         float t2 = (hC - ro.y) / rd.y;
         vec3 q = ro + rd * t2;
-        float tH = uSetting < 1.5 ? lmCyl(ro, rd, vec2(0.0, -1.0), uSetting < 0.5 ? 8.6 : 15.0) : lmCyl(ro, rd, vec2(0.0, -1.5), 7.0);
+        float tH = uSetting < 1.5 ? lmCyl(ro, rd, vec2(0.0, -1.0), uSetting < 0.5 ? 8.6 : 15.0) : uSetting < 2.5 ? lmCyl(ro, rd, vec2(0.0, -2.0), 32.0) : lmCyl(ro, rd, vec2(0.0, -1.5), 7.0);
+        // the city's street runs on between the towers, to the horizon
+        if (uSetting > 1.5 && uSetting < 2.5 && abs(ro.x + rd.x * tH) < 6.2) tH = -1.0;
         if (tH > 0.0 && t2 > tH) col = lmUp(ro, rd);
         else {
           float coping = 1.0 - smoothstep(-${(POOL_FAR + 0.42).toFixed(2)}, -${(POOL_FAR + 0.4).toFixed(2)}, -q.z);
@@ -834,8 +995,21 @@ void main() {
           if (uSetting > 0.5 && uSetting < 1.5) {
             vec3 rr = reflect(rd, normalize(vec3((tnoise(q.xz * 6.0) - 0.5) * 0.06, 1.0, (tnoise(q.xz * 6.0 + 9.0) - 0.5) * 0.06)));
             col += lmUp(q, rr) * 0.22;
+          } else if (uSetting > 1.5 && uSetting < 2.5) {
+            // wet asphalt: the streetlamps pool on it and it mirrors the street, the reflections
+            // smeared into long streaks; far off it fades into the haze
+            for (int s = 0; s < 2; s++) {
+              float sx = s == 0 ? -${STREET_X.toFixed(2)} : ${STREET_X.toFixed(2)};
+              float k = clamp(floor((${STREET_Z0.toFixed(1)} - q.z) / ${STREET_S.toFixed(1)} + 0.5), 0.0, ${(STREET_N - 1).toFixed(1)});
+              vec3 d = q - vec3(sx, ${STREET_Y.toFixed(2)}, ${STREET_Z0.toFixed(1)} - k * ${STREET_S.toFixed(1)});
+              lit += uLampCol * uBok.x * 0.025 / (dot(d, d) + 0.6);
+            }
+            col = g * lit * mix(0.45, 2.0, coping);
+            vec3 nn = normalize(vec3((tnoise(q.xz * vec2(4.0, 1.0)) - 0.5) * 0.05, 1.0, (tnoise(q.xz * vec2(2.0, 0.22) + 9.0) - 0.5) * 0.4));
+            col += lmUp(q, reflect(rd, nn)) * 0.4;
+            col = mix(col, uSkyHor * 0.7, 1.0 - exp(-t2 * 0.012));
           }
-          if (uSetting > 1.5) col = uSkyTop * (0.22 + 0.2 * smoothstep(-4.0, -7.5, q.z)) + lmPoolLight(q.xz) * 0.02;
+          if (uSetting > 2.5) col = uSkyTop * (0.22 + 0.2 * smoothstep(-4.0, -7.5, q.z)) + lmPoolLight(q.xz) * 0.02;
         }
       }
     }
@@ -896,21 +1070,71 @@ void main() {
 
 /* ───────────────────────── CPU side ───────────────────────── */
 
+type Trig = 'kick' | 'snare' | 'hat' | 'onset' | 'beat' | 'bar' | 'chain' | 'none';
+type Kind = 'weave' | 'duet' | 'leapfrog' | 'call' | 'criss' | 'cascade' | 'scatter' | 'fan' | 'rise';
+type Tier = 'quiet' | 'mid' | 'build' | 'peak';
+type Rng = () => number;
+
+/** one jet's part in a pattern: where its nozzle stands, where it aims and how high */
+interface Spec {
+  x: number;
+  z: number;
+  yaw: number;
+  R: number;
+  H: number;
+  /** fires bolts when its trigger sounds (else a steady stream) */
+  hop: boolean;
+  trig: Trig;
+  group: number;
+  /** a steady stream turns slowly from side to side */
+  sweepA: number;
+  sweepW: number;
+  sweepP: number;
+}
+/** a piece of water in flight */
 interface Seg {
   on: number;
   off: number;
+  /** flight time to the water of its head and of its tail */
+  uOn: number;
+  uOff: number;
+  /** where its head lands */
+  lx: number;
+  lz: number;
 }
 interface Jet {
-  /** taking part in the choreography */
+  /** taking part in the current pattern */
   active: boolean;
+  hop: boolean;
+  trig: Trig;
+  group: number;
   open: boolean;
-  mode: 'steady' | 'kick' | 'snare';
   segs: Seg[];
+  noz: THREE.Vector3;
+  /** the aim the valve fires with now… */
+  yaw: number;
+  R: number;
   H: number;
+  /** …and the one a steady stream is turning towards */
+  yawT: number;
+  RT: number;
+  HT: number;
+  sweepA: number;
+  sweepW: number;
+  sweepP: number;
+  /** a new place to stand once all its water has landed */
+  pend: Spec | null;
+  closeAt: number; // clock time to close (or -1)
+  openAt: number; // clock time to (re)open a steady stream (or -1)
+  fireAt: number; // clock time to fire a bolt (or -1)
+  fireSrc: Trig;
+  /** a bolt is held open while the sound that fired it rings */
+  gate: Trig | null;
+  gatePeak: number;
+  gateMin: number;
+  gateMax: number;
   vel: THREE.Vector3;
   prevVel: THREE.Vector3;
-  closeAt: number; // clock time to close a pulse (or -1)
-  openAt: number; // clock time to (re)open (or -1)
   uL: number; // flight time to the water
   flux: number;
   foam: number;
@@ -920,10 +1144,9 @@ interface Jet {
   light: number;
   land: THREE.Vector2;
   dir: THREE.Vector2;
-  noz: THREE.Vector3;
 }
 
-const SETTINGS = ['dusk', 'night', 'studio'];
+const SETTINGS = ['dusk', 'night', 'city', 'studio'];
 
 /** lamps per setting: xyz, intensity */
 const LAMPS: Record<string, [number, number, number, number][]> = {
@@ -948,17 +1171,262 @@ const LAMPS: Record<string, [number, number, number, number][]> = {
     [-3.5, 3.0, 7.0, 0.8],
     [5.0, 3.4, 6.0, 0.6],
   ],
+  // the nearest streetlamps of the street's two rows (the rest are drawn as bokeh only)
+  city: [
+    [-STREET_X, STREET_Y, -7, 1.0],
+    [STREET_X, STREET_Y, -7, 1.0],
+    [-STREET_X, STREET_Y, -13, 0.9],
+    [STREET_X, STREET_Y, -13, 0.9],
+    [-7.5, 2.6, -3.5, 0.6],
+    [7.5, 2.6, -3.5, 0.6],
+    [-3.5, 3.0, 7.0, 0.8],
+    [5.0, 3.4, 6.0, 0.6],
+  ],
   studio: [],
+};
+
+/* seeded randomness: the same song always plays the same show */
+function rngOf(seed: number): Rng {
+  let a = seed >>> 0 || 1;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = THREE.MathUtils.clamp;
+/** half the width of pool the camera sees at depth z, less a margin (the same in portrait) */
+const halfW = (z: number) => 0.42 * (3.5 - z) - 0.15;
+const angleTo = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+
+/** a jet from nozzle (nx, nz) to landing (lx, lz) with apex H, kept inside the pool and the frame */
+function spec(nx: number, nz: number, lx: number, lz: number, H: number, o: Partial<Spec> = {}): Spec {
+  nz = clamp(nz, -2.9, 0.35);
+  nx = clamp(nx, -halfW(nz), halfW(nz));
+  lz = clamp(lz, -3.0, 0.7);
+  lx = clamp(lx, -halfW(lz) - 0.3, halfW(lz) + 0.3);
+  const R = Math.max(0.4, Math.hypot(lx - nx, lz - nz));
+  return { x: nx, z: nz, yaw: Math.atan2(lz - nz, lx - nx), R, H, hop: false, trig: 'none', group: 0, sweepA: 0, sweepW: 0.3, sweepP: 0, ...o };
+}
+
+/** the patterns: each lays out n jets */
+const PATTERNS: Record<Kind, (r: Rng, n: number, hops: boolean) => Spec[]> = {
+  // long arcs crossing over the middle from both sides, turning slowly out of step; a small jet in
+  // front hops on the odd note
+  weave(r, n, hops) {
+    const out: Spec[] = [];
+    const s0 = r() < 0.5 ? -1 : 1;
+    const steady = hops && n >= 3 ? n - 1 : n;
+    // never a mirrored pair: one arc across the pool, one coming at us from the back, one going away
+    // on a diagonal, each at its own depth and height, in a shuffled order
+    const shapes = r() < 0.5 ? [0, 1, 2] : [1, 0, 2];
+    for (let k = 0; k < steady; k++) {
+      const side = k % 2 ? -s0 : s0;
+      const o = { sweepA: 0.14 + 0.26 * r(), sweepW: 0.22 + 0.3 * r(), sweepP: r() * TAU };
+      const shape = shapes[k % 3];
+      if (shape === 0) {
+        const nz = -0.5 - r() * 1.0;
+        out.push(spec(side * (1.0 + r() * 0.8), nz, -side * (0.3 + r() * 1.0), nz - 0.3 - r() * 0.8, 0.4 + r() * 0.35, o));
+      } else if (shape === 1) {
+        const nx = side * (0.2 + r() * 0.9);
+        const nz = -2.2 - r() * 0.6;
+        out.push(spec(nx, nz, nx - side * (0.6 + r() * 0.8), nz + 1.4 + r() * 0.8, 0.55 + r() * 0.4, o));
+      } else {
+        const nz = -0.2 - r() * 0.6;
+        const nx = side * (0.3 + r() * 0.8);
+        out.push(spec(nx, nz, nx + side * (0.5 + r() * 0.7), nz - 1.3 - r() * 0.9, 0.35 + r() * 0.4, o));
+      }
+    }
+    while (out.length < n) {
+      const x = (r() - 0.5) * 1.6;
+      const z = -0.2 - r() * 0.8;
+      const yaw = r() * TAU;
+      out.push(spec(x, z, x + Math.cos(yaw), z + Math.sin(yaw), 0.3 + r() * 0.25, { hop: true, trig: 'onset' }));
+    }
+    return out;
+  },
+  // a high arc and a low one crossing each other, small jets hopping in front of them
+  duet(r, n, hops) {
+    const s = r() < 0.5 ? -1 : 1;
+    // a tall one sailing across from the back, a low one running away from us under it
+    const bx = s * (0.3 + r() * 0.6);
+    const out = [
+      spec(-1.7 * s, -2.4 - r() * 0.4, 1.2 * s, -0.6 - r() * 0.5, 0.75 + r() * 0.25, { sweepA: 0.08, sweepW: 0.18, sweepP: r() * TAU }),
+      spec(bx, -0.2 - r() * 0.3, bx + s * (0.4 + r() * 0.6), -2.0 - r() * 0.6, 0.4 + r() * 0.2, { sweepA: 0.2, sweepW: 0.27, sweepP: r() * TAU }),
+    ];
+    for (let k = 2; k < n; k++) {
+      const x = (k % 2 ? -1 : 1) * (0.3 + r() * 0.8);
+      const z = -0.1 - r() * 0.9;
+      const yaw = Math.PI / 2 + (r() - 0.5) * 2.4 + (r() < 0.4 ? Math.PI : 0);
+      out.push(spec(x, z, x + Math.cos(yaw) * 0.9, z + Math.sin(yaw) * 0.9, 0.32 + r() * 0.3, hops ? { hop: true, trig: 'beat' } : { sweepA: 0.3, sweepW: 0.5, sweepP: r() * TAU }));
+    }
+    return out;
+  },
+  // bolts leaping from nozzle to nozzle: round a ring, or zig-zagging across with one long leap back
+  leapfrog(r, n) {
+    const sites: [number, number][] = [];
+    if (r() < 0.6) {
+      const cx = (r() - 0.5) * 0.6;
+      const cz = -1.45 - r() * 0.35;
+      const rx = 1.35 + r() * 0.55;
+      const rz = 0.75 + r() * 0.3;
+      const ph = r() * TAU;
+      const dn = r() < 0.5 ? 1 : -1;
+      for (let k = 0; k < n; k++) {
+        const a = ph + (dn * k * TAU) / n + (r() - 0.5) * 0.3;
+        sites.push([cx + rx * Math.cos(a), cz + rz * Math.sin(a)]);
+      }
+    } else {
+      const zc = -1.0 - r() * 1.2;
+      const amp = 0.35 + r() * 0.35;
+      const w = halfW(zc) * 0.85;
+      const dn = r() < 0.5 ? 1 : -1;
+      for (let k = 0; k < n; k++) {
+        const f = n > 1 ? k / (n - 1) : 0.5;
+        sites.push([dn * (-w + 2 * w * f), zc + (k % 2 ? amp : -amp)]);
+      }
+    }
+    return sites.map(([x, z], k) => {
+      const [x2, z2] = sites[(k + 1) % n];
+      const R = Math.hypot(x2 - x, z2 - z);
+      return spec(x, z, x + (x2 - x) * 0.9, z + (z2 - z) * 0.9, 0.2 + 0.28 * R * (0.8 + 0.4 * r()), { hop: true, trig: 'chain' });
+    });
+  },
+  // jets on the left answer jets on the right, across the pool: the kick, then the snare
+  call(r, n) {
+    const out: Spec[] = [];
+    const nl = Math.ceil(n / 2);
+    const flip = r() < 0.5 ? 1 : -1;
+    for (let k = 0; k < n; k++) {
+      const g = k < nl ? 0 : 1;
+      const m = g === 0 ? k : k - nl;
+      const cnt = g === 0 ? nl : n - nl;
+      const side = (g === 0 ? -1 : 1) * flip;
+      const nz = -0.3 - ((m + 0.2 + 0.6 * r()) / cnt) * 2.5;
+      out.push(spec(side * (1.0 + r() * 0.9), nz, -side * (0.2 + r() * 1.4), -0.3 - r() * 2.5, 0.45 + r() * 0.5, { hop: true, trig: g === 0 ? 'kick' : 'snare', group: g }));
+    }
+    return out;
+  },
+  // pairs of streams crossing in X's at different depths and heights, one tall one in the middle
+  criss(r, n) {
+    const out: Spec[] = [];
+    const pairs = Math.max(1, Math.floor(n / 2));
+    for (let p = 0; p < pairs; p++) {
+      const z = -0.45 - ((p + 0.5) / pairs) * 2.2 + (r() - 0.5) * 0.3;
+      const a = 0.8 + r() * 1.0;
+      const dz = (r() - 0.5) * 0.9;
+      const H = 0.42 + 0.3 * (p % 2) + r() * 0.15;
+      out.push(spec(-a, z, a * 0.85, z + dz, H, { group: p % 2, sweepA: 0.05, sweepW: 0.2, sweepP: r() * TAU }));
+      out.push(spec(a, z + dz, -a * 0.85, z, H + 0.18, { group: (p + 1) % 2, sweepA: 0.05, sweepW: 0.23, sweepP: r() * TAU }));
+    }
+    if (out.length < n) {
+      const x = (r() - 0.5) * 0.6;
+      out.push(spec(x, -1.5, x + 0.35, -1.3, 1.0 + r() * 0.25, { sweepA: 0.6, sweepW: 0.35, sweepP: r() * TAU, group: 2 }));
+    }
+    return out.slice(0, n);
+  },
+  // a row of nozzles all aimed one way, firing one after another down the row
+  cascade(r, n) {
+    const z0 = -0.9 - r() * 1.4;
+    const slope = (r() - 0.5) * 0.5;
+    const w = halfW(z0) * 0.82;
+    const pick = r();
+    const yaw = pick < 0.4 ? Math.PI / 2 + (r() - 0.5) * 1.0 : pick < 0.75 ? -Math.PI / 2 + (r() - 0.5) * 0.9 : (r() < 0.5 ? 0 : Math.PI) + (r() - 0.5) * 0.6;
+    const R = 0.9 + r() * 0.8;
+    const H0 = 0.4 + r() * 0.3;
+    const wave = r() < 0.5;
+    const out: Spec[] = [];
+    for (let k = 0; k < n; k++) {
+      const f = n > 1 ? k / (n - 1) : 0.5;
+      const x = -w + 2 * w * f;
+      const z = z0 + slope * x;
+      const H = wave ? H0 * (0.65 + 0.7 * f) : H0 * (0.9 + 0.25 * Math.sin(f * Math.PI));
+      out.push(spec(x, z, x + Math.cos(yaw) * R, z + Math.sin(yaw) * R, H, { hop: true, trig: 'bar' }));
+    }
+    return out;
+  },
+  // nozzles all over the pool, every hat a bolt in a new direction
+  scatter(r, n) {
+    const out: Spec[] = [];
+    for (let k = 0; k < n; k++) {
+      const z = -0.2 - r() * 2.6;
+      const x = (r() * 2 - 1) * halfW(z) * 0.9;
+      const yaw = r() * TAU;
+      const R = 0.7 + r() * 1.1;
+      out.push(spec(x, z, x + Math.cos(yaw) * R, z + Math.sin(yaw) * R, 0.35 + r() * 0.55, { hop: true, trig: 'hat' }));
+    }
+    return out;
+  },
+  // a peacock: streams opening from one spot, the middle ones tallest, breathing on the kick
+  fan(r, n) {
+    const cx = (r() - 0.5) * 0.8;
+    const cz = -1.5 - r() * 0.6;
+    const yc = r() < 0.6 ? Math.PI / 2 : -Math.PI / 2;
+    const spread = 2.3 + r() * 0.9;
+    const out: Spec[] = [];
+    for (let k = 0; k < n; k++) {
+      const f = n > 1 ? k / (n - 1) - 0.5 : 0;
+      const yaw = yc + f * spread;
+      const nx = cx + Math.cos(yaw) * 0.18;
+      const nz = cz + Math.sin(yaw) * 0.18;
+      const R = 1.3 + r() * 0.5 - 0.3 * Math.abs(f);
+      out.push(spec(nx, nz, nx + Math.cos(yaw) * R, nz + Math.sin(yaw) * R, 0.7 + r() * 0.3 + 0.35 * (0.5 - Math.abs(f)), { group: k % 2, sweepA: 0.07, sweepW: 0.3, sweepP: r() * TAU }));
+    }
+    return out;
+  },
+  // the build: streams from both sides converging on the middle, joining one by one; small jets in
+  // front chatter on the snare roll
+  rise(r, n, hops) {
+    const out: Spec[] = [];
+    let m = 0;
+    for (let k = 0; k < n; k++) {
+      if (hops && (k === 2 || k === 5)) {
+        const x = (k === 2 ? -1 : 1) * (0.35 + r() * 0.4);
+        const z = -0.05 - r() * 0.4;
+        out.push(spec(x, z, -x * 0.6, z - 1.0 - r() * 0.5, 0.35 + r() * 0.2, { hop: true, trig: 'snare' }));
+        continue;
+      }
+      const side = m % 2 ? 1 : -1;
+      const row = Math.floor(m / 2);
+      const nz = -0.7 - row * 0.6 - r() * 0.2;
+      const nx = side * (halfW(nz) * 0.85 - row * 0.15);
+      out.push(spec(nx, nz, -side * (0.1 + 0.3 * r()), nz - 0.4 + r() * 0.3, 0.45 + 0.07 * row + r() * 0.1, { sweepA: 0.06, sweepW: 0.4, sweepP: r() * TAU }));
+      m++;
+    }
+    return out;
+  },
+};
+/** which patterns suit each part of the song */
+const OPTIONS: Record<Tier, Kind[]> = {
+  quiet: ['weave', 'duet'],
+  mid: ['leapfrog', 'call', 'criss', 'cascade', 'weave', 'duet', 'scatter'],
+  build: ['rise'],
+  peak: ['scatter', 'fan', 'criss', 'leapfrog', 'cascade', 'call'],
+};
+/** the patterns made of steady streams (all that is left with Surprise or Beat cuts turned down) */
+const CALM: Kind[] = ['weave', 'duet', 'criss', 'fan', 'rise'];
+/** bolt lengths (flight seconds of water, before loudness) for each kind of hit: [shortest, longest] */
+const BOLT: Record<Trig, [number, number]> = {
+  hat: [0.07, 0.2],
+  snare: [0.08, 0.22],
+  kick: [0.1, 0.3],
+  onset: [0.1, 0.4],
+  beat: [0.12, 0.32],
+  bar: [0.18, 0.42],
+  chain: [0.15, 0.36],
+  none: [0.22, 0.42],
 };
 
 export const laminar: SceneDef = {
   id: 'laminar',
   name: 'Laminar',
   description:
-    'Laminar fountain jets arcing over a dark reflecting pool at dusk (or a night plaza, or a studio): water so smooth it looks like glass rods, refracting the world upside down and lit from inside like fibre optic, with tiny ripples and bubbles sliding along to show it is moving. Quiet parts are one still rod; jets join and the arcs climb through a build; the beat before the drop cuts them all into flying glass bolts, the drop fires a volley, and loud parts pulse bolts on the kick. Smoothness sets glassy vs turbulent.',
+    'Laminar fountain jets arcing over a dark reflecting pool in a dusk garden, a night plaza, a city street or a studio: water so smooth it looks like glass rods, refracting the world upside down and lit from inside like fibre optic. A choreographer picks a new pattern every phrase: arcs crossing and turning in the quiet, bolts leaping nozzle to nozzle, left answering right, cascades and scattered hops on the hats, a peacock fan on the drop. Builds gather the jets, thin them and make them tremble while the lights dim; the drop fires a volley. Out-of-focus streetlights and lanterns breathe with the song and shine in the pool.',
   category: 'form',
   style: 'world',
-  tags: ['calm', 'dreamy', 'tender', 'romantic', 'cinematic', 'spacious', 'ambient', 'minimal', 'hypnotic', 'euphoric', 'uplifting', 'nature', 'organic', 'realistic', 'slow'],
+  tags: ['calm', 'dreamy', 'tender', 'romantic', 'cinematic', 'spacious', 'ambient', 'hypnotic', 'euphoric', 'uplifting', 'emotional', 'playful', 'nature', 'organic', 'realistic', 'city', 'night'],
   params,
   modulations: [],
   /* the hedge, sky and pool each need their own ink: with three they all print as one flat navy */
@@ -975,16 +1443,47 @@ export const laminar: SceneDef = {
     histTex.colorSpace = THREE.NoColorSpace;
     histTex.needsUpdate = true;
 
-    const jets: Jet[] = SLOTS.map((s) => {
-      const noz = new THREE.Vector3(s.n[0], 0, s.n[1]);
-      const land = new THREE.Vector2(s.l[0], s.l[1]);
-      const dir = new THREE.Vector2(s.l[0] - s.n[0], s.l[1] - s.n[1]).normalize();
-      return { active: false, open: false, mode: 'steady', segs: [], H: s.h, vel: new THREE.Vector3(), prevVel: new THREE.Vector3(), closeAt: -1, openAt: -1, uL: 0.5, flux: 0, foam: 0, burst: 0, crownAt: -100, crownS: 0, light: 0.2, land, dir, noz };
-    });
-
+    const jets: Jet[] = Array.from({ length: J }, (_, i) => ({
+      active: false,
+      hop: false,
+      trig: 'none' as Trig,
+      group: 0,
+      open: false,
+      segs: [],
+      noz: new THREE.Vector3((i - J / 2) * 0.4, 0, -1.5),
+      yaw: 0,
+      R: 1,
+      H: 0.5,
+      yawT: 0,
+      RT: 1,
+      HT: 0.5,
+      sweepA: 0,
+      sweepW: 0.3,
+      sweepP: 0,
+      pend: null,
+      closeAt: -1,
+      openAt: -1,
+      fireAt: -1,
+      fireSrc: 'beat' as Trig,
+      gate: null,
+      gatePeak: 0,
+      gateMin: 0,
+      gateMax: 0,
+      vel: new THREE.Vector3(),
+      prevVel: new THREE.Vector3(),
+      uL: 0.5,
+      flux: 0,
+      foam: 0,
+      burst: 0,
+      crownAt: -100,
+      crownS: 0,
+      light: 0,
+      land: new THREE.Vector2(0, -1.5),
+      dir: new THREE.Vector2(1, 0),
+    }));
     /* uniforms shared by the jet / splash / world shaders */
     const nozU = Array.from({ length: J }, () => new THREE.Vector4());
-    const segU = Array.from({ length: J * 2 }, () => new THREE.Vector4(-10, -5, -10, -5));
+    const segU = Array.from({ length: (J * MAX_SEG) / 2 }, () => new THREE.Vector4(-10, -5, -10, -5));
     const jetU = Array.from({ length: J }, () => new THREE.Vector4());
     const glowU = Array.from({ length: J }, () => new THREE.Vector3());
     const landU = Array.from({ length: J }, () => new THREE.Vector4());
@@ -999,6 +1498,7 @@ export const laminar: SceneDef = {
       uDelta: { value: DELTA },
       uNoiseNow: { value: 0 },
       uWob: { value: 0.005 },
+      uTrem: { value: 0 },
       uGrav: { value: new THREE.Vector3(0, -G, 0) },
       uNoz: { value: nozU },
       uSeg: { value: segU },
@@ -1019,6 +1519,13 @@ export const laminar: SceneDef = {
       uEnvT: { value: 0 },
       uFocus: { value: 3.3 },
       uAperture: { value: 0.05 },
+      uBok: { value: new THREE.Vector4() },
+      uBokAp: { value: 0.1 },
+      uBokLite: { value: 0 },
+      uBokWarm: { value: new THREE.Vector3() },
+      uBokCool: { value: new THREE.Vector3() },
+      uBokRed: { value: new THREE.Vector3() },
+      uBokWhite: { value: new THREE.Vector3() },
     };
 
     /* jets: one instanced ribbon per slot, analytic rod per pixel */
@@ -1077,17 +1584,13 @@ export const laminar: SceneDef = {
     spGeo.setIndex([0, 1, 2, 0, 2, 3]);
     const aP = new Float32Array(J * PER * 4);
     const aQ = new Float32Array(J * PER * 4);
-    let seed = 7;
-    const rnd = () => {
-      seed = (seed * 16807) % 2147483647;
-      return seed / 2147483647;
-    };
+    const prand = rngOf(7);
     for (let j = 0; j < J; j++)
       for (let i = 0; i < PER; i++) {
         const k = (j * PER + i) * 4;
         const kind = i < PER * 0.45 ? 0 : i < PER * 0.8 ? 1 : 2;
-        aP.set([j, kind, rnd(), rnd()], k);
-        aQ.set([rnd(), rnd(), rnd(), rnd()], k);
+        aP.set([j, kind, prand(), prand()], k);
+        aQ.set([prand(), prand(), prand(), prand()], k);
       }
     spGeo.setAttribute('aP', new THREE.InstancedBufferAttribute(aP, 4));
     spGeo.setAttribute('aQ', new THREE.InstancedBufferAttribute(aQ, 4));
@@ -1242,37 +1745,74 @@ export const laminar: SceneDef = {
     let simT = 0;
     let lastK = -1; // last history sample written (absolute index)
     let envT = 0;
-    let nActive = 0;
+    let started = false;
     let preDrop = false;
-    let lastTick = 0; // clock of the last beat-or-timer tick
-    let phrase = 0;
     let rough = 0;
     let dropBoost = 0;
     let kickEnv = 0;
-    let lastSection = -2;
+    let lampG = 1;
+    let bokG = 1;
+    let sparkSeed = 0;
+    let sparkAmt = 0;
+    let seedBase = 7;
+    let fakeBeat = 0; // a stand-in beat clock when nothing is playing
+    let fakeCount = 0;
+    const heard = { kick: -99, snare: -99, hat: -99, onset: -99 };
     const tmpC = new THREE.Color();
     const tmpV = new THREE.Vector3();
+    let rnd: Rng = rngOf(99);
+
+    /** the pattern playing now */
+    const pat = {
+      kind: 'rise' as Kind,
+      tier: 'quiet' as Tier,
+      key: -1,
+      specs: [] as Spec[],
+      /** how many of the specs have jets (a build adds them one by one) */
+      live: 0,
+      /** whose turn it is in a chain */
+      ci: 0,
+      trig: 'beat' as Trig,
+      /** loud enough to chop steady streams on the kick */
+      pulse: false,
+      /** how often a quiet part's small jets answer a note */
+      prob: 1,
+      cutAt: 0,
+      kickN: 0,
+      dirn: 1,
+      /** a pattern change waiting (after the drop's volley), clock time */
+      at: -1,
+      tierSeen: 'quiet' as Tier,
+      tierAt: 0,
+    };
 
     /* valves */
     const openJet = (j: Jet) => {
       if (j.open) return;
       j.open = true;
-      j.segs.push({ on: simT, off: Infinity });
+      const uOn = (2 * j.vel.y) / G;
+      j.segs.push({ on: simT, off: Infinity, uOn, uOff: uOn, lx: j.noz.x + j.vel.x * uOn, lz: j.noz.z + j.vel.z * uOn });
       if (j.segs.length > MAX_SEG) j.segs.shift();
     };
     const closeJet = (j: Jet) => {
       if (!j.open) return;
       j.open = false;
+      j.gate = null;
       const s = j.segs[j.segs.length - 1];
-      if (s) s.off = simT;
+      if (s) {
+        s.off = simT;
+        s.uOff = (2 * j.vel.y) / G;
+      }
     };
 
-    /* velocity for an arc from the nozzle to the landing point with apex height H */
-    const launchVel = (j: Jet, H: number, out: THREE.Vector3) => {
-      const R = Math.hypot(j.land.x - j.noz.x, j.land.y - j.noz.z);
+    /* velocity for an arc of reach R and apex height H, aimed along yaw */
+    const launchVel = (j: Jet, out: THREE.Vector3) => {
+      const R = Math.max(0.3, j.R);
+      const H = Math.max(0.12, j.H);
       const alpha = Math.atan((4 * H) / R);
       const v = Math.sqrt((G * R) / Math.sin(2 * alpha));
-      return out.set(j.dir.x * v * Math.cos(alpha), v * Math.sin(alpha), j.dir.y * v * Math.cos(alpha));
+      const c = Math.cos(alpha) * v;
+      return out.set(Math.cos(j.yaw) * c, v * Math.sin(alpha), Math.sin(j.yaw) * c);
     };
 
     /* CPU copy of the history lookup (no wobble): where the parcel aloft for u seconds is */
@@ -1302,7 +1842,6 @@ export const laminar: SceneDef = {
       }
       return 1;
     };
-    const inWater = (j: Jet, u: number) => j.segs.some((s) => simT - s.on >= u && (s.off === Infinity || simT - s.off <= u));
 
     // f: where this sample sits between last frame (0) and now (1), so pressure changes stay smooth
     // however many samples one frame writes
@@ -1324,63 +1863,309 @@ export const laminar: SceneDef = {
       }
     };
 
-    // start: velocities everywhere, the hero jet already flowing
-    for (const j of jets) {
-      launchVel(j, j.H, j.vel);
-      j.prevVel.copy(j.vel);
-    }
-    for (let k = -HIST; k <= 1; k++) writeSample(k);
-    lastK = 0;
-    jets[0].active = true;
-    jets[0].segs.push({ on: -10, off: Infinity });
-    jets[0].open = true;
-    nActive = 1;
+    /* ── the choreographer ── */
 
-    const tick = (frame: FrameContext, beat: boolean) => {
-      const a = frame.audio;
-      const p = frame.params;
-      const maxJ = Math.round(num(p, 'jets', 5));
-      const I = frame.analysis ? frame.feel.intensity : Math.min(1, a.energy * 1.3);
-      const tension = Math.min(1, Math.max(a.build, frame.feel.tension));
-      const builds = num(p, 'builds', 1);
-      const cuts = num(p, 'cuts', 1);
-      // hold back: one jet for quiet parts, two for a verse, a build adds them one by one, and every
-      // jet only plays once a drop has landed
-      const sec = frame.feel.section;
-      const peak = sec === 'drop' || frame.feel.release > 0.35;
-      const below = Math.max(1, maxJ - 1);
-      let want: number;
-      if (!frame.analysis) want = 1 + Math.round((maxJ - 1) * THREE.MathUtils.clamp((I - 0.3) / 0.55, 0, 1) * builds);
-      else if (peak) want = maxJ;
-      else if (sec === 'chorus') want = below - (I < 0.6 ? 1 : 0);
-      else if (sec === 'build' || tension > 0.3) want = 2 + Math.round(tension * builds * (maxJ - 3));
-      else if (sec === 'verse' || sec === 'bridge') want = I > 0.3 ? 2 : 1;
-      else want = I > 0.55 ? 2 : 1;
-      want = Math.max(1, Math.min(want, peak ? maxJ : below));
-      if (!a.playing) want = Math.max(1, Math.min(maxJ, nActive));
-      if (preDrop) return;
-      if (nActive < want) {
-        const j = jets[ORDER[nActive]];
-        j.active = true;
-        nActive++;
-        if (j.mode === 'steady') openJet(j);
-      } else if (nActive > want) {
-        nActive--;
-        const j = jets[ORDER[nActive]];
-        j.active = false;
+    // the arc height everything is scaled by now (song size, build, the drop's boost)
+    let hScale = 1;
+
+    /** take up a part where the jet already stands */
+    const adopt = (j: Jet, s: Spec, delay: number) => {
+      j.pend = null;
+      j.active = true;
+      j.hop = s.hop;
+      j.trig = s.trig;
+      j.group = s.group;
+      j.yawT = s.yaw;
+      j.RT = s.R;
+      j.HT = s.H;
+      j.sweepA = s.sweepA;
+      j.sweepW = s.sweepW;
+      j.sweepP = s.sweepP;
+      j.fireAt = -1;
+      if (s.hop) {
         j.openAt = -1;
-        closeJet(j);
+        j.closeAt = -1;
+        if (j.open && !j.gate) closeJet(j);
+      } else if (!j.open && !preDrop) j.openAt = clock + delay;
+    };
+    /** move the nozzle (only ever with no water of its own in the air) */
+    const relocate = (j: Jet, s: Spec) => {
+      j.noz.set(s.x, 0, s.z);
+      j.yaw = s.yaw + s.sweepA * Math.sin(clock * s.sweepW + s.sweepP);
+      j.R = s.R;
+      j.H = Math.min(1.9, s.H * hScale);
+      j.light *= 0.3;
+      adopt(j, s, 0.05 + rnd() * 0.35);
+      launchVel(j, j.vel);
+      j.prevVel.copy(j.vel);
+      j.dir.set(Math.cos(j.yaw), Math.sin(j.yaw));
+    };
+    const assign = (j: Jet, s: Spec, delay: number) => {
+      j.active = true;
+      if (Math.hypot(j.noz.x - s.x, j.noz.z - s.z) < 0.1) return adopt(j, s, delay);
+      j.pend = s;
+      j.fireAt = -1;
+      j.openAt = -1;
+      j.closeAt = -1;
+      closeJet(j);
+      if (j.segs.length === 0) relocate(j, s);
+    };
+    const retire = (j: Jet) => {
+      j.active = false;
+      j.pend = null;
+      j.fireAt = -1;
+      j.openAt = -1;
+      j.closeAt = -1;
+      closeJet(j);
+    };
+
+    const applyPattern = (kind: Kind, tier: Tier, n: number, r: Rng, hops: boolean, cap: number) => {
+      pat.kind = kind;
+      pat.tier = tier;
+      pat.specs = PATTERNS[kind](r, n, hops);
+      pat.ci = Math.floor(r() * 8);
+      pat.dirn = r() < 0.5 ? 1 : -1;
+      pat.trig = tier === 'peak' ? (r() < 0.65 ? 'hat' : 'onset') : r() < 0.6 ? 'beat' : 'onset';
+      pat.pulse = tier === 'peak' || (tier === 'mid' && r() < 0.4);
+      pat.prob = tier === 'quiet' ? 0.4 : 1;
+      pat.cutAt = clock + 2 + 3 * r();
+      pat.live = kind === 'rise' ? Math.min(3, pat.specs.length) : pat.specs.length;
+      for (let i = 0; i < J; i++) {
+        if (i < pat.live && i < cap) assign(jets[i], pat.specs[i], 0.05 + r() * 0.3);
+        else retire(jets[i]);
       }
-      // a phrase in a verse: cut one jet cleanly, relaunch it a beat later
-      if (beat && cuts > 0.3 && a.beatCount % 16 === 0 && I > 0.25 && I < 0.62) {
-        const pool = ORDER.slice(0, nActive).filter((i) => jets[i].mode === 'steady');
-        if (pool.length) {
-          const j = jets[pool[phrase % pool.length]];
-          phrase++;
-          closeJet(j);
-          j.openAt = clock + 60 / Math.max(60, a.bpm || 120);
+    };
+
+    const pickPattern = (tier: Tier, key: number, maxJ: number, cap: number, surprise: number, cuts: number, beats: boolean) => {
+      const r = rngOf(seedBase * 7919 + key * 104729 + (tier === 'peak' ? 31 : tier === 'build' ? 17 : tier === 'mid' ? 5 : 1));
+      const hops = cuts > 0.15 && surprise > 0.15 && beats;
+      let opts = OPTIONS[tier];
+      if (!hops || surprise < 0.35) opts = opts.filter((k) => CALM.includes(k));
+      if (!opts.length) opts = ['weave'];
+      const choices = opts.length > 1 ? opts.filter((k) => k !== pat.kind) : opts;
+      const kind = choices[Math.floor(r() * choices.length)];
+      const busy = kind === 'leapfrog' || kind === 'call' || kind === 'cascade' || kind === 'scatter';
+      let n: number;
+      if (tier === 'quiet') n = 2 + (r() < 0.6 ? 1 : 0);
+      else if (tier === 'mid') n = 3 + Math.floor(r() * 3) + (busy ? 1 : 0);
+      else if (tier === 'build') n = maxJ;
+      else n = maxJ - (r() < 0.3 ? 1 : 0);
+      n = Math.max(2, Math.min(n, maxJ, cap));
+      applyPattern(kind, tier, n, r, hops, cap);
+      pat.key = key;
+    };
+
+    /** which part of the song this is, for the choreography */
+    const tierOf = (frame: FrameContext, I: number, tension: number): Tier => {
+      const f = frame.feel;
+      const sec = f.section;
+      if (sec === 'drop' || f.release > 0.35 || ((!frame.analysis || sec === 'chorus') && I > 0.72)) return 'peak';
+      if (sec === 'build' || tension > 0.4) return 'build';
+      if (I < 0.3 || ((sec === 'intro' || sec === 'break' || sec === 'outro') && I < 0.42)) return 'quiet';
+      return 'mid';
+    };
+    /** a new part of the song, or a new 16-beat phrase within it */
+    const phraseKey = (frame: FrameContext) => {
+      const a = frame.audio;
+      const beats = a.playing && a.bpm > 0 ? Math.floor((a.time * a.bpm) / 60 + 0.25) : Math.floor(clock / 8) * 16;
+      return (frame.feel.sectionIndex + 1) * 4096 + Math.floor(beats / 16);
+    };
+
+    /* triggers: the sound a jet listens for, falling back on the beat when that sound is absent */
+    let ev = { beat: false, beatCount: 0, kick: false, snare: false, hat: false, onset: false };
+    const recent = (k: keyof typeof heard) => clock - heard[k] < 2.5;
+    const hit = (t: Trig): Trig | null => {
+      switch (t) {
+        case 'kick':
+          return ev.kick ? 'kick' : !recent('kick') && ev.beat && ev.beatCount % 2 === 0 ? 'beat' : null;
+        case 'snare':
+          return ev.snare ? 'snare' : !recent('snare') && ev.beat && ev.beatCount % 2 === 1 ? 'beat' : null;
+        case 'hat':
+          return ev.hat ? 'hat' : recent('hat') ? null : hit('onset');
+        case 'onset':
+          return ev.onset ? 'onset' : !recent('onset') && ev.beat ? 'beat' : null;
+        case 'beat':
+        case 'chain':
+          return ev.beat ? 'beat' : null;
+        case 'bar':
+          return ev.beat && ev.beatCount % 4 === 0 ? 'beat' : null;
+        default:
+          return null;
+      }
+    };
+
+    let I = 0;
+    let tension = 0;
+    let surprise = 0.7;
+    let tscale = 0.7;
+    const gateEnv = (a: FrameContext['audio'], src: Trig) => (src === 'kick' ? a.kick : src === 'snare' ? a.snare : src === 'hat' ? a.hat : a.level);
+    let curAudio: FrameContext['audio'] | null = null;
+
+    /** a bolt from a hopping jet: a fresh aim (a little different every time), held while its sound rings */
+    const fire = (j: Jet, src: Trig, key: Trig, len: number, jit: number) => {
+      if (!j.active || j.pend || preDrop || !curAudio) return false;
+      if (j.segs.length >= MAX_SEG) return false;
+      j.yaw = j.yawT + (rnd() * 2 - 1) * jit * (0.3 + 0.7 * surprise);
+      j.R = j.RT * (1 + (rnd() - 0.5) * 0.35 * surprise);
+      j.H = Math.min(1.9, j.HT * hScale * (0.9 + 0.3 * rnd() * surprise));
+      launchVel(j, j.vel);
+      j.prevVel.copy(j.vel);
+      j.dir.set(Math.cos(j.yaw), Math.sin(j.yaw));
+      if (j.open) closeJet(j);
+      openJet(j);
+      const [lo, hi] = BOLT[key];
+      const k = (len * (0.75 + 0.6 * I)) / tscale;
+      j.gate = src;
+      j.gatePeak = gateEnv(curAudio, src);
+      j.gateMin = clock + lo * k;
+      j.gateMax = clock + hi * k;
+      j.closeAt = -1;
+      return true;
+    };
+    /** a steady stream chopped: a short gap runs out along the arc */
+    const chop = (j: Jet) => {
+      if (!j.open || j.hop || j.segs.length >= MAX_SEG) return;
+      closeJet(j);
+      j.openAt = clock + (0.09 + 0.08 * rnd()) / tscale;
+    };
+    const liveJets = () => jets.filter((j) => j.active && !j.pend);
+
+    const drive = (cuts: number, builds: number, beatS: number, toDrop: number) => {
+      const live = liveJets();
+      if (!live.length) return;
+      const hops = live.filter((j) => j.hop);
+      const fireK = 0.4 + 0.6 * cuts;
+      switch (pat.kind) {
+        case 'weave':
+        case 'duet': {
+          for (const j of hops) {
+            const src = hit(j.trig);
+            if (src && rnd() < pat.prob * fireK) fire(j, src, src, 1.2, 0.9);
+          }
+          // now and then a stream is cut and relaunched (on a note when there is one, else on a timer)
+          const o = hit('onset');
+          if (cuts > 0.2 && ((o && rnd() < 0.08 * surprise) || clock > pat.cutAt)) {
+            const st = live.filter((j) => !j.hop && j.open && j.segs.length < MAX_SEG);
+            if (st.length) {
+              const j = st[Math.floor(rnd() * st.length)];
+              closeJet(j);
+              j.openAt = clock + beatS * (0.5 + rnd());
+            }
+            pat.cutAt = clock + (3 + 4 * rnd()) / (0.5 + surprise);
+          }
+          break;
+        }
+        case 'leapfrog': {
+          const src = hit(pat.trig);
+          if (src && hops.length && rnd() < 0.5 + 0.5 * fireK) {
+            const j = hops[pat.ci % hops.length];
+            fire(j, src, 'chain', 1, 0.12);
+            // with enough nozzles, two bolts chase each other round
+            if (hops.length >= 4) fire(hops[(pat.ci + (hops.length >> 1)) % hops.length], src, 'chain', 0.9, 0.12);
+            pat.ci++;
+          }
+          // loud: the kick throws a second bolt from across the ring
+          if (pat.tier === 'peak' && ev.kick && hops.length > 2) fire(hops[(pat.ci + Math.floor(hops.length / 2)) % hops.length], 'kick', 'kick', 1.1, 0.25);
+          break;
+        }
+        case 'call': {
+          for (let g = 0; g < 2; g++) {
+            const src = hit(g === 0 ? 'kick' : 'snare');
+            if (!src || rnd() > fireK + 0.2) continue;
+            let m = 0;
+            for (const j of hops)
+              if (j.group === g) {
+                j.fireAt = clock + m * (0.02 + 0.04 * rnd());
+                j.fireSrc = src;
+                m++;
+              }
+          }
+          break;
+        }
+        case 'criss':
+        case 'fan': {
+          if (pat.pulse && cuts > 0.2) {
+            const src = hit('kick');
+            if (src) {
+              const g = pat.kickN++ % 2;
+              for (const j of live) if (j.group === g) chop(j);
+            }
+          }
+          break;
+        }
+        case 'cascade': {
+          const src = pat.tier === 'peak' ? (ev.beat && ev.beatCount % 2 === 0 ? 'beat' : null) : hit('bar');
+          if (src && hops.length) {
+            if (rnd() < 0.7) pat.dirn = -pat.dirn;
+            const st = (0.045 + 0.06 * rnd()) / Math.max(0.5, tscale);
+            hops.forEach((j, k) => {
+              j.fireAt = clock + (pat.dirn > 0 ? k : hops.length - 1 - k) * st;
+              j.fireSrc = 'bar';
+            });
+          }
+          // loud: stray hops on the hats between the waves
+          const h = pat.tier === 'peak' ? hit('hat') : null;
+          if (h && hops.length && rnd() < 0.3 * surprise * fireK) fire(hops[Math.floor(rnd() * hops.length)], h, 'hat', 1, 1.2);
+          break;
+        }
+        case 'scatter': {
+          const src = hit('hat');
+          if (src && rnd() < (0.45 + 0.45 * surprise) * fireK) {
+            const shut = hops.filter((j) => !j.open);
+            const pool = shut.length ? shut : hops;
+            fire(pool[Math.floor(rnd() * pool.length)], src, 'hat', 1.5, Math.PI);
+          }
+          // and on the beat a longer one, somewhere else
+          if (ev.beat && rnd() < 0.7 * fireK) {
+            const j = hops[Math.floor(rnd() * hops.length)];
+            if (j) fire(j, 'beat', 'beat', 1.2, Math.PI);
+          }
+          if (ev.kick)
+            for (let q = 0; q < 2; q++) {
+              const j = hops[Math.floor(rnd() * hops.length)];
+              if (j) fire(j, 'kick', 'kick', 1.3, Math.PI);
+            }
+          break;
+        }
+        case 'rise': {
+          // jets join as the song winds up; all of them are in before the drop
+          const want = toDrop < 2.5 ? pat.specs.length : clamp(2 + Math.round(tension * builds * (pat.specs.length - 2)), 2, pat.specs.length);
+          if ((ev.beat || toDrop < 2.5) && pat.live < want) {
+            assign(jets[pat.live], pat.specs[pat.live], 0.03);
+            pat.live++;
+          }
+          const src = hit('snare');
+          if (src && hops.length) {
+            fire(hops[pat.ci % hops.length], src, 'snare', 0.9, 0.5);
+            pat.ci++;
+          }
+          break;
         }
       }
+    };
+
+    /** the first frame: set the opening pattern up already flowing, so the look never starts empty */
+    const start = (frame: FrameContext, maxJ: number, cap: number, cuts: number) => {
+      started = true;
+      const an = frame.analysis;
+      seedBase = (an ? Math.round(an.duration * 1000 + an.bpm * 7) : 7) + 131 * Math.max(0, SETTINGS.indexOf(str(frame.params, 'setting', 'dusk')));
+      rnd = rngOf(seedBase + 1);
+      hScale = num(frame.params, 'arc', 1);
+      const key = phraseKey(frame);
+      const tier = frame.audio.playing ? tierOf(frame, I, tension) : 'quiet';
+      pickPattern(tier, key, maxJ, cap, surprise, cuts, true);
+      for (const j of jets) {
+        if (j.pend) relocate(j, j.pend);
+        if (j.active && !j.hop) {
+          j.openAt = -1;
+          j.open = true;
+          j.segs = [{ on: -10, off: Infinity, uOn: (2 * j.vel.y) / G, uOff: 0, lx: 0, lz: 0 }];
+        }
+        j.prevVel.copy(j.vel);
+        j.light = j.active ? 1 : 0;
+      }
+      for (let k = -HIST; k <= 1; k++) writeSample(k);
+      lastK = 0;
     };
 
     return {
@@ -1390,148 +2175,190 @@ export const laminar: SceneDef = {
         const p = frame.params;
         const pal = frame.palette.c;
         const setting = Math.max(0, SETTINGS.indexOf(str(p, 'setting', 'dusk')));
-        const tscale = num(p, 'speed', 0.7);
+        const night = setting === 1 || setting === 2;
+        const studio = setting === 3;
+        tscale = num(p, 'speed', 0.7);
         const sdt = dt * tscale;
+        I = frame.analysis ? frame.feel.intensity : Math.min(1, a.energy * 1.3);
+        tension = Math.min(1, Math.max(a.build, frame.feel.tension));
+        surprise = num(p, 'surprise', 0.7);
+        const cuts = num(p, 'cuts', 1);
+        const builds = num(p, 'builds', 1);
+        const lite = quality.current().sceneScale < 1;
+        const cap = lite ? J_LITE : J;
+        const maxJ = Math.min(cap, Math.round(num(p, 'jets', 8)));
+        const beatS = 60 / Math.max(60, a.bpm || 120);
+        if (!started) start(frame, maxJ, cap, cuts);
         clock += dt;
         simT += sdt;
         envT += sdt;
         drop.step(frame);
         const dEnv = drop.env;
-        const I = frame.analysis ? frame.feel.intensity : Math.min(1, a.energy * 1.3);
-        const tension = Math.min(1, Math.max(a.build, frame.feel.tension));
-        const cuts = num(p, 'cuts', 1);
-        const maxJ = Math.round(num(p, 'jets', 5));
         kickEnv = Math.max(kickEnv * Math.exp(-dt * 8), a.kick);
+        curAudio = a;
 
-        /* ── choreography ── */
-        // modes: loud parts make some jets pulse on the kick / snare (each hit a new bolt)
-        const loud = a.playing && cuts > 0.05 && I > 0.58 && tension < 0.45;
-        if (frame.feel.sectionIndex !== lastSection) {
-          lastSection = frame.feel.sectionIndex;
-          phrase++;
+        /* ── what the song is doing ── */
+        const playing = a.playing && a.bpm > 0;
+        if (!playing && clock - fakeBeat > 0.75) {
+          fakeBeat = clock;
+          fakeCount++;
         }
-        for (let oi = 0; oi < J; oi++) {
-          const j = jets[ORDER[oi]];
-          let mode: Jet['mode'] = 'steady';
-          if (loud && oi > 0) {
-            const r = (oi + phrase) % 3;
-            mode = r === 0 ? 'kick' : r === 1 && oi > 2 ? 'snare' : 'steady';
-            if (cuts < 0.5 && mode === 'snare') mode = 'steady';
-          }
-          if (mode !== j.mode) {
-            j.mode = mode;
-            if (mode !== 'steady') closeJet(j);
-            else if (j.active && !preDrop) j.openAt = clock;
-          }
-        }
-        // the beat before a known drop: cut everything
+        ev = {
+          beat: playing ? a.beat : clock === fakeBeat,
+          beatCount: playing ? a.beatCount : fakeCount,
+          kick: a.playing && a.kickHit,
+          snare: a.playing && a.snareHit,
+          hat: a.playing && a.hatHit,
+          onset: a.playing && a.onset,
+        };
+        if (ev.kick) heard.kick = clock;
+        if (ev.snare) heard.snare = clock;
+        if (ev.hat) heard.hat = clock;
+        if (ev.onset) heard.onset = clock;
+        const arc = num(p, 'arc', 1);
+        dropBoost = Math.max(0, dropBoost - dt * 0.12);
+        hScale = arc * (0.86 + 0.22 * I + 0.32 * tension * builds + 0.3 * dropBoost * builds);
+
+        /* ── the drop: hold, cut, volley ── */
         const toDrop = frame.feel.toDrop;
+        // the beat before a known drop: everything cut, the lights down, a breath held
         if (cuts > 0.05 && a.playing && toDrop > 0.02 && toDrop < 0.55 && !preDrop && drop.since > 1) {
           preDrop = true;
           for (const j of jets) {
             closeJet(j);
             j.openAt = -1;
             j.closeAt = -1;
-          }
-        }
-        // the drop: a volley of bolts from every jet, then they come back high and steady
-        if (drop.since === 0) {
-          preDrop = false;
-          nActive = maxJ;
-          dropBoost = 1;
-          const beatS = 60 / Math.max(60, a.bpm || 120);
-          for (let oi = 0; oi < J; oi++) {
-            const j = jets[ORDER[oi]];
-            j.active = oi < maxJ;
-            if (!j.active) continue;
-            if (cuts > 0.05) {
-              closeJet(j);
-              openJet(j);
-              j.closeAt = clock + 0.3 / tscale;
-              j.openAt = clock + beatS * 2;
-            } else openJet(j);
+            j.fireAt = -1;
           }
         }
         if (preDrop && toDrop > 1.5) preDrop = false; // the drop never came (seek, or a miss)
-        // pulses
-        const pulseLen = (0.13 + 0.12 * (1 - cuts)) / tscale;
-        for (const j of jets) {
-          if (!j.active || preDrop) continue;
-          if ((j.mode === 'kick' && a.kickHit) || (j.mode === 'snare' && a.snareHit)) {
-            closeJet(j);
-            openJet(j);
-            j.closeAt = clock + pulseLen;
+        // the drop: a volley of bolts from every jet, then a new pattern two beats later
+        if (drop.since === 0) {
+          preDrop = false;
+          dropBoost = 1;
+          hScale = arc * (0.86 + 0.22 * I + 0.32 * tension * builds + 0.3 * builds);
+          for (const j of jets) {
+            if (!j.active || j.pend) continue;
+            if (j.hop) fire(j, 'none', 'none', 1.4, 0.25);
+            else {
+              j.H = Math.min(1.9, j.HT * hScale * 1.1);
+              launchVel(j, j.vel);
+              j.prevVel.copy(j.vel);
+              closeJet(j);
+              openJet(j);
+              j.closeAt = clock + (cuts > 0.05 ? 0.32 / tscale : 1e9);
+              j.openAt = clock + beatS * 2;
+            }
           }
+          for (let q = 0; q < 8; q++) addDrop((rnd() - 0.5) * 4.5, -0.2 - rnd() * 2.8, 0.16, 0.02);
+          pat.at = clock + beatS * 2;
         }
-        // timers
+
+        /* ── a new pattern each phrase ── */
+        const tierNow = a.playing ? tierOf(frame, I, tension) : pat.tier;
+        if (tierNow !== pat.tierSeen) {
+          pat.tierSeen = tierNow;
+          pat.tierAt = clock;
+        }
+        const key = phraseKey(frame);
+        const waiting = pat.at > 0 && clock < pat.at;
+        const due = pat.at > 0 && clock >= pat.at;
+        const tierShift = tierNow !== pat.tier && clock - pat.tierAt > 0.8;
+        if (!preDrop && !waiting && (due || (a.playing && (key !== pat.key || tierShift)))) {
+          pat.at = -1;
+          pickPattern(tierNow, key, maxJ, cap, surprise, cuts, playing);
+        }
+        // the quality governor easing off: hand back the slots it cannot afford
+        for (let i = cap; i < J; i++) if (jets[i].active) retire(jets[i]);
+
+        if (!preDrop) drive(cuts, builds, beatS, toDrop);
+
+        /* ── timers, gates, moves ── */
         for (const j of jets) {
+          if (j.fireAt > 0 && clock >= j.fireAt) {
+            j.fireAt = -1;
+            fire(j, j.fireSrc, pat.kind === 'cascade' ? 'bar' : j.fireSrc, 1, 0.15);
+          }
+          if (j.gate && j.open) {
+            const env = gateEnv(a, j.gate);
+            j.gatePeak = Math.max(j.gatePeak, env);
+            const thr = j.gate === 'kick' || j.gate === 'snare' || j.gate === 'hat' ? 0.4 : 0.82;
+            if (clock >= j.gateMax || (clock >= j.gateMin && env < j.gatePeak * thr)) closeJet(j);
+          }
           if (j.closeAt > 0 && clock >= j.closeAt) {
             j.closeAt = -1;
             closeJet(j);
           }
           if (j.openAt > 0 && clock >= j.openAt) {
             j.openAt = -1;
-            if (j.active && j.mode === 'steady' && !preDrop) openJet(j);
+            if (j.active && !j.hop && !j.pend && !preDrop) openJet(j);
           }
+          if (j.pend && !j.open && j.segs.length === 0) relocate(j, j.pend);
+          // a steady stream that is somehow shut (a cut whose relaunch got lost) comes back
+          if (j.active && !j.hop && !j.pend && !j.open && j.openAt < 0 && j.closeAt < 0 && !preDrop) j.openAt = clock + 0.4;
         }
-        // jets join / leave one per beat (or every half second without a beat)
-        if ((a.playing && a.beat) || clock - lastTick > (a.playing && a.bpm > 0 ? 2 : 0.6)) {
-          lastTick = clock;
-          tick(frame, a.playing && a.beat);
-        }
-        // a steady active jet that is somehow shut (after a phrase cut that got lost) comes back
-        for (const j of jets) if (j.active && j.mode === 'steady' && !j.open && j.openAt < 0 && j.closeAt < 0 && !preDrop) j.openAt = clock + 0.4;
 
-        /* ── pressure → arc height ── */
-        dropBoost = Math.max(0, dropBoost - dt * 0.12);
-        const builds = num(p, 'builds', 1);
-        const arc = num(p, 'arc', 1);
+        /* ── steady streams: turn, breathe, climb with the song ── */
+        // sweeps freeze as the song winds up: a held breath
+        const hold = 1 - 0.85 * Math.min(1, tension * builds);
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
+          if (j.hop) continue;
+          const sw = j.sweepA * hold * (0.6 + 0.8 * surprise) * Math.sin(clock * j.sweepW + j.sweepP);
+          j.yaw += angleTo(j.yaw, j.yawT + sw) * (1 - Math.exp(-1.2 * dt));
+          j.R = approach(j.R, j.RT, 1.2, dt);
           // each jet breathes on its own slow pressure swell, so no two arcs move in step
           const breathe = 1 + 0.07 * Math.sin(clock * (0.17 + 0.05 * ji) + ji * 1.9) + 0.03 * Math.sin(clock * (0.61 + 0.13 * ji) + ji * 4.1);
-          const target = SLOTS[ji].h * arc * breathe * (0.86 + 0.22 * I + 0.32 * tension * builds + 0.3 * dropBoost * builds);
-          j.H = approach(j.H, Math.min(target, 1.9), 1.6, dt);
-          launchVel(j, j.H, j.vel);
+          j.H = approach(j.H, Math.min(j.HT * hScale * breathe, 1.9), 1.6, dt);
+          launchVel(j, j.vel);
+          j.dir.set(Math.cos(j.yaw), Math.sin(j.yaw));
         }
 
         /* ── order: smoothness, roughened by loud parts and drops ── */
         const order = num(p, 'order', 0.86);
         rough = approach(rough, num(p, 'roughen', 0.35) * (Math.max(0, I - 0.5) * 0.6 + dEnv * 0.45 + a.flux * 0.1), 3, dt);
-        const ord = THREE.MathUtils.clamp(order - rough, 0, 1);
+        const ord = clamp(order - rough, 0, 1);
         const quiet = 1 - THREE.MathUtils.smoothstep(I, 0.15, 0.45);
 
         /* ── landing: flux, foam, bolt arrivals ── */
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
           const uL = landingTime(ji);
-          const prevUL = j.uL;
           j.uL = uL;
-          const flowing = inWater(j, uL);
-          j.flux = flowing ? 1 : 0;
-          j.foam = approach(j.foam, j.flux, j.flux > j.foam ? 10 : 2.2, dt);
-          // a piece of water's head reaching the pool: a plop and a crown of droplets
-          let arrived = false;
+          let flowing = false;
+          let arrived: Seg | null = null;
+          let passing: Seg | null = null;
           for (const s of j.segs) {
             const h = simT - s.on;
-            const hp = h - sdt;
-            if (hp < prevUL && h >= uL) arrived = true;
+            if (h >= s.uOn && (s.off === Infinity || simT - s.off <= s.uOff)) {
+              flowing = true;
+              passing = s;
+            }
+            if (h - sdt < s.uOn && h >= s.uOn) arrived = s;
           }
+          j.flux = flowing ? 1 : 0;
+          if (passing && passing.off === Infinity) {
+            histVelAt(ji, uL, tmpV);
+            j.land.set(j.noz.x + tmpV.x * uL, j.noz.z + tmpV.z * uL);
+          } else if (passing) j.land.set(passing.lx, passing.lz);
+          j.foam = approach(j.foam, j.flux, j.flux > j.foam ? 10 : 2.2, dt);
+          // a piece of water's head reaching the pool: a plop and a crown of droplets
           j.burst = Math.max(j.burst - dt * 4, arrived ? 1 : 0);
           if (arrived) {
+            j.land.set(arrived.lx, arrived.lz);
             j.crownAt = simT;
-            j.crownS = 0.75 + 0.5 * rnd();
-            addDrop(j.land.x, j.land.y, 0.07, 0.03 * (1.4 - ord * 0.5));
+            j.crownS = 0.75 + 0.5 * rnd() + 0.3 * I;
+            addDrop(arrived.lx, arrived.lz, 0.07, 0.03 * (1.4 - ord * 0.5) * (0.8 + 0.5 * I));
           }
           // prune landed pieces
-          j.segs = j.segs.filter((s) => s.off === Infinity || simT - s.off < uL + 0.1);
+          j.segs = j.segs.filter((s) => s.off === Infinity || simT - s.off < s.uOff + 0.1);
         }
 
         /* ── history ── */
         const nowK = Math.floor(simT / DELTA);
         if (nowK - lastK > HIST) lastK = nowK - HIST;
         const t0 = simT - sdt;
-        for (let k = lastK + 1; k <= nowK; k++) writeSample(k, sdt > 0 ? THREE.MathUtils.clamp((k * DELTA - t0) / sdt, 0, 1) : 1);
+        for (let k = lastK + 1; k <= nowK; k++) writeSample(k, sdt > 0 ? clamp((k * DELTA - t0) / sdt, 0, 1) : 1);
         writeSample(nowK + 1); // provisional, so the newest stretch interpolates against now
         lastK = nowK;
         for (const j of jets) j.prevVel.copy(j.vel);
@@ -1541,19 +2368,22 @@ export const laminar: SceneDef = {
         const thick = num(p, 'thickness', 1);
         const glow = num(p, 'glow', 1);
         const pair = bool(p, 'pair', false);
-        // at night a lone jet in a quiet passage carries the whole picture, so it burns brighter
-        // than each of the many in a chorus
-        const lift = setting === 1 ? 1.6 - 0.7 * I : 0.7 + 0.3 * I;
-        const lightLvl = glow * (setting === 1 ? 0.9 : setting === 2 ? 0.45 : 0.5) * (lift + 0.25 * dEnv + 0.1 * kickEnv);
+        // winding up thins the streams; the drop and loud parts fill them out again
+        const thin = clamp(1 - 0.42 * tension * builds, 0.55, 1) * (1 + 0.14 * dEnv + 0.06 * I);
+        // at night a few jets in a quiet passage carry the whole picture, so they burn brighter than
+        // each of the many in a chorus; bright sounds run them hotter
+        const lift = night ? 1.5 - 0.6 * I : 0.7 + 0.3 * I;
+        const lightLvl = glow * (night ? 0.9 : studio ? 0.45 : 0.5) * (lift + 0.3 * dEnv + 0.12 * kickEnv) * (0.85 + 0.3 * a.brightness);
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
-          nozU[ji].set(j.noz.x, j.noz.y, j.noz.z, 0.016 * thick * (1 + 0.08 * ((ji * 0.37) % 1)));
-          const segs = j.segs.slice(-MAX_SEG);
+          nozU[ji].set(j.noz.x, j.noz.y, j.noz.z, 0.016 * thick * thin * (1 + 0.08 * ((ji * 0.37) % 1)));
+          let uDraw = j.uL;
           for (let k = 0; k < MAX_SEG; k++) {
-            const s = segs[k];
+            const s = j.segs[k];
+            if (s) uDraw = Math.max(uDraw, s.uOn, s.uOff);
             const head = s ? simT - s.on : -10;
             const tail = s ? (s.off === Infinity ? -1 : simT - s.off) : -5;
-            const v = segU[ji * 2 + (k >> 1)];
+            const v = segU[ji * (MAX_SEG / 2) + (k >> 1)];
             if (k % 2 === 0) {
               v.x = head;
               v.y = tail;
@@ -1568,10 +2398,10 @@ export const laminar: SceneDef = {
           const dis = 1 - ord;
           const growth = 0.6 + 9 * dis * dis;
           const seedA = (0.0008 + 0.03 * Math.pow(dis, 1.5)) * (1 - 0.5 * quiet);
-          jetU[ji].set(j.uL + 0.08, growth, seedA, visible ? 1 : 0);
-          j.light = approach(j.light, j.active ? 1 : 0.12, 2, dt);
+          jetU[ji].set(Math.min(uDraw, 2.3) + 0.08, growth, seedA, visible ? 1 : 0);
+          j.light = approach(j.light, j.active && !j.pend ? 1 : 0, j.pend ? 6 : 2, dt);
           // no two lamps in the nozzles are quite the same colour
-          tmpC.copy(pair && ji % 2 === 1 ? pal.accent2 : pal.accent).lerp(pal.fg, 0.08 + 0.3 * ((ji * 0.618) % 1));
+          tmpC.copy(pair && ji % 2 === 1 ? pal.accent2 : pal.accent).lerp(pal.fg, Math.min(0.7, 0.08 + 0.3 * ((ji * 0.618) % 1) + 0.2 * a.brightness));
           linColor(tmpC, glowU[ji]).multiplyScalar(lightLvl * j.light * 1.6);
           landU[ji].set(j.land.x, j.land.y, j.foam, j.burst);
           nozLU[ji].set(j.noz.x, j.noz.z, j.light * (j.open ? 1 : 0.5), j.open ? 1 : 0);
@@ -1581,10 +2411,13 @@ export const laminar: SceneDef = {
         jetLib.uNowK.value = (simT / DELTA) % HIST;
         jetLib.uNoiseNow.value = simT % 256;
         jetLib.uWob.value = (0.0035 + 0.03 * (1 - ord) * (1 - ord)) * (1 - 0.4 * quiet);
+        // the held breath: a tremble that grows through the wind-up and is gone the moment it drops
+        jetLib.uTrem.value = 0.022 * Math.pow(Math.min(1, tension * builds), 1.6) * (preDrop ? 1.4 : 1);
         jetLib.uGlowFade.value = 2.2;
+        spGeo.instanceCount = cap * PER;
 
         /* ── pool ── */
-        const splash = 0.25 + 0.75 * (1 - ord);
+        const splash = Math.min(1.3, 0.25 + 0.75 * (1 - ord) + 0.3 * I + 0.35 * dEnv);
         for (let ji = 0; ji < J; ji++) {
           const j = jets[ji];
           if (j.flux > 0) {
@@ -1595,6 +2428,8 @@ export const laminar: SceneDef = {
             }
           }
         }
+        // a loud kick shivers the whole pool
+        if (ev.kick && I > 0.45) for (let q = 0; q < 2; q++) addDrop((rnd() - 0.5) * 4.4, -0.3 - rnd() * 2.6, 0.12, 0.004 * I * (1 + dEnv));
         const steps = Math.max(1, Math.round(sdt * 100));
         const su = simMat.uniforms;
         for (let s = 0; s < steps; s++) {
@@ -1611,16 +2446,34 @@ export const laminar: SceneDef = {
         }
         pending.length = 0;
 
+        /* ── the lights: breathing with the song, dimmed by the wind-up, flaring on the drop ── */
+        const lightsUp = preDrop ? 0.28 : clamp((0.8 + 0.35 * I) * (1 - 0.5 * Math.min(1, tension * builds)) + 1.0 * dEnv, 0.2, 2.4);
+        lampG = approach(lampG, lightsUp, preDrop ? 7 : dEnv > 0.05 ? 6 : 2.5, dt);
+        bokG = approach(bokG, lightsUp + 0.18 * kickEnv * I, preDrop ? 7 : 4, dt);
+        if (ev.hat || (ev.onset && !recent('hat'))) {
+          sparkSeed = Math.floor(rnd() * 997);
+          sparkAmt = Math.max(sparkAmt, (0.3 + 0.5 * a.brightness) * (0.4 + 0.6 * surprise));
+        }
+        sparkAmt *= Math.exp(-dt * 7);
+        const bokeh = studio ? 0 : num(p, 'bokeh', 1);
+        envU.uBok.value.set(bokeh * bokG, sparkSeed, sparkAmt, bokeh * 0.45 * dEnv);
+        envU.uBokLite.value = lite ? 1 : 0;
+        envU.uBokAp.value = night ? 0.085 : 0.075;
+        envU.uAperture.value = night ? 0.07 : setting === 0 ? 0.06 : 0.05;
+
         /* ── camera ── */
         const drift = num(p, 'drift', 0.4);
         const tanY0 = Math.tan((30 * Math.PI) / 360);
-        const needY = Math.tan((54 * Math.PI) / 360) / Math.max(frame.aspect, 0.1);
+        // on a tall screen, fit the pool a little tighter (halfW keeps every jet inside 0.42 of depth,
+        // under the 46-degree fit) and tilt up less, so the water fills the frame instead of the sky
+        const tall = clamp((1 - frame.aspect) / 0.45, 0, 1);
+        const needY = Math.tan(((54 - 8 * tall) * Math.PI) / 360) / Math.max(frame.aspect, 0.1);
         const ty = Math.min(Math.max(tanY0, needY), Math.tan((96 * Math.PI) / 360));
         const fov = (Math.atan(ty) * 360) / Math.PI;
         camera.fov = fov;
         camera.aspect = frame.aspect;
         camera.position.set(Math.sin(clock * 0.045) * 0.22 * drift, 0.36 + Math.sin(clock * 0.07) * 0.03 * drift, 3.5 - 0.12 * tension * builds);
-        const lookY = 0.42 + (ty - tanY0) * 0.9;
+        const lookY = 0.42 + (ty - tanY0) * (0.9 - 0.45 * tall);
         camera.lookAt(Math.sin(clock * 0.045 + 0.6) * 0.1 * drift, lookY, -0.9);
         camera.updateProjectionMatrix();
         camera.updateMatrixWorld();
@@ -1636,7 +2489,7 @@ export const laminar: SceneDef = {
         const L = LAMPS[SETTINGS[setting]];
         for (let i = 0; i < 8; i++) {
           const l = L[i];
-          if (l) lampU[i].set(l[0], l[1], l[2], l[3]);
+          if (l) lampU[i].set(l[0], l[1], l[2], l[3] * lampG);
           else lampU[i].set(0, 0, 0, 0);
         }
         if (setting === 0) {
@@ -1659,6 +2512,17 @@ export const laminar: SceneDef = {
           linColor(tmpC, envU.uLampCol.value).multiplyScalar(18);
           tmpC.copy(pal.muted).lerp(pal.fg, 0.2);
           linColor(tmpC, envU.uStone.value).multiplyScalar(0.5);
+        } else if (setting === 2) {
+          // the city: a sodium glow low in the sky, lamps a touch warmer and brighter
+          linColor(pal.bg, envU.uSkyTop.value).multiplyScalar(0.55);
+          tmpC.copy(pal.bg).lerp(pal.accent2, 0.14);
+          linColor(tmpC, envU.uSkyHor.value).multiplyScalar(0.9);
+          linColor(pal.accent2, envU.uSkyGlow.value).multiplyScalar(0.16);
+          linColor(pal.muted, envU.uFoliage.value).multiplyScalar(0.35);
+          tmpC.copy(pal.fg).lerp(pal.accent2, 0.45);
+          linColor(tmpC, envU.uLampCol.value).multiplyScalar(18);
+          tmpC.copy(pal.muted).lerp(pal.fg, 0.15);
+          linColor(tmpC, envU.uStone.value).multiplyScalar(0.45);
         } else {
           linColor(pal.bg, envU.uSkyTop.value).multiplyScalar(1.1);
           linColor(pal.bg, envU.uSkyHor.value).multiplyScalar(0.8);
@@ -1672,6 +2536,16 @@ export const laminar: SceneDef = {
         tmpC.copy(pal.accent2).lerp(pal.fg, 0.4);
         linColor(tmpC, envU.uWinCol.value).multiplyScalar(2.2);
         envU.uFocus.value = camera.position.z - 0.2;
+        // the out-of-focus lights: mostly warm, some cool, a few red (tail lights, a coloured bulb)
+        const bk = setting === 0 ? 0.9 : setting === 1 ? 1.1 : 1.25;
+        tmpC.copy(pal.fg).lerp(pal.accent2, 0.55);
+        linColor(tmpC, envU.uBokWarm.value).multiplyScalar(bk);
+        tmpC.copy(pal.accent).lerp(pal.fg, 0.3);
+        linColor(tmpC, envU.uBokCool.value).multiplyScalar(bk * 0.8);
+        tmpC.set('#ff3a2a').lerp(pal.accent2, 0.25);
+        linColor(tmpC, envU.uBokRed.value).multiplyScalar(bk);
+        tmpC.copy(pal.fg).lerp(pal.accent, 0.12);
+        linColor(tmpC, envU.uBokWhite.value).multiplyScalar(bk);
 
         /* ── targets ── */
         const w = frame.width;
@@ -1700,9 +2574,9 @@ export const laminar: SceneDef = {
         const ju = jetMat.uniforms;
         ju.tBg.value = bgRT.texture;
         (ju.uViewProj.value as THREE.Matrix4).copy(viewProj);
-        ju.uAtt.value = setting === 1 ? 0.35 : 0.55;
+        ju.uAtt.value = night ? 0.35 : 0.55;
         // at night the guided light carries further along the arc
-        ju.uCoreFade.value = setting === 1 ? 3.5 : 5;
+        ju.uCoreFade.value = night ? 3.5 : 5;
         // dusk has no dark sky for the rods to stand out against: they read by their glints
         ju.uSpecK.value = setting === 0 ? 0.15 : 0.1;
         ju.uMicro.value = 0.022 + 0.2 * (1 - ord) * (1 - ord);
@@ -1732,11 +2606,12 @@ export const laminar: SceneDef = {
         wu.tSim.value = simA.texture;
         wu.tRefl.value = reflRT!.texture;
         wu.uHScale.value = 1.0;
-        wu.uCalm.value = (0.00025 + 0.0006 * (1 - ord) + 0.0005 * frame.feel.gust) * (1 - 0.5 * quiet);
+        // loud parts churn the surface, every kick a shiver
+        wu.uCalm.value = (0.00025 + 0.0006 * (1 - ord) + 0.0005 * frame.feel.gust + 0.0005 * I * I + 0.0006 * kickEnv * I) * (1 - 0.5 * quiet);
         wu.uRough.value = 1 - ord;
         wu.uReflWarp.value = 0.1;
         tmpC.copy(pal.fg);
-        linColor(tmpC, wu.uFoamCol.value as THREE.Vector3).multiplyScalar(setting === 2 ? 0.9 : 0.35);
+        linColor(tmpC, wu.uFoamCol.value as THREE.Vector3).multiplyScalar(studio ? 0.9 : 0.35);
         tmpC.copy(pal.accent).lerp(pal.bg, 0.5);
         linColor(tmpC, wu.uWaterCol.value as THREE.Vector3);
         worldQuad.render(r, bgRT);
@@ -1757,7 +2632,7 @@ export const laminar: SceneDef = {
         const bu = brightMat.uniforms;
         bu.tSrc.value = sceneRT!.texture;
         (bu.uTexel.value as THREE.Vector2).set(1 / w, 1 / h);
-        bu.uThr.value = setting === 2 ? 1.6 : 0.9;
+        bu.uThr.value = studio ? 1.6 : 0.9;
         brightQuad.render(r, b1);
         const bl = blurMat.uniforms;
         bl.tSrc.value = b1!.texture;
@@ -1777,11 +2652,12 @@ export const laminar: SceneDef = {
         cu.tScene.value = sceneRT!.texture;
         cu.tBloom.value = b1!.texture;
         cu.tBloom2.value = b4!.texture;
-        cu.uExposure.value = (setting === 1 ? 1.0 : setting === 2 ? 0.85 : 1.05) * (1 + 0.08 * dEnv);
-        cu.uBloomK.value = setting === 2 ? 0.35 : 0.7;
+        // the wind-up darkens the picture a little, the drop opens it up
+        cu.uExposure.value = (night ? 1.0 : studio ? 0.85 : 1.05) * (1 + 0.12 * dEnv - 0.08 * Math.min(1, tension * builds) - (preDrop ? 0.06 : 0));
+        cu.uBloomK.value = (studio ? 0.35 : 0.7) * (1 + 0.45 * dEnv + 0.15 * I);
         cu.uGrain.value = num(p, 'grain', 0.022);
         cu.uTime.value = frame.time;
-        cu.uVig.value = setting === 2 ? 0.2 : 0.35;
+        cu.uVig.value = studio ? 0.2 : 0.35;
         compQuad.render(r, target);
       },
       dispose() {

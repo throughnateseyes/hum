@@ -33,9 +33,10 @@ export const PALETTES: Palette[] = [
   { id: 'canopy', name: 'Canopy', bg: '#7fb3e3', fg: '#1d3520', accent: '#a7cf4f', accent2: '#fff6dc', muted: '#4f7d33' },
   { id: 'golden-hour', name: 'Golden Hour', bg: '#231d33', fg: '#ffeccb', accent: '#eda54a', accent2: '#c46a5e', muted: '#4b4361' },
   { id: 'still-water', name: 'Still Water', bg: '#1e4c56', fg: '#e8f4ef', accent: '#7fc7c0', accent2: '#d6a15c', muted: '#2e6a6f' },
-  // laminar: dusk garden, night plaza, studio
+  // laminar: dusk garden, night plaza, city street, studio
   { id: 'laminar-dusk', name: 'Laminar Dusk', bg: '#2b3b5e', fg: '#fff0dc', accent: '#a6eaff', accent2: '#e8a08c', muted: '#1c2620' },
   { id: 'laminar-night', name: 'Laminar Night', bg: '#0b0f1a', fg: '#ffe9cc', accent: '#5fd4ff', accent2: '#ffad5c', muted: '#232838' },
+  { id: 'laminar-city', name: 'Laminar City', bg: '#0e1426', fg: '#ffe4bd', accent: '#86e6ff', accent2: '#ff8f5a', muted: '#1d2335' },
   { id: 'laminar-studio', name: 'Laminar Studio', bg: '#cdd1d4', fg: '#ffffff', accent: '#bfe6ff', accent2: '#e0a878', muted: '#a3a8ac' },
   // fountain show: night (bg = night sky, fg = white water, accent / accent2 = underwater lights, muted = city glow); day (bg = sky, muted = trees)
   // the glow ink catches the mist and skyline too, so at night it stays a dusky cool or wine tone: a brown one prints as a mud band
@@ -147,6 +148,15 @@ export const PALETTES: Palette[] = [
   { id: 'massing-overcast', name: 'Massing Overcast', bg: '#c9cbcc', fg: '#0f1012', accent: '#8e8a84', accent2: '#4b4946', muted: '#c4781e' },
   { id: 'massing-overgrown', name: 'Massing Overgrown', bg: '#9fc3d8', fg: '#14170f', accent: '#e2dccb', accent2: '#64625c', muted: '#447d1e' },
   { id: 'massing-night', name: 'Massing Night', bg: '#0e1420', fg: '#050506', accent: '#d2ccc0', accent2: '#4a4744', muted: '#a3180e' },
+  // glass (scenes/glass): bg = lead, grout and the dark room, fg = the light (sun, sky, pale glass),
+  // accent2 → accent → muted = the glass inks in composition order (warm core, cool field, rim)
+  { id: 'glass-jewel', name: 'Jewel Glass', bg: '#0a0710', fg: '#ffe6b8', accent: '#1f4fd8', accent2: '#d0202e', muted: '#1f8a4c' },
+  { id: 'glass-amber', name: 'Cathedral Amber', bg: '#1a0f08', fg: '#ffe39a', accent: '#2f8fd8', accent2: '#e0561c', muted: '#e58bb0' },
+  { id: 'glass-prairie', name: 'Prairie Glass', bg: '#2a2622', fg: '#f4f1e6', accent: '#d9a21f', accent2: '#b3242c', muted: '#5f9e3a' },
+  { id: 'glass-sea', name: 'Sea Glass', bg: '#0b1416', fg: '#e8fbf6', accent: '#1fb3b0', accent2: '#f08a3c', muted: '#7fd6c8' },
+  { id: 'glass-moss', name: 'Smalti Moss', bg: '#2a241c', fg: '#f3ead8', accent: '#1f9e78', accent2: '#6a4c9c', muted: '#c9a24a' },
+  { id: 'glass-sunflower', name: 'Sunflower Glass', bg: '#1c140c', fg: '#fff1c2', accent: '#3fa3dd', accent2: '#e8890c', muted: '#f2c418' },
+  { id: 'glass-tiger', name: 'Tiger Glass', bg: '#0a0806', fg: '#fff4e2', accent: '#f26a1b', accent2: '#2a1c14', muted: '#f5c242' },
 ];
 
 export function getPalette(id: string): Palette {
@@ -192,3 +202,17 @@ export const LAYERS: { id: LayerId; label: string; short: string; group: 'bands'
   { id: 'beatPhase', label: 'Beat phase', short: 'Beat', group: 'time', hint: '0→1 every beat' },
   { id: 'sway', label: 'Sway', short: 'Sway', group: 'time', hint: 'Slow bar-locked sine' },
 ];
+
+/* ───────── snow (src/scenes/snow) ─────────
+ * crystal: bg = backdrop top, muted = backdrop bottom, fg = highlights, accent = cold ice, accent2 = warm interference
+ * flurry: bg = night sky, muted = the low glow, fg = snow, accent = cold glints, accent2 = warm distant lights
+ * snowfall: bg = night sky, muted = far haze and shade, fg = snow, accent = lamplight, accent2 = cold skylight
+ * chalk: bg = the board, muted = old dust, fg = white chalk, accent / accent2 = coloured chalk */
+PALETTES.push(
+  { id: 'snow-crystal', name: 'Crystal Blue', bg: '#5d66e8', fg: '#ffffff', accent: '#a8e4ff', accent2: '#f2b54e', muted: '#dcc3df' },
+  { id: 'black-ice', name: 'Black Ice', bg: '#05070c', fg: '#f2f9ff', accent: '#8fcfff', accent2: '#e8bf86', muted: '#010203' },
+  { id: 'snow-flurry', name: 'Flurry Night', bg: '#141838', fg: '#f2f5ff', accent: '#9cc8ff', accent2: '#ffc78f', muted: '#3a2f5e' },
+  { id: 'first-snow', name: 'First Snow', bg: '#0b0d14', fg: '#eceff5', accent: '#ffd6a0', accent2: '#8195bb', muted: '#3b3f4c' },
+  { id: 'dusk-woods', name: 'Dusk Woods', bg: '#26244e', fg: '#eef0ff', accent: '#ffd2a8', accent2: '#c3b0ff', muted: '#6a6398' },
+  { id: 'chalkboard', name: 'Chalkboard', bg: '#1d2422', fg: '#eef0ea', accent: '#9fd3e6', accent2: '#f2a7b8', muted: '#3a4440' },
+);

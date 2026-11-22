@@ -20,7 +20,7 @@ import type { Preset } from '../core/types';
 import { allFamilies, familyIdOf } from './fit';
 import { PRESETS } from './library';
 
-export const MOOD_IDS = ['brutal', 'dreamy', 'hacker', 'nature', 'club', 'paper', 'night', 'playful'] as const;
+export const MOOD_IDS = ['brutal', 'dreamy', 'hacker', 'nature', 'club', 'paper', 'night', 'playful', 'glass'] as const;
 export type MoodId = (typeof MOOD_IDS)[number];
 export const isMoodId = (v: unknown): v is MoodId => typeof v === 'string' && (MOOD_IDS as readonly string[]).includes(v);
 
@@ -101,7 +101,7 @@ export const MOODS: Mood[] = [
     name: 'Night city',
     tip: 'Lit windows, night trains, wet streets and fountains after dark. Shot on film, fades to black.',
     world: 'a city after dark: lit windows, trains, streetlight, fountains and screens',
-    looks: ['night-windows', 'night-train', 'retro-desktop-midnight', 'particle-columns', '=fountain-show', 'fountain-tender', 'fountain-gold', 'laminar-night', 'soft-orbs-night-mobile', 'soft-orbs-amber-lamps', 'precast-night', 'massing-night', 'observer-phosphor', 'glass-planes'],
+    looks: ['night-windows', 'night-train', 'retro-desktop-midnight', 'particle-columns', '=fountain-show', 'fountain-tender', 'fountain-gold', 'laminar-night', 'laminar-city', 'soft-orbs-night-mobile', 'soft-orbs-amber-lamps', 'precast-night', 'massing-night', 'observer-phosphor', 'glass-planes'],
     finish: ['film', 'film'],
     transitions: 'film',
   },
@@ -115,6 +115,24 @@ export const MOODS: Mood[] = [
     transitions: 'graphic',
   },
 ];
+
+/* ───────── glass: stained glass and glass mosaics (scenes/glass) ───────── */
+MOODS.push({
+  id: 'glass',
+  name: 'Glass',
+  tip: 'Stained glass and mosaics: leaded windows, a rose window, coloured light on a wall, smalti tiles and a window that shatters. Long dissolves.',
+  world: 'stained glass and glass mosaic: jewel-coloured panes in lead with light behind them, rose windows, coloured sun on plaster, hand-cut smalti tiles',
+  looks: ['leaded-light', 'rose-window', 'andamento', 'shatter', 'chapel-wall', 'prism'],
+  finish: ['film', 'clean'],
+  transitions: 'soft',
+});
+// the glass looks that also live in other worlds
+for (const [mood, looks] of [
+  ['dreamy', ['chapel-wall', 'leaded-light', 'rose-window']],
+  ['paper', ['andamento']],
+  ['playful', ['glass-andamento-sunflower']],
+  ['club', ['glass-rose-jewel', 'glass-shatter-jewel']],
+] as const) MOODS.find((m) => m.id === mood)?.looks.push(...looks);
 
 const byId = new Map(MOODS.map((m) => [m.id, m]));
 export const moodById = (id: MoodId | null | undefined): Mood | undefined => (id ? byId.get(id) : undefined);
@@ -170,3 +188,13 @@ if (import.meta.env?.DEV) {
     }
   }
 }
+
+/* snow (src/scenes/snow): the crystal and the woods belong to nature, the crystal and the flurry to
+ * dreamy, the night street, black ice and the flurry to night, the chalk board to paper and playful */
+for (const [mood, ids] of [
+  ['nature', ['snow-crystal', 'dusk-woods']],
+  ['dreamy', ['=snow-crystal', 'snow-flurry']],
+  ['night', ['first-snow', 'black-ice', 'snow-flurry']],
+  ['paper', ['chalk-flakes']],
+  ['playful', ['chalk-flakes']],
+] as const) MOODS.find((m) => m.id === mood)?.looks.push(...ids);

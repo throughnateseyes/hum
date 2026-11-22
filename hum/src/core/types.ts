@@ -399,6 +399,9 @@ export interface SceneDef {
    *  palette role, muted included). The finish prints with more inks while the scene plays, never fewer
    *  than the person chose, and full colour (0 inks) is left alone */
   handInks?: 1 | 2 | 3 | 4;
+  /** true when the scene falls apart under the hand-drawn finish (fine detail, soft gradients): it shows
+   *  clean until the person picks a finish themselves */
+  prefersClean?: boolean;
   create(init: SceneInit): SceneInstance;
 }
 
