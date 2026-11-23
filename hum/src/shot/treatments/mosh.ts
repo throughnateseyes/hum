@@ -132,9 +132,10 @@ void main() {
     vec2 jump = (vec2(hash(sq + 1.1), hash(sq + 2.3)) - 0.5) * 0.25;
     col = bed((sq + 0.5) * uBlock / uRes + jump).rgb;
   }
-  // and the odd small pale square, the stuck block every mosh has
+  // and the odd small pale square, the stuck block every mosh has (only where the picture has
+  // been dragged, so a clean frame never looks dusty)
   vec2 sm = floor(px / (uBlock * 0.5));
-  if (hash(sm * 0.71 + floor(uBeatN) * 0.37) > 1.0 - uSquares * 0.6) col = mix(col, vec3(0.96, 0.94, 0.92), 0.9);
+  if (hash(sm * 0.71 + floor(uBeatN) * 0.37) > 1.0 - uSquares * 0.6 * smoothstep(6.0, 30.0, m)) col = mix(col, vec3(0.96, 0.94, 0.92), 0.9);
   gl_FragColor = finish(col, b);
 }
 `;
