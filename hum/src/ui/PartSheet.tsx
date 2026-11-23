@@ -243,38 +243,27 @@ const POP_LEVELS: { label: string; v: number | null; tip: string }[] = [
 const LYRIC_OPTS = MEDIUM_CHOICES;
 const SHORT_LIST = 5;
 
-interface Ranked {
+export interface Ranked {
   f: LookFamily;
   take: Preset;
   score: number;
   why: string;
 }
 
-function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; headingId: string; grab?: Record<string, (e: React.PointerEvent) => void> }) {
+/**
+ * The look families that fit part i and sit with the parts either side, best first (its own family
+ * left out), with a short reason each. Shared by the phone's part sheet and the Part tab (PartPanel.tsx).
+ */
+export function useRankedLooks(a: TrackAnalysis, i: number, mood: MoodId | 'all'): { ranked: Ranked[]; look: Preset | undefined; fam: LookFamily | null } {
   const plan = useStudio((s) => s.plan);
   const custom = useStudio((s) => s.customPresets);
-  const lyrics = useStudio((s) => s.lyrics);
-  const lyricStyle = useStudio((s) => s.lyricStyle);
-  const popups = useStudio((s) => s.popups);
-  const partPops = useStudio((s) => s.partPops);
-  const planning = useStudio((s) => s.planning);
-  const busy = useStudio((s) => !!s.clip);
-  const undoText = useSyncExternalStore(onUndoChange, undoLabel);
   const hasPlan = validPlan(plan, a);
-  const [mood, setMood] = useState<MoodId | 'all'>(() => (hasPlan && plan.mood) || 'all');
-  const [more, setMore] = useState(false);
-  const [query, setQuery] = useState('');
-
   const sec = a.sections[i];
-  const names = sectionNames(a.sections);
-  const name = names[i];
   const look = hasPlan ? findLook(plan.looks[i]) : undefined;
-  const edit = hasPlan ? partEdits(plan, a, partPops)[i] : null;
   const { families } = useMemo(() => withCustom(custom), [custom]);
   const fam = look ? (families.find((f) => f.id === familyIdOf(look)) ?? familyOf(look)) : null;
-
-  // families that fit this part and sit with the parts either side, best first
   const ranked = useMemo((): Ranked[] => {
+    if (!sec) return [];
     const energy = partEnergy(a, i);
     const prev = hasPlan ? findLook(plan.looks[i - 1]) : undefined;
     const next = hasPlan ? findLook(plan.looks[i + 1]) : undefined;
@@ -300,10 +289,86 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
       out.push({ f, take, score, why: bits.join(' · ') });
     }
     return out.sort((x, y) => y.score - x.score || (x.f.name < y.f.name ? -1 : 1));
-  }, [a, i, hasPlan, plan, families, fam, mood, sec.label]);
+  }, [a, i, hasPlan, plan, families, fam, mood, sec]);
+  return { ranked, look, fam };
+}
 
+/**
+ * Swap the look: a mood filter, the five looks that fit part i best, and More looks… for all of them
+ * with a search. `onPick` gets the take to use; `name` is the part (or parts) it goes into.
+ */
+export function SwapList({ a, i, name, busy, onPick, headingId, bestFor = 'this part' }: { a: TrackAnalysis; i: number; name: string; busy: boolean; onPick: (p: Preset) => void; headingId: string; bestFor?: string }) {
+  const plan = useStudio((s) => s.plan);
+  const hasPlan = validPlan(plan, a);
+  const [mood, setMood] = useState<MoodId | 'all'>(() => (hasPlan && plan.mood) || 'all');
+  const [more, setMore] = useState(false);
+  const [query, setQuery] = useState('');
+  const { ranked } = useRankedLooks(a, i, mood);
   const q = query.trim().toLowerCase();
   const shown = more ? ranked.filter((r) => !q || `${r.f.name} ${r.f.blurb} ${r.f.takes.map((p) => `${p.name} ${p.tags.join(' ')}`).join(' ')}`.toLowerCase().includes(q)) : ranked.slice(0, SHORT_LIST);
+  const peek = canHover();
+  return (
+    <section className="ps-sec" aria-labelledby={headingId}>
+      <div className="ps-h">
+        <h3 id={headingId}>{hasPlan ? 'Swap the look' : 'Pick a look'}</h3>
+        <span>{more ? `${shown.length} looks` : `Best for ${bestFor}`}</span>
+      </div>
+      <MoodChips value={mood} onChange={setMood} label="Show looks from one mood" />
+      {more && <input className="txt ps-search" type="search" placeholder="Search looks…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search looks for this part" />}
+      <ul className={`ps-looks ${more ? 'all' : ''}`}>
+        {shown.map((r) => (
+          <li key={r.f.id}>
+            <button
+              className="ps-look"
+              disabled={busy}
+              onClick={() => {
+                hidePeek();
+                onPick(r.take);
+              }}
+              {...(peek
+                ? peekHandlers({ key: `ps:${r.take.id}`, title: r.f.takes.length > 1 ? `${r.f.name} · ${takeName(r.take)}` : r.f.name, hint: `Click to use it in ${name}`, poster: STATIC_THUMBS[r.take.id], getLook: () => presetToLook(r.take) })
+                : {})}
+            >
+              <span className="ps-thumb">
+                <Thumb p={r.take} />
+              </span>
+              <span className="ps-lt">
+                {/* a mood can hold only some of a family's versions: name the one it picks */}
+                <b>{mood !== 'all' && r.f.takes.length > 1 && r.take.id !== r.f.takes[0].id ? `${r.f.name} · ${takeName(r.take)}` : r.f.name}</b>
+                <span>{r.why}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+        {!shown.length && <li className="ps-empty">{q ? 'No looks match.' : 'No looks of this mood for this part. Try All.'}</li>}
+      </ul>
+      {ranked.length > SHORT_LIST && (
+        <button className="ps-more" onClick={() => setMore(!more)} aria-expanded={more}>
+          {more ? 'Fewer looks' : `More looks… (${ranked.length})`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; headingId: string; grab?: Record<string, (e: React.PointerEvent) => void> }) {
+  const plan = useStudio((s) => s.plan);
+  const lyrics = useStudio((s) => s.lyrics);
+  const lyricStyle = useStudio((s) => s.lyricStyle);
+  const popups = useStudio((s) => s.popups);
+  const partPops = useStudio((s) => s.partPops);
+  const partHand = useStudio((s) => s.partHand);
+  const partWords = useStudio((s) => s.partWords);
+  const planning = useStudio((s) => s.planning);
+  const busy = useStudio((s) => !!s.clip);
+  const undoText = useSyncExternalStore(onUndoChange, undoLabel);
+  const hasPlan = validPlan(plan, a);
+
+  const sec = a.sections[i];
+  const names = sectionNames(a.sections);
+  const name = names[i];
+  const { look, fam } = useRankedLooks(a, i, 'all');
+  const edit = hasPlan ? partEdits(plan, a, partPops, partHand, partWords)[i] : null;
 
   const synced = !!lyrics?.synced && lyrics.lines.length > 0;
   const sung = synced && vocalDensity(lyrics!.lines, sec).lines > 0;
@@ -313,8 +378,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   // the person's level for this part (null: Auto), and what the plan gives it
   const mine = typeof partPops?.[i] === 'number' ? partPops[i] : null;
   const planned = hasPlan ? popsOf(plan, a, i) : null;
-  const changedWhat = edit ? [edit.look && 'look', edit.lyric && 'lyrics', edit.pops && 'pop-ups'].filter(Boolean).join(', ') : '';
-  const peek = canHover();
+  const changedWhat = edit ? [edit.look && 'look', edit.lyric && 'lyrics', edit.pops && 'pop-ups', edit.hand && 'hand-drawn', edit.words && 'words'].filter(Boolean).join(', ') : '';
 
   const pickLookHere = (p: Preset) => {
     hidePeek();
@@ -364,45 +428,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
         </div>
       )}
 
-      <section className="ps-sec" aria-labelledby={`${headingId}-look`}>
-        <div className="ps-h">
-          <h3 id={`${headingId}-look`}>{hasPlan ? 'Swap the look' : 'Pick a look'}</h3>
-          <span>{more ? `${shown.length} looks` : 'Best for this part'}</span>
-        </div>
-        <MoodChips value={mood} onChange={setMood} label="Show looks from one mood" />
-        {more && (
-          <input className="txt ps-search" type="search" placeholder="Search looks…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search looks for this part" />
-        )}
-        <ul className={`ps-looks ${more ? 'all' : ''}`}>
-          {shown.map((r) => (
-            <li key={r.f.id}>
-              <button
-                className="ps-look"
-                disabled={busy}
-                onClick={() => pickLookHere(r.take)}
-                {...(peek
-                  ? peekHandlers({ key: `ps:${r.take.id}`, title: r.f.takes.length > 1 ? `${r.f.name} · ${takeName(r.take)}` : r.f.name, hint: `Click to use it in ${name}`, poster: STATIC_THUMBS[r.take.id], getLook: () => presetToLook(r.take) })
-                  : {})}
-              >
-                <span className="ps-thumb">
-                  <Thumb p={r.take} />
-                </span>
-                <span className="ps-lt">
-                  {/* a mood can hold only some of a family's versions: name the one it picks */}
-                  <b>{mood !== 'all' && r.f.takes.length > 1 && r.take.id !== r.f.takes[0].id ? `${r.f.name} · ${takeName(r.take)}` : r.f.name}</b>
-                  <span>{r.why}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-          {!shown.length && <li className="ps-empty">{q ? 'No looks match.' : 'No looks of this mood for this part. Try All.'}</li>}
-        </ul>
-        {ranked.length > SHORT_LIST && (
-          <button className="ps-more" onClick={() => setMore(!more)} aria-expanded={more}>
-            {more ? 'Fewer looks' : `More looks… (${ranked.length})`}
-          </button>
-        )}
-      </section>
+      <SwapList a={a} i={i} name={name} busy={busy} onPick={pickLookHere} headingId={`${headingId}-look`} />
 
       {fam && fam.takes.length > 1 && (
         <section className="ps-sec" aria-labelledby={`${headingId}-take`}>

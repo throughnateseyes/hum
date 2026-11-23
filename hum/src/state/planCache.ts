@@ -40,7 +40,61 @@ function hash(s: string): string {
   return (h >>> 0).toString(36);
 }
 
-const songShape = (a: TrackAnalysis) => `${a.duration.toFixed(1)}|${Math.round(a.bpm)}|${a.sections.map((s) => `${s.label[0]}${s.start.toFixed(1)}`).join(',')}`;
+/* ── the person's own part lines (split and combine on the timeline) ── */
+
+/** a re-cut analysis → the analysis it was cut from (the song as Hum heard it) */
+const cutFrom = new WeakMap<TrackAnalysis, TrackAnalysis>();
+/** re-cuts made from one analysis, by their part lines, so the same lines always give the same object */
+const cutsOf = new WeakMap<TrackAnalysis, Map<string, TrackAnalysis>>();
+
+/** the analysis as Hum made it, before any split or combine (itself when it was never re-cut) */
+export function originalOf(a: TrackAnalysis): TrackAnalysis {
+  return cutFrom.get(a) ?? a;
+}
+
+/** where every part starts, rounded to the millisecond (what a plan keeps as `bounds`) */
+export function boundsOf(a: TrackAnalysis): number[] {
+  return a.sections.map((s) => Math.round(s.start * 1000) / 1000);
+}
+
+/**
+ * The song cut into parts at `bounds` (the start of every part, first one at the song's start). Each
+ * new part takes its label, group and energy from the part of the original it starts in: a split gives
+ * both halves the part they came from, a combine keeps the first part's. The same lines always give
+ * the same object (caches keyed by the analysis keep working). Null when the lines don't fit the song.
+ */
+export function cutAnalysis(a: TrackAnalysis, bounds: number[] | undefined | null): TrackAnalysis | null {
+  const orig = originalOf(a);
+  const secs = orig.sections;
+  if (!bounds?.length || !secs.length) return orig;
+  const end = secs[secs.length - 1].end;
+  const ok = bounds.every((b, k) => Number.isFinite(b) && b >= 0 && b < end && (k === 0 || b > bounds[k - 1] + 0.05)) && Math.abs(bounds[0] - secs[0].start) < 0.01;
+  if (!ok) return null;
+  const key = bounds.join(',');
+  if (key === boundsOf(orig).join(',')) return orig;
+  let byKey = cutsOf.get(orig);
+  if (!byKey) cutsOf.set(orig, (byKey = new Map()));
+  const hit = byKey.get(key);
+  if (hit) return hit;
+  const sections = bounds.map((b, k) => {
+    let j = 0;
+    for (let x = secs.length - 1; x >= 0; x--) if (b + 0.001 >= secs[x].start) {
+      j = x;
+      break;
+    }
+    return { ...secs[j], start: k === 0 ? secs[0].start : b, end: bounds[k + 1] ?? end };
+  });
+  const cut: TrackAnalysis = { ...orig, sections };
+  cutFrom.set(cut, orig);
+  byKey.set(key, cut);
+  return cut;
+}
+
+// a song is recognised by the parts Hum heard in it, whatever the person split or combined since
+const songShape = (a: TrackAnalysis) => {
+  const o = originalOf(a);
+  return `${o.duration.toFixed(1)}|${Math.round(o.bpm)}|${o.sections.map((s) => `${s.label[0]}${s.start.toFixed(1)}`).join(',')}`;
+};
 
 /** which song a person's per-part settings belong to (its name and parts, whatever its lyrics) */
 export function songKey(name: string, a: TrackAnalysis): string {
@@ -92,8 +146,11 @@ export function savedPlan(key: string, a: TrackAnalysis, lookExists: (id: string
   const e = list.find((x) => x.key === key);
   if (!e) return null;
   const p = e.plan;
+  // a plan with the person's own part lines fits the song cut at those lines
+  const cut = cutAnalysis(a, p.bounds);
   const ok =
-    p.looks.length === a.sections.length &&
+    !!cut &&
+    p.looks.length === cut.sections.length &&
     Math.abs(p.duration - a.duration) < 0.5 &&
     p.looks.every((id) => !id || lookExists(id)) &&
     (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&
@@ -143,11 +200,12 @@ export function watchPlan(key: string, plan: VideoPlan, analysis: TrackAnalysis)
   unsub ??= useStudio.subscribe((s) => {
     const w = watching;
     if (!w || s.plan === w.plan) return;
-    if (!s.plan || s.analysis !== w.analysis) {
-      watching = null; // a new song, or the plan was cleared
+    if (!s.plan || !s.analysis || originalOf(s.analysis) !== originalOf(w.analysis)) {
+      watching = null; // a new song, or the plan was cleared (a split or combine is still the same song)
       return;
     }
     w.plan = s.plan;
+    w.analysis = s.analysis;
     // a burst of edits (dragging through looks) saves once
     clearTimeout(pending);
     const { key: k, plan: p } = w;
@@ -155,43 +213,87 @@ export function watchPlan(key: string, plan: VideoPlan, analysis: TrackAnalysis)
   });
 }
 
-/* ── the person's own pop-up levels per part, per song ── */
+/* ── the person's own settings per part (pop-ups, hand-drawn, words), per song ── */
 
-const POPS_KEY = 'hum.partPops';
+type PartField = 'partPops' | 'partHand' | 'partWords';
+const PART_KEYS: Record<PartField, string> = { partPops: 'hum.partPops', partHand: 'hum.partHand', partWords: 'hum.partWords' };
+const PART_OK: Record<PartField, (v: unknown) => boolean> = {
+  partPops: (v) => v === null || (typeof v === 'number' && v >= 0 && v <= 3),
+  partHand: (v) => v === null || typeof v === 'boolean',
+  partWords: (v) => v === null || (typeof v === 'string' && v.length <= 200),
+};
+const FIELDS = Object.keys(PART_KEYS) as PartField[];
 
-function readPops(): Record<string, (number | null)[]> {
+function readPart(field: PartField): Record<string, unknown[]> {
   try {
-    const raw = JSON.parse(localStorage.getItem(POPS_KEY) ?? '{}');
+    const raw = JSON.parse(localStorage.getItem(PART_KEYS[field]) ?? '{}');
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   } catch {
     return {};
   }
 }
 
-function writePops(key: string, levels: (number | null)[] | null) {
+function writePart(field: PartField, key: string, values: unknown[] | null) {
   try {
-    const all = readPops();
+    const all = readPart(field);
     delete all[key];
-    if (levels) all[key] = levels;
+    if (values) all[key] = values;
     // newest last; keep as many songs as plans
     const keys = Object.keys(all);
     for (const k of keys.slice(0, Math.max(0, keys.length - MAX_SAVED))) delete all[k];
-    localStorage.setItem(POPS_KEY, JSON.stringify(all));
+    localStorage.setItem(PART_KEYS[field], JSON.stringify(all));
   } catch {
     /* storage full or blocked: the settings just aren't remembered */
   }
 }
 
-// a song's parts are known: bring back its pop-up levels; the person changes one: remember it
+/** the saved values for this song when they fit its parts as they are now */
+function savedPart(field: PartField, key: string, n: number): unknown[] | null {
+  const v = readPart(field)[key];
+  return Array.isArray(v) && v.length === n && v.every(PART_OK[field]) && v.some((x) => x !== null) ? v : null;
+}
+
+let recutting = false;
+/**
+ * Run a split, a combine or an undo of one: the store change it makes carries every per-part setting
+ * already re-indexed, so those are saved as they are (none set means none saved), never read back.
+ */
+export function duringRecut(fn: () => void) {
+  recutting = true;
+  try {
+    fn();
+  } finally {
+    recutting = false;
+  }
+}
+
+// a song's parts are known: bring back its per-part settings; the person changes one: remember it.
+// A split or combine swaps the analysis for a re-cut of the same song: that keeps (and saves) the
+// settings it re-indexed, or, after a reload, finds the ones saved for the re-cut parts.
 useStudio.subscribe((s, prev) => {
   const a = s.analysis;
   if (!a || !s.track) return;
   const key = songKey(s.track.name, a);
+  const n = a.sections.length;
   if (a !== prev.analysis) {
-    const saved = readPops()[key];
-    const ok = Array.isArray(saved) && saved.length === a.sections.length && saved.every((v) => v === null || (typeof v === 'number' && v >= 0 && v <= 3));
-    if (ok && saved.some((v) => v !== null)) s.set({ partPops: saved });
+    const same = !!prev.analysis && originalOf(prev.analysis) === originalOf(a);
+    const patch: Partial<Record<PartField, unknown[] | null>> = {};
+    if (!same) {
+      // a new song: the last song's hand-drawn, words and picked parts go (tracks.ts clears pop-ups)
+      if (s.partHand) patch.partHand = null;
+      if (s.partWords) patch.partWords = null;
+      if (s.selectedParts.length) (patch as { selectedParts?: number[] }).selectedParts = [];
+    }
+    for (const f of FIELDS) {
+      const cur = f in patch ? patch[f] : s[f];
+      if (same && (recutting || (cur && cur.length === n))) writePart(f, key, cur && cur.length === n ? cur : null);
+      else {
+        const saved = savedPart(f, key, n);
+        if (saved) patch[f] = saved;
+      }
+    }
+    if (Object.keys(patch).length) s.set(patch as Partial<typeof s>);
     return;
   }
-  if (s.partPops !== prev.partPops) writePops(key, s.partPops);
+  for (const f of FIELDS) if (s[f] !== prev[f]) writePart(f, key, s[f]);
 });

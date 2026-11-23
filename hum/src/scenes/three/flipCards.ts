@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { FrameContext, ParamDef, SceneDef } from '../../core/types';
 import { num, str } from '../../core/uniforms';
 import { approach, Spring, stepDt } from './common';
-import { currentLyric, dropEdge, FONT_SANS, sectionIndex, songInfo } from './songInfo';
+import { currentLyric, dropEdge, FONT_SANS, partWords, sectionIndex, songInfo } from './songInfo';
 
 const params: ParamDef[] = [
   {
@@ -249,13 +249,17 @@ export const flipCards: SceneDef = {
     };
 
     const sourceWords = (frame: FrameContext): string[] => {
+      // the words the person gave this part win over everything else
+      const own = cleanWords(partWords(frame.audio.time));
+      if (own.length) return own;
       const lyr = currentLyric(frame.audio.time);
       if (lyr) return cleanWords(lyr.text);
       const typed = cleanWords(frame.text || '');
       if (typed.length) return typed;
+      // the song's name (and its artist, when it is really known); the stand-in words only when there is no name at all
       const info = songInfo();
-      const w = [...cleanWords(info.title), ...cleanWords(info.artist)].filter((x) => !/^unknown|^untitled$/i.test(x));
-      return w.length ? [...w, ...FALLBACK.slice(0, 2)] : FALLBACK;
+      const w = [...cleanWords(info.title), ...(info.artistKnown ? cleanWords(info.artist) : [])].filter((x) => !/^untitled$/i.test(x));
+      return w.length ? w : FALLBACK;
     };
     const nextWord = (frame: FrameContext) => {
       if (!queue.length) queue = sourceWords(frame).slice(0, 12);

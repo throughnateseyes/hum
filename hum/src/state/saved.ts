@@ -11,6 +11,7 @@
  */
 import type { ClipAsset, TrackAnalysis } from '../core/types';
 import type { VideoPlan } from './plan';
+import { cutAnalysis } from './planCache';
 import { useStudio } from './store';
 
 const DB_NAME = 'hum';
@@ -160,14 +161,20 @@ export function keepPlanSaved() {
   });
 }
 
-/** The video this song had when the page was last open, if it still fits the song and every look in it still exists */
+/**
+ * The video this song had when the page was last open, if it still fits the song and every look in it
+ * still exists. A plan the person split or combined parts in keeps its part lines (`bounds`): it fits
+ * the fresh analysis cut at those lines, and startPlan (plan.ts) puts that cut on with it.
+ */
 export function recallPlan(name: string, a: TrackAnalysis, lookExists: (id: string) => boolean): VideoPlan | null {
   try {
     const j = JSON.parse(localStorage.getItem(PLAN_KEY) ?? 'null') as { name?: unknown; plan?: VideoPlan } | null;
     const p = j?.plan;
     if (!j || j.name !== name || !p || !Array.isArray(p.looks)) return null;
+    const cut = cutAnalysis(a, p.bounds);
     const ok =
-      p.looks.length === a.sections.length &&
+      !!cut &&
+      p.looks.length === cut.sections.length &&
       Math.abs(p.duration - a.duration) < 0.5 &&
       p.looks.every((id) => !id || lookExists(id)) &&
       (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&

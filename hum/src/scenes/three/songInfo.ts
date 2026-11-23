@@ -10,9 +10,22 @@ import { useStudio } from '../../state/store';
 export interface SongInfo {
   title: string;
   artist: string;
+  /** false when `artist` is only a stand-in ('Unknown artist'): scenes that make words from it skip it */
+  artistKnown: boolean;
 }
 
-const strip = (s: string) => s.replace(/\.[a-z0-9]{2,4}$/i, '').replace(/_/g, ' ').trim();
+/**
+ * A file name made readable: no extension, no underscores, no track number in front, no "(Official
+ * Video)" or "[320kbps]" tags. "03_Pressure (Official Audio).mp3" → "Pressure".
+ */
+export const strip = (s: string) =>
+  s
+    .replace(/\.[a-z0-9]{2,4}$/i, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s*[([][^)\]]*(official|audio|video|lyric|visuali[sz]er|kbps|remaster|hq|hd)[^)\]]*[)\]]/gi, '')
+    .replace(/^\s*\d{1,3}\s*[-.)]?\s+(?=\S)/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 
 export function songInfo(): SongInfo {
   try {
@@ -29,11 +42,43 @@ export function songInfo(): SongInfo {
     }
     if (!artist && s.track?.source === 'demo') artist = 'Hum demo';
     if (!artist && s.track?.source === 'mic') artist = 'Live';
-    return { title: title || 'Untitled', artist: artist || 'Unknown artist' };
+    return { title: title || 'Untitled', artist: artist || 'Unknown artist', artistKnown: !!artist };
   } catch {
-    return { title: 'Untitled', artist: 'Unknown artist' };
+    return { title: 'Untitled', artist: 'Unknown artist', artistKnown: false };
   }
 }
+
+/**
+ * The words the person gave the part playing at `time` (the Part tab's Words field), '' when none.
+ * Only while the video plan plays, as the parts are the plan's.
+ */
+export function partWords(time: number): string {
+  try {
+    const s = useStudio.getState();
+    const secs = s.analysis?.sections;
+    const w = s.partWords;
+    if (!s.planOn || !secs || !w || w.length !== secs.length || s.plan?.looks.length !== secs.length) return '';
+    let i = 0;
+    for (let k = secs.length - 1; k >= 0; k--) {
+      if (time >= secs[k].start) {
+        i = k;
+        break;
+      }
+    }
+    return w[i]?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Looks whose scene writes words of its own (from the frame's text: the part's words, the title text or
+ * the line being sung): the Part tab offers a Words field for these.
+ */
+export function sceneShowsWords(sceneId: string | undefined): boolean {
+  return !!sceneId && (WORD_SCENES.has(sceneId) || sceneId.startsWith('board-'));
+}
+const WORD_SCENES = new Set(['flip-cards', 'undercode', 'ribbon-type', 'text-wall', 'word-drop']);
 
 function syncedLines(): LyricLine[] | null {
   try {
