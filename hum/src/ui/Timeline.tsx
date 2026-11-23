@@ -412,7 +412,10 @@ function ZoomControl({ zoom, max }: { zoom: number; max: number }) {
 
 /* ───────── the section headers ───────── */
 
-/** Intro, Build, Drop…: one header over the parts each section of the song gave (click: pick them all) */
+/**
+ * Intro, Build, Drop…: one header over the parts each section of the song gave (click: pick them all).
+ * Zoomed in, a section's name stays pinned at the left edge of the timeline while any of it is in view.
+ */
 function SectionHeads({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
   const orig = originalOf(a);
   const names = sectionNames(orig.sections);
@@ -443,8 +446,11 @@ function SectionHeads({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
             onClick={() => mine.length && pickParts(mine)}
             onDoubleClick={() => playFrom(sec.start)}
           >
-            <i style={{ background: GROUP_INK[sec.group % GROUP_INK.length] }} />
-            {px >= 30 && <b>{names[j]}</b>}
+            {/* sticky: zoomed in, the name stays at the left edge until its section scrolls away */}
+            <span className="tln-hd-l">
+              <i style={{ background: GROUP_INK[sec.group % GROUP_INK.length] }} />
+              {px >= 30 && <b>{names[j]}</b>}
+            </span>
           </button>
         );
       })}
