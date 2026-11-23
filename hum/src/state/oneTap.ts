@@ -21,7 +21,9 @@
 import { audioEngine } from '../audio/engine';
 import type { TrackAnalysis } from '../core/types';
 import { onFrame } from './live';
+import { putOn } from './flatPlan';
 import { findLook, keepPlan, offlineVideoPlan, requestVideoPlan, savedPlanFor, sectionIndexAt, sectionNames, startPlan, withBase, withLyricsNow, type VideoPlan } from './plan';
+import { originalOf } from './planCache';
 import { recallPlan } from './saved';
 import { useStudio } from './store';
 import { planSignature, rememberPlan } from './taste';
@@ -68,7 +70,11 @@ export async function tapToPlay() {
  */
 export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts: { offline?: boolean } = {}) {
   const my = run;
-  const alive = () => my === run && current() && useStudio.getState().analysis === a;
+  // the playing analysis is the song cut at the video's parts (flatPlan.ts): the same song is alive
+  const alive = () => {
+    const now = useStudio.getState().analysis;
+    return my === run && current() && !!now && originalOf(now) === a;
+  };
   const st = useStudio.getState();
   st.set({ startup: { step: 'plan', since: performance.now(), duration: a.duration } });
 
@@ -76,8 +82,7 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts
   if (opts.offline) {
     const before = recallPlan(st.track?.name ?? '', a, (id) => !!findLook(id));
     if (before) {
-      auto = withBase(before, a);
-      await go(auto, a, `This is the video you had before the page reloaded. ${before.note}`.trim(), false);
+      await go(withBase(before, a), a, `This is the video you had before the page reloaded. ${before.note}`.trim(), false, true);
       return;
     }
   }
@@ -85,17 +90,13 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts
   // a Claude plan made for this song before: play it straight away, nothing else to ask
   const saved = savedPlanFor(a);
   if (saved) {
-    // the plan as it will play (startPlan gives it the base the part sheet tells changes by), so
-    // "still the plan we put on" is an identity check
-    auto = withBase(saved.plan, a);
-    await go(auto, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.plan.note}`.trim(), !opts.offline);
+    await go(withBase(saved.plan, a), a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.plan.note}`.trim(), !opts.offline, true);
     keepPlan(saved.plan, a);
     return;
   }
 
   const offline = withBase(await offlineVideoPlan(a, st.lyrics), a);
   if (!alive()) return;
-  auto = offline;
   // a song brought back after a reload never asks Claude by itself: nobody chose to spend that
   await go(offline, a, opts.offline ? `${offline.note} This is the song from last time, planned here on your computer. Remake video asks Claude for its take.` : `${offline.note} Claude is planning a take of its own in the background; it takes over at a part change if it's ready.`, !opts.offline);
   if (!alive()) return;
@@ -103,9 +104,16 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts
   if (!opts.offline) void upgrade(a, alive);
 }
 
-/** `play` false: the plan goes on but the song waits at the top for a tap (a song brought back by a reload must not start by itself) */
-async function go(plan: VideoPlan, a: TrackAnalysis, text: string, play = true) {
-  await startPlan(plan, a, text, { play });
+/**
+ * `play` false: the plan goes on but the song waits at the top for a tap (a song brought back by a
+ * reload must not start by itself). `restore`: a saved plan, with its own per-part settings. The plan
+ * goes on one look per part (flatPlan.ts), so `auto` is the plan as it plays: "still the plan we put
+ * on" is an identity check.
+ */
+async function go(plan: VideoPlan, a: TrackAnalysis, text: string, play = true, restore = false) {
+  const started = startPlan(plan, a, text, { play, restore });
+  auto = useStudio.getState().plan;
+  await started;
   useStudio.getState().set(play ? { startup: null } : { startup: null, needsTap: true });
 }
 
@@ -129,7 +137,8 @@ function until(ok: (s: ReturnType<typeof useStudio.getState>) => boolean, ms: nu
 async function upgrade(a: TrackAnalysis, alive: () => boolean) {
   await until((s) => s.lyricsStatus !== 'searching', LYRICS_WAIT_MS, alive);
   if (!alive() || useStudio.getState().plan !== auto || !auto) return;
-  const base = auto;
+  // the fallback is the planner's own plan (per section), not its flattened parts
+  const base = auto.flat?.src ?? auto;
   const { plan } = await requestVideoPlan(a, useStudio.getState().lyrics, base, { quiet: true });
   if (!alive() || plan.source !== 'claude') return;
   // saved for next time even if it never plays this time
@@ -153,9 +162,8 @@ function swapAtPartLine(plan: VideoPlan, a: TrackAnalysis, alive: () => boolean)
     const nearLine = i < secs.length - 1 && secs[i].end - t <= SWAP_LEAD;
     if (!fresh && !nearLine) return;
     off();
-    auto = withBase(plan, a);
-    rememberPlan(a, planSignature(auto));
-    s.set({ plan: auto });
+    rememberPlan(a, planSignature(plan));
+    auto = putOn(plan, a).plan;
     const from = fresh ? 0 : i + 1;
     const name = sectionNames(secs)[from] ?? 'the next part';
     s.pushChat({ role: 'director', mode: 'plan', title: plan.title, text: `Claude's plan takes over from ${fresh ? 'the top' : name}. ${plan.note}`, source: 'claude', via: plan.via });
@@ -177,10 +185,10 @@ function followLyrics(a: TrackAnalysis, alive: () => boolean) {
     if (s.lyrics === last) return;
     last = s.lyrics;
     const base = auto;
+    // the planner's plan gets the lyric plan, and is cut into parts again (its shots can land on lines)
     void withLyricsNow(base, a, s.lyrics).then((p) => {
       if (!alive() || useStudio.getState().plan !== base) return;
-      auto = p;
-      useStudio.getState().set({ plan: p });
+      auto = putOn(p, a).plan;
     });
   });
 }

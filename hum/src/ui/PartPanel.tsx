@@ -2,11 +2,13 @@
  * The Part tab of the right panel: everything about the part (or parts) picked on the timeline, or
  * the part that is playing when nothing is picked; with no video plan, a line about the look on screen.
  *
- *   name, time, length     Play this part, Reset, Undo
+ *   name, time, length     which section and shot it is
+ *   Quick picks            the five looks that fit this part best, as pictures: one click (or 1–5) swaps
+ *   actions                Play this part, Like, Reset, Undo
  *   Look                   its picture and name, and its other takes (versions)
- *   Swap the look          the looks that fit this part best, More looks… with a search (PartSheet.tsx)
+ *   More looks             the full Swap the look list, with moods and a search (PartSheet.tsx), folded away
  *   Hand-drawn             As the video / On / Off, for these parts only
- *   Pop-ups                Auto / Off / Few / Lots
+ *   Pop-ups                Auto / Off / Few / Lots, and Shuffle for a different deal of them (popSeed.ts)
  *   Lyrics                 the lyric styles (lyricPlan.ts MEDIUM_CHOICES), parts with words sung only
  *   Words                  what a look that writes text shows here (flip cards, boards, type looks)
  *
@@ -24,8 +26,12 @@ import { sceneShowsWords } from '../scenes/three/songInfo';
 import { activeFinish } from '../state/direction';
 import { onFrame } from '../state/live';
 import { MEDIUM_CHOICES, vocalDensity, type LyricMedium } from '../state/lyricPlan';
-import { onUndoChange, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords, undoLabel, undoPartEdit } from '../state/partEdit';
-import { findLook, listNames, makeVideo, partEdits, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
+import { likePart, onUndoChange, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords, undoLabel, undoPartEdit } from '../state/partEdit';
+import { findLook, listNames, makeVideo, partEdits, partNames, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
+import { parentsOf } from '../state/planCache';
+import { reshufflePops } from '../state/popSeed';
+import type { Preset } from '../core/types';
+import { setQuickPicks } from './shotActions';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { Play } from './Icons';
@@ -120,10 +126,24 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const n = a.sections.length;
   const one = parts.length === 1;
   const i = parts[0];
-  const names = sectionNames(a.sections);
-  const name = one ? names[i] : `${parts.length} parts selected`;
+  const names = partNames(a);
+  const name = one ? sectionNames(a.sections)[i] : `${parts.length} parts selected`;
   const partList = listNames(parts.map((j) => names[j]));
-  const { look, fam } = useRankedLooks(a, i, 'all');
+  const { look, fam, ranked } = useRankedLooks(a, i, 'all');
+  const [moreOpen, setMoreOpen] = useState(false);
+  // which shot of its section this part is (one look per part: flatPlan.ts)
+  const parents = parentsOf(a);
+  const siblings = parents.map((p, k) => (p === parents[i] ? k : -1)).filter((k) => k >= 0);
+  const shotNo = siblings.indexOf(i) + 1;
+  const liked = one && !!plan.liked?.[i];
+  const quick = one ? ranked.slice(0, 5).map((r) => r.take) : [];
+  const quickKey = quick.map((p) => p.id).join(',');
+  // the number keys 1–5 put these in while a part is picked (App.tsx)
+  useEffect(() => {
+    setQuickPicks(quick.length ? { parts, looks: quick } : null);
+    return () => setQuickPicks(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickKey, parts.join(',')]);
   const edits = partEdits(plan, a, partPops, partHand, partWords);
   const anyEdit = parts.some((j) => edits[j]);
   const len = parts.reduce((t, j) => t + a.sections[j].end - a.sections[j].start, 0);
@@ -164,17 +184,31 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         <div className="pp-title">
           <h2>{name}</h2>
           <span className="pp-sub">
-            {one ? `${fmtTime(a.sections[i].start)}–${fmtTime(a.sections[i].end)} · ${Math.round(len)} s` : `${partList} · ${Math.round(len)} s in all`}
+            {one ? `${siblings.length > 1 ? `Shot ${shotNo} of ${siblings.length} · ` : ''}${fmtTime(a.sections[i].start)}–${fmtTime(a.sections[i].end)} · ${Math.round(len)} s` : `${partList} · ${Math.round(len)} s in all`}
             {!picked && ' · playing now'}
           </span>
         </div>
       </div>
+
+      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
 
       <div className="pp-actions">
         <button className="btn sm" onClick={() => playPart(i)} disabled={busy} title={`Jump to ${names[i]} and play it`}>
           <Play width={11} height={11} />
           {one ? 'Play this part' : `Play from ${names[i]}`}
         </button>
+        {one && plan.flat && look && (
+          <button
+            className={`btn sm ghost pp-like ${liked ? 'on' : ''}`}
+            aria-pressed={liked}
+            onClick={() => likePart(i, !liked)}
+            disabled={busy}
+            title={liked ? 'Liked: a skip next to it or a remake leaves it alone. Click to take the like back.' : 'Like this look here: a skip next to it or a remake leaves it alone (K while it plays)'}
+          >
+            <HeartIcon filled={liked} />
+            {liked ? 'Liked' : 'Like'}
+          </button>
+        )}
         {anyEdit && (
           <button className="btn sm ghost" onClick={() => resetParts(parts)} disabled={busy} title={one ? 'Put back what the plan picked for this part' : 'Put back what the plan picked for these parts'}>
             {one ? 'Reset this part' : 'Reset these parts'}
@@ -224,7 +258,16 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         )}
       </section>
 
-      <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />
+      <div className="pp-sec pp-morewrap">
+        <button className="pp-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+          <span className={`pp-caret ${moreOpen ? 'open' : ''}`} aria-hidden>
+            ›
+          </span>
+          {moreOpen ? 'Fewer looks' : one ? 'More looks' : 'Swap the look'}
+          {!moreOpen && <span className="pp-more-h">Every look, by how well it fits, with moods and a search</span>}
+        </button>
+        {moreOpen && <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />}
+      </div>
 
       <section className="pp-sec" aria-labelledby={`${headingId}-hand`}>
         <div className="ps-h">
@@ -247,6 +290,15 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         <div className="ps-h">
           <h3 id={`${headingId}-pop`}>Pop-ups</h3>
           <span>{pops === 'mixed' ? 'Mixed' : planned === 'mixed' ? 'Auto differs by part' : `Auto here is ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`}</span>
+          <button
+            className="btn sm ghost pp-shuffle"
+            disabled={busy || popups === 'off'}
+            onClick={() => reshufflePops(parts)}
+            title={`Deal ${one ? 'this part' : 'these parts'} a different set of pop-ups. They stay the same every time it plays until you shuffle again.`}
+          >
+            <ShuffleIcon />
+            Shuffle
+          </button>
         </div>
         <div className="seg full" role="group" aria-label={`Pop-up windows in ${one ? names[i] : 'these parts'}`}>
           {POP_LEVELS.map((o) => {
@@ -331,5 +383,50 @@ function WordsField({ parts, value, disabled }: { parts: number[]; value: string
       </div>
       <p className="pp-note">This look writes words of its own. What you type here is what it shows in {parts.length > 1 ? 'these parts' : 'this part'}.</p>
     </section>
+  );
+}
+
+/** the five looks that fit the part best, as pictures in a row: one click swaps (1–5 on the keyboard) */
+function QuickPicks({ looks, busy, onPick }: { looks: Preset[]; busy: boolean; onPick: (p: Preset) => void }) {
+  return (
+    <section className="pp-quick" aria-label="Quick picks: looks that fit this part">
+      <div className="ps-h">
+        <h3>Quick picks</h3>
+        <span>Click or press 1–5 to swap</span>
+      </div>
+      <div className="pp-qrow">
+        {looks.map((p, k) => (
+          <button key={p.id} className="pp-q" disabled={busy} onClick={() => onPick(p)} title={`${p.name}: ${p.description} (${k + 1})`} aria-label={`Use ${p.name} (${k + 1})`}>
+            <span className="pp-qpic">
+              <Thumb p={p} />
+              <kbd>{k + 1}</kbd>
+            </span>
+            <span className="pp-qn">{p.name}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 20s-7-4.4-9.2-8.7C1.3 8.2 3 4.8 6.4 4.4c2-.2 3.6.9 4.6 2.5 1-1.6 2.6-2.7 4.6-2.5 3.4.4 5.1 3.8 3.6 6.9C19 15.6 12 20 12 20z"
+        fill={filled ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden>
+      <path d="M2 4h2.5c1.6 0 2.6.8 3.5 2.2l1 1.6c.9 1.4 1.9 2.2 3.5 2.2H14M2 12h2.5c1.2 0 2-.4 2.7-1.2M9.3 5.2C10 4.4 10.8 4 12 4h2M12 2l2 2-2 2M12 8l2 2-2 2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

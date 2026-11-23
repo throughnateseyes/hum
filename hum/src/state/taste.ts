@@ -152,7 +152,14 @@ function lyricNow(): string | undefined {
 
 /* ───────────────────────── recording ───────────────────────── */
 
+/** told about every Keep, learning on or off (a Keep also likes the shot playing: flatPlan.ts) */
+let keepHook: (lookId: string) => void = () => {};
+export function onKeep(fn: (lookId: string) => void) {
+  keepHook = fn;
+}
+
 export function record(kind: TasteKind, lookId: string, label: Label | undefined = labelNow()) {
+  if (kind === 'keep') keepHook(lookId);
   const f = useTaste.getState();
   if (!f.on) return;
   const p = lookById(lookId);
