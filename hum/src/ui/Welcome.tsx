@@ -1,226 +1,82 @@
 /**
- * The start screen: the island that sits on the stage before there's a song.
+ * The start screen: one calm island over a blurred stage, whose only job is to get a song in.
  *
- * Branded with the Hum mark (the blue sphere) sending halftone ripples through a field of glyphs
- * (the blue glyph-mosaic texture the looks use), on a beat of its own so it moves before any music
- * plays. Choosing audio is the one big action; demos, the microphone and a tab are quiet extras.
+ * A plain line says what Hum does, one large target chooses a song (or takes one dropped anywhere on
+ * the page), the two demo songs are a quiet second choice, and the microphone and another tab are
+ * small links at the bottom. The live picture behind is veiled, so the island is what you look at.
+ *
+ * After a reload the song from last time comes back on its own (restoreSession in state/tracks.ts).
+ * That takes a moment, and the start screen must not flash up in between: WelcomeLayer first asks
+ * whether a song was saved, and while one is coming back it shows a short "Bringing back" note.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { DEMO_TRACKS } from '../audio/demoTracks';
+import { recallSong } from '../state/saved';
 import { useStudio } from '../state/store';
-import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from '../state/tracks';
+// useMic and useTab are plain functions, not React hooks: renamed here so the hooks lint reads them right
+import { canListenToTab, handleFiles, loadDemo, useMic as listenToMic, useTab as listenToTab } from '../state/tracks';
 import { BrowserTab, Mic, Upload } from './Icons';
 
-/** the island's own tempo: a relaxed 112 bpm */
-const BEAT = 60 / 112;
-const TAGS = ['sub', 'kick', 'air', 'drop'];
+/** plain-words descriptions of the demo songs (the ids are from audio/demoTracks.ts) */
+const DEMO_LINE: Record<string, string> = {
+  pressure: 'Heavy bass, a big drop',
+  driftwood: 'Slow piano and rain',
+};
 
 export function Welcome() {
-  const card = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLCanvasElement>(null);
-  const mark = useRef<HTMLDivElement>(null);
-  const rings = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  /** 0 → 1: how excited the field is (hovering the button, a file over the page) */
-  const heat = useRef(0);
-  const hot = useRef(false);
-
-  useEffect(() => {
-    const cv = field.current!;
-    const box = card.current!;
-    const ctx = cv.getContext('2d')!;
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let W = 0;
-    let H = 0;
-    const fit = () => {
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      W = box.clientWidth;
-      H = box.clientHeight;
-      cv.width = Math.round(W * dpr);
-      cv.height = Math.round(H * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(box);
-
-    // ripples start at the mark, one per beat
-    const ripples: number[] = [];
-    let beat = -1;
-    let beat2 = -1;
-    const t0 = performance.now();
-    const CELL = 11;
-    // a fixed shape for each cell, so the mosaic reads as glyphs and not noise
-    const hash = (x: number, y: number) => {
-      const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-      return s - Math.floor(s);
-    };
-
-    const draw = (now: number) => {
-      const t = (now - t0) / 1000;
-      const dragging = document.querySelector('.app.dropzone-over') !== null;
-      const want = dragging ? 1 : hot.current ? 0.65 : 0;
-      heat.current += (want - heat.current) * 0.08;
-      const h = heat.current;
-
-      // the beat: tags light in turn, the mark pulses, a ring and a ripple go out
-      const b = Math.floor(t / BEAT);
-      const phase = (t % BEAT) / BEAT;
-      if (b !== beat) {
-        beat = b;
-        box.dataset.tag = String(b % TAGS.length);
-      }
-      // a ripple and a ring only every other beat: it should breathe, not shout
-      if (b !== beat2 && b % 2 === 0) {
-        beat2 = b;
-        ripples.push(t);
-        if (ripples.length > 3) ripples.shift();
-        if (rings.current && !still) {
-          const r = document.createElement('i');
-          rings.current.appendChild(r);
-          window.setTimeout(() => r.remove(), 1400);
-        }
-      }
-      const pulse = Math.exp(-phase * 5) * (b % 2 === 0 ? 1 : 0.4);
-      mark.current?.style.setProperty('--lvl', (pulse * (0.35 + h * 0.5)).toFixed(3));
-      box.style.setProperty('--pulse', pulse.toFixed(3));
-
-      // the mark's centre, in the card's space
-      const mr = mark.current?.getBoundingClientRect();
-      const cr = box.getBoundingClientRect();
-      const mx = mr ? mr.left - cr.left + mr.width / 2 : W - 60;
-      const my = mr ? mr.top - cr.top + mr.height / 2 : 50;
-      // the field lives in the band above the button, so the small print stays on clean paper
-      const btn = box.querySelector('.wl-choose')?.getBoundingClientRect();
-      const floor = btn ? btn.top - cr.top + btn.height * 0.5 : H * 0.55;
-
-      ctx.clearRect(0, 0, W, H);
-      const reach = Math.hypot(W, H) * (0.4 + h * 0.3);
-      for (let y = CELL / 2; y < floor; y += CELL) {
-        const band = Math.min(1, (floor - y) / 34);
-        for (let x = CELL / 2; x < W; x += CELL) {
-          const d = Math.hypot(x - mx, y - my);
-          if (d > reach) continue;
-          // falls off away from the mark, so the words stay on clean paper
-          const fall = Math.max(0, 1 - d / reach);
-          let v = 0.3 + 0.3 * Math.sin(x * 0.045 + t * 0.5) * Math.cos(y * 0.06 - t * 0.35);
-          for (const rt of ripples) {
-            const r = (t - rt) * 170;
-            const age = Math.max(0, 1 - (t - rt) / 2.4);
-            v += Math.exp(-(((d - r) / 18) ** 2)) * 0.5 * age;
-          }
-          v = Math.min(1, v * (0.5 + h * 0.7)) * fall * fall * band;
-          if (v < 0.08) continue;
-          const k = hash(x, y);
-          const s = CELL * (0.18 + v * 0.42);
-          ctx.fillStyle = `rgba(47, 75, 255, ${((0.18 + v * 0.5) * (1 + h * 0.6)).toFixed(3)})`;
-          ctx.strokeStyle = ctx.fillStyle;
-          ctx.lineWidth = 1.4;
-          if (h > 0.5 && v > 0.62 && k > 0.45) {
-            ctx.fillRect(x - s, y - s, s * 2, s * 2); // solid tile
-          } else if (k < 0.34) {
-            ctx.beginPath(); // plus
-            ctx.moveTo(x - s, y);
-            ctx.lineTo(x + s, y);
-            ctx.moveTo(x, y - s);
-            ctx.lineTo(x, y + s);
-            ctx.stroke();
-          } else if (k < 0.6) {
-            ctx.beginPath(); // cross
-            ctx.moveTo(x - s * 0.8, y - s * 0.8);
-            ctx.lineTo(x + s * 0.8, y + s * 0.8);
-            ctx.moveTo(x + s * 0.8, y - s * 0.8);
-            ctx.lineTo(x - s * 0.8, y + s * 0.8);
-            ctx.stroke();
-          } else {
-            ctx.beginPath(); // dot
-            ctx.arc(x, y, s * 0.75, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-    };
-
-    let raf = 0;
-    if (still) draw(t0 + 600);
-    else {
-      const loop = (now: number) => {
-        raf = requestAnimationFrame(loop);
-        if (document.hidden) return;
-        draw(now);
-      };
-      raf = requestAnimationFrame(loop);
-    }
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
-  }, []);
+  const tab = canListenToTab();
 
   return (
-    <div className="welcome" ref={card}>
-      <canvas className="wl-field" ref={field} aria-hidden />
-      <div className="wl-grain" aria-hidden />
-
-      <div className="wl-head">
-        <div>
-          <h2 className="wl-word">hum</h2>
-          <p className="wl-tags" aria-label="Hum listens for the sub, the kick, the air and the drop, then paints with them">
-            <span>listens for the</span>
-            {TAGS.map((t, i) => (
-              <b key={t} data-i={i}>
-                {t}
-              </b>
-            ))}
-          </p>
-        </div>
-        <div className="wl-mark" aria-hidden>
-          <div className="wl-rings" ref={rings} />
-          <div className="ld-ball wl-ball" ref={mark} />
-        </div>
-      </div>
+    <section className="welcome" aria-labelledby="wl-title">
+      <h2 className="wl-title" id="wl-title">
+        Turn any song into a music video
+      </h2>
+      <p className="wl-lede">Hum listens to your song and makes a video that moves with it. Change any part you like, then save it.</p>
 
       <button
-        className="wl-choose"
+        className="wl-drop"
         onClick={() => {
           // this tap is the gesture that lets the song play once it's planned (the picker's own
           // change event doesn't count as one on iPhone)
           audioEngine.unlock();
           input.current?.click();
         }}
-        onPointerEnter={() => (hot.current = true)}
-        onPointerLeave={() => (hot.current = false)}
-        onFocus={() => (hot.current = true)}
-        onBlur={() => (hot.current = false)}
+        aria-describedby="wl-drop-hint"
       >
-        <span className="wl-eq" aria-hidden>
-          {Array.from({ length: 7 }, (_, i) => (
-            <i key={i} style={{ animationDelay: `${(-i * 0.13).toFixed(2)}s` }} />
-          ))}
+        <span className="wl-drop-icon" aria-hidden>
+          <Upload width={20} height={20} />
         </span>
-        <span className="wl-label">
-          <b>Choose audio</b>
-          <span className="wl-drag">Let go to play it</span>
+        <span className="wl-drop-btn">Choose a song</span>
+        <span className="wl-drop-hint" id="wl-drop-hint">
+          <span className="wl-idle">or drop one anywhere on this page</span>
+          <span className="wl-over">Let go to use it</span>
         </span>
-        <Upload width={18} height={18} className="wl-up" />
       </button>
-      <p className="wl-hint">or drop a song anywhere · mp3, wav, m4a, flac, even a music video</p>
+      <p className="wl-also">MP3, WAV, M4A, FLAC or a music video. Video clips and photos can be dropped in too.</p>
 
-      <div className="wl-more">
-        <span className="wl-more-h">Try</span>
-        {DEMO_TRACKS.map((d) => (
-          <button key={d.id} className="wl-chip has-tip" data-tip={d.description} onClick={() => void loadDemo(d.id)}>
-            {d.name}
-          </button>
-        ))}
-        <span className="wl-gap" />
-        <button className="wl-chip ghost" onClick={() => void useMic()} aria-label="Use the microphone">
-          <Mic width={13} height={13} /> Mic
+      <div className="wl-demos" role="group" aria-labelledby="wl-demos-h">
+        <span className="wl-demos-h" id="wl-demos-h">
+          No song to hand? Try one of ours
+        </span>
+        <div className="wl-demo-row">
+          {DEMO_TRACKS.map((d) => (
+            <button key={d.id} className="wl-demo" onClick={() => void loadDemo(d.id)}>
+              <b>{d.name}</b>
+              <span>{DEMO_LINE[d.id] ?? d.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="wl-other">
+        <button className="wl-link" onClick={() => void listenToMic()}>
+          <Mic width={14} height={14} aria-hidden /> Use the microphone
         </button>
-        {canListenToTab() && (
-          <button className="wl-chip ghost has-tip" data-tip="A song playing in another tab" onClick={() => void useTab()} aria-label="Listen to a tab">
-            <BrowserTab width={13} height={13} /> Tab
+        {tab && (
+          <button className="wl-link" onClick={() => void listenToTab()} title="Hum listens to a song playing in another browser tab">
+            <BrowserTab width={14} height={14} aria-hidden /> Listen to another tab
           </button>
         )}
       </div>
@@ -236,17 +92,62 @@ export function Welcome() {
           e.target.value = '';
         }}
       />
-    </div>
+    </section>
   );
 }
+
+/** what the start-up check found: still asking, a saved song is coming back, or nothing was saved */
+type Boot = 'asking' | 'restoring' | 'none';
+/** the check runs once per page load; after that (a song closed, say) the start screen shows at once */
+let bootSeen: Boot | null = null;
+let bootName = '';
+/** if a saved song hasn't appeared by now, something went wrong: show the start screen after all */
+const RESTORE_GIVE_UP_MS = 9000;
 
 /** the start screen only shows before there's a song */
 export function WelcomeLayer() {
   const track = useStudio((s) => s.track);
+  const [boot, setBoot] = useState<Boot>(bootSeen === 'none' ? 'none' : 'asking');
+
+  useEffect(() => {
+    if (bootSeen === 'none') return;
+    let alive = true;
+    const done = () => {
+      bootSeen = 'none';
+      if (alive) setBoot('none');
+    };
+    void recallSong().then((song) => {
+      if (!alive) return;
+      if (!song) return done();
+      bootName = song.name;
+      bootSeen = 'restoring';
+      setBoot('restoring');
+    }, done);
+    const giveUp = window.setTimeout(done, RESTORE_GIVE_UP_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(giveUp);
+    };
+  }, []);
+
+  // a song is in: from here on the start screen is the plain one
+  useEffect(() => {
+    if (track) bootSeen = 'none';
+  }, [track]);
+
   if (track) return null;
   return (
-    <div className="empty">
-      <Welcome />
+    <div className="empty wl-layer">
+      <div className="wl-veil" aria-hidden />
+      {boot === 'none' && <Welcome />}
+      {boot === 'restoring' && (
+        <div className="wl-back" role="status">
+          <span className="spin" aria-hidden />
+          <span>
+            Bringing back <b>{bootName || 'your song'}</b>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
