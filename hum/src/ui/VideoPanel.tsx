@@ -9,7 +9,8 @@ import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
 import { forgetAccessCode, learnNeed, openAccessGate, useAccessGate } from '../director/access';
-import { LADDER, quality as governor } from '../render/quality';
+import { quality as governor } from '../render/quality';
+import { perfReport, perfSummary } from '../render/perfReport';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
@@ -343,7 +344,7 @@ function MoreSection() {
   // the quality governor (src/render/quality.ts) easing off right now; re-renders only when that changes
   const easing = useSyncExternalStore(
     (f) => governor.subscribe(f),
-    () => governor.current() !== LADDER[0],
+    () => governor.easing,
   );
   return (
     <Section id="video.more" title="More" collapsible defaultOpen={false}>
@@ -356,9 +357,50 @@ function MoreSection() {
       >
         <Slider value={quality} min={0.4} max={1} step={0.05} onChange={(v) => set({ quality: v })} />
       </Field>
+      <PerformanceRow />
       <AccessCodeRow />
       <TasteGroup />
     </Section>
+  );
+}
+
+/**
+ * How the picture is running on this computer, in three lines, and the full report to copy and send
+ * (src/render/perfReport.ts). Refreshes once a second, only while More is open.
+ */
+function PerformanceRow() {
+  const [lines, setLines] = useState(perfSummary);
+  const [copied, setCopied] = useState<'' | 'ok' | 'fail'>('');
+  useEffect(() => {
+    const id = window.setInterval(() => setLines(perfSummary()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const copy = async () => {
+    const text = perfReport();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied('ok');
+    } catch {
+      // no clipboard permission: put the report in a window the person can copy from
+      window.prompt('Copy this report:', text);
+      setCopied('fail');
+    }
+    window.setTimeout(() => setCopied(''), 2500);
+  };
+  return (
+    <Field label="Performance" tip="How smoothly Hum is drawing on this computer. If it stutters, play the song for a minute, press Copy report and send it to us.">
+      <div className="field-note" style={{ marginTop: 0 }}>
+        {lines.map((l, i) => (
+          <div key={i}>{l}</div>
+        ))}
+      </div>
+      <div className="code-row">
+        <span className="spacer" />
+        <button className="btn sm ghost" onClick={copy}>
+          {copied === 'ok' ? 'Copied' : 'Copy report'}
+        </button>
+      </div>
+    </Field>
   );
 }
 

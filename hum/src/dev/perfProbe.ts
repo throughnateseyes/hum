@@ -286,6 +286,9 @@ export function openWindows(k = 2) {
   for (let i = 0; i < k; i++) sw.queue.push({ at: now + i * 0.05, trail: true });
 }
 
+/** the same plain-text report as Video › More › Performance › Copy report */
+export { perfReport as report } from '../render/perfReport';
+
 /** set up the busy moment on look `id` (and leave it running, to watch the quality governor work) */
 export function busy(id = 'prism-pearl') {
   const s = useStudio.getState();

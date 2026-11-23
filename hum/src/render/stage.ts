@@ -15,7 +15,7 @@ import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { useStudio, type StudioState } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
-import { planTick, popLevelAt } from '../state/plan';
+import { findLook, planShots, planTick, popLevelAt, shotIndexAt, validPlan } from '../state/plan';
 import { FxChain } from './fxChain';
 import { LyricLayer } from './lyricLayer';
 import { NO_KEEP_OUT } from './legibility';
@@ -29,6 +29,8 @@ import { live as liveState } from '../state/live';
 import type { HandStyle } from '../core/types';
 import { FULL, quality, type QualityRung } from './quality';
 import { dryRun, warmEffects } from './warmup';
+import { perfMonitor } from './perfMonitor';
+import { maybeShowOverlay, maybeShowSoftwareNote } from './perfReport';
 
 THREE.ColorManagement.enabled = false;
 
@@ -136,6 +138,8 @@ interface FrameStep {
 
 /** how long a render waits for one scene's prepare (real ms) before drawing the frame without it */
 const PREPARE_TIMEOUT_MS = 4000;
+/** how far ahead of a cut the next look starts compiling (see Stage.lookAhead) */
+const LOOK_AHEAD_S = 7;
 
 const BREATHES = new Set<TransitionId>(TRANSITIONS.filter((t) => t.breathes).map((t) => t.id));
 const tmpColor = new THREE.Color();
@@ -221,6 +225,10 @@ export class Stage {
     renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     renderer.autoClear = true;
     this.renderer = renderer;
+    // what this machine is, counted from here on (Video › More › Performance), and its remembered detail level
+    perfMonitor.attach(renderer);
+    maybeShowSoftwareNote();
+    maybeShowOverlay();
 
     const spectrumTex = new THREE.DataTexture(new Float32Array(128 * 4), 128, 1, THREE.RGBAFormat, THREE.FloatType);
     spectrumTex.magFilter = spectrumTex.minFilter = THREE.LinearFilter;
@@ -293,6 +301,8 @@ export class Stage {
         useStudio.getState().set({ shaderError: msg.slice(0, 1200) });
       }
     };
+    // start at the governor's level for this machine (not full detail), so the first layout is already the right size
+    this.applyRung();
   }
 
   private css = { w: 2, h: 2 };
@@ -318,8 +328,13 @@ export class Stage {
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(w, h, false);
     } else {
+      // the screen's own pixels (capped at devicePixelRatio 2, times the Render quality ceiling), then
+      // the governor's pixel budget: a 4K monitor draws ~1080p by default and the browser scales it up
       const q = useStudio.getState().quality;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2) * q;
+      const screenDpr = Math.min(window.devicePixelRatio || 1, 2) * q;
+      const screenPx = cssW * screenDpr * cssH * screenDpr;
+      quality.setScreen(screenPx);
+      const dpr = screenPx > this.rung.maxPx ? screenDpr * Math.sqrt(this.rung.maxPx / screenPx) : screenDpr;
       this.renderer.setPixelRatio(dpr);
       this.renderer.setSize(cssW, cssH, false);
       w = Math.max(2, Math.round(cssW * dpr));
@@ -333,6 +348,17 @@ export class Stage {
     if (w === this.width && h === this.height && sw === this.sceneW && sh === this.sceneH && fw === this.fxW && fh === this.fxH) return;
     this.width = w;
     this.height = h;
+    // MSAA on the look's target: ×4 when it's small, ×2 around 1080p, none past that (the pixels are
+    // small enough already, and on Direct3D the multisampled target and its resolve cost bandwidth on
+    // every frame). A render at a fixed output size keeps ×4, so exports look as they always have.
+    const px = sw * sh;
+    const samples = this.outSize ? 4 : px <= 1.05e6 ? 4 : px <= 2.4e6 ? 2 : 0;
+    if (samples !== this.sceneRT.samples) {
+      for (const rt of [this.sceneRT, this.prevRT]) {
+        rt.dispose();
+        rt.samples = samples;
+      }
+    }
     this.sceneW = sw;
     this.sceneH = sh;
     this.fxW = fw;
@@ -363,7 +389,7 @@ export class Stage {
   private applyRung() {
     const want = this.outSize && quality.forced === null ? FULL : quality.current();
     if (want === this.rung) return;
-    const resize = want.sceneScale !== this.rung.sceneScale || want.fxAtSceneScale !== this.rung.fxAtSceneScale;
+    const resize = want.maxPx !== this.rung.maxPx || want.sceneScale !== this.rung.sceneScale || want.fxAtSceneScale !== this.rung.fxAtSceneScale;
     this.rung = want;
     this.sceneWindows.cap = want.windows;
     this.sceneWindows.effects = want.windowFx;
@@ -388,13 +414,52 @@ export class Stage {
   }
 
   start() {
+    let lastRaf = -1;
+    let lastDraw = -1e9;
     const loop = (now: number) => {
       this.raf = requestAnimationFrame(loop);
+      if (lastRaf >= 0) quality.refreshSample(now - lastRaf);
+      lastRaf = now;
+      // a 120/144/240 Hz screen calls us that often: draw about 60 pictures a second (every 2nd, 3rd
+      // or 4th refresh), not a full frame on every one. Drawn/Choppy frames still hold inside that.
+      const every = quality.drawEvery;
+      if (every > 1) {
+        const ri = 1000 / quality.refreshHz;
+        if (now - lastDraw < every * ri - ri / 2) {
+          perfMonitor.skip();
+          return;
+        }
+      }
+      lastDraw = now;
       // only frames shown on screen teach the quality governor (not captures or offline renders)
       quality.sample(now);
+      const t0 = performance.now();
       this.tick();
+      perfMonitor.frame(now, performance.now() - t0);
     };
     this.raf = requestAnimationFrame(loop);
+  }
+
+  /**
+   * Start compiling the next shot's look LOOK_AHEAD_S before its cut (the song map itself asks 2.5 s
+   * ahead). On Windows the browser translates every shader to Direct3D, and a big raymarching shader
+   * can take seconds there; started this early, the background compile is done before the cut instead
+   * of the cut frame waiting for the rest of it. Checked twice a second.
+   */
+  private lookAhead(audio: AudioFrame) {
+    if (!audio.playing || this.frameNo % 30) return;
+    const s = useStudio.getState();
+    if (!s.planOn || !s.plan || !s.analysis || !validPlan(s.plan, s.analysis)) return;
+    const shots = planShots(s.plan, s.analysis, s.pace, s.lyrics);
+    const next = shots[shotIndexAt(shots, audio.time) + 1];
+    if (!next || next.t - audio.time > LOOK_AHEAD_S) return;
+    const nl = findLook(next.lookId);
+    if (nl && nl.id !== s.presetId && this.warm?.id !== nl.sceneId) this.prewarm(nl.sceneId, nl.effects);
+  }
+
+  /** the look's render target size and MSAA (for the performance report) */
+  sceneSize() {
+    return { w: this.sceneW, h: this.sceneH, samples: this.sceneRT.samples };
   }
 
   stop() {
@@ -528,7 +593,7 @@ export class Stage {
     this.warm?.inst.dispose();
     this.warm = null;
     try {
-      this.warm = { id, def, inst: def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared }), born: this.clockNow, params: {} };
+      this.warm = { id, def, inst: perfMonitor.during(`${id} (ahead)`, () => def.create({ renderer: this.renderer, width: this.sceneW, height: this.sceneH, shared: this.shared })), born: this.clockNow, params: {} };
       this.warmFresh = true;
     } catch (e) {
       console.warn('[hum] prewarm failed', e);
@@ -543,7 +608,7 @@ export class Stage {
     const key = defs.map((d) => d.id).join(',');
     if (this.fxWarm?.key === key) return;
     this.fxWarm?.dispose();
-    this.fxWarm = defs.length ? { key, dispose: warmEffects(this.renderer, this.shared, defs, this.mixRT).dispose } : null;
+    this.fxWarm = defs.length ? { key, dispose: perfMonitor.during(`effects ${key} (ahead)`, () => warmEffects(this.renderer, this.shared, defs, this.mixRT)).dispose } : null;
   }
 
   /** a new instance of scene `id` (the prewarmed one when it matches) */
@@ -768,6 +833,7 @@ export class Stage {
     const raw = o ? o.audio : audioEngine.update(dt);
     autopilotTick(raw);
     planTick(raw);
+    if (!o) this.lookAhead(raw);
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
     const s = useStudio.getState();
     // the finish follows the part being drawn (a part can be set hand-drawn or not on its own)
@@ -854,7 +920,7 @@ export class Stage {
       const defaults: ParamValues = {};
       for (const d of warm.def.params) defaults[d.id] = d.default;
       r.setRenderTarget(this.prevRT);
-      void dryRun(r, () => warm.inst.render({ ...base, width: this.sceneW, height: this.sceneH, params: defaults }, this.prevRT));
+      void perfMonitor.during(`${warm.id} (ahead)`, () => dryRun(r, () => warm.inst.render({ ...base, width: this.sceneW, height: this.sceneH, params: defaults }, this.prevRT)));
     }
 
     o?.phase?.('scene');
