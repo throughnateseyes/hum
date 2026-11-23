@@ -60,6 +60,23 @@ function suits(sec: TrackSection): StyleId[] {
 }
 
 /**
+ * The style for one shot of a section, when every shot is a part of its own (src/shot/run.ts). A fixed
+ * choice is used as it is. 'auto' picks from what suits the section, never the style of the footage
+ * shot before (`prev`). The pick comes from the section's group and the shot's place in it, so a chorus
+ * that comes back opens on the style it had the first time.
+ */
+export function styleForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: StyleId | ''): StyleId {
+  if (isStyle(choice)) return choice;
+  const list = suits(sec).filter((s) => s !== prev);
+  if (!list.length) return prev === 'caption' ? 'window' : 'caption';
+  let h = (Math.floor(seed) * 374761393 + sec.group * 668265263 + k * 2246822519) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  // the best fit comes up twice as often as the others
+  const r = ((h ^ (h >>> 16)) >>> 0) % (list.length + 1);
+  return list[r === list.length ? 0 : r];
+}
+
+/**
  * The style for part `index` of the song. A fixed choice is used as it is; 'auto' picks from what
  * suits the part, moved round by the seed, never repeating the part before. Parts that sound alike
  * (the same group) get the same style, so a chorus comes back looking like itself.

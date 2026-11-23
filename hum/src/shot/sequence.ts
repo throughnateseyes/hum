@@ -42,6 +42,18 @@ export interface Shot {
   /** a whole number for this shot's arrangement within its style (from the seed) */
   layout: number;
   word: string;
+  /**
+   * Set when the shot's stretch of its clip was decided across the whole song (src/shot/run.ts): the
+   * second of the clip it starts on, and how fast the clip runs against the speed curve (1, or slower
+   * when the clip is too short for the shot). Unset: planFootage shares each clip out within the run.
+   */
+  clipFrom?: number;
+  clipRate?: number;
+  /** a second clip shown in some of the style's regions (Split), by footage index, and where it starts */
+  alt?: number;
+  altFrom?: number;
+  /** the second clip is the shot's own clip opened a second time (there is only one clip) */
+  altEcho?: boolean;
 }
 
 export interface Sequence {
@@ -231,6 +243,8 @@ export interface ShotCurve {
   freeze: number;
   /** the clip is shown mirrored (it was needed twice and is too short to cut somewhere new) */
   flip: boolean;
+  /** which second of the second clip is on screen (a shot with one; otherwise the same as footage) */
+  alt(t: number): number;
 }
 
 function speedOf(shot: Shot, seq: Sequence, freeze: number) {
@@ -250,22 +264,40 @@ function speedOf(shot: Shot, seq: Sequence, freeze: number) {
   };
 }
 
+/** a shot's speed curve, summed: sum[i] is the clip seconds used in the shot's first i steps */
+interface Table {
+  shot: Shot;
+  freeze: number;
+  speed: (t: number) => number;
+  sum: Float32Array;
+  n: number;
+}
+
+function tableOf(shot: Shot, seq: Sequence): Table {
+  const freeze = shot.arrive === 'hit' ? Math.min(0.14, seq.beat * 0.3) : 0;
+  const speed = speedOf(shot, seq, freeze);
+  const n = Math.max(1, Math.ceil((shot.end - shot.start) / STEP));
+  const sum = new Float32Array(n + 1);
+  for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + speed(shot.start + (i + 0.5) * STEP) * STEP;
+  return { shot, freeze, speed, sum, n };
+}
+
+/** the seconds of clip a footage shot plays through (before any slowing for a short clip) */
+export function footageNeed(seq: Sequence, shot: Shot): number {
+  const tab = tableOf(shot, seq);
+  return tab.sum[tab.n];
+}
+
 /**
  * Speed curves for every shot, and for the footage shots a stretch of a clip each. `clips` are the
- * clip lengths in seconds (at least one; shots take them in turn). Two shots on the same clip get
- * separate stretches of it when it is long enough; otherwise the clip runs slower and the later shot
- * shows it mirrored.
+ * clip lengths in seconds (at least one; shots take them in turn). A shot whose stretch was decided
+ * across the whole song (clipFrom, see src/shot/run.ts) keeps it. Otherwise two shots on the same clip
+ * get separate stretches of it when it is long enough; if not, the clip runs slower and the later
+ * shot shows it mirrored.
  */
 export function planFootage(seq: Sequence, clips: number[]): ShotCurve[] {
-  const tables = seq.shots.map((shot) => {
-    const freeze = shot.arrive === 'hit' ? Math.min(0.14, seq.beat * 0.3) : 0;
-    const speed = speedOf(shot, seq, freeze);
-    const n = Math.max(1, Math.ceil((shot.end - shot.start) / STEP));
-    const sum = new Float32Array(n + 1);
-    for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + speed(shot.start + (i + 0.5) * STEP) * STEP;
-    return { shot, freeze, speed, sum, n };
-  });
-  const read = (tab: (typeof tables)[number], t: number) => {
+  const tables = seq.shots.map((shot) => tableOf(shot, seq));
+  const read = (tab: Table, t: number) => {
     const x = (Math.min(tab.shot.end, Math.max(tab.shot.start, t)) - tab.shot.start) / STEP;
     const i = Math.min(tab.n - 1, Math.max(0, Math.floor(x)));
     return tab.sum[i] + (tab.sum[i + 1] - tab.sum[i]) * clamp01(x - i);
@@ -273,9 +305,9 @@ export function planFootage(seq: Sequence, clips: number[]): ShotCurve[] {
 
   // which shots share each clip, in order
   const count = Math.max(1, clips.length);
-  const users = new Map<number, (typeof tables)[number][]>();
+  const users = new Map<number, Table[]>();
   for (const tab of tables) {
-    if (tab.shot.kind !== 'footage') continue;
+    if (tab.shot.kind !== 'footage' || tab.shot.clipFrom !== undefined) continue;
     const c = tab.shot.footageIndex % count;
     users.set(c, [...(users.get(c) ?? []), tab]);
   }
@@ -294,11 +326,14 @@ export function planFootage(seq: Sequence, clips: number[]): ShotCurve[] {
   }
 
   return tables.map((tab) => {
-    const p = place.get(tab.shot) ?? { from: 0, k: 1, flip: false };
+    const { shot } = tab;
+    const p = shot.clipFrom !== undefined ? { from: shot.clipFrom, k: shot.clipRate ?? 1, flip: false } : (place.get(shot) ?? { from: 0, k: 1, flip: false });
+    const altFrom = shot.altFrom ?? p.from;
     return {
       speed: tab.speed,
       rate: (t) => tab.speed(t) * p.k,
       footage: (t) => p.from + read(tab, t) * p.k,
+      alt: (t) => altFrom + read(tab, t) * p.k,
       freeze: tab.freeze,
       flip: p.flip,
     };
