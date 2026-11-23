@@ -118,6 +118,12 @@ export interface QualityEvent {
 type Listener = () => void;
 
 const STORE_KEY = 'hum.quality.v2';
+/** what is kept per graphics card: the level it settled at, and climbs that failed twice on a screen of `px` pixels */
+interface Remembered {
+  level: number;
+  blocked: number[];
+  px: number;
+}
 
 export class QualityGovernor {
   level = START_LEVEL;
@@ -135,12 +141,17 @@ export class QualityGovernor {
   private calmSince = -1;
   private upWait = TUNING.upWait;
   private probeAt = -1e9;
+  /** the rung the last climb went to, and how often a climb to each rung has had to come back down */
+  private probeTo = -1;
+  private fails = new Map<number, number>();
   private listeners = new Set<Listener>();
   /** the screen's own pixel count at the "Render quality" ceiling (set by the stage on every resize) */
   private screenPx = Infinity;
   /** the graphics card, so a remembered level belongs to this machine */
   private machine = '';
   private saved = -1;
+  private remembered: Remembered | null = null;
+  private blockedChanged = false;
   /** display refresh, measured from the animation loop's own intervals */
   private raw = new Float32Array(120);
   private rawN = 0;
@@ -191,7 +202,12 @@ export class QualityGovernor {
 
   /** the stage tells us how many pixels the screen itself would take, so equal rungs can be skipped */
   setScreen(px: number) {
+    // a different screen (moved to another monitor, a resize) may have room for rungs that failed here
+    if (px !== this.screenPx) this.fails.clear();
     this.screenPx = px;
+    // climbs that failed last visit on a screen this size aren't tried again
+    const r = this.remembered;
+    if (r && r.px > 0 && Math.abs(r.px - px) / px < 0.1) for (const k of r.blocked) this.fails.set(k, 2);
   }
 
   /** the graphics card's name: start where this machine settled last time */
@@ -199,8 +215,9 @@ export class QualityGovernor {
     if (this.machine === name) return;
     this.machine = name;
     try {
-      const all = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Record<string, number>;
-      const lv = all[name];
+      const rec = (JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Record<string, Remembered>)[name];
+      const lv = rec?.level;
+      if (rec && Array.isArray(rec.blocked)) this.remembered = rec;
       if (typeof lv === 'number' && lv >= 0 && lv <= TOP) {
         this.level = this.saved = lv;
         this.startedFrom = `remembered for this machine: rung ${lv}`;
@@ -266,7 +283,7 @@ export class QualityGovernor {
       return;
     }
     this.push(dt);
-    if (this.level !== this.saved && now - this.changedAt > TUNING.settle) this.remember();
+    if ((this.level !== this.saved || this.blockedChanged) && now - this.changedAt > TUNING.settle) this.remember();
     if (this.n < TUNING.window / 2) return;
     this.decide(now);
   }
@@ -291,9 +308,15 @@ export class QualityGovernor {
   }
 
   /** the next rung down (or up) that draws something different here, or -1 */
-  private step(dir: 1 | -1): number {
-    const here = this.sig(this.level);
-    for (let k = this.level + dir; k >= 0 && k <= TOP; k += dir) if (this.sig(k) !== here) return dir > 0 ? k : this.topOfGroup(k);
+  private step(dir: 1 | -1, from = this.level): number {
+    const here = this.sig(from);
+    for (let k = from + dir; k >= 0 && k <= TOP; k += dir) {
+      if (this.sig(k) === here) continue;
+      if (dir > 0) return k;
+      const up = this.topOfGroup(k);
+      // a rung that has failed twice this session isn't tried again (each try is two seconds of stutter)
+      return (this.fails.get(up) ?? 0) >= 2 ? -1 : up;
+    }
     return -1;
   }
 
@@ -311,10 +334,20 @@ export class QualityGovernor {
     const slow = late > TUNING.lateShare || avg > target * TUNING.slowAvg;
     if (slow) {
       this.calmSince = -1;
-      const next = this.step(1);
+      // far too slow (a weak GPU on a big screen): skip a rung, so the first seconds don't stutter for long
+      let next = this.step(1);
+      const failedClimb = now - this.probeAt < TUNING.probeGrace;
+      if (next >= 0 && avg > target * 2 && !failedClimb) next = Math.max(next, this.step(1, next));
       if (next >= 0 && now - this.changedAt > TUNING.downCooldown) {
         // a rung up that didn't hold: wait twice as long before the next try
-        if (now - this.probeAt < TUNING.probeGrace) this.upWait = Math.min(TUNING.upWaitMax, this.upWait * 2);
+        if (failedClimb) {
+          this.upWait = Math.min(TUNING.upWaitMax, this.upWait * 2);
+          if (this.probeTo === this.level) {
+            const n = (this.fails.get(this.level) ?? 0) + 1;
+            this.fails.set(this.level, n);
+            if (n === 2) this.blockedChanged = true;
+          }
+        }
         this.probeAt = -1e9;
         this.set(next, `frames late (avg ${avg.toFixed(1)} ms vs ${target.toFixed(1)}, ${Math.round(late * 100)}% late)`, now, avg, late);
       }
@@ -334,16 +367,19 @@ export class QualityGovernor {
     const up = this.step(-1);
     if (up >= 0 && now - this.calmSince >= this.upWait && now - this.changedAt >= this.upWait) {
       this.probeAt = now;
+      this.probeTo = up;
       this.set(up, `room to spare (avg ${avg.toFixed(1)} ms)`, now, avg, late);
     }
   }
 
   private remember() {
     this.saved = this.level;
+    this.blockedChanged = false;
     if (!this.machine) return;
     try {
-      const all = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Record<string, number>;
-      all[this.machine] = this.level;
+      const all = JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Record<string, Remembered>;
+      const blocked = [...this.fails].filter(([, n]) => n >= 2).map(([k]) => k);
+      all[this.machine] = { level: this.level, blocked, px: this.screenPx === Infinity ? 0 : Math.round(this.screenPx) };
       localStorage.setItem(STORE_KEY, JSON.stringify(all));
     } catch {
       /* storage blocked: it just starts at 1080p next time */
