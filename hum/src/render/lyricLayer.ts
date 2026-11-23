@@ -11,6 +11,7 @@ import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProf
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
 import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
+import { PlaceMemo, frameHigh, slotCost, slots, turnedBox, turnedRect, type Slot, type SlotId } from './lyricPlace';
 import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type TypeKit } from './typeKits';
 import type { FinishId } from '../core/direction';
 import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
@@ -155,6 +156,8 @@ const giantSpot = (portrait: boolean, right: boolean): Spot =>
     ? { r: { x0: 0.07, y0: 0.38, x1: 0.93, y1: 0.74 }, align: right ? 'right' : 'left', anchor: 'bottom' }
     : { r: { x0: 0.07, y0: 0.36, x1: 0.93, y1: 0.84 }, align: right ? 'right' : 'left', anchor: 'bottom' };
 
+const SLOT_NAME: Record<SlotId, string> = { lowL: 'lower left', lowR: 'lower right', sideL: 'up the left side', sideR: 'up the right side', top: 'across the top' };
+
 /** clamp a box below SAFE_TOP (a guard: every box above already is) */
 const safe = (r: Rect): Rect => (r.y0 >= SAFE_TOP ? r : { ...r, y0: SAFE_TOP, y1: Math.max(r.y1, SAFE_TOP + 0.2) });
 
@@ -273,6 +276,8 @@ export class LyricLayer {
   private lastAlpha = 0;
   /** pop-up windows on screen this frame (normalized boxes, where they're heading) */
   private occluders: Rect[] = [];
+  /** where in-picture lines sit, remembered per block of lines (lyricPlace.ts) */
+  private places = new PlaceMemo();
   /** where the words are, for the windows (see keepOut) */
   private keep: KeepOut = NO_KEEP_OUT;
   private lastRect: Rect | null = null;
@@ -684,7 +689,20 @@ export class LyricLayer {
     }
     const L: LineState = { ...base, medium, zone, why };
     const m = medium as Placed2;
-    const spot = SP[m][zone] ?? SP[m].left ?? SP[m].middle ?? SP.subtitle.bottom!;
+    let spot = SP[m][zone] ?? SP[m].left ?? SP[m].middle ?? SP.subtitle.bottom!;
+    // words placed in the picture (lyricPlace.ts): the calmest open place, held for a few lines
+    let slot: Slot | null = null;
+    if (style === 'auto' && !moment && choice?.place === 'picture' && medium === choice.medium && (medium === 'sparse' || medium === 'subtitle')) {
+      this.places.reset(`${portrait}|${lines.length}|${lines[0]?.t ?? 0}`);
+      const hi = this.probe.version > 0 ? frameHigh(this.probe) : 1;
+      const ink = this.inkList(look.ink, pal, null);
+      slot = this.places.pick(showIdx, choice.section, slots(portrait), (s) =>
+        this.probe.version > 0 ? slotCost(s, judge(this.probe, s.r, { inks: ink, target: medium === 'subtitle' ? 4.5 : 4, ladder: ladderFor(look), pal }), this.probe, hi, this.occluders, words.length) : s.turned ? 1 : 0,
+      );
+      if (!slot.turned) spot = { r: slot.r, align: slot.align, anchor: slot.anchor };
+      L.zone = slot.id === 'lowR' || slot.id === 'sideR' ? 'right' : slot.id === 'top' ? 'middle' : 'left';
+      L.why = `${why}${why ? '; ' : ''}placed in the picture (${SLOT_NAME[slot.id]})`;
+    }
     const box = px(spot.r, W, H);
 
     if (medium === 'cutout') {
@@ -708,6 +726,15 @@ export class LyricLayer {
         L.type = layoutLine(g, words, { role, voice, kicker, treatment: tr, box: px(gs.r, W, H), align: gs.align, anchor: 'bottom', maxRows: 1, unit, key: keyIdx });
         L.ladder = ['none', 'shadow', 'soft'];
         L.zone = zone === 'right' ? 'right' : 'left';
+      } else if (slot?.turned) {
+        // up a side column: laid out flat in the column's turned box, drawn turned a quarter
+        const tb = turnedBox(px(slot.r, W, H));
+        L.type = layoutLine(g, words, { role, voice, treatment: tr, box: tb.box, align: slot.align, anchor: slot.anchor, maxRows: 2, unit, key: words.length >= 4 ? keyIdx : [] });
+        L.turn = { cx: tb.cx, cy: tb.cy };
+        L.target = role === 'caption' ? 4.5 : 4;
+        // a full-width band or paper sheet can't turn with the words: the halo stands in for them
+        const flat: Backing[] = [...L.ladder.filter((b) => b !== 'band' && b !== 'paper'), 'halo'];
+        L.ladder = flat.filter((b, k) => flat.indexOf(b) === k);
       } else {
         L.type = layoutLine(g, words, {
           role,
@@ -722,12 +749,11 @@ export class LyricLayer {
         });
         L.target = role === 'caption' ? 4.5 : role === 'aside' ? 4 : 3;
       }
-      L.rect = rectOf(L.type.rows, W, H, 0.015) ?? L.rect;
+      L.rect = (L.turn ? turnedRect(L.type.rows, L.turn.cx, L.turn.cy, W, H, 0.015) : rectOf(L.type.rows, W, H, 0.015)) ?? L.rect;
       // a kit medium with its own plate (the LED sign, the ink band, the paper panel) is its own
       // backing: the guard has nothing to add under it
       if (kit.ownPlate?.(role, medium === 'subtitle' || medium === 'sparse' ? medium : 'big')) L.ladder = ['none'];
     }
-    void showIdx;
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
       L.stats = regionStats(this.probe, L.rect);

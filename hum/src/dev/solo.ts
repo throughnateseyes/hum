@@ -20,7 +20,9 @@
  *                                              parts: ['sparse', 'subtitle', 'sparse', 'big+giant', 'sparse', 'subtitle'] }
  *                                            (one per section: intro, verse, build, drop, break, outro; any medium id:
  *                                            subtitle, big, knockout, sparse, cutout, own, none; "+giant" / "+burst"
- *                                            adds a moment). The look json may carry the same as `lyrics`.
+ *                                            adds a moment; "@picture" / "@low" places Subtitle or Sparse lines in
+ *                                            the picture or low, render/lyricPlace.ts). The look json may carry the
+ *                                            same as `lyrics`.
  *     &kit=auto | clean | tape | film | print  the lyrics' lettering (render/typeKits): auto matches the
  *                                            finish; a kit under a GPU finish is drawn before it, as on
  *                                            the stage. Also `kit` in the look JSON. shots() returns
@@ -226,8 +228,9 @@ async function boot() {
         motion: lyr.motion ?? 'punchy',
         source: 'local',
         parts: testAnalysis().sections.map((_, i) => {
-          const [medium, moment] = (lyr.parts![i] ?? 'subtitle').split('+');
-          return { medium: medium as LyricMedium, moment: (moment as LyricMoment) || null, why: 'fixed by the solo harness' };
+          const [head, place] = (lyr.parts![i] ?? 'subtitle').split('@');
+          const [medium, moment] = head.split('+');
+          return { medium: medium as LyricMedium, moment: (moment as LyricMoment) || null, ...(place === 'picture' || place === 'low' ? { place } : {}), why: 'fixed by the solo harness' };
         }),
       });
     }
@@ -411,6 +414,9 @@ async function boot() {
         g.drawImage(canvas, 0, 0, W, H, x, y + 22, cw, ch);
         g.fillStyle = '#ddd';
         g.fillText(`${fmt(times[i])}  ${sectionAt(times[i]).label}${audio.kick > 0.6 ? '  kick' : ''}${audio.drop > 0.5 ? '  DROP' : ''}${nf > 1 || finishIds[0] !== 'clean' ? `  · ${finishIds[k]}` : ''}${lyricLayer?.legibilityNow() ? `  · ${lyricLayer.legibilityNow()!.backing}` : ''}`, x + 6, y + 11);
+        // &why=1: the lyric medium and why it sits where it does, on a second line
+        const lw = q.get('why') && lyricLayer?.legibilityNow();
+        if (lw) g.fillText(`${lw.medium}/${lw.zone}: ${lw.why}`.slice(0, 90), x + 6, y + 34);
       }
       if (nf > 1) present(finishIds[0]);
     }
