@@ -16,6 +16,7 @@ import { getScene } from '../scenes';
 import { planPlaying, setPartsLook, setPartsShot, setSoloShot } from '../state/partEdit';
 import { findLook, listNames, partNames, sectionIndexAt, validPlan } from '../state/plan';
 import { useStudio, type StudioState } from '../state/store';
+import { mediaForPart } from '../shot/run';
 
 /** one clip or photo, as the picker and the framing preview need it */
 export interface MediaItem {
@@ -92,8 +93,8 @@ export const canShow = (kind: PictureKind, m: { kind: 'clip' | 'photo' }) => kin
 export const FOOTAGE_LOOK = 'footage-bands';
 
 /**
- * Which clip or photo part i will play: its own first pick, else the first of the deck (what the
- * footage run deals a part with no choice of its own first). Null when the part's look shows none.
+ * Which clip or photo part i will play: its own first pick, else the one the footage run deals it
+ * (shot/run.ts). Null when the part's look shows none.
  */
 export function shownMedia(s: StudioState, i: number, media: MediaItem[]): MediaItem | null {
   const a = s.analysis;
@@ -105,7 +106,10 @@ export function shownMedia(s: StudioState, i: number, media: MediaItem[]): Media
   const mine = own?.map((id) => fits.find((m) => m.id === id)).find((m) => !!m);
   if (mine) return mine;
   // a photo look with nothing chosen shows the look's own picture on the timeline, as before
-  return kind === 'footage' ? (fits[0] ?? null) : null;
+  if (kind !== 'footage') return null;
+  // a footage part with nothing chosen: the picture the run will deal it (clips rotate from cut to cut)
+  const dealt = mediaForPart(a, i);
+  return fits.find((m) => m.id === dealt) ?? fits[0] ?? null;
 }
 
 /* ───────── giving a picture to parts, or to the look on screen ───────── */
