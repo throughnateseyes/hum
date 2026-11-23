@@ -8,7 +8,7 @@ import { NEAR_BLACK, PAPER, hexRGB, lumOf, ratio, type RGB, type Rect, type Regi
 
 /**
  * Knockout: lyric type as the picture's main element. One word at a time, set enormous, filling the
- * frame edge to edge and often cropped by it. Each word lands on its sung time with a hard, physical
+ * frame from margin to margin, never past it. Each word lands on its sung time with a hard, physical
  * arrival (it falls onto the page, overshoots and settles in a few frames, never a fade) and knocks
  * the word before it out of the way (pushed off, squashed flat or cut in half). Between words the
  * type holds still, apart from a small nudge on each kick.
@@ -283,20 +283,14 @@ export function buildKnockout(g: CanvasRenderingContext2D, words: KWord[], o: Kn
       const text = clean(hw.text, o.caps);
       const ink = inkOf(g, v, text, weight, italic, track);
       const inkW = Math.max(1, ink.x1 - ink.x0);
-      // as wide as the frame, and wider for the big held words: cropped by its right edge. The crop only
-      // ever takes a quarter of the last letter, so the word still reads (a T cut in half reads as an I)
-      const fill = portrait ? 0.92 + 0.5 * s : 0.72 + 0.48 * s;
-      const lastCh = [...text.replace(/[^\p{L}\p{N}]+$/u, '')].pop() ?? 'o';
-      const lw = inkOf(g, v, lastCh, weight, italic, 0);
-      const crop = 0.25 * Math.max(0, lw.x1 - lw.x0);
-      let size = (100 * availW * fill) / inkW;
-      size = Math.min(size, (100 * (W - mx)) / Math.max(1, inkW - crop));
+      // as wide as the margins allow for the big held words, never wider: a word cut by the frame's
+      // edge reads as a mistake, so every word sits wholly inside the safe area (render/lyricSpace.ts)
+      const fill = portrait ? 0.84 + 0.16 * s : 0.7 + 0.3 * s;
+      let size = (100 * availW * Math.min(1, fill)) / inkW;
       const kick = gr.kind === 'kick';
       const hMax = bandH * (kick ? 0.62 : 0.86) * (0.6 + 0.4 * s);
       size = Math.min(size, hMax / capH);
       const k = size / 100;
-      // too wide for the margins: hang it from the left margin and let the frame crop its end
-      if (inkW * k > availW + 1) align = 'left';
       // the kicker: the quick words before it, small, on a line above it, each landing on its own time
       let kickH = 0;
       let kinks: Ink[] = [];
