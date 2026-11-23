@@ -1,5 +1,6 @@
 import type { AudioFrame, TrackAnalysis } from '../core/types';
 import { FACES, LYRIC_FAMILIES } from './lyricFonts';
+import { faceMetrics } from './lyricSpace';
 
 /**
  * Lyric type, set the way a motion designer would set it: a few real treatments in the bundled
@@ -166,7 +167,7 @@ export function voiceFor(role: Role | 'kicker', family: string | undefined, tr: 
     if (kind === 'condensed') return { family: FACES.archivo, stretch: 'extra-condensed', weight: 800, enter: 400, track: 0, case: 'upper', leading: 1, size: 0.36 };
     if (kind === 'mono') return { family: FACES.mono, weight: 600, track: -0.04, case: 'lower', leading: 1, size: 0.24, typed: true };
     if (kind === 'hand') return { family: FACES.hand, weight: 700, track: 0, case: 'asis', leading: 1, size: 0.34 };
-    return { family: FACES.tight, weight: 700, enter: heavy ? 900 : undefined, track: -0.035, case: 'asis', leading: 1, size: 0.3 };
+    return { family: FACES.tight, weight: 700, enter: heavy ? 900 : undefined, track: -0.006, case: 'asis', leading: 1, size: 0.3 };
   }
   // display
   const nudge = Math.round((variant - 0.5) * 2) * 50;
@@ -181,7 +182,7 @@ export function voiceFor(role: Role | 'kicker', family: string | undefined, tr: 
   if (kind === 'mono') return { family: FACES.mono, weight: heavy ? 500 : 400, track: -0.02, case: 'lower', leading: 1.22, size: 0.056, typed: true };
   if (kind === 'hand') return { family: FACES.hand, weight: 600, track: 0, case: 'asis', leading: 1.05, size: 0.11 };
   const w = tr === 'aggressive' ? 700 : tr === 'punchy' ? 620 : 480;
-  return { family: FACES.tight, weight: w + nudge, enter: heavy ? w + nudge + 220 : undefined, track: -0.018, case: 'asis', leading: 1.02, size: 0.084 };
+  return { family: FACES.tight, weight: w + nudge, enter: heavy ? w + nudge + 220 : undefined, track: -0.008, case: 'asis', leading: 1.02, size: 0.084 };
 }
 
 export interface Placed {
@@ -200,6 +201,8 @@ export interface Placed {
   part: 'word' | 'giant' | 'kicker';
   /** held long enough for its tracking to open */
   held: boolean;
+  /** which of the layout's rows it sits on */
+  row: number;
 }
 
 export interface TypeLayout {
@@ -208,8 +211,44 @@ export interface TypeLayout {
   /** the reading size (for shadows and backings) */
   size: number;
   words: Placed[];
-  /** each row's box (for scrims behind it) */
+  /**
+   * Each row's ink box (for plates and scrims behind it): from its first letter's ink to its last's,
+   * and from the face's ascenders (or the row's accents, if higher) to its descenders, so a plate
+   * padded from it clears every letter however the line happens to be spelled
+   */
   rows: { x: number; y: number; w: number; h: number }[];
+}
+
+/**
+ * A row's ink box: the words' real left and right ink, the face's ascender and descender at least
+ * (lyricSpace.faceMetrics) and any accent or descender the words reach past them. The font, size and
+ * tracking must already be set on g.
+ */
+function rowInk(g: CanvasRenderingContext2D, texts: string[], xs: number[], base: number, upper: boolean): { x: number; y: number; w: number; h: number } {
+  const fm = faceMetrics(g, upper);
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let asc = fm.asc;
+  // capitals keep a little room for a J or Q tail; lower case its descenders
+  let desc = upper ? fm.desc * 0.5 : fm.desc;
+  texts.forEach((t, i) => {
+    const m = g.measureText(t);
+    x0 = Math.min(x0, xs[i] - m.actualBoundingBoxLeft);
+    x1 = Math.max(x1, xs[i] + m.actualBoundingBoxRight);
+    asc = Math.max(asc, m.actualBoundingBoxAscent);
+    desc = Math.max(desc, m.actualBoundingBoxDescent);
+  });
+  return { x: x0, y: base - asc, w: Math.max(1, x1 - x0), h: asc + desc };
+}
+
+/** set a voice on g for measuring ink (font, width and tracking) */
+function inkFont(g: CanvasRenderingContext2D, v: Voice, px: number, italic: boolean) {
+  setFont(g, v, px, italic);
+  g.letterSpacing = `${(px * v.track).toFixed(2)}px`;
+}
+function inkFontDone(g: CanvasRenderingContext2D) {
+  g.letterSpacing = '0px';
+  g.fontStretch = 'normal';
 }
 
 /** colours to draw with: the guard's ink and the accent (only when it reads) */
@@ -302,7 +341,12 @@ export function layoutLine(g: CanvasRenderingContext2D, words: AWord[], o: Layou
   const holdOpen = o.role === 'display' || o.role === 'aside';
   const heldAt = (i: number) => holdOpen && !v.typed && words[i].end - words[i].t > 0.7;
   let size = v.size * o.unit;
-  for (let tries = 0; tries < 14; tries++) {
+  // a line that won't fit is set again: fewer words a row (up to maxRows), then smaller down to a
+  // floor, then one more row, and only then smaller still (a single word wider than the box). The
+  // tracking is never squeezed and nothing is set past the box.
+  const floor = size * FLOOR;
+  let maxRows = o.maxRows;
+  for (let tries = 0; tries < 40; tries++) {
     // a held word keeps room for its widest width and its opened tracking
     const widths = texts.map((s, i) => measureWord(g, s, v, size, italicAt(i), v.track + (heldAt(i) ? OPEN : 0), v.weight, heldAt(i) ? (v.widen?.[v.widen.length - 1] ?? v.stretch) : v.stretch));
     const space = measureWord(g, ' ', v, size, false) + size * v.track;
@@ -310,8 +354,12 @@ export function layoutLine(g: CanvasRenderingContext2D, words: AWord[], o: Layou
     const widest = Math.max(0, ...widths);
     const n = Math.max(1, Math.ceil(total / boxW));
     const lh = size * v.leading;
-    if ((n > o.maxRows || widest > boxW || n * lh > boxH) && tries < 13) {
-      size *= 0.92;
+    const smaller = () => {
+      if (size * 0.92 >= floor || maxRows > o.maxRows || texts.length < 2 || widest > boxW) size *= 0.92;
+      else maxRows++;
+    };
+    if ((n > maxRows || widest > boxW || n * lh > boxH) && tries < 39) {
+      smaller();
       continue;
     }
     // balance the rag: wrap at an even share of the line, widening until it takes no more rows than it must
@@ -338,8 +386,8 @@ export function layoutLine(g: CanvasRenderingContext2D, words: AWord[], o: Layou
         break;
       }
     }
-    if ((rows.length > o.maxRows || rows.length * lh > boxH) && tries < 13) {
-      size *= 0.92;
+    if ((rows.length > maxRows || rows.length * lh > boxH) && tries < 39) {
+      smaller();
       continue;
     }
     const blockH = rows.length * lh;
@@ -350,17 +398,23 @@ export function layoutLine(g: CanvasRenderingContext2D, words: AWord[], o: Layou
       const rw = row.reduce((a, i) => a + widths[i], 0) + space * (row.length - 1);
       let rx = o.align === 'left' ? o.box.x0 : o.align === 'right' ? o.box.x1 - rw : o.box.x0 + (boxW - rw) / 2;
       const base = top + ri * lh + size * (0.5 * (v.leading - 1) + 0.8);
-      rowBoxes.push({ x: rx, y: base - size * 0.78, w: rw, h: size * 1.0 });
+      const xs: number[] = [];
       for (const i of row) {
-        out.push({ text: texts[i], t: words[i].t, end: words[i].end, x: rx, y: base, w: widths[i], size, voice: v, italic: italicAt(i), part: 'word', held: heldAt(i) });
+        out.push({ text: texts[i], t: words[i].t, end: words[i].end, x: rx, y: base, w: widths[i], size, voice: v, italic: italicAt(i), part: 'word', held: heldAt(i), row: ri });
+        xs.push(rx);
         rx += widths[i] + space;
       }
+      inkFont(g, v, size, italicAt(row[0]));
+      rowBoxes.push(rowInk(g, row.map((i) => texts[i]), xs, base, v.case === 'upper'));
+      inkFontDone(g);
     });
     return { role: o.role, treatment: o.treatment, size, words: out, rows: rowBoxes };
   }
   return { role: o.role, treatment: o.treatment, size, words: [], rows: [] };
 }
 
+/** a line too long for its box gets no smaller than this share of its voice's size before it takes another row */
+const FLOOR = 0.62;
 /** tracking a held word opens by (em) */
 const OPEN = 0.06;
 /** tracking the giant word arrives with before it tightens (em) */
@@ -410,16 +464,22 @@ function layoutGiant(g: CanvasRenderingContext2D, words: AWord[], texts: string[
     const rw = row.reduce((a, j) => a + kw[j], 0) + kspace * (row.length - 1);
     let rx = alignX(rw) + (o.align === 'left' ? gs * 0.04 : 0);
     const base = gTop - kH + ks * 0.9 + ri * klh;
-    rows.push({ x: rx, y: base - ks * 0.8, w: rw, h: ks });
+    const xs: number[] = [];
     for (const j of row) {
       const i = kIdx[j];
-      out.push({ text: ktexts[i], t: words[i].t, end: words[i].end, x: rx, y: base, w: kw[j], size: ks, voice: kv, italic: !!kv.italic, part: 'kicker', held: false });
+      out.push({ text: ktexts[i], t: words[i].t, end: words[i].end, x: rx, y: base, w: kw[j], size: ks, voice: kv, italic: !!kv.italic, part: 'kicker', held: false, row: rows.length });
+      xs.push(rx);
       rx += kw[j] + kspace;
     }
+    inkFont(g, kv, ks, !!kv.italic);
+    rows.push(rowInk(g, row.map((j) => ktexts[kIdx[j]]), xs, base, kv.case === 'upper'));
+    inkFontDone(g);
   });
   const gx = alignX(gw);
-  rows.push({ x: gx, y: gBase - gs * 0.74, w: gw, h: gs * 0.9 });
-  out.push({ text: texts[ki], t: words[ki].t, end: words[ki].end, x: gx, y: gBase, w: gw, size: gs, voice: v, italic: !!v.italic, part: 'giant', held: false });
+  inkFont(g, v, gs, !!v.italic);
+  rows.push(rowInk(g, [texts[ki]], [gx], gBase, v.case === 'upper'));
+  inkFontDone(g);
+  out.push({ text: texts[ki], t: words[ki].t, end: words[ki].end, x: gx, y: gBase, w: gw, size: gs, voice: v, italic: !!v.italic, part: 'giant', held: false, row: rows.length - 1 });
   out.sort((a, b) => a.t - b.t);
   return { role: 'giant', treatment: o.treatment, size: ks * 1.6, words: out, rows };
 }

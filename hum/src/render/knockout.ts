@@ -2,6 +2,7 @@ import type { Palette } from '../core/types';
 import { seeded } from '../state/lyricPlan';
 import { FACES } from './lyricFonts';
 import { KIT_FACES } from './typeKits/fonts';
+import { spaceLog } from './lyricSpace';
 import type { Treatment } from './lyricAuto';
 import { NEAR_BLACK, PAPER, hexRGB, lumOf, ratio, type RGB, type Rect, type RegionStats } from './legibility';
 
@@ -91,6 +92,8 @@ export interface KRow {
   ink: { x0: number; y0: number; x1: number; y1: number };
   /** the point it lands on (scales about it) */
   px: number;
+  /** set wider than the frame on purpose: the frame crops its end (the one word allowed past the margin) */
+  cropped?: boolean;
 }
 
 export interface KCard {
@@ -329,7 +332,9 @@ export function buildKnockout(g: CanvasRenderingContext2D, words: KWord[], o: Kn
           x += widths[j] + space;
         });
       }
-      rows.push(place(text, hw.t, size, weight, italic, track, ink, base));
+      const hero = place(text, hw.t, size, weight, italic, track, ink, base);
+      hero.cropped = hero.ink.x1 > W - mx + 1 || hero.ink.x0 < mx - 1;
+      rows.push(hero);
     }
 
     const box = {
@@ -495,7 +500,9 @@ export function drawKnockout(g: CanvasRenderingContext2D, L: KnockoutLayout, t: 
           c.shadow(g, Math.min(r.size, L.shadowSize));
           g.fillStyle = card.accent && r === card.rows[card.rows.length - 1] ? c.accent : c.ink;
         }
+        if (spaceLog.on) spaceLog.tag = r.cropped ? 'knockout crop' : '';
         g.fillText(r.text, r.x, r.y);
+        spaceLog.tag = '';
         g.restore();
       }
       if (halves === 2) g.restore();

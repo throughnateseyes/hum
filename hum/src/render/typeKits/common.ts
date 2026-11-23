@@ -1,5 +1,6 @@
 import type { AudioFrame, Palette, TrackAnalysis } from '../../core/types';
 import type { Inks, Placed, TypeLayout } from '../lyricAuto';
+import { faceMetrics } from '../lyricSpace';
 
 /**
  * What every kit shares: how a word arrives (the same timing the clean lyrics use, so every kit
@@ -220,7 +221,17 @@ export const hash1 = (n: number) => {
   return x - Math.floor(x);
 };
 
-/** the bounding box of a line's rows, padded */
+let mctx: CanvasRenderingContext2D | null = null;
+/** the cap height a word is set at (px), measured from the face */
+export function capOf(w: Placed, size = w.size): number {
+  if (!mctx) mctx = document.createElement('canvas').getContext('2d')!;
+  wordFont(mctx, w, size);
+  return faceMetrics(mctx, w.voice.case === 'upper').cap;
+}
+/** the biggest cap height in a line (or in some of its words) */
+export const lineCap = (words: Placed[]) => Math.max(1, ...words.map((w) => capOf(w)));
+
+/** the bounding box of a line's rows (their ink: see TypeLayout.rows), padded */
 export function rowsBox(L: TypeLayout, pad: number): { x0: number; y0: number; x1: number; y1: number } {
   let x0 = Infinity;
   let y0 = Infinity;

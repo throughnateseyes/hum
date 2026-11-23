@@ -12,8 +12,9 @@ import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, typ
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
 import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
 import { PlaceMemo, frameHigh, slotCost, slots, turnedBox, turnedRect, type Slot, type SlotId } from './lyricPlace';
-import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type TypeKit } from './typeKits';
+import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type KitLine, type TypeKit } from './typeKits';
 import type { FinishId } from '../core/direction';
+import { insideSafe, notePlate, safeInsets, spaceLog } from './lyricSpace';
 import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
 
 /**
@@ -287,6 +288,11 @@ export class LyricLayer {
   /** the picture under the lyrics, shrunk and read back every few frames */
   readonly probe = new FrameProbe();
 
+  /** the 2D canvas the words are drawn on (the dev measuring tool reads it) */
+  get devCanvas(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
   constructor() {
     this.tex.minFilter = THREE.LinearFilter;
     this.tex.magFilter = THREE.LinearFilter;
@@ -533,7 +539,11 @@ export class LyricLayer {
           // under a kit, its face set huge and inked its way (a glow on tape, a flat print shadow on film)
           const kc = L.kit.knockInks ? L.kit.knockInks(base, lumOf(this.guard.ink) > 0.5, o.palette) : base;
           drawKnockout(g, ko, tSung, alpha, kc, o.audio.kick, W, H);
-        } else if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
+        } else if (L.cut) {
+          drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
+          // the scraps are plates too (their boxes, unrotated, for the measuring tool)
+          if (spaceLog.on) for (const w of L.cut.words) notePlate(g, { x0: w.x, y0: w.y - (w.p.h * L.cut.scale) / 2, x1: w.x + w.p.w * L.cut.scale, y1: w.y + (w.p.h * L.cut.scale) / 2 }, w.p.size * L.cut.scale * 0.7, 'cutout scrap');
+        }
         else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio, this.hostNeed);
         else if (L.type) {
           // set vertically up a side column: drawn turned a quarter about the column's centre
@@ -708,7 +718,13 @@ export class LyricLayer {
     if (medium === 'cutout') {
       for (const f of [FACES.fraunces, FACES.instrument, FACES.tight, FACES.archivo]) ensureLyricFont(f);
       const burst = moment === 'burst';
-      L.cut = buildCutout(g, words, li, W, H, pal, burst ? { box: px(giantSpot(portrait, false).r, W, H), scale: 1.25, burst: true, align: 'left' } : { box, align: spot.align === 'left' ? 'left' : 'center' });
+      // the scraps stay inside the safe area: a collage that won't fit is set again a size down
+      const cbox = insideSafe(burst ? px(giantSpot(portrait, false).r, W, H) : box, W, H);
+      const cutIn = (scale: number) => buildCutout(g, words, li, W, H, pal, burst ? { box: cbox, scale, burst: true, align: 'left' } : { box: cbox, scale, align: spot.align === 'left' ? 'left' : 'center' });
+      const spills = (c: CutoutLayout) => c.words.some((w) => w.x < cbox.x0 - 1 || w.x + w.p.w * c.scale > cbox.x1 + 1 || w.y - (w.p.h * c.scale) / 2 < cbox.y0 - 1 || w.y + (w.p.h * c.scale) / 2 > cbox.y1 + 1);
+      let scale = burst ? 1.25 : 1;
+      L.cut = cutIn(scale);
+      for (let k = 0; k < 6 && spills(L.cut); k++) L.cut = cutIn((scale *= 0.85));
       L.rect = rectOf(L.cut.words.map((w) => ({ x: w.x, y: w.y - (w.p.h * L.cut!.scale) / 2, w: w.p.w * L.cut!.scale, h: w.p.h * L.cut!.scale })), W, H) ?? L.rect;
     } else {
       const variant = R();
@@ -721,38 +737,47 @@ export class LyricLayer {
       ensureLyricFont(voice.family);
       if (kicker) ensureLyricFont(kicker.family);
       const keyIdx = keyWords(words, 1).map((k) => words.indexOf(k));
+      const kitMedium = medium === 'subtitle' || medium === 'sparse' ? medium : 'big';
       if (role === 'giant') {
         const gs = giantSpot(portrait, zone === 'right');
-        L.type = layoutLine(g, words, { role, voice, kicker, treatment: tr, box: px(gs.r, W, H), align: gs.align, anchor: 'bottom', maxRows: 1, unit, key: keyIdx });
+        L.type = fitType((b) => layoutLine(g, words, { role, voice, kicker, treatment: tr, box: b, align: gs.align, anchor: 'bottom', maxRows: 1, unit, key: keyIdx }), px(gs.r, W, H), kit, kitMedium, W, H);
         L.ladder = ['none', 'shadow', 'soft'];
         L.zone = zone === 'right' ? 'right' : 'left';
       } else if (slot?.turned) {
         // up a side column: laid out flat in the column's turned box, drawn turned a quarter
         const tb = turnedBox(px(slot.r, W, H));
-        L.type = layoutLine(g, words, { role, voice, treatment: tr, box: tb.box, align: slot.align, anchor: slot.anchor, maxRows: 2, unit, key: words.length >= 4 ? keyIdx : [] });
+        L.type = fitType((b) => layoutLine(g, words, { role, voice, treatment: tr, box: b, align: slot.align, anchor: slot.anchor, maxRows: 2, unit, key: words.length >= 4 ? keyIdx : [] }), tb.box, kit, kitMedium, W, H, { cx: tb.cx, cy: tb.cy });
         L.turn = { cx: tb.cx, cy: tb.cy };
         L.target = role === 'caption' ? 4.5 : 4;
         // a full-width band or paper sheet can't turn with the words: the halo stands in for them
         const flat: Backing[] = [...L.ladder.filter((b) => b !== 'band' && b !== 'paper'), 'halo'];
         L.ladder = flat.filter((b, k) => flat.indexOf(b) === k);
       } else {
-        L.type = layoutLine(g, words, {
-          role,
-          voice,
-          treatment: tr,
+        L.type = fitType(
+          (b) =>
+            layoutLine(g, words, {
+              role,
+              voice,
+              treatment: tr,
+              box: b,
+              align: spot.align,
+              anchor: spot.anchor,
+              maxRows: role === 'caption' ? 2 : role === 'aside' ? 3 : 3,
+              unit,
+              key: words.length >= 4 ? keyIdx : [],
+            }),
           box,
-          align: spot.align,
-          anchor: spot.anchor,
-          maxRows: role === 'caption' ? 2 : role === 'aside' ? 3 : 3,
-          unit,
-          key: words.length >= 4 ? keyIdx : [],
-        });
+          kit,
+          kitMedium,
+          W,
+          H,
+        );
         L.target = role === 'caption' ? 4.5 : role === 'aside' ? 4 : 3;
       }
       L.rect = (L.turn ? turnedRect(L.type.rows, L.turn.cx, L.turn.cy, W, H, 0.015) : rectOf(L.type.rows, W, H, 0.015)) ?? L.rect;
       // a kit medium with its own plate (the LED sign, the ink band, the paper panel) is its own
       // backing: the guard has nothing to add under it
-      if (kit.ownPlate?.(role, medium === 'subtitle' || medium === 'sparse' ? medium : 'big')) L.ladder = ['none'];
+      if (kit.ownPlate?.(role, kitMedium)) L.ladder = ['none'];
     }
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
@@ -873,8 +898,8 @@ export class LyricLayer {
  */
 function haloSpans(L: TypeLayout, t: number): { x: number; y: number; w: number; h: number }[] {
   const out: { x: number; y: number; w: number; h: number }[] = [];
-  for (const r of L.rows) {
-    const ws = L.words.filter((w) => w.y > r.y && w.y < r.y + r.h * 1.4 && w.x >= r.x - 1 && w.x <= r.x + r.w + 1);
+  for (const [ri, r] of L.rows.entries()) {
+    const ws = L.words.filter((w) => w.row === ri);
     if (!ws.length) continue;
     if (L.role === 'caption') {
       out.push(r);
@@ -895,5 +920,39 @@ function haloSpans(L: TypeLayout, t: number): { x: number; y: number; w: number;
 
 /** row boxes of a laid-out line that have a word up (scrims grow with the line) */
 function rowsUp(L: TypeLayout, t: number): TypeLayout['rows'] {
-  return L.rows.filter((r) => L.words.some((w) => w.t <= t && w.y > r.y && w.y < r.y + r.h * 1.4 && w.x >= r.x - 1 && w.x <= r.x + r.w + 1));
+  return L.rows.filter((_, ri) => L.words.some((w) => w.t <= t && w.row === ri));
+}
+
+/**
+ * Lay a line out in `box`, then pull the box in until the ink, and everything the kit draws round it
+ * (its plates, frames and secondary lines: TypeKit.reach), sits inside the safe area (lyricSpace.ts).
+ * The type gets smaller or takes another row as the box shrinks; the padding never does. A line set
+ * up a side column (`turn`) is checked where it lands, turned a quarter.
+ */
+function fitType(make: (b: Box) => TypeLayout, box0: Box, kit: TypeKit, medium: KitLine['medium'], W: number, H: number, turn?: { cx: number; cy: number }): TypeLayout {
+  const s = safeInsets(W, H);
+  let box = turn ? box0 : insideSafe(box0, W, H);
+  let L = make(box);
+  for (let k = 0; k < 5 && L.rows.length; k++) {
+    const ink = {
+      x0: Math.min(...L.rows.map((r) => r.x)),
+      y0: Math.min(...L.rows.map((r) => r.y)),
+      x1: Math.max(...L.rows.map((r) => r.x + r.w)),
+      y1: Math.max(...L.rows.map((r) => r.y + r.h)),
+    };
+    const rc = kit.reach(L, medium, W, H);
+    let e = { x0: ink.x0 - rc.l, y0: ink.y0 - rc.t, x1: ink.x1 + rc.r, y1: ink.y1 + rc.b };
+    // turned a quarter (anticlockwise) about the column's centre: flat x runs up the screen
+    if (turn) e = { x0: turn.cx + (e.y0 - turn.cy), x1: turn.cx + (e.y1 - turn.cy), y0: turn.cy - (e.x1 - turn.cx), y1: turn.cy - (e.x0 - turn.cx) };
+    const over = { l: s.l - e.x0, t: s.t - e.y0, r: e.x1 - (W - s.r), b: e.y1 - (H - s.b) };
+    if (over.l <= 0.5 && over.t <= 0.5 && over.r <= 0.5 && over.b <= 0.5) break;
+    // only the sides that spill move in (by the spill and a pixel)
+    const o = { l: over.l > 0.5 ? over.l + 1 : 0, t: over.t > 0.5 ? over.t + 1 : 0, r: over.r > 0.5 ? over.r + 1 : 0, b: over.b > 0.5 ? over.b + 1 : 0 };
+    // turned, each side of the screen is a side of the flat box: screen left is its top, bottom its left
+    const next = turn ? { x0: box.x0 + o.b, x1: box.x1 - o.t, y0: box.y0 + o.l, y1: box.y1 - o.r } : { x0: box.x0 + o.l, x1: box.x1 - o.r, y0: box.y0 + o.t, y1: box.y1 - o.b };
+    if (next.x1 - next.x0 < 8 || next.y1 - next.y0 < 8) break;
+    box = next;
+    L = make(box);
+  }
+  return L;
 }

@@ -4,10 +4,11 @@ import type { TypeKitSetting } from '../../state/store';
 import type { KInks } from '../knockout';
 import type { Role, TypeLayout, Voice } from '../lyricAuto';
 import { css, hexRGB, kitMoving, mix, type KitLine } from './common';
-import { drawFilm, filmInks, filmVoice } from './film';
+import { drawFilm, filmInks, filmReach, filmVoice } from './film';
 import { kitFontsReady, loadKitFonts, type FontKit } from './fonts';
-import { drawPrint, printInks, printVoice } from './print';
-import { drawTape, tapeBands, tapeVoice } from './tape';
+import { drawPrint, printInks, printReach, printVoice } from './print';
+import { drawTape, tapeBands, tapeReach, tapeVoice } from './tape';
+import type { Insets } from '../lyricSpace';
 
 /**
  * Type kits: the lettering belongs to the finish. Each finish has a kit (a display face, a text face,
@@ -61,6 +62,12 @@ export interface TypeKit {
   draw?(k: KitLine): void;
   /** this medium brings its own plate: the guard's backing isn't drawn under it */
   ownPlate?(role: Role, medium: KitLine['medium']): boolean;
+  /**
+   * How far past the line's ink the kit draws (its plates with their padding, frames, secondary
+   * lines, offset shadows), in px each side. The layer keeps ink plus this inside the safe area
+   * (lyricLayer fitType, lyricSpace.ts), so a kit that forgets it would spill: every kit says.
+   */
+  reach(L: TypeLayout, medium: KitLine['medium'], W: number, H: number): Insets;
   /** the knockout face (a family key knockout.ts knows) */
   knockFace?: string;
   /** how knockout's solid words are inked */
@@ -69,14 +76,18 @@ export interface TypeKit {
   moving?(L: TypeLayout, t: number): boolean;
 }
 
-const CLEAN: TypeKit = { id: 'clean' };
-const HAND: TypeKit = { id: 'hand' };
+/** the clean type may get the guard's paper strip behind it: room for it, padded as drawBacking pads */
+const paperReach = (L: TypeLayout): Insets => ({ l: L.size * 0.5, r: L.size * 0.5, t: L.size * 0.26, b: L.size * 0.26 });
+
+const CLEAN: TypeKit = { id: 'clean', reach: paperReach };
+const HAND: TypeKit = { id: 'hand', reach: paperReach };
 
 const TAPE: TypeKit = {
   id: 'tape',
   fonts: 'tape',
   voice: tapeVoice,
   draw: drawTape,
+  reach: tapeReach,
   ownPlate: (role) => role === 'caption',
   knockFace: 'kit-tape',
   knockInks: (base, light, pal) => {
@@ -102,6 +113,7 @@ const FILM: TypeKit = {
   fonts: 'film',
   voice: filmVoice,
   draw: drawFilm,
+  reach: filmReach,
   knockFace: 'kit-film',
   knockInks: (base, light, pal) => {
     const c = filmInks(pal, light);
@@ -125,6 +137,7 @@ const PRINT: TypeKit = {
   fonts: 'print',
   voice: printVoice,
   draw: drawPrint,
+  reach: printReach,
   ownPlate: (role, medium) => role === 'caption' || (role === 'display' && medium === 'big'),
   knockFace: 'kit-print',
   knockInks: (base, light, pal) => {

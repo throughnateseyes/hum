@@ -1,5 +1,6 @@
 import type { Palette } from '../../core/types';
-import type { Placed, Role, Voice } from '../lyricAuto';
+import type { Placed, Role, TypeLayout, Voice } from '../lyricAuto';
+import { noteDeco, safeInsets, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
 import { arrival, clamp01, css, easeOut, fromHsl, hexRGB, huesOf, lum, mix, parseRGB, reach, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
@@ -26,7 +27,7 @@ const TEXT = KIT_FACES.filmText;
 export function filmVoice(role: Role | 'kicker', base: Voice): Voice {
   const clean = { stretch: undefined, widen: undefined, enter: undefined, italicKey: false, typed: false };
   if (role === 'caption') return { ...base, ...clean, family: TEXT, weight: 600, italic: false, track: 0.004, case: 'asis', leading: 1.3, size: 0.045 };
-  if (role === 'aside') return { ...base, ...clean, family: TEXT, weight: 500, italic: true, track: 0, case: 'asis', leading: 1.14, size: 0.062 };
+  if (role === 'aside') return { ...base, ...clean, family: TEXT, weight: 500, italic: true, track: 0.025, case: 'asis', leading: 1.14, size: 0.062 };
   if (role === 'kicker') return { ...base, ...clean, family: TEXT, weight: 650, italic: false, track: 0.18, case: 'upper', leading: 1.4, size: 0.032 };
   if (role === 'giant') return { ...base, ...clean, family: SHOW, weight: 400, italic: false, track: -0.01, case: 'asis', leading: 1, size: 0.3 };
   return { ...base, ...clean, family: SHOW, weight: 400, italic: false, track: 0, case: 'asis', leading: 1.12, size: 0.086 };
@@ -120,10 +121,14 @@ function extruded(g: CanvasRenderingContext2D, w: Placed, x: number, y: number, 
  * of the last row and rise beside it (the swoosh of a '70s title card), drawn on as the line arrives.
  * When the last row ends too near the right edge to turn, they mirror and wrap its start instead.
  */
-function stripes(k: KitLine, c: FilmInks, words: Placed[]) {
-  const { g, L, t, W } = k;
-  if (!words.length) return;
+/**
+ * Where the stripes go: under the last row, turning up round its end when that fits inside the safe
+ * area, else round its start, else (no room either side) running in under the row and stopping at
+ * its end without turning. Shared with filmReach, which keeps their bottom inside the safe area.
+ */
+function stripeGeo(L: TypeLayout, words: Placed[], W: number, H: number) {
   const size = L.size;
+  const s = safeInsets(W, H);
   const lastBase = Math.max(...words.map((w) => w.y));
   const last = words.filter((w) => w.y > lastBase - size * 0.3);
   const rowL = Math.min(...last.map((w) => w.x));
@@ -131,12 +136,21 @@ function stripes(k: KitLine, c: FilmInks, words: Placed[]) {
   const th = size * 0.15;
   const gap = size * 0.055;
   const r0 = size * 0.22;
-  const reach3 = r0 + 3 * (th + gap);
-  // turn round the end of the row when there's room, else round its start
-  const atEnd = rowR + size * 0.14 + reach3 < W - size * 0.1 || rowL - size * 0.14 - reach3 < size * 0.1;
-  const cx = atEnd ? rowR + size * 0.14 : rowL - size * 0.14;
+  const key = Math.max(1.5, size * 0.03);
+  // the outermost stripe's outer edge, keyline and all
+  const rOut = r0 + 2 * (th + gap) + th / 2 + key / 2;
+  const turn: 'end' | 'start' | 'none' = rowR + size * 0.14 + rOut <= W - s.r ? 'end' : rowL - size * 0.14 - rOut >= s.l ? 'start' : 'none';
+  const cx = turn === 'start' ? rowL - size * 0.14 : turn === 'end' ? rowR + size * 0.14 : rowR;
   const cy = lastBase + size * 0.3;
-  const yTop = lastBase - size * 0.72;
+  return { th, gap, r0, key, rOut, turn, cx, cy, yTop: lastBase - size * 0.72, bottom: cy + rOut };
+}
+
+function stripes(k: KitLine, c: FilmInks, words: Placed[]) {
+  const { g, L, t, W, H } = k;
+  if (!words.length) return;
+  const size = L.size;
+  const { th, gap, r0, key, rOut, turn, cx, cy, yTop } = stripeGeo(L, words, W, H);
+  const atEnd = turn !== 'start';
   const grow = easeOut(clamp01((t - k.start) / 0.7));
   const cols = [c.sh2, c.sh1, c.main];
   g.save();
@@ -147,29 +161,58 @@ function stripes(k: KitLine, c: FilmInks, words: Placed[]) {
     const edge = atEnd ? -th * 2 : W + th * 2;
     p.moveTo(edge, cy + r);
     p.lineTo(cx, cy + r);
-    if (atEnd) p.arc(cx, cy, r, Math.PI / 2, 0, true);
-    else p.arc(cx, cy, r, Math.PI / 2, Math.PI, false);
-    // the outer stripes rise a little less, so their ends step like the reference cards
-    p.lineTo(atEnd ? cx + r : cx - r, yTop + i * size * 0.12);
-    const len = Math.abs(cx - edge) + (Math.PI * r) / 2 + (cy - yTop);
+    let len = Math.abs(cx - edge);
+    if (turn !== 'none') {
+      if (atEnd) p.arc(cx, cy, r, Math.PI / 2, 0, true);
+      else p.arc(cx, cy, r, Math.PI / 2, Math.PI, false);
+      // the outer stripes rise a little less, so their ends step like the reference cards
+      p.lineTo(atEnd ? cx + r : cx - r, yTop + i * size * 0.12);
+      len += (Math.PI * r) / 2 + (cy - yTop);
+    }
     g.setLineDash([len * grow, len * 2]);
     // keyline under each stripe, as printed
     g.strokeStyle = css(c.key);
-    g.lineWidth = th + Math.max(1.5, size * 0.03);
+    g.lineWidth = th + key;
     g.stroke(p);
     g.strokeStyle = css(cols[i]);
     g.lineWidth = th;
     g.stroke(p);
   }
+  // the run in from the frame edge is meant to bleed off it; the turn and the rise stay inside
+  noteDeco(g, atEnd ? { x0: 0, y0: cy + r0 - th, x1: cx, y1: cy + rOut } : { x0: cx, y0: cy + r0 - th, x1: W, y1: cy + rOut }, 'film stripes run', 'film stripes bleed off the edge');
+  if (turn !== 'none') noteDeco(g, atEnd ? { x0: cx, y0: yTop, x1: cx + rOut, y1: cy + rOut } : { x0: cx - rOut, y0: yTop, x1: cx, y1: cy + rOut }, 'film stripes turn');
+  else noteDeco(g, { x0: cx - th, y0: cy + r0 - th, x1: cx + th, y1: cy + rOut }, 'film stripes end');
   g.setLineDash([]);
   g.restore();
+}
+
+/** the small tracked line over a display line: its size */
+const secondaryFs = (L: TypeLayout, W: number) => Math.max(12, Math.min(L.size * 0.28, W * 0.026));
+
+/** how far past the ink each medium draws (see TypeKit.reach) */
+export function filmReach(L: TypeLayout, _medium: KitLine['medium'], W: number, H: number): Insets {
+  const box = rowsBox(L, 0);
+  if (L.role === 'caption' || L.role === 'aside') {
+    const d = Math.max(1.5, L.size * 0.07);
+    return { l: 1, t: 1, r: d + 1, b: d + 1 };
+  }
+  const shown = L.words.filter((w) => w.part !== 'kicker');
+  const big = Math.max(L.size, ...shown.map((w) => w.size));
+  const fs = secondaryFs(L, W);
+  // the secondary line above; the stacked shadows (or the giant's extrusion) down and right
+  const t = fs * 0.9 + fs * 0.8;
+  const giant = L.role === 'giant';
+  const r = (giant ? big * 0.09 : big * 0.1) + Math.max(1.5, big * 0.036);
+  let b = (giant ? big * 0.25 : big * 0.1) + Math.max(1.5, big * 0.036);
+  if (L.role === 'display' && shown.length) b = Math.max(b, stripeGeo(L, shown, W, H).bottom - box.y1);
+  return { l: 2, t: t + 1, r: r + 1, b: b + 1 };
 }
 
 function secondary(k: KitLine, c: FilmInks, words: Placed[]) {
   const { g, L, t, facts, W } = k;
   if (!words.length) return;
   const box = rowsBox(L, 0);
-  const fs = Math.max(12, Math.min(L.size * 0.28, W * 0.026));
+  const fs = secondaryFs(L, W);
   g.save();
   g.font = `650 ${fs.toFixed(1)}px ${TEXT}`;
   g.letterSpacing = `${(fs * 0.22).toFixed(1)}px`;
