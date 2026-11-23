@@ -51,7 +51,8 @@ void main() {
   vec2 cuv = (off + (src + 0.5) * uCell) / uRes;
   vec2 d = vec2(uCell) / uRes;
   vec3 c0 = (bed(cuv + d * vec2(-0.25, -0.25)).rgb + bed(cuv + d * vec2(0.25, -0.25)).rgb + bed(cuv + d * vec2(-0.25, 0.25)).rgb + bed(cuv + d * vec2(0.25, 0.25)).rgb) * 0.25;
-  float l = luma(c0);
+  // a vivid colour counts as bright as its strongest channel half way, so a red bird is a body, not a hole
+  float l = mix(luma(c0), max(c0.r, max(c0.g, c0.b)), 0.45);
   // the edge is read over two cells, so only the picture's real contours count, not its fine texture
   vec2 e2 = d * 1.6;
   float gx = luma(bed(cuv + vec2(e2.x, 0.0)).rgb) - luma(bed(cuv - vec2(e2.x, 0.0)).rgb);
