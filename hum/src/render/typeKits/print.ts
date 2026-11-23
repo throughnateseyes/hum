@@ -272,7 +272,11 @@ function drawStack(k: KitLine) {
 function panelOf(L: TypeLayout) {
   const box = rowsBox(L, 0);
   const cap = lineCap(L.words);
-  const pad = platePad(cap);
+  // the print finishes (riso, ink wash) redraw the frame: the wash eats the panel's edge and the
+  // letters bleed fatter, so what is left round them on screen is well under what was drawn. The
+  // panel is drawn with twice the plate rule's padding so that, after the finish, the rule still holds.
+  const rule = platePad(cap);
+  const pad = { v: rule.v * 2, h: rule.h * 1.5 };
   const h = box.y1 - box.y0 + pad.v * 2;
   const r = Math.min(L.size * 0.6, h / 2);
   const ph = Math.max(pad.h, r * 0.75);

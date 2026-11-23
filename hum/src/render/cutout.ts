@@ -155,8 +155,10 @@ function makePiece(g: CanvasRenderingContext2D, word: string, size: number, seed
   g.fontStretch = 'normal';
   const asc = Math.max(m.actualBoundingBoxAscent || sz * 0.72, sz * 0.55);
   const desc = Math.max(m.actualBoundingBoxDescent || 0, sz * 0.06);
-  const padX = sz * (0.16 + R(3) * 0.1);
-  const padY = sz * (0.12 + R(4) * 0.08);
+  // the plate rule (render/lyricSpace.ts): at least 0.35 of a cap height above and below the ink and
+  // 0.5 at each end (a cap is about 0.7 of the size)
+  const padX = sz * (0.42 + R(3) * 0.1);
+  const padY = sz * (0.3 + R(4) * 0.08);
   const paper = pick(stocks(pal), R(5));
   const dark = lum(paper) < 0.35;
   let ink: RGB = dark ? WHITE : INK;
