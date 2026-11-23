@@ -1,7 +1,7 @@
 import type { Palette } from '../../core/types';
 import type { Role, Voice } from '../lyricAuto';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, lum, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Print: lettering for the risograph and ink-wash finishes (references 21, 22, 14), drawn before the
@@ -12,7 +12,8 @@ import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, mix, 
  *               edges (the psychedelic poster); the band is the words' own plate, so they always read
  *   giant       Bagel Fat One, fat and rounded, on stacked offset outlines in three flat inks (the
  *               "ART! ART! ART!" stack), each layer a touch out of register
- *   subtitle    Fredoka on a rounded paper panel with a dark keyline (the rounded panels of ref. 21)
+ *   subtitle    Bagel Fat One in paper on a rounded ink panel with a dark keyline (the rounded panels
+ *               of ref. 21); fat letters on a flat ink survive the riso's dither where thin ones don't
  *   sparse      Fredoka with one offset ink copy behind it
  *   secondary   a small pill label with the part's name next to display lines ("( CHORUS )")
  *
@@ -25,7 +26,7 @@ const TEXT = KIT_FACES.printText;
 
 export function printVoice(role: Role | 'kicker', base: Voice): Voice {
   const clean = { stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false };
-  if (role === 'caption') return { ...base, ...clean, family: TEXT, weight: 600, track: 0.005, case: 'asis', leading: 1.34, size: 0.046 };
+  if (role === 'caption') return { ...base, ...clean, family: SHOW, weight: 400, track: 0.02, case: 'asis', leading: 1.3, size: 0.05 };
   if (role === 'aside') return { ...base, ...clean, family: TEXT, weight: 600, track: 0, case: 'lower', leading: 1.16, size: 0.058 };
   if (role === 'kicker') return { ...base, ...clean, family: TEXT, weight: 650, track: 0.12, case: 'upper', leading: 1.4, size: 0.036 };
   if (role === 'giant') return { ...base, ...clean, family: SHOW, weight: 400, track: 0, case: 'upper', leading: 1, size: 0.27 };
@@ -229,7 +230,11 @@ function drawPanel(k: KitLine) {
   g.fillStyle = css(inks[0]);
   g.fill();
   g.restore();
-  g.fillStyle = css(PAPER);
+  // the panel is a solid ink with paper letters: the riso and ink finishes dither mid-tones and thin
+  // dark strokes into dots, but a flat ink and fat paper-white letters come through whole
+  const deep = [...inks].sort((a, b) => lum(a) - lum(b))[0];
+  const panel = reach(deep, [0, 0, 0], 0, 0.16);
+  g.fillStyle = css(panel);
   g.fill();
   g.lineWidth = Math.max(1.5, size * 0.07);
   g.strokeStyle = css(KEY);
@@ -238,8 +243,8 @@ function drawPanel(k: KitLine) {
   for (const w of L.words) {
     const a = arrival(L, w, t);
     wordFont(g, w);
-    // unsung words in a pale ink, sung ones in the keyline ink
-    g.fillStyle = css(a.p >= 1 ? KEY : mix(PAPER, KEY, 0.35 + 0.65 * a.p));
+    // unsung words half-way into the panel, sung ones in paper
+    g.fillStyle = css(a.p >= 1 ? PAPER : mix(panel, PAPER, 0.45 + 0.55 * a.p));
     g.fillText(w.text, w.x, w.y);
   }
   g.letterSpacing = '0px';

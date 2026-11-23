@@ -44,7 +44,7 @@ const CREAM: RGB = [246, 233, 204];
 /** warm a colour: pull its hue toward the nearest '70s ink and soften it like print */
 function warmed(c: RGB): RGB {
   const near = WARM.reduce((a, b) => (dist(c, b) < dist(c, a) ? b : a));
-  const m = mix(c, near, 0.45);
+  const m = mix(c, near, 0.6);
   const [h, s, l] = toHsl(m);
   return fromHsl(h, Math.min(0.78, s), l);
 }
@@ -116,37 +116,42 @@ function extruded(g: CanvasRenderingContext2D, w: Placed, x: number, y: number, 
 }
 
 /**
- * Three rounded stripes wrapped round the start of the line and running off the frame under it,
- * drawn on as the line arrives.
+ * Three fat rounded stripes that come in from the frame edge under the block, turn up round the end
+ * of the last row and rise beside it (the swoosh of a '70s title card), drawn on as the line arrives.
+ * When the last row ends too near the right edge to turn, they mirror and wrap its start instead.
  */
 function stripes(k: KitLine, c: FilmInks, words: Placed[]) {
   const { g, L, t, W } = k;
   if (!words.length) return;
   const size = L.size;
-  const box = rowsBox(L, 0);
   const lastBase = Math.max(...words.map((w) => w.y));
-  const th = size * 0.085;
-  const gap = size * 0.05;
-  const left = !(box.x0 > W * 0.45);
-  const cx = left ? box.x0 - size * 0.12 : box.x1 + size * 0.12;
-  const cy = lastBase + size * 0.32;
-  const r0 = size * 0.28;
-  const yTop = box.y0 + size * 0.35;
+  const last = words.filter((w) => w.y > lastBase - size * 0.3);
+  const rowL = Math.min(...last.map((w) => w.x));
+  const rowR = Math.max(...last.map((w) => w.x + w.w));
+  const th = size * 0.15;
+  const gap = size * 0.055;
+  const r0 = size * 0.22;
+  const reach3 = r0 + 3 * (th + gap);
+  // turn round the end of the row when there's room, else round its start
+  const atEnd = rowR + size * 0.14 + reach3 < W - size * 0.1 || rowL - size * 0.14 - reach3 < size * 0.1;
+  const cx = atEnd ? rowR + size * 0.14 : rowL - size * 0.14;
+  const cy = lastBase + size * 0.3;
+  const yTop = lastBase - size * 0.72;
   const grow = easeOut(clamp01((t - k.start) / 0.7));
-  const cols = [c.sh1, c.sh2, c.main];
+  const cols = [c.sh2, c.sh1, c.main];
   g.save();
   g.lineCap = 'round';
-  g.lineWidth = th;
   for (let i = 0; i < 3; i++) {
     const r = r0 + i * (th + gap);
     const p = new Path2D();
-    const vx = left ? cx - r : cx + r;
-    p.moveTo(vx, yTop + i * size * 0.08);
-    p.lineTo(vx, cy);
-    if (left) p.arc(cx, cy, r, Math.PI, Math.PI / 2, true);
-    else p.arc(cx, cy, r, 0, Math.PI / 2, false);
-    p.lineTo(left ? W + th * 2 : -th * 2, cy + r);
-    const len = cy - yTop + (Math.PI * r) / 2 + W;
+    const edge = atEnd ? -th * 2 : W + th * 2;
+    p.moveTo(edge, cy + r);
+    p.lineTo(cx, cy + r);
+    if (atEnd) p.arc(cx, cy, r, Math.PI / 2, 0, true);
+    else p.arc(cx, cy, r, Math.PI / 2, Math.PI, false);
+    // the outer stripes rise a little less, so their ends step like the reference cards
+    p.lineTo(atEnd ? cx + r : cx - r, yTop + i * size * 0.12);
+    const len = Math.abs(cx - edge) + (Math.PI * r) / 2 + (cy - yTop);
     g.setLineDash([len * grow, len * 2]);
     // keyline under each stripe, as printed
     g.strokeStyle = css(c.key);
