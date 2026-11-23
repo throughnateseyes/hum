@@ -110,13 +110,16 @@ export function Library() {
   ];
   return (
     <aside className="library">
-      <div className="panel-tabs" role="tablist" aria-label="Library">
-        {tabs.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
-            {t.label}
-            {t.n > 0 && <span className="tab-n">{t.n}</span>}
-          </button>
-        ))}
+      {/* the same segmented control as the right panel's tabs (Inspector.tsx) */}
+      <div className="insp-tabs lib-tabs">
+        <div className="seg full" role="tablist" aria-label="Library">
+          {tabs.map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+              {t.label}
+              {t.n > 0 && <span className="tab-n">{t.n}</span>}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="panel-body" role="tabpanel">
         {tab === 'looks' && <Looks onAddFootage={() => setTab('footage')} />}

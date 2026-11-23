@@ -5,7 +5,7 @@
  * pull down, a second tap on their tab, or a swipe down on the picture (a swipe up brings the last one
  * back, stageGestures.ts). On a phone held sideways the sheet takes the right-hand column instead.
  */
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useStudio, type PopupMode } from '../state/store';
 import { pickLook } from '../state/plan';
 import { PRESETS } from '../presets';
@@ -93,8 +93,15 @@ function shuffle() {
   if (pool.length) pickLook(pool[Math.floor(Math.random() * pool.length)]);
 }
 
-/** Look settings: the frame, how it reacts, then the inspector and the chat with Claude */
+/**
+ * Look settings: the frame, how it reacts, then the inspector and the chat with Claude. The phone renders
+ * from its own Export panel, so the inspector's Render tab is hidden here (phone.css): left open, it kept
+ * render mode on after the sheet closed, and the song map stopped opening parts.
+ */
 function SettingsPanel() {
+  useEffect(() => {
+    if (useStudio.getState().inspectorTab === 'render') useStudio.getState().set({ inspectorTab: 'video' });
+  }, []);
   return (
     <div className="ph-settings">
       <div className="ph-row">

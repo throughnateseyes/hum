@@ -24,8 +24,8 @@ import './timeline.css';
  * dragging a sound onto a slider). Make a video, the moods and the whole-video switches live in the
  * right panel's Video tab (VideoPanel.tsx).
  *
- * A phone keeps its own bottom: Make a video and Breakdown beside the timeline, the mood row under it,
- * and the part sheet for a tapped part.
+ * A phone keeps its own bottom: Make a video, Breakdown and undo / redo under the timeline, the mood
+ * row under that, and the part sheet for a tapped part.
  */
 export function Bottom() {
   const phone = useLayout((s) => s.phone);
@@ -167,16 +167,23 @@ function UndoRedo() {
   );
 }
 
-/** the phone's buttons beside the timeline: Make a video and Breakdown */
+/** the phone's buttons under the timeline: Make a video, Breakdown, and undo / redo (state/history.ts) */
 function PhoneSide() {
   const track = useStudio((s) => s.track);
   const bdOpen = useBreakdown((s) => s.open);
+  const { undo: u, redo: r } = useSyncExternalStore(onHistoryChange, historyLabels);
   return (
     <>
       <MakeVideoButton />
       <button className={`btn tl-bd ${bdOpen ? 'on' : ''}`} disabled={!track} onClick={toggleBreakdown}>
         <Wave width={14} height={14} />
         Breakdown
+      </button>
+      <button className="btn icon ghost ph-hist" disabled={!u} aria-label={u ? `Undo: ${u}` : 'Nothing to undo'} onClick={undo}>
+        <Redo width={18} height={18} style={{ transform: 'scaleX(-1)' }} />
+      </button>
+      <button className="btn icon ghost ph-hist" disabled={!r} aria-label={r ? `Redo: ${r}` : 'Nothing to redo'} onClick={redo}>
+        <Redo width={18} height={18} />
       </button>
     </>
   );
