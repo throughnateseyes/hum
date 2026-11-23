@@ -117,7 +117,8 @@ export interface QualityEvent {
 
 type Listener = () => void;
 
-const STORE_KEY = 'hum.quality.v2';
+// v3: v2 could remember a level reached by misreading a 120 Hz screen as 144 Hz (see refreshSample)
+const STORE_KEY = 'hum.quality.v3';
 /** what is kept per graphics card: the level it settled at, and climbs that failed twice on a screen of `px` pixels */
 interface Remembered {
   level: number;
@@ -243,14 +244,19 @@ export class QualityGovernor {
     return Math.max(1, Math.ceil((want - ri / 2) / ri));
   }
 
-  /** the interval a drawn frame should take on this display (ms) */
+  /**
+   * The interval a drawn frame is judged against (ms): the display's own, but never tighter than
+   * `maxFps` asks for. A picture every 16.7 ms is on time on any screen: without this floor a screen
+   * read as 144 Hz set a 13.9 ms target, ordinary 60-a-second frames counted as late, and the governor
+   * walked the detail down to its lowest level for no reason.
+   */
   get target(): number {
-    return (1000 / this.refreshHz) * this.drawEvery;
+    return Math.max(1000 / TUNING.maxFps, (1000 / this.refreshHz) * this.drawEvery);
   }
 
   /**
    * Call on every animation frame (drawn or not): the intervals teach us the display's refresh rate.
-   * The fastest tenth of recent intervals is the refresh; a machine too slow to ever hit it is assumed
+   * The lower third of recent intervals is the refresh; a machine too slow to ever hit it is assumed
    * to be on a 60 Hz screen. It only ever moves up (a busy stretch can't make a 144 Hz screen look slow).
    */
   refreshSample(dt: number) {
@@ -260,7 +266,9 @@ export class QualityGovernor {
     if (this.rawN < this.raw.length) this.rawN++;
     if (this.rawN < 60 || this.rawHead % 30) return;
     const s = Array.from(this.raw.subarray(0, this.rawN)).sort((a, b) => a - b);
-    const fast = s[Math.floor(s.length * 0.1)];
+    // the lower third, not the very fastest: frame callbacks jitter by a millisecond or so, and the
+    // fastest tenth of a 120 Hz screen's intervals reads as 144 Hz
+    const fast = s[Math.floor(s.length * 0.33)];
     const hz = 1000 / fast;
     let best = 60;
     for (const r of RATES) if (Math.abs(r - hz) < Math.abs(best - hz)) best = r;
