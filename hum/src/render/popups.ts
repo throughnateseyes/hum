@@ -151,6 +151,15 @@ export function dropsIn(a: TrackAnalysis | null | undefined, start: number, end:
   return out;
 }
 
+/**
+ * Deals are made at a reference size for the frame's shape (its short side 1080), then scaled to the
+ * frame, so the live stage and a render of another resolution, same shape, deal exactly alike.
+ */
+export function refSize(W: number, H: number): { RW: number; RH: number; k: number } {
+  const short = Math.max(1, Math.min(W, H));
+  return { RW: Math.round((1080 * W) / short), RH: Math.round((1080 * H) / short), k: short / 1080 };
+}
+
 /** keeping clear of the words: re-plan from where the deal put the window whenever a new line arrives */
 export function keepGlide(pos: { x: number; y: number }, home: { x: number; y: number }, g: Glide, w: number, h: number, words: PxBox | null, W: number, H: number, m: number, others: PxBox[], dt: number, snap: boolean) {
   if (words) {
@@ -198,6 +207,8 @@ interface Deal {
 /** a dealt window on screen: its instrument, its drawn chrome and where it is gliding */
 interface Win {
   d: Dealt;
+  /** where its deal put it, in this frame's pixels */
+  home: { x: number; y: number };
   kind: Kind;
   mod: Module;
   x: number;
@@ -280,11 +291,12 @@ export class PopupLayer {
     const an = base.analysis;
     const grid = songGrid(an, a.bpm);
     const levelAt = typeof level === 'number' ? () => level : level;
+    const ref = refSize(W, H);
     const part = popPartAt(an, song);
     const prev = prevPopPart(an, part);
     const want: { key: string; d: Dealt }[] = [];
     for (const p of prev && song - part.start < OUT_TIME ? [prev, part] : [part]) {
-      const deal = this.dealFor(p, levelAt(p.start + 0.001), base, W, H, grid);
+      const deal = this.dealFor(p, levelAt(p.start + 0.001), base, ref.RW, ref.RH, grid);
       for (const d of deal.wins) if (d.born <= song && song < d.until + OUT_TIME) want.push({ key: `${deal.key}#${d.id}`, d });
     }
     // most windows drawn: the newest open ones (the deal doesn't change, only how many show)
@@ -304,7 +316,12 @@ export class PopupLayer {
     const fresh = new Set<Win>();
     for (const { key, d } of want) {
       let w = this.live.get(key);
-      if (!w) fresh.add((w = { d, kind: d.kind, mod: d.kind.make(), x: d.x, y: d.y, w: d.w, h: d.h, born: d.born, closing: -1, style: d.style, cache: null, cacheKey: '', bumpX: 0, bumpY: 0, g: newGlide(d.x, d.y) }));
+      if (!w) {
+        const x = Math.round(d.x * ref.k);
+        const y = Math.round(d.y * ref.k);
+        const home = { x, y };
+        fresh.add((w = { d, home, kind: d.kind, mod: d.kind.make(), x, y, w: Math.round(d.w * ref.k), h: Math.round(d.h * ref.k), born: d.born, closing: -1, style: d.style, cache: null, cacheKey: '', bumpX: 0, bumpY: 0, g: newGlide(x, y) }));
+      }
       w.closing = song >= d.until ? d.until : -1;
       next.set(key, w);
       wins.push(w);
@@ -318,7 +335,7 @@ export class PopupLayer {
     for (const w of wins) {
       if (w.closing >= 0) continue;
       const others = wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
-      keepGlide(w, w.d, w.g, w.w, w.h, words, W, H, m, others, dt, seeked || fresh.has(w));
+      keepGlide(w, w.home, w.g, w.w, w.h, words, W, H, m, others, dt, seeked || fresh.has(w));
     }
 
     if (!wins.length) {
@@ -352,13 +369,15 @@ export class PopupLayer {
   }
 
   /** dev: the windows on screen this frame (normalized boxes), to check they repeat */
-  debugList(): { id: string; title: string; born: number; until: number; x: number; y: number; w: number; h: number }[] {
+  debugList(): { title: string; born: number; until: number; deal: string; x: number; y: number; w: number; h: number; style: number }[] {
     const { W, H } = this.size;
+    const { RW, RH } = refSize(W, H);
     const r3 = (v: number) => Math.round(v * 1000) / 1000;
-    return [...this.live.entries()].map(([id, w]) => ({ id: id.slice(id.lastIndexOf('#') - 8), title: w.kind.title, born: r3(w.born), until: r3(w.d.until), x: r3(w.x / W), y: r3(w.y / H), w: r3(w.w / W), h: r3(w.h / H) }));
+    // `deal`: the dealt box (exact across sizes of one shape); x, y: where it is now (after keeping clear of the words)
+    return this.wins.map((w) => ({ title: w.kind.title, born: r3(w.born), until: r3(w.d.until), deal: `${w.d.x / RW},${w.d.y / RH},${w.d.w / RW},${w.d.h / RH}`, x: r3(w.x / W), y: r3(w.y / H), w: r3(w.w / W), h: r3(w.h / H), style: w.style }));
   }
 
-  /** the part's deal (kept while nothing it was dealt from changes) */
+  /** the part's deal at the reference size W×H (kept while nothing it was dealt from changes) */
   private dealFor(part: PopPart, level: number, base: Omit<FrameContext, 'params'>, W: number, H: number, grid: { spb: number; off: number }): Deal {
     const s = useStudio.getState();
     const hasWords = !!(s.lyrics?.synced && s.lyrics.lines.length) || !!base.text.trim();

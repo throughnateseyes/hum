@@ -17,7 +17,7 @@ import { moodFilter } from '../presets/moods';
 import { FxChain } from './fxChain';
 import { newGlide, toPx, toRect, type Glide, type PxBox } from './keepClear';
 import { NO_KEEP_OUT, type KeepOut, type Rect } from './legibility';
-import { barsIn, dealer, dropsIn, hash01, keepGlide, lastAt, paperInk, popPartAt, prevPopPart, songGrid, type PopLevel, type PopPart } from './popups';
+import { barsIn, dealer, dropsIn, hash01, keepGlide, lastAt, paperInk, popPartAt, prevPopPart, refSize, songGrid, type PopLevel, type PopPart } from './popups';
 import { dryRun } from './warmup';
 
 /**
@@ -90,6 +90,8 @@ interface WDealt {
   id: number;
   lookId: string;
   sceneId: string;
+  /** its shape's dice, and the box they make at the reference size (where it was placed) */
+  shape: Shape;
   spec: Spec;
   x: number;
   y: number;
@@ -109,9 +111,20 @@ interface WDeal {
   wins: WDealt[];
 }
 
+/** the dice behind a window's shape: frame kind, aspect, round or not, size, title bar */
+interface Shape {
+  f: number;
+  aspect: number;
+  circle: number;
+  size: number;
+  bar: number;
+}
+
 /** a dealt window on screen */
 interface Win {
   d: WDealt;
+  /** where its deal put it, in this frame's pixels */
+  home: { x: number; y: number };
   slot: Slot;
   x: number;
   y: number;
@@ -306,6 +319,7 @@ export class SceneWindows {
     this.keep = opts.keep ?? NO_KEEP_OUT;
     const levelAt = typeof opts.level === 'number' ? (() => opts.level) as () => number : opts.level;
     const now: MainLook = { mainPresetId: opts.mainPresetId, mainSceneId: opts.mainSceneId };
+    const ref = refSize(W, H);
 
     // the windows open at this moment of the song: this part's, and the last part's still closing
     const part = popPartAt(an, song);
@@ -345,7 +359,9 @@ export class SceneWindows {
           busy = true;
         }
         if (!slot) continue;
-        w = { d, slot, x: d.x, y: d.y, dir: d.dir, born: d.born, closing: -1, bump: 0, stamps: [], title: null, g: newGlide(d.x, d.y) };
+        const x = Math.round(d.x * ref.k);
+        const y = Math.round(d.y * ref.k);
+        w = { d, home: { x, y }, slot, x, y, dir: d.dir, born: d.born, closing: -1, bump: 0, stamps: [], title: null, g: newGlide(x, y) };
         fresh.add(w);
       }
       if (w.slot.failed) continue;
@@ -362,7 +378,7 @@ export class SceneWindows {
     for (const w of wins) {
       if (w.closing >= 0) continue;
       const others = wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
-      keepGlide(w, w.d, w.g, w.slot.spec.w, w.slot.spec.h, words, W, H, Math.min(W, H) * 0.04, others, gdt, seeked || fresh.has(w));
+      keepGlide(w, w.home, w.g, w.slot.spec.w, w.slot.spec.h, words, W, H, Math.min(W, H) * 0.04, others, gdt, seeked || fresh.has(w));
     }
     // warm the next window's look on a frame where nothing opens, so the compile never lands on a beat
     if (!busy) this.warmNext(r, base, deal, song);
@@ -425,24 +441,27 @@ export class SceneWindows {
   }
 
   /** dev: the windows on screen this frame (normalized boxes), to check they repeat */
-  debugList(): { id: string; look: string; born: number; until: number; x: number; y: number; w: number; h: number }[] {
+  debugList(): { look: string; born: number; until: number; deal: string; x: number; y: number; w: number; h: number; frame: string }[] {
     const [W, H] = this.size.split('x').map(Number);
+    const { RW, RH } = refSize(W, H);
     const r3 = (v: number) => Math.round(v * 1000) / 1000;
-    return [...this.live.entries()].map(([id, w]) => ({ id: id.slice(id.lastIndexOf('#') - 8), look: w.slot.lookId, born: r3(w.born), until: r3(w.d.until), x: r3(w.x / W), y: r3(w.y / H), w: r3(w.slot.spec.w / W), h: r3(w.slot.spec.h / H) }));
+    // `deal`: the dealt box (exact across sizes of one shape); x, y: where it is now (after keeping clear of the words)
+    return this.wins.map((w) => ({ look: w.slot.lookId, born: r3(w.born), until: r3(w.d.until), deal: `${w.d.x / RW},${w.d.y / RH},${w.d.spec.w / RW},${w.d.spec.h / RH}`, x: r3(w.x / W), y: r3(w.y / H), w: r3(w.slot.spec.w / W), h: r3(w.slot.spec.h / H), frame: w.slot.spec.frame }));
   }
 
   /** the part's deal (kept while nothing it was dealt from changes) */
   private dealFor(r: THREE.WebGLRenderer, part: PopPart, level: number, base: Omit<FrameContext, 'params'>, now: MainLook, grid: { spb: number; off: number }): WDeal {
     void r;
     const lv = Math.max(0, Math.min(3, Math.round(level)));
-    const key = `${part.seed}|${part.start.toFixed(3)}|${part.end.toFixed(3)}|${lv}|${this.size}|${grid.spb.toFixed(5)}|${grid.off.toFixed(4)}|${mainsKey(part, now)}|${popDealsVersion()}`;
+    const { RW, RH } = refSize(base.width, base.height);
+    const key = `${part.seed}|${part.start.toFixed(3)}|${part.end.toFixed(3)}|${lv}|${RW}x${RH}|${grid.spb.toFixed(5)}|${grid.off.toFixed(4)}|${mainsKey(part, now)}|${popDealsVersion()}`;
     let deal = this.deals.get(key);
     if (deal) {
       this.deals.delete(key);
       this.deals.set(key, deal);
       return deal;
     }
-    deal = { key, level: lv, wins: dealWindows(part, lv, base, now, grid) };
+    deal = { key, level: lv, wins: dealWindows(part, lv, base, RW, RH, now, grid) };
     this.deals.set(key, deal);
     while (this.deals.size > KEEP_DEALS) this.deals.delete(this.deals.keys().next().value!);
     return deal;
@@ -466,7 +485,7 @@ export class SceneWindows {
     const p = findLook(d.lookId);
     const def = p ? getScene(p.sceneId) : undefined;
     if (!p || !def) return null;
-    const spec = d.spec;
+    const spec = specOf(d.shape, base.width, base.height);
     // in a video, a window wears the song's colours like the main picture does
     const look = presetToLook(songTinted(p));
     const rt = makeRenderTarget(spec.cw, spec.ch, { depthBuffer: true, samples: 0 });
@@ -665,11 +684,9 @@ export class SceneWindows {
  * drop nothing new opens, and a window due to close in the four bars before it holds on until the hit.
  * Two sets of dice from the part's seed: one for which phrases get a window, one for the windows.
  */
-function dealWindows(part: PopPart, level: number, base: Omit<FrameContext, 'params'>, now: MainLook, grid: { spb: number; off: number }): WDealt[] {
+function dealWindows(part: PopPart, level: number, base: Omit<FrameContext, 'params'>, W: number, H: number, now: MainLook, grid: { spb: number; off: number }): WDealt[] {
   if (level <= 0) return [];
   const { spb, off } = grid;
-  const W = base.width;
-  const H = base.height;
   const when = dealer(part.seed ^ 0x27d4eb2f);
   const pick = dealer(part.seed ^ 0x165667b1);
   const drops = dropsIn(base.analysis, part.start, part.end);
@@ -716,14 +733,15 @@ function dealWindows(part: PopPart, level: number, base: Omit<FrameContext, 'par
     const main = mainAt(st.at + 0.05, now);
     const p = pickLook(base.analysis, main, open, recent, pick);
     if (!p) continue;
-    const spec = makeSpec(W, H, pick);
+    const shape: Shape = { f: pick(), aspect: pick(), circle: pick(), size: pick(), bar: pick() };
+    const spec = specOf(shape, W, H);
     const { x, y, dir } = place(spec, W, H, open, pick);
     const bars = 2 + Math.floor(pick() * 3);
     let until = Math.min(part.end, st.at + Math.min(11, Math.max(3, bars * 4 * spb)));
     // a window due to close just before a drop holds on (trembling) until the drop slams it shut
     const nextDrop = drops.find((d) => d > st.at);
     if (nextDrop !== undefined && until < nextDrop && nextDrop - until < spb * 16) until = nextDrop;
-    out.push({ id: out.length, lookId: p.id, sceneId: p.sceneId, spec, x, y, dir, born: st.at, until, snap: false, trail: st.trail });
+    out.push({ id: out.length, lookId: p.id, sceneId: p.sceneId, shape, spec, x, y, dir, born: st.at, until, snap: false, trail: st.trail });
     recent.push(p.id);
     if (recent.length > 6) recent.shift();
   }
@@ -751,14 +769,14 @@ function pickLook(a: TrackAnalysis | null | undefined, main: MainLook, open: WDe
   return tier[Math.floor(roll() * tier.length)];
 }
 
-function makeSpec(W: number, H: number, roll: () => number): Spec {
+/** a window's box at frame size W×H, from its shape's dice */
+function specOf(sh: Shape, W: number, H: number): Spec {
   const s = Math.min(W, H) / 1080;
-  const f = roll();
-  const frame: FrameKind = f < 0.5 ? 'window' : f < 0.75 ? 'card' : 'round';
-  let aspect = ASPECTS[Math.floor(roll() * ASPECTS.length)];
-  const circle = frame === 'round' && roll() < 0.5;
+  const frame: FrameKind = sh.f < 0.5 ? 'window' : sh.f < 0.75 ? 'card' : 'round';
+  let aspect = ASPECTS[Math.floor(sh.aspect * ASPECTS.length)];
+  const circle = frame === 'round' && sh.circle < 0.5;
   if (circle) aspect = 1;
-  const U = Math.min(W, H) * (0.4 + roll() * 0.08);
+  const U = Math.min(W, H) * (0.4 + sh.size * 0.08);
   let w = U * Math.sqrt(aspect);
   let h = U / Math.sqrt(aspect);
   const k = Math.min(1, (W * 0.45) / w, (H * 0.45) / h);
@@ -782,7 +800,7 @@ function makeSpec(W: number, H: number, roll: () => number): Spec {
     bar,
     shadow: Math.round(Math.max(3, 7 * s)),
     step: Math.round(Math.max(6, 18 * s)),
-    barStyle: roll() < 0.5 ? 0 : 1,
+    barStyle: sh.bar < 0.5 ? 0 : 1,
   };
 }
 
