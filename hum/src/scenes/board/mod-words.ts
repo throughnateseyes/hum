@@ -2,7 +2,7 @@
  * Lyric instruments. A song's words are known as soon as it's imported, so these read the whole
  * lyric sheet, not just the line being sung:
  *
- *   upNext     the line coming up, with a countdown to it (and the line now, small)
+ *   upNext     "now singing": the sung line, word by word on time, and a countdown between lines
  *   ticker     a news crawl of the whole lyric sheet, scrolled in time with the song
  *   topWords   the most-sung words as a hi-score table, counting up as they're sung
  *
@@ -13,6 +13,7 @@ import type { LyricLine } from '../../core/types';
 import { LABEL, STOP, barOf, currentLine, sectionAt, syncedLines, wrapWords } from './mod-fun';
 import { MONO, SANS, clamp01, damp, fmtTime, labelPx, pad2, pad3, rgba, setFont, text } from './kit';
 import type { BF, Module } from './kit';
+import { LEAD, noteLineWindow, showingNow, showings } from '../../render/lyricTiming';
 
 /** typed text split into lines, the way currentLine() cycles them */
 function typedParts(bf: BF): string[] {
@@ -56,62 +57,58 @@ function ellipsize(ctx: CanvasRenderingContext2D, s: string, w: number) {
 
 /* ───────────────────────── Up next ───────────────────────── */
 
+/**
+ * The line being sung, big, each word appearing as it's sung (never before), held until the line is
+ * read, the same moments the lyric overlay uses (render/lyricTiming.ts). Between lines: a countdown
+ * to the next one, without its words. While this window is open with synced lyrics it tells the
+ * lyric layer, which stands down: the words are in one place at a time.
+ *
+ * It used to show the NEXT line big, which read as the lyrics arriving early and moving on before
+ * they were sung.
+ */
 export function upNext(): Module {
   let shown = '';
   let slide = 0;
   return {
-    label: 'UP NEXT',
-    meta: 'THE NEXT LINE',
+    label: 'NOW SINGING',
+    meta: 'THE SUNG LINE',
     clip: true,
     draw(ctx, r, bf) {
-      const { ink, s, dt } = bf;
-      const t = bf.a.time + 0.08;
       const lines = syncedLines();
+      if (lines) {
+        // one place for the words: the lyric overlay stands down while this window is open
+        noteLineWindow();
+        drawSung(ctx, r, bf, lines);
+        return;
+      }
+      // no synced lyrics: the typed text, or the next part of the song
+      const { ink, s, dt } = bf;
       let now = '';
       let next = '';
       let left = '';
       let frac = 0;
       let foot = '';
-      if (lines) {
-        const ni = nextIndex(lines, t);
+      const parts = typedParts(bf);
+      if (parts.length) {
+        // typed text cycles every 8 beats (see currentLine): the next one is the line after
         const cur = currentLine(bf);
-        now = cur?.text ?? '';
-        if (ni < lines.length) {
-          next = lines[ni].text;
-          const from = ni > 0 ? lines[ni - 1].t : 0;
-          const span = Math.max(0.5, lines[ni].t - from);
-          frac = clamp01((t - from) / span);
-          left = `IN ${Math.max(0, lines[ni].t - t).toFixed(1)}S`;
-          foot = `LINE ${pad2(ni + 1)} / ${pad2(lines.length)}`;
-        } else {
-          next = '— that was the last line —';
-          frac = 1;
-          foot = `${pad2(lines.length)} LINES SUNG`;
-        }
+        const i = Math.max(0, parts.findIndex((p) => cur?.text === p));
+        now = parts[i];
+        next = parts[(i + 1) % parts.length];
+        frac = cur?.prog ?? 0;
+        foot = `LINE ${pad2(i + 1)} / ${pad2(parts.length)}`;
       } else {
-        const parts = typedParts(bf);
-        if (parts.length) {
-          // typed text cycles every 8 beats (see currentLine): the next one is the line after
-          const cur = currentLine(bf);
-          const i = Math.max(0, parts.findIndex((p) => cur?.text === p));
-          now = parts[i];
-          next = parts[(i + 1) % parts.length];
-          frac = cur?.prog ?? 0;
-          foot = `LINE ${pad2(i + 1)} / ${pad2(parts.length)}`;
+        const { i, secs } = sectionAt(bf);
+        const nx = secs[i + 1];
+        if (nx) {
+          next = `${LABEL[nx.label].toLowerCase()} coming up`;
+          const from = i >= 0 ? secs[i].start : 0;
+          frac = clamp01((bf.a.time - from) / Math.max(0.5, nx.start - from));
+          left = `IN ${fmtTime(Math.max(0, nx.start - bf.a.time))}`;
+          foot = `PART ${pad2(i + 2)} / ${pad2(secs.length)}`;
         } else {
-          // no words: the next part of the song instead
-          const { i, secs } = sectionAt(bf);
-          const nx = secs[i + 1];
-          if (nx) {
-            next = `${LABEL[nx.label].toLowerCase()} coming up`;
-            const from = i >= 0 ? secs[i].start : 0;
-            frac = clamp01((bf.a.time - from) / Math.max(0.5, nx.start - from));
-            left = `IN ${fmtTime(Math.max(0, nx.start - bf.a.time))}`;
-            foot = `PART ${pad2(i + 2)} / ${pad2(secs.length)}`;
-          } else {
-            next = bf.idle ? 'paste lyrics to see the next line here' : 'no words in this one';
-            foot = 'NO LYRICS';
-          }
+          next = bf.idle ? 'paste lyrics to see the words here' : 'no words in this one';
+          foot = 'NO LYRICS';
         }
       }
       if (next !== shown) {
@@ -121,13 +118,11 @@ export function upNext(): Module {
       slide = damp(slide, 0, 10, dt);
 
       const lp = labelPx(s);
-      // the line being sung, small, on top
       setFont(ctx, lp * 0.95, 500, MONO, 0.04);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
       ctx.fillStyle = rgba(ink.fg, 0.5);
       if (now) ctx.fillText(ellipsize(ctx, `NOW · ${now.toUpperCase()}`, r.w), r.x, r.y + lp * 0.6);
-      // the next line, big
       const top = r.y + lp * 1.6;
       const bot = r.y + r.h - lp * 1.9;
       const fit = fitRows(ctx, next, r.w, bot - top, Math.min(r.h * 0.3, 54 * s), 3);
@@ -136,18 +131,100 @@ export function upNext(): Module {
       const lh = fit.px * 1.1;
       const y0 = top + (bot - top - lh * fit.rows.length) / 2 + fit.px * 0.92 + slide * lh * 0.6;
       fit.rows.forEach((row, k) => ctx.fillText(row, r.x, y0 + k * lh));
-      // countdown bar
-      const by = r.y + r.h - lp * 1.2;
-      const bh = Math.max(2, lp * 0.32);
-      ctx.fillStyle = rgba(ink.fg, 0.12);
-      ctx.fillRect(r.x, by, r.w, bh);
-      ctx.fillStyle = rgba(ink.ac);
-      ctx.fillRect(r.x, by, r.w * frac, bh);
-      const ms = lp * 0.8;
-      text(ctx, foot, r.x, r.y + r.h - ms * 0.4, ms, rgba(ink.fg, 0.5), 'left');
-      if (left) text(ctx, left, r.x + r.w, r.y + r.h - ms * 0.4, ms, rgba(ink.ac, 0.9), 'right', 600);
+      footBar(ctx, r, bf, frac, foot, left);
     },
   };
+}
+
+/** the bar and small print along the bottom of the window */
+function footBar(ctx: CanvasRenderingContext2D, r: { x: number; y: number; w: number; h: number }, bf: BF, frac: number, foot: string, right: string) {
+  const { ink, s } = bf;
+  const lp = labelPx(s);
+  const by = r.y + r.h - lp * 1.2;
+  const bh = Math.max(2, lp * 0.32);
+  ctx.fillStyle = rgba(ink.fg, 0.12);
+  ctx.fillRect(r.x, by, r.w, bh);
+  ctx.fillStyle = rgba(ink.ac);
+  ctx.fillRect(r.x, by, r.w * clamp01(frac), bh);
+  const ms = lp * 0.8;
+  text(ctx, foot, r.x, r.y + r.h - ms * 0.4, ms, rgba(ink.fg, 0.5), 'left');
+  if (right) text(ctx, right, r.x + r.w, r.y + r.h - ms * 0.4, ms, rgba(ink.ac, 0.9), 'right', 600);
+}
+
+/** how long a word takes to rise in, and how long the line fades (s) */
+const WORD_IN = 0.12;
+const LINE_FADE = 0.25;
+
+/**
+ * The sung line, word by word, as a pure function of song time: the showing on screen is the one the
+ * lyric overlay would show (lyricTiming.showingNow), each word appears on its sung time and the newest
+ * is in the accent until the next one arrives. Between lines: how long until the next one.
+ */
+function drawSung(ctx: CanvasRenderingContext2D, r: { x: number; y: number; w: number; h: number }, bf: BF, lines: LyricLine[]) {
+  const { ink, s } = bf;
+  const t = bf.a.time;
+  const lp = labelPx(s);
+  const shows = showings(lines);
+  const cur = showingNow(lines, t);
+  const { i: si, secs } = sectionAt(bf);
+  const part = si >= 0 && secs[si] ? LABEL[secs[si].label] : '';
+  if (part) text(ctx, part, r.x + r.w, r.y + lp * 0.6, lp * 0.8, rgba(ink.fg, 0.5), 'right', 600);
+
+  if (!cur) {
+    // between lines: a countdown, no words (they show when they're sung)
+    const ni = shows.findIndex((sh) => sh.t > t);
+    if (ni < 0) {
+      text(ctx, 'that was the last line', r.x, r.y + r.h * 0.5, lp * 1.1, rgba(ink.fg, 0.45), 'left');
+      footBar(ctx, r, bf, 1, `${pad2(shows.length)} / ${pad2(shows.length)}`, '');
+      return;
+    }
+    const from = ni > 0 ? shows[ni - 1].end : 0;
+    const wait = Math.max(0, shows[ni].t - t);
+    text(ctx, 'NEXT LINE', r.x, r.y + r.h * 0.42, lp, rgba(ink.fg, 0.45), 'left', 600);
+    text(ctx, `${wait.toFixed(1)}S`, r.x, r.y + r.h * 0.42 + lp * 1.6, lp * 1.6, rgba(ink.ac, 0.85), 'left', 600);
+    footBar(ctx, r, bf, (t - from) / Math.max(0.5, shows[ni].t - from), `LINE ${pad2(ni + 1)} / ${pad2(shows.length)}`, '');
+    return;
+  }
+
+  const sh = cur.line;
+  const words = sh.words;
+  const lineA = clamp01(Math.min((t + LEAD - sh.t) / 0.1, (sh.end - t) / LINE_FADE + 1));
+  // fitted as a whole line, so nothing reflows as the words arrive
+  const top = r.y + lp * 1.6;
+  const bot = r.y + r.h - lp * 1.9;
+  const fit = fitRows(ctx, sh.text, r.w, bot - top, Math.min(r.h * 0.3, 54 * s), 3);
+  setFont(ctx, fit.px, 700, SANS, -0.01);
+  const space = ctx.measureText(' ').width;
+  const rows: { i: number; x: number }[][] = [[]];
+  let x = 0;
+  words.forEach((w, i) => {
+    const ww = ctx.measureText(w.text).width;
+    if (x > 0 && x + space + ww > r.w) {
+      rows.push([]);
+      x = 0;
+    }
+    rows[rows.length - 1].push({ i, x: x > 0 ? x + space : 0 });
+    x = (x > 0 ? x + space : 0) + ww;
+  });
+  const lh = fit.px * 1.1;
+  const y0 = top + (bot - top - lh * rows.length) / 2 + fit.px * 0.92;
+  let newest = -1;
+  words.forEach((w, i) => {
+    if (w.t <= t) newest = i;
+  });
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  rows.forEach((row, k) => {
+    for (const { i, x: wx } of row) {
+      const age = t - words[i].t;
+      if (age < 0) continue;
+      const p = clamp01(age / WORD_IN);
+      ctx.fillStyle = rgba(i === newest ? ink.ac : ink.fg, lineA * (0.3 + 0.7 * p));
+      ctx.fillText(words[i].text, r.x + wx, y0 + k * lh + (1 - p) * fit.px * 0.25);
+    }
+  });
+  const sung = newest + 1;
+  footBar(ctx, r, bf, words.length ? sung / words.length : 0, `LINE ${pad2(cur.i + 1)} / ${pad2(shows.length)}`, '');
 }
 
 /* ───────────────────────── Bulletin ticker ───────────────────────── */
@@ -234,8 +311,22 @@ export function ticker(label = 'BULLETIN'): Module {
         runs.forEach((run, k) => {
           const x = off + run.x + loop;
           if (x > r.x + r.w || x + run.w < r.x) return;
+          // with lyrics, nothing is shown before it's sung: lines still to come are left off, and the
+          // line being sung grows word by word on its words' times
+          if (lines && k > cur) return;
+          let shownText = run.text;
+          let whole = true;
+          if (lines && k === cur) {
+            const ws = lines[k].words;
+            if (ws?.length) {
+              const sung = ws.filter((w) => w.t <= a.time).length;
+              whole = sung >= ws.length;
+              shownText = ws.slice(0, sung).map((w) => w.text.toUpperCase()).join(' ');
+            }
+          }
           ctx.fillStyle = k === cur ? rgba(ink.ac) : lines && k < cur ? rgba(ink.fg, 0.38) : rgba(ink.fg, 0.88);
-          ctx.fillText(run.text, x, y);
+          if (shownText) ctx.fillText(shownText, x, y);
+          if (!whole) return;
           const sx = x + run.w;
           if (sx < r.x + r.w) {
             ctx.fillStyle = rgba(ink.ac2, 0.8);

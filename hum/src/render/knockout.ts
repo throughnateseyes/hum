@@ -1,6 +1,7 @@
 import type { Palette } from '../core/types';
 import { seeded } from '../state/lyricPlan';
 import { FACES } from './lyricFonts';
+import { KIT_FACES } from './typeKits/fonts';
 import type { Treatment } from './lyricAuto';
 import { NEAR_BLACK, PAPER, hexRGB, lumOf, ratio, type RGB, type Rect, type RegionStats } from './legibility';
 
@@ -55,6 +56,10 @@ interface KVoice {
 
 /** the song's family, set for huge sizes */
 function voiceOf(family: string | undefined): KVoice {
+  // a type kit's display face (typeKits/): the lettering of the finish, set huge
+  if (family === 'kit-tape') return { family: KIT_FACES.tapeWide, weights: [400, 400], track: [-0.01, -0.03], caps: 'always' };
+  if (family === 'kit-film') return { family: KIT_FACES.filmDisplay, weights: [400, 400], track: [0, -0.015], caps: 'never' };
+  if (family === 'kit-print') return { family: KIT_FACES.printDisplay, weights: [400, 400], track: [0.01, -0.01], caps: 'always' };
   if (family === 'serif') return { family: FACES.instrument, weights: [400, 400], italicHeavy: true, track: [-0.015, -0.04], caps: 'never' };
   if (family === 'condensed') return { family: FACES.archivo, weights: [700, 900], stretch: 'extra-condensed', track: [0, -0.02], caps: 'always' };
   if (family === 'mono' || family === 'typewriter') return { family: FACES.mono, weights: [500, 800], track: [-0.04, -0.08], caps: 'never' };

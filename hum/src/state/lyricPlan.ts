@@ -34,9 +34,14 @@ export const LYRIC_MOMENTS: LyricMoment[] = ['giant', 'burst'];
 export type TypeFamily = 'grotesk' | 'serif' | 'condensed' | 'mono' | 'rounded' | 'typewriter';
 export const TYPE_FAMILIES: TypeFamily[] = ['grotesk', 'serif', 'condensed', 'mono', 'rounded', 'typewriter'];
 
+/** where Subtitle and Sparse lines sit: the fixed low place, or the calmest place in the picture */
+export type LyricPlace = 'low' | 'picture';
+
 export interface LyricPart {
   medium: LyricMedium;
   moment?: LyricMoment | null;
+  /** Subtitle / Sparse only; unset means Sparse in the picture and Subtitle low */
+  place?: LyricPlace;
   why?: string;
 }
 
@@ -235,7 +240,12 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
       burstUsed = true;
     }
     prev = medium;
-    return { medium, moment, why: why.join('; ') };
+    // subtitles on a calm, unhurried part go into the picture like a placed title; busy or fast
+    // parts keep them low and steady, where the eye knows to look
+    const calm = e < 0.55 && dens.wps < 2.4 && sec.label !== 'chorus' && sec.label !== 'drop';
+    const place: LyricPlace | undefined = medium === 'subtitle' && calm && !moment ? 'picture' : undefined;
+    if (place) why.push('calm, so placed in the picture');
+    return { medium, moment, ...(place ? { place } : {}), why: why.join('; ') };
   });
 
   // a lyric video needs at least a couple of mediums: if one took over, give a contrasting part another
@@ -264,7 +274,14 @@ export function mergeLyricPlan(local: LyricPlan, claude: { family?: TypeFamily |
   return {
     ...local,
     family: claude.family ?? local.family,
-    parts: local.parts.map((p, i) => (p ? (claude.parts[i] ? { ...claude.parts[i]!, moment: claude.parts[i]!.moment ?? null } : p) : null)),
+    // Claude doesn't plan placement: a part it gives the same medium keeps the local place
+    parts: local.parts.map((p, i) => {
+      const c = claude.parts[i];
+      if (!p) return null;
+      if (!c) return p;
+      const place = c.place ?? (c.medium === p.medium ? p.place : undefined);
+      return { ...c, moment: c.moment ?? null, ...(place ? { place } : {}) };
+    }),
     source: 'claude',
   };
 }
@@ -303,6 +320,8 @@ export interface LyricChoice {
   seed: number;
   /** seed for the whole part (things that hold for a part, like knockout's capitals) */
   partSeed: number;
+  /** Subtitle / Sparse: low and fixed, or placed in the picture (lyricPlace.ts) */
+  place: LyricPlace;
   why: string;
 }
 
@@ -315,7 +334,7 @@ export function chooseForLine(plan: LyricPlan, a: TrackAnalysis, lines: LyricLin
   const si = sectionAt(a.sections, line.t);
   const sec = a.sections[si];
   const part = plan.parts[si] ?? { medium: sec.label === 'chorus' || sec.label === 'drop' ? 'big' : 'subtitle' };
-  const base = { family: plan.family, motion: plan.motion, section: si, seed: (plan.seed ^ (li * 2654435761)) >>> 0, partSeed: (plan.seed ^ ((si + 1) * 40503)) >>> 0 };
+  const base = { family: plan.family, motion: plan.motion, section: si, seed: (plan.seed ^ (li * 2654435761)) >>> 0, partSeed: (plan.seed ^ ((si + 1) * 40503)) >>> 0, place: 'low' as LyricPlace };
   if (look.own === 'carries' && !show) return { ...base, medium: 'own', moment: null, why: 'this look shows the words itself' };
   let medium = part.medium;
   let why = part.why ?? '';
@@ -353,7 +372,9 @@ export function chooseForLine(plan: LyricPlan, a: TrackAnalysis, lines: LyricLin
     const onDrop = sec.label === 'drop' || a.drops.some((d) => Math.abs(d - sec.start) < 2.5);
     if (li === at && (part.moment !== 'burst' || (look.suits.cutout >= 0.2 && onDrop))) moment = part.moment;
   }
-  return { ...base, medium, moment, why };
+  // Sparse sits in the picture unless the part says low; Subtitle only when its part asks for it
+  const place: LyricPlace = medium === 'sparse' ? (part.medium === 'sparse' && part.place === 'low' ? 'low' : 'picture') : medium === 'subtitle' && part.medium === 'subtitle' && part.place === 'picture' ? 'picture' : 'low';
+  return { ...base, medium, moment, place, why };
 }
 
 /* ───────────────────────── what Auto is doing now (for the lyrics chip) ───────────────────────── */

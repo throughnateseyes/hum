@@ -11,9 +11,10 @@ import type { HandStyle } from '../core/types';
 import { forgetAccessCode, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { quality as governor } from '../render/quality';
 import { perfReport, perfSummary } from '../render/perfReport';
+import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
-import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
+import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
 import { Field, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
 import { MoodRow } from './Moods';
@@ -295,16 +296,40 @@ const LYRIC_STYLES: { v: LyricStyle; label: string; tip: string }[] = [
   { v: 'off', label: 'Off', tip: 'No lyrics on the video' },
 ];
 
+/** "Matches the finish" takes the whole first row; the four kits share the second */
+const LETTERING = KIT_CHOICES.map((c) => ({ ...c, span: c.v === 'auto' ? 4 : 1 }));
+const KIT_NAME: Record<KitId, string> = { clean: 'clean type', tape: 'Tape lettering', film: 'Film lettering', print: 'Print lettering', hand: 'hand-drawn lettering' };
+
 function WordsSection() {
   const status = useStudio((s) => s.lyricsStatus);
   const style = useStudio((s) => s.lyricStyle);
+  const kit = useStudio((s) => s.typeKit);
+  const now = useStudio(activeFinish);
   const text = useStudio((s) => s.text);
   const set = useStudio((s) => s.set);
+  // hovering a choice explains it; otherwise the line says which lettering is in use
+  const [hover, setHover] = useState<TypeKitSetting | null>(null);
+  const kitNote =
+    hover !== null && hover !== kit
+      ? (KIT_CHOICES.find((c) => c.v === hover)?.tip ?? '')
+      : kit === 'auto'
+        ? `${finishName(now)} finish, so ${KIT_NAME[kitFor('auto', now)]}.`
+        : (KIT_CHOICES.find((c) => c.v === kit)?.tip ?? '');
+  const pick = (v: TypeKitSetting) => {
+    warmKit(kitFor(v, now));
+    set({ typeKit: v });
+  };
   return (
     <Section id="video.words" title="Words">
       {status === 'found' && (
         <Field label="Lyrics" tip="How the song's words show on the video. More lyric settings (font, timing) are under Lyrics in the top bar.">
           <Seg value={style} options={LYRIC_STYLES} onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })} label="Lyrics style" />
+        </Field>
+      )}
+      {status === 'found' && (
+        <Field label="Lettering" tip="The kind of type the words are set in. Each finish has its own, or pick one for the whole video.">
+          <Seg value={kit} options={LETTERING} onChange={pick} onHover={setHover} cols={4} label="Lettering" />
+          <p className="field-note">{kitNote}</p>
         </Field>
       )}
       <Field label="Title text" tip="Shown by looks that use text (the instrument boards, mostly)">

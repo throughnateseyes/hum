@@ -35,6 +35,9 @@ export type LyricsOnBoards = 'hide' | 'show';
 /** the lyric typeface: 'auto' follows the song (or Claude's plan); the rest are bundled fonts */
 export type LyricFont = 'auto' | 'grotesk' | 'serif' | 'condensed' | 'mono' | 'hand';
 export const LYRIC_FONTS: LyricFont[] = ['auto', 'grotesk', 'serif', 'condensed', 'mono', 'hand'];
+/** the lyrics' lettering: 'auto' matches the video's finish; the rest put one type kit everywhere */
+export type TypeKitSetting = 'auto' | 'clean' | 'tape' | 'film' | 'print';
+export const TYPE_KITS: TypeKitSetting[] = ['auto', 'clean', 'tape', 'film', 'print'];
 /** small board windows over the picture: during a played video plan, always, or never */
 export type PopupMode = 'video' | 'always' | 'off';
 /** what the pop-up windows show: instruments (little board modules), other looks playing live, or both */
@@ -145,6 +148,8 @@ export interface StudioState extends LookState {
   lyricStylePicked: boolean;
   lyricsOnBoards: LyricsOnBoards;
   lyricFont: LyricFont;
+  /** the lyrics' lettering: 'auto' matches the finish, or one kit everywhere (render/typeKits) */
+  typeKit: TypeKitSetting;
   /** sync new songs' lyrics to the singing by listening, on their own (where the device can) */
   lyricsAutoSync: boolean;
   lyricsSync: LyricsSync;
@@ -273,6 +278,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricStylePicked: j.lyricStylePicked === true,
       lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
       lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
+      typeKit: TYPE_KITS.includes(j.typeKit) ? (j.typeKit as TypeKitSetting) : undefined,
       lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
       oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
     };
@@ -303,6 +309,7 @@ function persist(s: StudioState) {
         lyricStylePicked: s.lyricStylePicked,
         lyricsOnBoards: s.lyricsOnBoards,
         lyricFont: s.lyricFont,
+        typeKit: s.typeKit,
         lyricsAutoSync: s.lyricsAutoSync,
         hand: { ...s.hand, v: 2 },
         popups: s.popups,
@@ -429,6 +436,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   lyricStylePicked: persisted.lyricStylePicked ?? false,
   lyricsOnBoards: persisted.lyricsOnBoards ?? 'hide',
   lyricFont: persisted.lyricFont ?? 'auto',
+  typeKit: persisted.typeKit ?? 'auto',
   lyricsAutoSync: persisted.lyricsAutoSync ?? true,
   lyricsSync: null,
   lyricsQuery: {},
@@ -592,7 +600,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch) persist(get());
   },
   setPartPops: (i, level) => {
     const a = get().analysis;

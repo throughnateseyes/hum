@@ -968,7 +968,7 @@ export class Stage {
     };
     const winOpts = { level: pops.looks, show: pops.showLooks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
-    const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
+    const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio, finish } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
     if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
     const keep = lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT;
@@ -1000,6 +1000,29 @@ export class Stage {
       this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
+    } else if (lyricOpts && this.lyricLayer.underFinish(lyricOpts)) {
+      // a type kit's lettering (render/typeKits) goes in BEFORE the finish, so the finish's grain,
+      // bleed and wear work on the words too; windows and pop-ups still go over the finished frame.
+      // The guard reads the picture without this frame's windows (it has last frame's boxes).
+      const held = s.hand.fps < 60 ? this.holdRT : null;
+      if (s.impact > 0.001) {
+        this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
+        this.impactQuad.render(r, this.impactRT);
+      } else {
+        this.shared.blit(finalTex, this.impactRT);
+      }
+      beforeLyrics(this.impactRT);
+      o?.phase?.('lyrics');
+      this.lyricLayer.render(r, lyricOpts, this.impactRT);
+      this.present(this.impactRT.texture, finish, base, held);
+      o?.phase?.('windows');
+      this.sceneWindows.render(r, base, held ? { ...winOpts, target: held, keep } : { ...winOpts, keep });
+      o?.phase?.('popups');
+      this.popups.render(r, base, held, pops.instruments, keep);
+      if (held) {
+        this.holdReady = true;
+        this.shared.blit(held.texture, null);
+      }
     } else {
       // with Drawn or Choppy frames the whole finished picture (windows, pop-ups and lyrics too) is
       // put together in the held frame, and the screen shows that until the next drawing is due

@@ -10,6 +10,10 @@ import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
+import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
+import { PlaceMemo, frameHigh, slotCost, slots, turnedBox, turnedRect, type Slot, type SlotId } from './lyricPlace';
+import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type TypeKit } from './typeKits';
+import type { FinishId } from '../core/direction';
 import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
 
 /**
@@ -57,23 +61,15 @@ import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockou
  * `showsLyrics`) unless the user picks "Show anyway".
  */
 
+export { readTime, showings, type Showing } from './lyricTiming';
+
 const FONT = LYRIC_FAMILIES.grotesk;
 /** nothing is placed above this share of the frame height: the top stays clear */
 const SAFE_TOP = 0.34;
 /** a line that has to make way fades out over the next one for this long (s) */
 const HANDOVER = 0.35;
-/** read time: base + per word (s), and never less than READ_MIN */
-const READ_BASE = 0.6;
-const READ_PER_WORD = 0.28;
-const READ_MIN = 1.4;
-/** a line's last word stays up at least this long after it starts (s) */
-const TAIL = 0.75;
-/** lines merged into one showing never go over this many words (or three lines) */
-const MAX_SHOWN_WORDS = 14;
 const FADE_IN = 0.14;
 const FADE_OUT = 0.3;
-/** show the next line slightly early so the eye arrives with the voice */
-const LEAD = 0.08;
 /** knockout: a gap this short (s) before the next line is held through, the last word up until the next knocks it out */
 const KO_BRIDGE = 1.5;
 
@@ -82,109 +78,6 @@ type Drawn = 'subtitle' | 'big' | 'cutout' | 'sparse' | 'knockout' | 'own' | 'no
 const quiet = (m: Drawn) => m === 'own' || m === 'none';
 /** the mediums placed in spots (knockout lays itself out over the frame) */
 type Placed2 = Exclude<Drawn, 'own' | 'none' | 'world' | 'knockout'>;
-
-interface Word {
-  text: string;
-  t: number;
-  end: number;
-}
-
-/** word timings: real ones when the lyrics have them, otherwise spread across the line by length */
-function wordsOf(line: LyricLine): Word[] {
-  if (line.words?.length) return line.words;
-  const parts = line.text.split(/\s+/).filter(Boolean);
-  const total = parts.reduce((a, w) => a + w.length + 1, 0);
-  const span = Math.max(0.4, (line.end - line.t) * 0.82);
-  let acc = 0;
-  return parts.map((text) => {
-    const t = line.t + (acc / total) * span;
-    acc += text.length + 1;
-    return { text, t, end: line.t + (acc / total) * span };
-  });
-}
-
-/** how long a line of n words needs on screen to be read */
-export const readTime = (n: number) => Math.max(READ_MIN, READ_BASE + READ_PER_WORD * n);
-
-/** what is on screen at once: one lyric line, or a few quick ones together, with display times */
-export interface Showing {
-  /** first and last lyric line (indices into the lines) */
-  first: number;
-  last: number;
-  /** on screen from t to end (end includes the read time; the fade-out comes after) */
-  t: number;
-  end: number;
-  text: string;
-  words: Word[];
-  timed: boolean;
-}
-
-const shownCache = new WeakMap<LyricLine[], Showing[]>();
-
-/**
- * Turn timed lines into what's shown: each line stays up for its read time and a moment after its
- * last word; lines that start before the one before could be read join it (up to three lines /
- * MAX_SHOWN_WORDS), so nothing flashes by. If a showing still has to leave early for the next one,
- * its late words are pulled in so every word is drawn before it goes.
- */
-export function showings(lines: LyricLine[]): Showing[] {
-  const hit = shownCache.get(lines);
-  if (hit) return hit;
-  const out: Showing[] = [];
-  let k = 0;
-  while (k < lines.length) {
-    const first = k;
-    let words = wordsOf(lines[k]).map((w) => ({ ...w }));
-    let timed = !!lines[k].words?.length;
-    let last = k;
-    while (last + 1 < lines.length && last - first < 2 && words.length) {
-      const nx = lines[last + 1];
-      const upFor = nx.t - lines[first].t;
-      const tailFor = nx.t - words[words.length - 1].t;
-      if (upFor >= readTime(words.length) && tailFor >= TAIL) break;
-      const nw = wordsOf(nx);
-      if (words.length + nw.length > MAX_SHOWN_WORDS) break;
-      words = words.concat(nw.map((w) => ({ ...w })));
-      timed = timed && !!nx.words?.length;
-      last++;
-    }
-    k = last + 1;
-    if (!words.length) continue;
-    const t = lines[first].t;
-    const next = lines[last + 1]?.t ?? Infinity;
-    const lastW = words[words.length - 1];
-    const want = Math.max(lines[last].end, lastW.end + 0.25, lastW.t + TAIL, t + readTime(words.length));
-    const end = Math.min(want, next);
-    // every word is drawn before the showing goes: if it must leave early, pull its late words in
-    const latest = end - 0.35;
-    const w0 = Math.min(words[0].t, latest);
-    if (lastW.t > latest && latest > t) {
-      const f = (latest - w0) / Math.max(1e-3, lastW.t - w0);
-      for (const w of words) {
-        if (w.t > w0) w.t = w0 + (w.t - w0) * f;
-        w.end = Math.min(end, Math.max(w.t + 0.05, w0 + (w.end - w0) * f));
-      }
-    }
-    out.push({ first, last, t, end, text: words.map((w) => w.text).join(' '), words, timed });
-  }
-  shownCache.set(lines, out);
-  return out;
-}
-
-/** index of the last showing that has started by time t (-1 before the first) */
-function showingAt(shows: Showing[], t: number): number {
-  let lo = 0;
-  let hi = shows.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (shows[mid].t <= t) {
-      found = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return found;
-}
 
 const STOP = new Set('a an and are as at be but by for from had has have he her his i if in into is it its me my no not of on or our she so that the their them then there they this to too up us was we were what when where who will with you your oh ooh yeah la na da'.split(' '));
 /** the words that carry a line: held long, not filler */
@@ -263,6 +156,8 @@ const giantSpot = (portrait: boolean, right: boolean): Spot =>
     ? { r: { x0: 0.07, y0: 0.38, x1: 0.93, y1: 0.74 }, align: right ? 'right' : 'left', anchor: 'bottom' }
     : { r: { x0: 0.07, y0: 0.36, x1: 0.93, y1: 0.84 }, align: right ? 'right' : 'left', anchor: 'bottom' };
 
+const SLOT_NAME: Record<SlotId, string> = { lowL: 'lower left', lowR: 'lower right', sideL: 'up the left side', sideR: 'up the right side', top: 'across the top' };
+
 /** clamp a box below SAFE_TOP (a guard: every box above already is) */
 const safe = (r: Rect): Rect => (r.y0 >= SAFE_TOP ? r : { ...r, y0: SAFE_TOP, y1: Math.max(r.y1, SAFE_TOP + 0.2) });
 
@@ -290,9 +185,17 @@ interface LineState {
   /** stats of the picture under the text (last probe) */
   stats: RegionStats | null;
   why: string;
+  /** the type kit the line is set in (typeKits/) */
+  kit: TypeKit;
+  /** the showing this line belongs to: when it started, which one of how many (for kit secondary lines) */
+  start: number;
+  nth: number;
+  of: number;
+  /** words placed in the picture (Subtitle, Sparse): set vertically up a side column */
+  turn?: { cx: number; cy: number };
 }
 
-const px = (r0: Rect, W: number, H: number): Box => {
+const px =(r0: Rect, W: number, H: number): Box => {
   const r = safe(r0);
   return { x0: r.x0 * W, y0: r.y0 * H, x1: r.x1 * W, y1: r.y1 * H };
 };
@@ -320,6 +223,8 @@ export interface LyricOpts {
   height: number;
   audio: AudioFrame;
   dt?: number;
+  /** the finish on the part playing: picks the type kit (typeKits/) when the lettering matches it */
+  finish?: FinishId;
 }
 
 /** what both prepare() and render() work out about a frame */
@@ -356,6 +261,8 @@ export class LyricLayer {
   private devClock = 0;
   /** fades the line out when a shot cuts to a look that shows the words itself */
   private standDown = 0;
+  /** a pop-up showing the sung line was open last frame (see lyricTiming.noteLineWindow) */
+  private lineWindow = false;
   /** look + scene the guard last saw, to notice cuts */
   private lookKey = '';
   /** the accent passes the same per-pixel contrast test as the ink (else the giant word uses the ink) */
@@ -369,6 +276,8 @@ export class LyricLayer {
   private lastAlpha = 0;
   /** pop-up windows on screen this frame (normalized boxes, where they're heading) */
   private occluders: Rect[] = [];
+  /** where in-picture lines sit, remembered per block of lines (lyricPlace.ts) */
+  private places = new PlaceMemo();
   /** where the words are, for the windows (see keepOut) */
   private keep: KeepOut = NO_KEEP_OUT;
   private lastRect: Rect | null = null;
@@ -452,6 +361,21 @@ export class LyricLayer {
     this.keep = { now, next };
   }
 
+  /** the type kit for this frame: the Lettering setting, or the finish's own (typeKits/) */
+  private kitNow(o: LyricOpts): TypeKit {
+    return typeKit(kitFor(useStudio.getState().typeKit, o.finish ?? 'clean'));
+  }
+
+  /**
+   * Does this frame's lettering go in before the finish (so the finish works on the words too)?
+   * The stage asks, to draw the lyrics before or after present() (stage.ts).
+   */
+  underFinish(o: LyricOpts): boolean {
+    if (o.style === 'off' || !o.lines.length) return false;
+    const f = o.finish ?? 'clean';
+    return underFinish(kitFor(useStudio.getState().typeKit, f), f);
+  }
+
   /** the line for this showing, laid out (a new showing hands the old one over as a fading ghost) */
   private ensureLine(f: FrameFacts, o: LyricOpts) {
     const { W, H, t } = f;
@@ -469,7 +393,9 @@ export class LyricLayer {
     const group = `${line.first}-${line.last}|${line.text}`;
     // a cut to or from a scene that hosts the line lays it out again (as part of the new picture)
     const hostKey = hostFor(st.sceneId) ? st.sceneId : '-';
-    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}`;
+    // the type kit: a change of finish (or of the Lettering setting) sets the line again in the new kit
+    const kit = this.kitNow(o);
+    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}|${kit.id}|${kitFontVersion()}`;
     if (this.line?.key !== key) {
       // the next line arrived while this one was still up: fade it out over the new one
       const prev = this.line;
@@ -485,11 +411,16 @@ export class LyricLayer {
         this.ghost.width = W;
         this.ghost.height = H;
       }
-      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId, line.end);
+      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId, line.end, kit, f.cur!.i);
       this.line.group = group;
+      this.line.start = line.t;
+      this.line.nth = f.cur!.i + 1;
+      this.line.of = f.shows.length;
       // knockout hands over word to word itself (the last word is knocked out by the next): no ghost
       if (this.line.medium === 'knockout') this.ghostOn = false;
-      this.standDown = 0;
+      // a new line while a "now singing" pop-up is open starts hidden (it's in the pop-up)
+      this.standDown = this.lineWindow ? 1 : 0;
+      if (this.lineWindow) this.ghostOn = false;
     }
   }
 
@@ -501,6 +432,7 @@ export class LyricLayer {
     const dt = o.dt ?? Math.min(0.1, Math.max(0, now - (this.clock || now)));
     this.clock = now;
     const st = useStudio.getState();
+    this.lineWindow = takeLineWindow();
     const f = this.facts(o);
     const { t, cur, W, H, carries } = f;
     if (cur) this.ensureLine(f, o);
@@ -525,7 +457,9 @@ export class LyricLayer {
 
     // a cut to a look that shows the words itself mid-line: fade out rather than fight it
     // (Auto hands every medium to the look; the fixed Subtitles style keeps its subtitles).
-    const hideNow = (carries && !quiet(L.medium) && (o.style === 'auto' || L.medium !== 'subtitle'));
+    // A "now singing" pop-up shows the sung line too: the words are in one place at a time, so the
+    // overlay stands down while one is open (lyricTiming.noteLineWindow, from mod-words.ts).
+    const hideNow = (carries && !quiet(L.medium) && (o.style === 'auto' || L.medium !== 'subtitle')) || (this.lineWindow && !quiet(L.medium));
     this.standDown += ((hideNow ? 1 : 0) - this.standDown) * Math.min(1, dt * 8);
 
     // a cut under the line: the picture changed at once, so the guard may follow at once
@@ -572,7 +506,7 @@ export class LyricLayer {
     const sung = words.filter((w) => w.t <= t).length;
     const an = st.analysis;
     const drop = dropMoment(an, o.t, o.audio);
-    const live = ko ? knockoutMoving(ko, tSung) : L.type ? moving(L.type, t, drop) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
+    const live = ko ? knockoutMoving(ko, tSung) : L.type ? (L.kit.moving ? L.kit.moving(L.type, t) : moving(L.type, t, drop)) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
     // redraw at 60 fps only while something moves (or fades); a still line keeps its last drawing
     const tick = live || ghostA > 0.01 || fadeOut > 0 ? Math.floor(t * 60) : -1;
     const drawKey = `${key}|${tick}|${sung}|${Math.round(alpha * 40)}|${ko ? kickStep(o.audio.kick) : ''}|${this.guard.key()}|${this.accentOK}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
@@ -595,14 +529,29 @@ export class LyricLayer {
           const boxes = knockoutBoxes(ko, tSung);
           if (boxes.length) drawBacking(g, boxes, this.guard, ko.shadowSize, W, alpha, L.i + 1);
           const c = this.inks(o.palette, L);
-          drawKnockout(g, ko, tSung, alpha, { ink: c.ink, accent: c.accent, shadow: c.shadow }, o.audio.kick, W, H);
+          const base = { ink: c.ink, accent: c.accent, shadow: c.shadow };
+          // under a kit, its face set huge and inked its way (a glow on tape, a flat print shadow on film)
+          const kc = L.kit.knockInks ? L.kit.knockInks(base, lumOf(this.guard.ink) > 0.5, o.palette) : base;
+          drawKnockout(g, ko, tSung, alpha, kc, o.audio.kick, W, H);
         } else if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
         else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio, this.hostNeed);
         else if (L.type) {
-          const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
-          drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);
-          if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
-          drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
+          // set vertically up a side column: drawn turned a quarter about the column's centre
+          if (L.turn) {
+            g.translate(L.turn.cx, L.turn.cy);
+            g.rotate(-Math.PI / 2);
+            g.translate(-L.turn.cx, -L.turn.cy);
+          }
+          const medium = L.medium === 'subtitle' || L.medium === 'sparse' ? L.medium : 'big';
+          const plate = !!L.kit.ownPlate?.(L.type.role, medium);
+          if (!plate) {
+            const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
+            drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);
+            if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
+          }
+          if (L.kit.draw) {
+            L.kit.draw({ g, L: L.type, t, alpha: Math.max(0, alpha), inks: this.inks(o.palette, L), light: lumOf(this.guard.ink) > 0.5, pal: o.palette, audio: o.audio, drop, W, H, medium, facts: songFacts(an, o.t, L.nth, L.of), seed: L.choice?.seed ?? L.i * 7919 + 1, start: L.start });
+          } else drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
         }
         g.restore();
       }
@@ -659,7 +608,7 @@ export class LyricLayer {
   }
 
   /** decide how line `li` is shown: medium, place, type; lay it out once */
-  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string, end: number): LineState {
+  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string, end: number, kit: TypeKit, showIdx: number): LineState {
     const g = this.ctx;
     let medium: Drawn;
     let moment: LyricMoment | null = null;
@@ -683,7 +632,7 @@ export class LyricLayer {
     const R = seeded(choice?.seed ?? li * 7919 + 1);
     const portrait = H > W * 1.2;
     const unit = Math.min(W, H);
-    const base: LineState = { key, i: li, medium, moment, choice, zone: 'middle', rect: { x0: 0.1, y0: 0.4, x1: 0.9, y1: 0.6 }, ladder: ladderFor(look), target: 3, inks: look.ink, stats: null, why };
+    const base: LineState = { key, i: li, medium, moment, choice, zone: 'middle', rect: { x0: 0.1, y0: 0.4, x1: 0.9, y1: 0.6 }, ladder: ladderFor(look), target: 3, inks: look.ink, stats: null, why, kit, start: 0, nth: 0, of: 0 };
     if (quiet(medium)) return base;
 
     // the font picked in the lyrics panel wins; on Auto, the song's family (Claude's plan or the local one)
@@ -702,7 +651,7 @@ export class LyricLayer {
       return { ...base, medium: 'world', host: hl, hostName: host.name, rect: hl.rect, why: `the look hosts the words: ${host.name}` };
     }
 
-    if (medium === 'knockout' && an) return this.planKnockout(base, words, lines, li, look, carries, W, H, pal, an, fam, tr, end);
+    if (medium === 'knockout' && an) return this.planKnockout(base, words, lines, li, look, carries, W, H, pal, an, kit.knockFace ?? fam, tr, end);
     if (medium === 'knockout') medium = 'big';
 
     const SP = spots(portrait);
@@ -729,7 +678,8 @@ export class LyricLayer {
     const fixedZone = (m: Drawn): Zone => (m === 'subtitle' ? 'bottom' : m === 'cutout' ? 'middle' : 'left');
     let zone = pickZone(medium as Placed2, fixedZone(medium));
     // the picture is too busy for display type even with a backing: hand the line to a caption
-    if (style === 'auto' && !moment && (medium === 'big' || medium === 'sparse') && this.probe.version > 0 && look.plate !== 'band') {
+    // (a kit that gives display lines their own plate, like Print's ink bands, reads anywhere)
+    if (style === 'auto' && !moment && (medium === 'big' || medium === 'sparse') && this.probe.version > 0 && look.plate !== 'band' && !kit.ownPlate?.('display', medium)) {
       const v = judge(this.probe, SP[medium][zone]!.r, { inks: this.inkList(look.ink, pal, null), target: 3, ladder: ladderFor(look), pal });
       if ((v.level >= 3 && v.bad > 0.15) || v.bad > 0.35) {
         medium = 'subtitle';
@@ -739,7 +689,20 @@ export class LyricLayer {
     }
     const L: LineState = { ...base, medium, zone, why };
     const m = medium as Placed2;
-    const spot = SP[m][zone] ?? SP[m].left ?? SP[m].middle ?? SP.subtitle.bottom!;
+    let spot = SP[m][zone] ?? SP[m].left ?? SP[m].middle ?? SP.subtitle.bottom!;
+    // words placed in the picture (lyricPlace.ts): the calmest open place, held for a few lines
+    let slot: Slot | null = null;
+    if (style === 'auto' && !moment && choice?.place === 'picture' && medium === choice.medium && (medium === 'sparse' || medium === 'subtitle')) {
+      this.places.reset(`${portrait}|${lines.length}|${lines[0]?.t ?? 0}`);
+      const hi = this.probe.version > 0 ? frameHigh(this.probe) : 1;
+      const ink = this.inkList(look.ink, pal, null);
+      slot = this.places.pick(showIdx, choice.section, slots(portrait), (s) =>
+        this.probe.version > 0 ? slotCost(s, judge(this.probe, s.r, { inks: ink, target: medium === 'subtitle' ? 4.5 : 4, ladder: ladderFor(look), pal }), this.probe, hi, this.occluders, words.length) : s.turned ? 1 : 0,
+      );
+      if (!slot.turned) spot = { r: slot.r, align: slot.align, anchor: slot.anchor };
+      L.zone = slot.id === 'lowR' || slot.id === 'sideR' ? 'right' : slot.id === 'top' ? 'middle' : 'left';
+      L.why = `${why}${why ? '; ' : ''}placed in the picture (${SLOT_NAME[slot.id]})`;
+    }
     const box = px(spot.r, W, H);
 
     if (medium === 'cutout') {
@@ -751,8 +714,10 @@ export class LyricLayer {
       const variant = R();
       const role: Role = moment === 'giant' ? 'giant' : medium === 'subtitle' ? 'caption' : medium === 'sparse' ? 'aside' : 'display';
       // fixed Subtitles stay in the clean face unless a font was picked
-      const voice = voiceFor(role, fam, tr, variant);
-      const kicker = role === 'giant' ? voiceFor('kicker', fam, tr, variant) : undefined;
+      // a type kit sets the line in its own faces (the song's family and motion still decide the rest)
+      const own = (r: Role | 'kicker', v: ReturnType<typeof voiceFor>) => (kit.voice ? kit.voice(r, v) : v);
+      const voice = own(role, voiceFor(role, fam, tr, variant));
+      const kicker = role === 'giant' ? own('kicker', voiceFor('kicker', fam, tr, variant)) : undefined;
       ensureLyricFont(voice.family);
       if (kicker) ensureLyricFont(kicker.family);
       const keyIdx = keyWords(words, 1).map((k) => words.indexOf(k));
@@ -761,6 +726,15 @@ export class LyricLayer {
         L.type = layoutLine(g, words, { role, voice, kicker, treatment: tr, box: px(gs.r, W, H), align: gs.align, anchor: 'bottom', maxRows: 1, unit, key: keyIdx });
         L.ladder = ['none', 'shadow', 'soft'];
         L.zone = zone === 'right' ? 'right' : 'left';
+      } else if (slot?.turned) {
+        // up a side column: laid out flat in the column's turned box, drawn turned a quarter
+        const tb = turnedBox(px(slot.r, W, H));
+        L.type = layoutLine(g, words, { role, voice, treatment: tr, box: tb.box, align: slot.align, anchor: slot.anchor, maxRows: 2, unit, key: words.length >= 4 ? keyIdx : [] });
+        L.turn = { cx: tb.cx, cy: tb.cy };
+        L.target = role === 'caption' ? 4.5 : 4;
+        // a full-width band or paper sheet can't turn with the words: the halo stands in for them
+        const flat: Backing[] = [...L.ladder.filter((b) => b !== 'band' && b !== 'paper'), 'halo'];
+        L.ladder = flat.filter((b, k) => flat.indexOf(b) === k);
       } else {
         L.type = layoutLine(g, words, {
           role,
@@ -775,7 +749,10 @@ export class LyricLayer {
         });
         L.target = role === 'caption' ? 4.5 : role === 'aside' ? 4 : 3;
       }
-      L.rect = rectOf(L.type.rows, W, H, 0.015) ?? L.rect;
+      L.rect = (L.turn ? turnedRect(L.type.rows, L.turn.cx, L.turn.cy, W, H, 0.015) : rectOf(L.type.rows, W, H, 0.015)) ?? L.rect;
+      // a kit medium with its own plate (the LED sign, the ink band, the paper panel) is its own
+      // backing: the guard has nothing to add under it
+      if (kit.ownPlate?.(role, medium === 'subtitle' || medium === 'sparse' ? medium : 'big')) L.ladder = ['none'];
     }
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
