@@ -13,8 +13,8 @@
  * interludes (an interlude is a part of its own), and `transitions[i].into` is the exact transition
  * the shot arrived with (a section's first shot its arrival, the later ones its "within" transition).
  * `flat.src` keeps the planner's plan, so a new Pace (or lyrics arriving for an offline plan) cuts it
- * again, and `liked` marks the parts the person liked. Pop-ups, hand-drawn, lyric style and words of
- * a section go to each of its shots.
+ * again, and `liked` marks the parts the person liked. Pop-ups, hand-drawn, lyric style, words and the
+ * footage picture (store.partShot) of a section go to each of its shots.
  *
  * Every way a plan goes on comes through putOn (startPlan, a remake, a saved plan from the cache or
  * from before a reload, Claude's plan swapped in by one-tap start, a map started from one look), so a
@@ -232,6 +232,8 @@ export function putOn(plan: VideoPlan, a: TrackAnalysis, opts: { keep?: VideoPla
           partPops: opts.freshPops ? null : carryByTime(s.partPops, prevA, out.analysis),
           partHand: carryByTime(s.partHand, prevA, out.analysis),
           partWords: carryByTime(s.partWords, prevA, out.analysis),
+          // a section's own picture goes to each of its shots, and only when it had one
+          partShot: carryByTime(s.partShot, prevA, out.analysis),
         }
       : opts.freshPops
         ? { partPops: null }
