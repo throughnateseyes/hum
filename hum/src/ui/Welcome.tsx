@@ -2,8 +2,10 @@
  * The start screen: one calm island over a blurred stage, whose only job is to get a song in.
  *
  * A plain line says what Hum does, one large target chooses a song (or takes one dropped anywhere on
- * the page), the two demo songs are a quiet second choice, and the microphone and another tab are
- * small links at the bottom. The live picture behind is veiled, so the island is what you look at.
+ * the page), the two demo songs are a quiet second choice, and the bottom section asks for an AI
+ * access code up front (AccessSection: Claude directs the video with one, Hum's built-in director
+ * without). The microphone and another tab live in the song menu in the top bar. The live picture
+ * behind is veiled, so the island is what you look at.
  *
  * After a reload the song from last time comes back on its own (restoreSession in state/tracks.ts).
  * That takes a moment, and the start screen must not flash up in between: WelcomeLayer first asks
@@ -14,9 +16,10 @@ import { audioEngine } from '../audio/engine';
 import { DEMO_TRACKS } from '../audio/demoTracks';
 import { recallSong } from '../state/saved';
 import { useStudio } from '../state/store';
-// useMic and useTab are plain functions, not React hooks: renamed here so the hooks lint reads them right
-import { canListenToTab, handleFiles, loadDemo, useMic as listenToMic, useTab as listenToTab } from '../state/tracks';
-import { BrowserTab, Mic, Upload } from './Icons';
+import { learnNeed } from '../director/access';
+import { handleFiles, loadDemo } from '../state/tracks';
+import { AccessSection } from './AccessSection';
+import { Upload } from './Icons';
 
 /** plain-words descriptions of the demo songs (the ids are from audio/demoTracks.ts) */
 const DEMO_LINE: Record<string, string> = {
@@ -26,7 +29,12 @@ const DEMO_LINE: Record<string, string> = {
 
 export function Welcome() {
   const input = useRef<HTMLInputElement>(null);
-  const tab = canListenToTab();
+
+  // ask the server once whether it wants a code (free, no Claude call), so the bottom section knows
+  // what to show before anyone presses anything
+  useEffect(() => {
+    void learnNeed();
+  }, []);
 
   return (
     <section className="welcome" aria-labelledby="wl-title">
@@ -73,16 +81,7 @@ export function Welcome() {
         </div>
       </div>
 
-      <div className="wl-other">
-        <button className="wl-link" onClick={() => void listenToMic()}>
-          <Mic width={14} height={14} aria-hidden /> Use the microphone
-        </button>
-        {tab && (
-          <button className="wl-link" onClick={() => void listenToTab()} title="Hum listens to a song playing in another browser tab">
-            <BrowserTab width={14} height={14} aria-hidden /> Listen to another tab
-          </button>
-        )}
-      </div>
+      <AccessSection />
 
       <input
         ref={input}

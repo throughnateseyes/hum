@@ -4,17 +4,17 @@
  * since that's the one people come here for), how hard and how fast it moves, the pop-ups, the
  * transitions, the words and the song colours. The rarely touched switches sit under More.
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
-import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
+import { forgetAccessCode, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { LADDER, quality as governor } from '../render/quality';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
 import { Field, Section, Seg, Slider, SwitchRow } from './controls';
-import { Sparkle } from './Icons';
+import { Lock, Sparkle } from './Icons';
 import { MoodRow } from './Moods';
 import { TasteGroup } from './Taste';
 
@@ -46,19 +46,29 @@ function MakeBlock() {
   const planOn = useStudio((s) => s.planOn);
   const hasPlan = validPlan(plan, analysis);
   const parts = analysis?.sections.length ?? 0;
+  // without a code on a site that wants one, the button wears a lock (it still works: it asks first)
+  const locked = useAccessGate((s) => s.need === 'code' && !s.saved);
+  // after a reload the start screen never shows, so ask the server here too (once per page, free)
+  useEffect(() => {
+    void learnNeed();
+  }, []);
   return (
     <div className="vp-make">
       <button
-        className="btn primary vp-go has-tip"
+        className={`btn primary vp-go has-tip ${locked ? 'locked' : ''}`}
         disabled={planning || !parts}
+        // locked: the press goes through the access gate first (postDirector opens it straight away,
+        // since the server's answer is already known), then plans once the code is in
         onClick={() => void makeVideo('', { fresh: hasPlan })}
         data-tip={
-          hasPlan
-            ? 'A fresh take on this song: new looks for every part, played from the top.'
-            : 'Gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top. A song you made a video for before plays its saved video.'
+          locked
+            ? `Claude’s version needs an access code. Press to enter one. ${hasPlan ? 'The video playing now was made by Hum’s built-in director.' : 'Without a code, Hum’s built-in director makes it.'}`
+            : hasPlan
+              ? 'A fresh take on this song: new looks for every part, played from the top.'
+              : 'Gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top. A song you made a video for before plays its saved video.'
         }
       >
-        {planning ? <span className="spin" /> : <Sparkle width={13} height={13} />}
+        {planning ? <span className="spin" /> : locked ? <Lock width={13} height={13} aria-hidden /> : <Sparkle width={13} height={13} />}
         {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
       </button>
       {!parts && (

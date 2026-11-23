@@ -39,9 +39,43 @@ export const currentCode = () => readAccessCode() || memoryCode;
 
 /* ───────────────────────── what we know about the server ───────────────────────── */
 
-/** 'code': it wants a code. 'off': no AI on this site. 'open': no code needed (or ours works). */
-type ServerNeed = 'unknown' | 'open' | 'code' | 'off';
+/**
+ * Where Nate takes requests for a code. Empty until he gives his handle: with no link, the access
+ * section just says "Ask Nate for one." so nothing points at the wrong account.
+ */
+export const NATE_TWITTER_URL = '';
+
+/** 'code': it wants a code. 'off': no AI on this site. 'open': no code needed. 'unknown': not asked yet. */
+export type ServerNeed = 'unknown' | 'open' | 'code' | 'off';
 let need: ServerNeed = 'unknown';
+
+/** every change goes through here so the welcome screen and the Make a video button see it at once */
+function setNeed(n: ServerNeed) {
+  need = n;
+  if (useAccessGate.getState().need !== n) useAccessGate.setState({ need: n });
+}
+
+let learning: Promise<void> | null = null;
+/**
+ * Ask the server once whether it wants a code (the free `check` mode, no Claude call), so the start
+ * screen can ask for a code up front and Make a video can show its lock before anyone presses it.
+ */
+export function learnNeed(): Promise<void> {
+  if (need !== 'unknown') return Promise.resolve();
+  learning ??= checkCode('').then(
+    (r) => {
+      learning = null;
+      if (need !== 'unknown') return; // a real request answered first
+      if (r === 'ok') setNeed('open');
+      else if (r === 'wrong') setNeed('code');
+      else if (r === 'off') setNeed('off');
+    },
+    () => {
+      learning = null;
+    },
+  );
+  return learning;
+}
 
 /**
  * Could an AI request go ahead without asking the person anything? False when the site has AI off, or
@@ -85,9 +119,11 @@ interface GateState {
   saved: boolean;
   /** an AI action is waiting on this (false when opened just to change the code) */
   pending: boolean;
+  /** what the server wants (see ServerNeed); 'unknown' until learnNeed or a real request finds out */
+  need: ServerNeed;
 }
 
-export const useAccessGate = create<GateState>(() => ({ open: false, mode: 'code', error: '', saved: !!readAccessCode(), pending: false }));
+export const useAccessGate = create<GateState>(() => ({ open: false, mode: 'code', error: '', saved: !!readAccessCode(), pending: false, need: 'unknown' }));
 
 let waiting: ((r: GateOutcome) => void)[] = [];
 
@@ -126,13 +162,13 @@ export async function submitCode(raw: string): Promise<boolean> {
     return false;
   }
   if (r === 'off') {
-    need = 'off';
+    setNeed('off');
     useAccessGate.setState({ mode: 'off', error: '' });
     return false;
   }
-  // 'ok', or a server too old to check codes: save it and let the real request decide
+  // 'ok', or a server too old to check codes: save it and let the real request decide. The server
+  // still wants a code (need stays as it is): what changed is that we now have one.
   saveAccessCode(code);
-  if (r === 'ok') need = 'open';
   settle('unlocked');
   return true;
 }
@@ -178,7 +214,7 @@ export async function postDirector(
     // about to run without a code on a site that needs one: ask first
     if (!code && need === 'unknown' && endpoint === ENDPOINT) {
       const r = await checkCode('', opts.signal);
-      need = r === 'ok' ? 'open' : r === 'wrong' ? 'code' : r === 'off' ? 'off' : 'unknown';
+      setNeed(r === 'ok' ? 'open' : r === 'wrong' ? 'code' : r === 'off' ? 'off' : 'unknown');
     }
     if (!code && need === 'code' && !asked && (await ask('code')) === 'unlocked') continue;
     const res = await fetch(endpoint, {
@@ -188,19 +224,19 @@ export async function postDirector(
       signal: opts.signal,
     });
     if (res.ok) {
-      if (!code) need = 'open';
+      if (!code) setNeed('open');
       return res;
     }
     const err = res.status === 403 || res.status === 501 ? await errorOf(res) : '';
     if (res.status === 403 && err === 'access_code') {
-      need = 'code';
+      setNeed('code');
       if (asked) return res;
       const msg = !code ? '' : entered ? 'That code didn’t work. Check it and try again.' : 'Your saved code didn’t work any more. Try it again, or ask for a new one.';
       if ((await ask('code', msg)) === 'unlocked') continue;
       return res;
     }
     if (res.status === 501 && err === 'no_key') {
-      need = 'off';
+      setNeed('off');
       if (!asked) await ask('off');
       return res;
     }
