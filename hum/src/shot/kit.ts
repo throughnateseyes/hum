@@ -54,6 +54,8 @@ export interface Bed {
   rect: THREE.Vector4[];
   /** push-in on top of the crop (1 = none) */
   zoom: number[];
+  /** which clip each region shows: 0 the shot's own, 1 its second clip (another moment; Split) */
+  src: number[];
 }
 
 export interface Labels {

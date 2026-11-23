@@ -61,13 +61,32 @@ export class Footage {
     });
   }
 
+  /** who last steered the clip live, and when (performance.now) */
+  private boss = 0;
+  private bossAt = -1e9;
+
+  /**
+   * One player can be shared by two pictures of the same look on one renderer (the outgoing and the
+   * incoming look of a transition). The newer one (the larger `who`) steers it; an older one only gets
+   * it back once the newer one has stopped asking for a quarter of a second.
+   */
+  private mine(who: number): boolean {
+    const now = performance.now();
+    if (who >= this.boss || now - this.bossAt > 250) {
+      this.boss = who;
+      this.bossAt = now;
+      return true;
+    }
+    return false;
+  }
+
   /**
    * Live: keep the clip on `target` (clip seconds) while the shot plays. The clip runs at the curve's
    * speed and is nudged when it drifts; a real jump (the cut on the hit) seeks.
    */
-  follow(target: number, rate: number, playing: boolean) {
+  follow(target: number, rate: number, playing: boolean, who = 0) {
     const v = this.video;
-    if (!this.duration) return;
+    if (!this.duration || !this.mine(who)) return;
     const off = target - v.currentTime;
     if (!playing || rate < 0.07) {
       if (!v.paused) v.pause();
@@ -78,6 +97,15 @@ export class Footage {
     if (Math.abs(off) > 0.45 && !v.seeking) v.currentTime = target + rate * 0.08;
     v.playbackRate = Math.min(8, Math.max(0.0625, rate * (1 + Math.max(-0.35, Math.min(0.35, off * 2)))));
     if (v.paused) void v.play().catch(() => {});
+  }
+
+  /**
+   * Live: the clip is off screen. It stops where it is, so the next shot on it carries on from there
+   * (and an idle clip doesn't keep decoding). Left alone while a newer picture steers it.
+   */
+  rest(who = 0) {
+    if (this.video.paused || (who < this.boss && performance.now() - this.bossAt <= 250)) return;
+    this.video.pause();
   }
 
   /** Stills: put the clip on exactly this second and wait for the frame */
@@ -108,6 +136,9 @@ uniform sampler2D tFootage;
 uniform sampler2D tMask;
 uniform float uHasMask;
 uniform float uFootageAspect, uAspect;
+uniform sampler2D tAlt;
+uniform float uAltAspect;
+uniform vec3 uSrc;
 uniform vec4 uRect0, uRect1, uRect2;
 uniform vec3 uZoom, uTone;
 uniform vec3 uInk, uPaper, uAccent, uMid;
@@ -118,12 +149,17 @@ uniform float uTreat, uBlur, uPunch, uFlash, uFlip;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
+// which clip the region being drawn shows: 0 the shot's own, 1 the second one (Split)
+float gSrc = 0.0;
+
 // the clip cropped to fill a box of this aspect; p is -0.5..0.5 across the box
 vec3 footage(vec2 p, float aspect) {
-  if (aspect > uFootageAspect) p.y *= uFootageAspect / aspect;
-  else p.x *= aspect / uFootageAspect;
-  p.x = mix(p.x, -p.x, uFlip);
-  return texture2D(tFootage, clamp(p + 0.5, 0.001, 0.999)).rgb;
+  float fa = gSrc > 0.5 ? uAltAspect : uFootageAspect;
+  if (aspect > fa) p.y *= fa / aspect;
+  else p.x *= aspect / fa;
+  p.x = mix(p.x, -p.x, uFlip * (1.0 - gSrc));
+  vec2 uv = clamp(p + 0.5, 0.001, 0.999);
+  return gSrc > 0.5 ? texture2D(tAlt, uv).rgb : texture2D(tFootage, uv).rgb;
 }
 
 // a hard edge between two levels, as soft as one pixel
@@ -177,9 +213,9 @@ void main() {
   float wb = m.g;
   float w0 = clamp(1.0 - wa - wb, 0.0, 1.0);
   vec3 col = vec3(0.0);
-  if (w0 > 0.002) col += region(uRect0, uZoom.x, uTone.x) * w0;
-  if (wa > 0.002) col += region(uRect1, uZoom.y, uTone.y) * wa;
-  if (wb > 0.002) col += region(uRect2, uZoom.z, uTone.z) * wb;
+  if (w0 > 0.002) { gSrc = uSrc.x; col += region(uRect0, uZoom.x, uTone.x) * w0; }
+  if (wa > 0.002) { gSrc = uSrc.y; col += region(uRect1, uZoom.y, uTone.y) * wa; }
+  if (wb > 0.002) { gSrc = uSrc.z; col += region(uRect2, uZoom.z, uTone.z) * wb; }
   col /= max(0.001, w0 + wa + wb);
   gl_FragColor = vec4(mix(col, uPaper, uFlash), 1.0);
 }
@@ -213,6 +249,9 @@ export class FootagePass {
         tMask: { value: null },
         uHasMask: { value: 0 },
         uFootageAspect: { value: 16 / 9 },
+        tAlt: { value: null },
+        uAltAspect: { value: 16 / 9 },
+        uSrc: { value: new THREE.Vector3(0, 0, 0) },
         uAspect: { value: 16 / 9 },
         uRect0: { value: new THREE.Vector4(0, 0, 1, 1) },
         uRect1: { value: new THREE.Vector4(0, 0, 1, 1) },
@@ -243,6 +282,12 @@ export class FootagePass {
     this.material.uniforms.uFootageAspect.value = aspect;
   }
 
+  /** the second clip some regions show (Split); null: every region shows the shot's own clip */
+  setAlt(texture: THREE.Texture | null, aspect: number) {
+    this.material.uniforms.tAlt.value = texture;
+    this.material.uniforms.uAltAspect.value = aspect;
+  }
+
   setScheme(s: Scheme) {
     const u = this.material.uniforms;
     (u.uInk.value as THREE.Color).set(s.ink);
@@ -265,6 +310,8 @@ export class FootagePass {
     (u.uRect2.value as THREE.Vector4).copy(bed.rect[2]);
     (u.uZoom.value as THREE.Vector3).set(bed.zoom[0], bed.zoom[1], bed.zoom[2]);
     (u.uTone.value as THREE.Vector3).set(bed.tone[0], bed.tone[1], bed.tone[2]);
+    const alt = u.tAlt.value ? 1 : 0;
+    (u.uSrc.value as THREE.Vector3).set(bed.src[0] * alt, bed.src[1] * alt, bed.src[2] * alt);
     u.uTreat.value = s.treat;
     u.uBlur.value = s.blur;
     u.uPunch.value = s.punch;

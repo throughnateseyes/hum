@@ -44,6 +44,11 @@ export interface StageOptions {
   lookId: string;
   /** false inside the app, where the store already knows the song (the dev page has to tell it) */
   tellStore?: boolean;
+  /**
+   * The shot's own clip opened a second time, for a style that shows two moments of it at once (Split)
+   * when there is only one clip. `index` is the clip's place in `clips`. Null: no second player.
+   */
+  echo?: (index: number) => StageClip | null;
   /** true inside the app: a look starts from the moment it is first drawn, not from the start of its
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
@@ -55,6 +60,8 @@ interface Rig {
   palette: ShotPalette;
   scheme: Scheme;
   clip: StageClip | null;
+  /** the second clip some of the style's regions show (Split), or null */
+  alt: StageClip | null;
   look: LookPlayer | null;
   frame: THREE.Group;
   mask: THREE.Group | null;
@@ -69,6 +76,8 @@ const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60))
 export class ShotStage {
   /** anything that went wrong building the shots (an unknown look id, a look that failed to start) */
   errors: string[] = [];
+  /** which picture steers the clips live, when pictures share players (newer pictures get larger numbers) */
+  who = 0;
   private rigs: Rig[] = [];
   private readonly looks: LookPool = new Map();
   private seq: Sequence | null = null;
@@ -81,7 +90,7 @@ export class ShotStage {
   private readonly blit: { scene: THREE.Scene; camera: THREE.Camera; material: THREE.ShaderMaterial };
   private readonly clear = new THREE.Color();
   private readonly black = new THREE.Color(0, 0, 0);
-  private readonly bed: Bed = { tone: [0, 0, 0], rect: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()], zoom: [1, 1, 1] };
+  private readonly bed: Bed = { tone: [0, 0, 0], rect: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()], zoom: [1, 1, 1], src: [0, 0, 0] };
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -120,6 +129,11 @@ export class ShotStage {
     const grid = frameGrid(halfW, halfH);
     const footageShots = seq.shots.filter((s) => s.kind === 'footage');
     const clipOf = (s: Shot) => o.clips[s.footageIndex % o.clips.length];
+    const altOf = (s: Shot): StageClip | null => {
+      if (s.kind !== 'footage' || s.alt === undefined) return null;
+      const i = s.alt % o.clips.length;
+      return s.altEcho ? (o.echo?.(i) ?? null) : o.clips[i];
+    };
     const labels: Labels = { title: o.title, part: seq.part, time: clock(seq.partStart), tempo: `${Math.round(60 / seq.beat)} BPM` };
 
     for (const shot of seq.shots) {
@@ -199,7 +213,7 @@ export class ShotStage {
           this.errors.push(`style "${shot.style || shot.kind}": ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      this.rigs.push({ shot, curve, palette, scheme, clip, look, frame, mask, style });
+      this.rigs.push({ shot, curve, palette, scheme, clip, alt: altOf(shot), look, frame, mask, style });
     }
   }
 
@@ -212,10 +226,32 @@ export class ShotStage {
     if (!this.rigs.length) return;
     const rig = this.rigAt(t);
     const mine = rig.clip?.footage ?? null;
-    mine?.follow(rig.curve.footage(t), rig.curve.rate(t), playing);
+    mine?.follow(rig.curve.footage(t), rig.curve.rate(t), playing, this.who);
+    const second = rig.alt?.footage ?? null;
+    if (second && second !== mine) second.follow(this.altTime(rig, t), rig.curve.rate(t), playing, this.who);
     const next = this.rigs.find((r) => r.shot.index > rig.shot.index && r.clip?.footage);
     const theirs = next?.clip?.footage;
-    if (next && theirs && theirs !== mine && next.shot.start - t < 2.5) theirs.follow(next.curve.footage(next.shot.start), 0, false);
+    if (next && theirs && theirs !== mine && theirs !== second && next.shot.start - t < 2.5) theirs.follow(next.curve.footage(next.shot.start), 0, false, this.who);
+  }
+
+  /** the players follow() is steering at song time t (the shot's clips, and the next shot's when cued) */
+  steering(t: number): Set<Footage> {
+    const out = new Set<Footage>();
+    if (!this.rigs.length) return out;
+    const rig = this.rigAt(t);
+    if (rig.clip?.footage) out.add(rig.clip.footage);
+    if (rig.alt?.footage) out.add(rig.alt.footage);
+    const next = this.rigs.find((r) => r.shot.index > rig.shot.index && r.clip?.footage);
+    if (next?.clip?.footage && next.shot.start - t < 2.5) out.add(next.clip.footage);
+    return out;
+  }
+
+  /** which second of the second clip is on screen */
+  private altTime(rig: Rig, t: number): number {
+    if (rig.shot.altFrom !== undefined) return rig.curve.alt(t);
+    // a second clip the run didn't place (a section cut by the scene itself): half way along it
+    const d = Math.max(0.5, rig.alt?.duration ?? 1);
+    return (rig.curve.footage(t) + d * 0.5) % (d - 0.25);
   }
 
   /** how far the clip on screen is from where its curve wants it (s), or null when the shot has no clip */
@@ -230,7 +266,8 @@ export class ShotStage {
   async settle(t: number) {
     if (!this.rigs.length) return;
     const rig = this.rigAt(t);
-    await rig.clip?.footage?.seek(rig.curve.footage(t));
+    const second = rig.alt?.footage;
+    await Promise.all([rig.clip?.footage?.seek(rig.curve.footage(t)), second && second !== rig.clip?.footage ? second.seek(this.altTime(rig, t)) : undefined]);
   }
 
   private footageState(rig: Rig, t: number): FootageState {
@@ -276,6 +313,7 @@ export class ShotStage {
       }
       this.pass.setScheme(scheme);
       if (rig.clip) this.pass.setSource(rig.clip.texture, rig.clip.aspect);
+      this.pass.setAlt(rig.alt?.texture ?? null, rig.alt?.aspect ?? 1);
       rig.look?.setPalette(asLookPalette(scheme));
       this.active = rig;
     }
@@ -293,6 +331,7 @@ export class ShotStage {
     bed.tone[0] = bed.tone[1] = bed.tone[2] = toneOf(shot.colour);
     for (const v of bed.rect) v.set(0, 0, 1, 1);
     bed.zoom[0] = bed.zoom[1] = bed.zoom[2] = 1;
+    bed.src[0] = bed.src[1] = bed.src[2] = 0;
     rig.style?.update({ t, focusU: focus.x, focusV: focus.y }, bed);
 
     const autoClear = r.autoClear;
