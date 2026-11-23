@@ -21,7 +21,8 @@
 import { audioEngine } from '../audio/engine';
 import type { TrackAnalysis } from '../core/types';
 import { onFrame } from './live';
-import { keepPlan, offlineVideoPlan, requestVideoPlan, savedPlanFor, sectionIndexAt, sectionNames, startPlan, withBase, withLyricsNow, type VideoPlan } from './plan';
+import { findLook, keepPlan, offlineVideoPlan, requestVideoPlan, savedPlanFor, sectionIndexAt, sectionNames, startPlan, withBase, withLyricsNow, type VideoPlan } from './plan';
+import { recallPlan } from './saved';
 import { useStudio } from './store';
 import { planSignature, rememberPlan } from './taste';
 
@@ -65,11 +66,21 @@ export async function tapToPlay() {
  * The song is analysed: plan its video and play it from the top. `current` says whether this song is
  * still the one loaded (a newer load makes it false).
  */
-export async function planAndPlay(a: TrackAnalysis, current: () => boolean) {
+export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts: { offline?: boolean } = {}) {
   const my = run;
   const alive = () => my === run && current() && useStudio.getState().analysis === a;
   const st = useStudio.getState();
   st.set({ startup: { step: 'plan', since: performance.now(), duration: a.duration } });
+
+  // a song brought back by a reload gets the video it had, with any changes made by hand
+  if (opts.offline) {
+    const before = recallPlan(st.track?.name ?? '', a, (id) => !!findLook(id));
+    if (before) {
+      auto = withBase(before, a);
+      await go(auto, a, `This is the video you had before the page reloaded. ${before.note}`.trim(), false);
+      return;
+    }
+  }
 
   // a Claude plan made for this song before: play it straight away, nothing else to ask
   const saved = savedPlanFor(a);
@@ -77,7 +88,7 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean) {
     // the plan as it will play (startPlan gives it the base the part sheet tells changes by), so
     // "still the plan we put on" is an identity check
     auto = withBase(saved.plan, a);
-    await go(auto, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.plan.note}`.trim());
+    await go(auto, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.plan.note}`.trim(), !opts.offline);
     keepPlan(saved.plan, a);
     return;
   }
@@ -85,15 +96,17 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean) {
   const offline = withBase(await offlineVideoPlan(a, st.lyrics), a);
   if (!alive()) return;
   auto = offline;
-  await go(offline, a, `${offline.note} Claude is planning a take of its own in the background; it takes over at a part change if it's ready.`);
+  // a song brought back after a reload never asks Claude by itself: nobody chose to spend that
+  await go(offline, a, opts.offline ? `${offline.note} This is the song from last time, planned here on your computer. Remake video asks Claude for its take.` : `${offline.note} Claude is planning a take of its own in the background; it takes over at a part change if it's ready.`, !opts.offline);
   if (!alive()) return;
   followLyrics(a, alive);
-  void upgrade(a, alive);
+  if (!opts.offline) void upgrade(a, alive);
 }
 
-async function go(plan: VideoPlan, a: TrackAnalysis, text: string) {
-  await startPlan(plan, a, text);
-  useStudio.getState().set({ startup: null });
+/** `play` false: the plan goes on but the song waits at the top for a tap (a song brought back by a reload must not start by itself) */
+async function go(plan: VideoPlan, a: TrackAnalysis, text: string, play = true) {
+  await startPlan(plan, a, text, { play });
+  useStudio.getState().set(play ? { startup: null } : { startup: null, needsTap: true });
 }
 
 /** resolves once `ok` holds, the time runs out or the start is no longer alive */

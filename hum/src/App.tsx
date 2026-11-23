@@ -4,7 +4,7 @@ import { DEMO_TRACKS } from './audio/demoTracks';
 import { PRESETS } from './presets';
 import { allScenes, getScene } from './scenes';
 import { useStudio } from './state/store';
-import { canListenToTab, handleFiles, loadDemo, useMic, useTab } from './state/tracks';
+import { canListenToTab, handleFiles, loadDemo, restoreSession, useMic, useTab } from './state/tracks';
 import { clipBlocker } from './render/clipExport';
 import { clipForTikTok, renderBlocker } from './render/timeline';
 import { openRenderBar, useRenderMode } from './ui/RenderBar';
@@ -42,6 +42,11 @@ export default function App() {
   const land = useLayout((s) => s.land);
 
   // initial look
+  // the song and the clips from last time come back (state/saved.ts)
+  useEffect(() => {
+    void restoreSession();
+  }, []);
+
   useEffect(() => {
     const s = useStudio.getState();
     if (!s.sceneId) {

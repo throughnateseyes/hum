@@ -10,6 +10,7 @@ import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
 import { useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
+import { forgetSong, keepClipsSaved, keepPlanSaved, recallClips, recallSong, rememberSong } from './saved';
 
 const demoCache = new Map<string, Blob>();
 let loadToken = 0;
@@ -20,7 +21,7 @@ let loadToken = 0;
  * Call it straight from the tap, click or drop that chose the song: that gesture is what lets the
  * song play once it's ready.
  */
-export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean } = {}) {
+export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean; restored?: boolean } = {}) {
   const token = ++loadToken;
   const oneTap = useStudio.getState().oneTap && opts.autoTheme !== false;
   // the last song's lyrics may still be being listened to: stop that, it's no use now
@@ -40,7 +41,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
   } else endStartup();
   try {
     await audioEngine.loadFile(blob, null);
-    if (!oneTap) void audioEngine.play().catch(() => {});
+    if (!oneTap && !opts.restored) void audioEngine.play().catch(() => {});
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     if (token !== loadToken) return;
     if (oneTap) startupKnows(buf.duration);
@@ -55,9 +56,11 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     if (token !== loadToken) return;
     audioEngine.setAnalysis(analysis);
     useStudio.getState().set({ analysis, analyzing: false });
+    // it opened and it's a song: keep it for the next time the page loads (saved.ts)
+    if (!opts.restored) void rememberSong(info.source === 'demo' ? { name: info.name, source: 'demo', id: info.id } : { name: info.name, source: 'file', blob });
     if (oneTap) {
       // no parts to plan (a very short or very even sound): just play it
-      if (analysis.sections.length) void planAndPlay(analysis, () => token === loadToken);
+      if (analysis.sections.length) void planAndPlay(analysis, () => token === loadToken, { offline: opts.restored });
       else {
         endStartup();
         void tapToPlay();
@@ -499,6 +502,31 @@ export async function loadDemo(id: string) {
   await loadTrack(blob, { name: d.name, source: 'demo', id });
 }
 
+/**
+ * On start-up: bring back the clips and the song from last time (saved.ts), so a reload doesn't lose
+ * them. The song is analysed again and gets its saved video, or one planned on this computer: a
+ * reload never asks Claude for anything. The page was not tapped, so the song waits for one tap to play.
+ */
+export async function restoreSession() {
+  const clips = await recallClips();
+  if (clips.length && !useStudio.getState().clips.length) useStudio.getState().addClips(clips);
+  keepClipsSaved();
+  const song = await recallSong();
+  // something was opened while we were looking: that wins
+  if (!song || useStudio.getState().track) return keepPlanSaved();
+  if (song.source === 'demo') {
+    const d = DEMO_TRACKS.find((t) => t.id === song.id);
+    if (!d) return;
+    let blob = demoCache.get(d.id);
+    if (!blob) demoCache.set(d.id, (blob = d.render()));
+    await loadTrack(blob, { name: d.name, source: 'demo', id: d.id }, { restored: true });
+  } else if (song.blob) {
+    await loadTrack(song.blob, { name: song.name, source: 'file' }, { restored: true });
+  }
+  // only now: the saved video has been read (or passed over), so a newer one may take its place
+  keepPlanSaved();
+}
+
 export async function useMic() {
   try {
     await audioEngine.startMic();
@@ -508,6 +536,7 @@ export async function useMic() {
     lastBuf = null;
     lastFile = null;
     endStartup();
+    void forgetSong();
     useStudio.getState().set({ track: { name: 'Microphone', source: 'mic' }, needsTap: false, analysis: null, analyzing: false, plan: null, partPops: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   } catch {
     useStudio.getState().flash('Microphone permission was denied');
@@ -548,6 +577,7 @@ export async function useTab() {
   lastBuf = null;
   lastFile = null;
   endStartup();
+  void forgetSong();
   useStudio.getState().set({ track: { name: 'Tab audio', source: 'mic' }, needsTap: false, analysis: null, analyzing: false, plan: null, partPops: null, planOn: false, lyrics: null, lyricsStatus: 'idle', lyricsSync: null, lyricsMatched: null, tapSync: false });
   flash('Listening to the tab. Play the song there.');
 }
@@ -559,7 +589,7 @@ async function loadClips(videos: File[]) {
     videos.map((f) =>
       loadClip(f).catch((e) => {
         console.warn('[hum] clip failed', e);
-        flash(`Could not use “${f.name.replace(/\.[^.]+$/, '')}” as footage: it ${e instanceof Error ? e.message : 'could not be opened'}`);
+        flash(e instanceof Error ? e.message : `Couldn’t open “${f.name}” as a video clip.`);
         return null;
       }),
     ),
@@ -567,7 +597,10 @@ async function loadClips(videos: File[]) {
   const clips = made.filter((c) => c !== null);
   if (!clips.length) return;
   addClips(clips);
-  flash(`${clips.length} clip${clips.length > 1 ? 's' : ''} added. Try a Footage look.`);
+  // a video already planned without clips doesn't change by itself: say how to bring them in
+  const st = useStudio.getState();
+  const planned = !!st.plan && !st.plan.looks.some((id) => id?.startsWith('footage'));
+  flash(`${clips.length} clip${clips.length > 1 ? 's' : ''} added. ${planned ? 'Press Remake video to use them.' : 'Try a Footage look.'}`);
 }
 
 /** videos picked in the Library: footage whether or not a song is loaded */
@@ -595,11 +628,12 @@ export async function handleFiles(files: FileList | File[]) {
   // and the rest are footage
   const song = audio ?? (useStudio.getState().track ? null : (videos[0] ?? null));
   const clipFiles = audio || song === null ? videos : videos.filter((f) => f !== song);
+  // clips first: a song dropped with them is planned as soon as it's analysed, and should find them there
+  if (clipFiles.length) await loadClips(clipFiles);
   if (audio) await loadTrack(audio, { name: audio.name.replace(/\.[^.]+$/, ''), source: 'file' });
   else if (song) {
     const name = song.name.replace(/\.[^.]+$/, '');
     await loadTrack(song, { name, source: 'file' });
     useStudio.getState().flash(`Playing “${name}” as the song. Drop a video again to use it as footage.`);
   }
-  if (clipFiles.length) await loadClips(clipFiles);
 }
