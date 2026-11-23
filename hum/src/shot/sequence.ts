@@ -16,6 +16,7 @@
  */
 import type { TrackAnalysis } from '../core/types';
 import type { Colour } from './kit';
+import { isMotion, type MotionId } from './motion';
 import { styleForPart, type StyleId } from './styles';
 import { treatmentForShot, type TreatmentId } from './treatments';
 import { clamp01, easeInCubic, feltBeat, scoreFromAnalysis, since, smooth } from './time';
@@ -57,8 +58,10 @@ export interface Shot {
   altEcho?: boolean;
   /** how the picture itself is broken down (src/shot/treatments); missing: none */
   treatment?: TreatmentId;
-  /** Collage: the other pictures its fragments are cut from, by footage index */
+  /** Collage and Trace: the other pictures it lays out, by footage index */
   extra?: number[];
+  /** what a video clip does in time (motion.ts); missing: plays */
+  motion?: MotionId;
 }
 
 export interface Sequence {
@@ -104,7 +107,7 @@ export function layoutOf(seed: number, part: number, shot: number): number {
 const blank = (kind: ShotKind, start: number, end: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start, end, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, colour: 'clean', style: '', layout: 0, word: '', ...rest });
 
 /** `phrase` is the words to set in type: the card shows all of it, the shots one word each */
-export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number, o: { style?: string; seed?: number; colour?: Colour; treatment?: string } = {}): Sequence {
+export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number, o: { style?: string; seed?: number; colour?: Colour; treatment?: string; motion?: string } = {}): Sequence {
   const base = scoreFromAnalysis(a, at);
   const beat = base.beat;
   const lead = SEQ_LEAD * beat;
@@ -142,7 +145,8 @@ export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: numb
     const k = n++;
     s.footageIndex = k;
     s.treatment = treatmentForShot({ start: 0, end: 1, energy: [0.5, 0.9, 0.7][k] ?? 0.7, label: labels[k] ?? 'chorus', group: k }, 0, o.treatment ?? 'none', seed, '', 3);
-    s.extra = [k + 1, k + 2, k + 3];
+    s.extra = [k + 1, k + 2, k + 3, k + 4, k + 5];
+    if (isMotion(o.motion)) s.motion = o.motion;
   });
   return { start, hit, end, beat, kicks, snares, hats: hatsIn(a, start, end, beat), shots, part: 'DROP', partStart: start, energy: 0.8, words };
 }
@@ -166,6 +170,10 @@ export interface PartOptions {
   treatment?: string;
   /** how many pictures there are to cut between (Auto only picks Collage with several) */
   pictures?: number;
+  /** what a video clip does in time (motion.ts), 'play' or missing for plain playing */
+  motion?: string;
+  /** the pictures this part uses, as places in the deck, in order (missing: dealt round the deck) */
+  media?: number[];
 }
 
 /**
@@ -202,17 +210,22 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
   cuts.push(cardFrom);
 
   const shots: Shot[] = [];
+  const mine = o.media ?? [];
+  const motion = isMotion(o.motion) ? o.motion : undefined;
   for (let j = 0; j < cuts.length - 1; j++) {
     const last = j === cuts.length - 2;
     const leave: Shot['leave'] = last ? (hitOut ? 'ramp' : !next ? 'settle' : 'cut') : loud ? 'ramp' : 'cut';
     const beats = (cuts[j + 1] - cuts[j]) / beat;
+    // parts start on different pictures, and every cut moves on to the next one; a part with its
+    // own pictures takes them in turn from its first
+    const pic = mine.length ? mine[j % mine.length] : index + j;
+    const others = mine.length > 1 ? [...mine.slice(j % mine.length + 1), ...mine.slice(0, j % mine.length)] : [1, 2, 3, 4, 5].map((k) => pic + k);
     shots.push({
       index: shots.length,
       kind: 'footage',
       start: cuts[j],
       end: cuts[j + 1],
-      // parts start on different clips, and every cut moves on to the next one
-      footageIndex: index + j,
+      footageIndex: pic,
       arrive: j === 0 ? (hitIn ? 'hit' : 'cold') : loud ? 'hit' : 'cold',
       leave,
       rampBeats: Math.min(RAMP, Math.max(1, beats / 2)),
@@ -220,8 +233,9 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
       style,
       layout: layoutOf(o.seed, index, j),
       word: o.words.length ? o.words[(index + j) % o.words.length] : '',
-      treatment: treatmentForShot(sec, j, o.treatment ?? 'none', o.seed, '', o.pictures ?? 1),
-      extra: [index + j + 1, index + j + 2, index + j + 3],
+      treatment: treatmentForShot(sec, j, o.treatment ?? 'none', o.seed, '', mine.length || (o.pictures ?? 1), mine.length > 1),
+      extra: others,
+      motion,
     });
   }
   if (cardFrom < end) shots.push(blank('card', cardFrom, end, { index: shots.length, word: o.words.slice(0, 4).join(' ') }));

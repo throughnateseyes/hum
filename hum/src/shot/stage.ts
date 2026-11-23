@@ -20,7 +20,10 @@ import { frameGrid } from './grid';
 import { CAM_Z, FOV, frameSize, toneOf, type Bed, type Labels, type StyleContext, type StyleShot } from './kit';
 import { LookPlayer } from './lookPlayer';
 import { schemeFor, type Scheme, type ShotPalette } from './palette';
-import { planFootage, type Sequence, type Shot, type ShotCurve } from './sequence';
+import { usesRing, withMotion, type MotionCurve, type MotionId } from './motion';
+import { FrameRing, RATE, type RingFrame } from './ring';
+import { planFootage, type Sequence, type Shot } from './sequence';
+import type { Anchor } from './stills';
 import { STYLES } from './styles';
 import { clamp01, dice, easeInCubic, smooth } from './time';
 import type { TreatmentId } from './treatments';
@@ -36,8 +39,13 @@ export interface StageClip {
   /** seconds (a still lasts for ever) */
   duration: number;
   palette: ShotPalette;
-  /** a still of a video clip (its library thumbnail), for a treatment that cuts fragments of it (Collage) */
+  /** a still of a video clip at full size (its library thumbnail until that is ready), for the
+   *  treatments that lay several pictures out at once (Collage, Trace) */
   still?: THREE.Texture | null;
+  /** the points of the picture worth pointing at (stills.ts), for Trace */
+  anchors?: Anchor[];
+  /** the file's name, for Trace's readouts */
+  name?: string;
 }
 
 export interface StageOptions {
@@ -65,7 +73,10 @@ export interface StageOptions {
 
 interface Rig {
   shot: Shot;
-  curve: ShotCurve;
+  /** the shot's speed curve, with its motion laid over it (motion.ts) */
+  curve: MotionCurve;
+  /** what the clip does in time; undefined for a still, a card or a look, and for plain playing */
+  motion: MotionId | undefined;
   palette: ShotPalette;
   scheme: Scheme;
   clip: StageClip | null;
@@ -77,9 +88,12 @@ interface Rig {
   style: StyleShot | null;
   /** how the picture is broken down ('none' for a card or a look) */
   treatment: TreatmentId;
-  /** Collage: the pictures its fragments are cut from */
+  /** Collage and Trace: the other pictures they lay out */
   pieces: StageClip[];
 }
+
+/** a picture as a treatment that lays several out reads it: a clip by its full-size still */
+const asPicture = (c: StageClip) => ({ texture: c.still ?? c.texture, aspect: c.aspect, anchors: c.anchors, name: c.name });
 
 /** the shot's colours as one of Hum's palettes, so a look can be dressed in them */
 const asLookPalette = (s: Scheme): Palette => ({ id: 'shot', name: 'shot', bg: s.paper, fg: s.ink, accent: s.accent, accent2: s.second, muted: s.mid });
@@ -106,6 +120,10 @@ export class ShotStage {
   private readonly bed: Bed = { tone: [0, 0, 0], rect: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()], zoom: [1, 1, 1], src: [0, 0, 0] };
   /** breaks a treated shot's picture down; made when a shot first needs it */
   private treat: TreatPass | null = null;
+  /** the clip's recent frames, for Echo and Slices; made when a shot first needs it */
+  private ring: FrameRing | null = null;
+  /** where follow() last put the clip, to tell a stutter's jump from playback drifting */
+  private followed: { rig: Rig; t: number; at: number } | null = null;
   private analysis: TrackAnalysis | null = null;
   private labels: Labels = { title: '', part: '', time: '', tempo: '' };
 
@@ -129,7 +147,7 @@ export class ShotStage {
     this.blit = { scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), material };
   }
 
-  get shots(): { shot: Shot; curve: ShotCurve; palette: ShotPalette; scheme: Scheme }[] {
+  get shots(): { shot: Shot; curve: MotionCurve; palette: ShotPalette; scheme: Scheme }[] {
     return this.rigs;
   }
 
@@ -162,7 +180,9 @@ export class ShotStage {
       const alt = altOf(shot);
       const palette = (clip ?? (neighbour ? clipOf(neighbour) : o.clips[0])).palette;
       const scheme = schemeFor(palette);
-      const curve = curves[shot.index];
+      // a clip's motion (a photo has none: it ignores the setting)
+      const motion = clip?.footage && shot.motion && shot.motion !== 'play' ? shot.motion : undefined;
+      const curve = withMotion(curves[shot.index], shot, seq, motion ?? 'play');
 
       // one player per look, kept from one build to the next: starting a look costs a scene and its
       // render targets, and a part of the song should not pay that again
@@ -236,9 +256,11 @@ export class ShotStage {
         }
       }
       const treatment: TreatmentId = shot.kind === 'footage' ? (shot.treatment ?? 'none') : 'none';
-      const pieces = treatment === 'collage' ? (shot.extra ?? []).map((i) => o.clips[i % o.clips.length]).filter((c) => c && c !== clip) : [];
-      this.rigs.push({ shot, curve, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces });
+      // Collage's fragments and Trace's other tiles: the shot's other pictures, each once
+      const pieces = treatment === 'collage' || treatment === 'trace' ? [...new Set((shot.extra ?? []).map((i) => o.clips[i % o.clips.length]))].filter((c) => c && c !== clip) : [];
+      this.rigs.push({ shot, curve, motion, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces });
     }
+    if (this.rigs.some((r) => usesRing(r.motion))) this.ring ??= new FrameRing(this.renderer);
     if (this.rigs.some((r) => r.treatment !== 'none')) {
       this.treat ??= new TreatPass(this.renderer, this.width, this.height);
       const b = o.before;
@@ -270,7 +292,12 @@ export class ShotStage {
     if (!this.rigs.length) return;
     const rig = this.rigAt(t);
     const mine = rig.clip?.footage ?? null;
-    mine?.follow(rig.curve.footage(t), rig.curve.rate(t), playing, this.who);
+    const at = rig.curve.footage(t);
+    // a stutter's jump back is a real jump, however short: the player seeks rather than slowing down
+    const last = this.followed;
+    const snap = rig.motion === 'stutter' && !!last && last.rig === rig && Math.abs(at - (last.at + rig.curve.rate(t) * (t - last.t))) > 0.05;
+    this.followed = { rig, t, at };
+    mine?.follow(at, rig.curve.rate(t), playing, this.who, snap);
     const second = rig.alt?.footage ?? null;
     if (second && second !== mine) second.follow(this.altTime(rig, t), rig.curve.rate(t), playing, this.who);
     const next = this.rigs.find((r) => r.shot.index > rig.shot.index && r.clip?.footage);
@@ -306,12 +333,56 @@ export class ShotStage {
     return f ? f.video.currentTime - rig.curve.footage(t) : null;
   }
 
-  /** Stills: put the clip on screen on exactly the right frame, and wait for it */
+  /**
+   * Stills: put the clip on screen on exactly the right frame, and wait for it. A shot whose motion
+   * reads the clip's recent frames (Echo, Slices) first fills the ring with every one this frame reads
+   * that it doesn't have yet, each by seeking the clip to it (frames rendered in order need one new
+   * one each), then puts the clip on this frame's second.
+   */
   async settle(t: number) {
     if (!this.rigs.length) return;
     const rig = this.rigAt(t);
+    const f = rig.clip?.footage;
+    if (f && this.ring && usesRing(rig.motion)) {
+      const ring = this.ring;
+      ring.fit(rig.clip!.aspect);
+      const key = this.ringKey(rig);
+      const now = rig.curve.footage(t);
+      for (const tick of FrameRing.needs(rig.motion!, this.ringFrame(rig, t, 1)).slice(1).reverse()) {
+        if (ring.has(tick, key)) continue;
+        const at = rig.curve.footage(tick / RATE);
+        if (Math.abs(at - now) < 1e-3) continue;
+        await f.seek(at);
+        ring.capture(rig.clip!.texture, tick, key);
+      }
+    }
     const second = rig.alt?.footage;
-    await Promise.all([rig.clip?.footage?.seek(rig.curve.footage(t)), second && second !== rig.clip?.footage ? second.seek(this.altTime(rig, t)) : undefined]);
+    await Promise.all([f?.seek(rig.curve.footage(t)), second && second !== f ? second.seek(this.altTime(rig, t)) : undefined]);
+  }
+
+  /** a ring slot belongs to one shot of one clip */
+  private ringKey(rig: Rig): string {
+    return `${rig.shot.start}|${rig.shot.footageIndex}|${rig.clip?.duration ?? 0}`;
+  }
+
+  private ringFrame(rig: Rig, t: number, zoom: number): RingFrame {
+    const seq = this.seq!;
+    return { t, beat: seq.beat, kicks: seq.kicks, loud: this.analysis ? loudAt(this.analysis, t) : seq.energy, layout: rig.shot.layout, clipAspect: rig.clip?.aspect ?? 1, frameAspect: this.width / this.height, zoom };
+  }
+
+  /**
+   * The picture the shot shows this frame: the clip itself, or with Echo or Slices, the clip composed
+   * from its ring (live, the frame on screen goes into the ring first, when the ring hasn't got it)
+   */
+  private source(rig: Rig, t: number, zoom: number): THREE.Texture | null {
+    const clip = rig.clip;
+    if (!clip) return null;
+    if (!clip.footage || !this.ring || !usesRing(rig.motion)) return clip.texture;
+    this.ring.fit(clip.aspect);
+    const key = this.ringKey(rig);
+    const tick = Math.floor(t * RATE + 1e-4);
+    if (!this.ring.has(tick, key)) this.ring.capture(clip.texture, tick, key);
+    return this.ring.compose(rig.motion!, this.ringFrame(rig, t, zoom), clip.texture, key) ?? clip.texture;
   }
 
   private footageState(rig: Rig, t: number): FootageState {
@@ -325,7 +396,8 @@ export class ShotStage {
       // a shot opens on the clip as it is and takes its colours within the first fifth of a second
       treat: smooth(0, 0.18, tau - curve.freeze) * (1 - settle),
       blur: clamp01((curve.speed(t) - 1.2) / 2.2),
-      punch: (hit ? 0.12 * Math.exp(-tau / 0.3) : 0) + 0.1 * easeInCubic(ramp),
+      // a stutter's jump back lands with a small jolt, so the repeat is seen as well as heard
+      punch: (hit ? 0.12 * Math.exp(-tau / 0.3) : 0) + 0.1 * easeInCubic(ramp) + (rig.motion === 'stutter' ? 0.045 * Math.exp(-curve.jolt(t) / 0.06) : 0),
       // a full white-out only where the part lands; the cuts on the beat inside a loud part get a glint
       flash: hit ? (tau < 1 / 30 ? 1 : 0.5 * Math.exp(-(tau - 1 / 30) / 0.05)) * (Math.abs(shot.start - this.seq!.hit) < 1e-3 ? 1 : 0.3) : 0,
       flip: curve.flip,
@@ -382,6 +454,9 @@ export class ShotStage {
     }
     const tau = t - shot.start;
     const beat = this.seq.beat;
+    // the clip, or the clip composed with its motion
+    const source = shot.kind === 'footage' ? this.source(rig, t, zoom) : null;
+    if (rig.clip && source) this.pass.setSource(source, rig.clip.aspect);
 
     // the camera pushes in a little as a shot speeds up into its cut, and snaps back on a hit; the
     // frame's graphics ride it, so they land with the picture
@@ -422,7 +497,9 @@ export class ShotStage {
       r.setRenderTarget(this.treat.bedTarget());
       r.clear(true, false, false);
       this.pass.render(r, this.width, this.height, focus, state, bed, mask, { zoom, alpha: true, raw: rig.treatment === 'cells' || rig.treatment === 'readout' });
-      const pictures = rig.pieces.map((c) => ({ texture: c.still ?? c.texture, aspect: c.aspect }));
+      // Trace's large tile is the shot's own picture as it plays (with its motion); the rest are stills
+      const own = rig.clip ? [{ texture: source ?? rig.clip.texture, aspect: rig.clip.aspect, anchors: rig.clip.anchors, name: rig.clip.name }] : [];
+      const pictures = rig.treatment === 'trace' ? [...own, ...rig.pieces.map(asPicture)] : rig.pieces.map(asPicture);
       this.treat.render(rig.treatment, this.treatFrame(rig, t, focus, flash), target, { still: !rig.clip?.footage, pictures });
       r.setRenderTarget(target);
     } else if (shot.kind === 'footage') {
@@ -481,6 +558,14 @@ export class ShotStage {
     this.blit.material.dispose();
     this.treat?.dispose();
     this.treat = null;
+    this.ring?.release();
+    this.ring = null;
+  }
+
+  /** compile the motion's materials (Echo, Slices) ahead of the first cut, on a tiny ring */
+  warmMotion(texture: THREE.Texture) {
+    this.ring ??= new FrameRing(this.renderer);
+    this.ring.warm(texture);
   }
 
   dispose() {
@@ -534,7 +619,7 @@ export function warmShots(renderer: THREE.WebGLRenderer, analysis: TrackAnalysis
   anchors.set(renderer, { stage, target });
   const ids = Object.keys(STYLES).filter((id) => id !== 'card') as Shot['style'][];
   // one shot of every style, and one of every treatment (each on a style, so the pair compiles too)
-  const treats: TreatmentId[] = ['mosh', 'sort', 'cells', 'readout', 'collage'];
+  const treats: TreatmentId[] = ['mosh', 'sort', 'cells', 'readout', 'collage', 'trace'];
   const shots: Shot[] = [
     ...ids.map((style, i): Shot => ({ index: 0, kind: 'footage', start: i, end: i + 1, footageIndex: 0, arrive: 'hit', leave: 'ramp', rampBeats: 1, colour: 'tinted', style, layout: i, word: 'HUM' })),
     ...treats.map((treatment, i): Shot => ({ index: 0, kind: 'footage', start: ids.length + i, end: ids.length + i + 1, footageIndex: 0, arrive: 'cold', leave: 'cut', rampBeats: 1, colour: 'clean', style: ids[i % ids.length], layout: i, word: 'HUM', treatment, extra: [0] })),
@@ -548,7 +633,10 @@ export function warmShots(renderer: THREE.WebGLRenderer, analysis: TrackAnalysis
     // compile in the background (KHR_parallel_shader_compile) rather than on this frame: every style and
     // treatment at once is dozens of programs, which on Windows/Direct3D can hold a frame for seconds.
     // The warm stage stays anchored to the renderer, so the programs stay alive for the real shots.
-    void dryRun(renderer, () => stage.drawAll(target));
+    void dryRun(renderer, () => {
+      stage.drawAll(target);
+      stage.warmMotion(clip.texture);
+    });
     renderer.setRenderTarget(was);
   } catch (err) {
     console.warn('[hum] could not warm the footage shots', err);

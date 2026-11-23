@@ -5,12 +5,13 @@
  */
 import * as THREE from 'three';
 import { Cells } from './cells';
-import { Collage, type CollagePicture } from './collage';
+import { Collage } from './collage';
 import { Quad, type TreatFrame } from './common';
 import type { TreatmentId } from './index';
 import { Mosh, type MoshPlan } from './mosh';
 import { Readout } from './readout';
 import { Sort } from './sort';
+import { Trace, type TracePicture } from './trace';
 
 export class TreatPass {
   private bedRT: THREE.WebGLRenderTarget | null = null;
@@ -20,6 +21,7 @@ export class TreatPass {
   private readonly cells = new Cells();
   private readonly readout = new Readout();
   private readonly collage = new Collage();
+  private readonly trace = new Trace();
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -46,7 +48,7 @@ export class TreatPass {
   }
 
   /** break the bed down into `target` */
-  render(kind: TreatmentId, f: TreatFrame, target: THREE.WebGLRenderTarget | null, extra: { still: boolean; pictures: CollagePicture[] }) {
+  render(kind: TreatmentId, f: TreatFrame, target: THREE.WebGLRenderTarget | null, extra: { still: boolean; pictures: TracePicture[] }) {
     const r = this.renderer;
     const w = this.width;
     const h = this.height;
@@ -75,6 +77,10 @@ export class TreatPass {
         this.collage.update(f, w, h, extra.pictures);
         m = this.collage.material;
         break;
+      case 'trace':
+        this.trace.update(f, w, h, extra.pictures);
+        m = this.trace.material;
+        break;
       default:
         return;
     }
@@ -85,7 +91,7 @@ export class TreatPass {
 
   /** every treatment's material, for compiling them ahead of the first cut */
   materials(): THREE.Material[] {
-    return [this.mosh.material, this.mosh.tick, this.sort.material, this.cells.material, this.readout.coarse, this.readout.material, this.collage.material];
+    return [this.mosh.material, this.mosh.tick, this.sort.material, this.cells.material, this.readout.coarse, this.readout.material, this.collage.material, this.trace.material];
   }
 
   dispose() {
@@ -96,6 +102,7 @@ export class TreatPass {
     this.cells.dispose();
     this.readout.dispose();
     this.collage.dispose();
+    this.trace.dispose();
     this.quad.dispose();
   }
 }

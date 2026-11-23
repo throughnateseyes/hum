@@ -11,7 +11,8 @@
  *   --clip /footage.local/a.mp4,/footage.local/b.mp4   clips the dev server can serve
  *   --words "LOUDER THAN THE DARK"   --look <id>   --at-song 42.5
  *   --style poster  --seed 3  --colour flat   the footage style, its arrangement and its colour
- *   --treatment mosh            how the picture is broken down (none, mosh, sort, cells, readout, collage, auto)
+ *   --treatment mosh            how the picture is broken down (none, mosh, sort, cells, readout, collage, trace, auto)
+ *   --motion stutter            what a clip does in time (play, stutter, echo, reverse, slices)
  *   --photo /footage.local/p.jpg,...   photos as stills   --zoom 1.4   push the picture in
  *   --hash 5,1,3,5               checksums of the frames at these times, drawn in that order (seek check)
  *   --size 720x1280             picture size (default 9:16)
@@ -28,7 +29,7 @@ const opt = (k, d) => {
 const port = opt('port', '5178');
 const [w, h] = opt('size', '720x1280').split('x').map(Number);
 const qs = new URLSearchParams({ w: String(w), h: String(h) });
-for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['style', 'style'], ['seed', 'seed'], ['colour', 'colour'], ['at-song', 'at'], ['treatment', 'treatment'], ['photo', 'photo'], ['zoom', 'zoom']]) if (opt(k)) qs.set(name, opt(k));
+for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['style', 'style'], ['seed', 'seed'], ['colour', 'colour'], ['at-song', 'at'], ['treatment', 'treatment'], ['motion', 'motion'], ['photo', 'photo'], ['zoom', 'zoom']]) if (opt(k)) qs.set(name, opt(k));
 const out = opt('out', `${process.cwd()}/shot-sheet.png`);
 const cols = Number(opt('cols', '6'));
 const cell = Number(opt('cell', '300'));

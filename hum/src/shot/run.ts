@@ -14,6 +14,7 @@
  *   the ramp     a part speeds up into its cut when the part after it lands on a hit
  *   the style    a fixed style as it is; Auto picks from what suits the section the part belongs to
  *                (the section as Hum heard it, before the cut), never the previous footage part's
+ *   motion       what a clip does in time (play, stutter, echo, reverse, slices; motion.ts)
  *   long parts   a part longer than one and a half times the look's "Beats per shot" (and longer than
  *                8 beats) is still cut inside, into shots of about that many beats, 6 at the least
  *                (with 8 beats per shot: parts over 12 beats; with 4: parts over 8 beats, in shots of 6)
@@ -21,8 +22,12 @@
  * Everything is worked out from the song's parts and the looks' settings alone, so it is a pure
  * function of song time: seeking anywhere, or rendering frame by frame, gives the same picture.
  */
-import type { TrackAnalysis, TrackSection } from '../core/types';
+import type { ClipAsset, ParamValues, PartShot, PhotoAsset, TrackAnalysis, TrackSection } from '../core/types';
+import { num, str } from '../core/uniforms';
+import { PRESETS } from '../presets';
+import { useStudio } from '../state/store';
 import type { Colour } from './kit';
+import { isMotion } from './motion';
 import { footageNeed, hatsIn, layoutOf, type Sequence, type Shot } from './sequence';
 import { styleForShot, type StyleId } from './styles';
 import { treatmentForShot, type TreatmentId } from './treatments';
@@ -37,6 +42,8 @@ export interface RunPart {
   shotBeats: number;
   /** a treatment id, 'auto' or 'none' */
   treatment: string;
+  /** a motion id ('play' for plain playing) */
+  motion?: string;
   /**
    * The pictures this part uses, as places in the deck, in order (a per-part choice; missing: dealt
    * automatically). The first is the picture; Split's second panel and Collage's fragments take the rest.
@@ -124,7 +131,7 @@ export function footageRun(o: RunInput): Run {
     prevStyle = style;
     // the part's own pictures, when it has a choice of them (places that are still in the deck)
     const mine = o2.media?.filter((m) => m >= 0 && m < count) ?? [];
-    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count);
+    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count, mine.length > 1);
     prevTreat = treatment;
     const loud = sec.energy > 0.55 && style !== 'caption';
     const hitIn = lands(i);
@@ -132,17 +139,8 @@ export function footageRun(o: RunInput): Run {
     const last = i === n - 1;
     const { start, end } = part;
 
-    // one shot, unless the part is long: over 1.5 shots and over 8 beats, cut into shots of the look's
-    // length (6 beats at the least, so a fast look doesn't chop a part into flickers)
-    const cuts = [start];
-    if (end - start > Math.max(8, o2.shotBeats * 1.5) * beat) {
-      const pieces = Math.max(2, Math.round((end - start) / (Math.max(6, o2.shotBeats) * beat)));
-      for (let m = 1; m < pieces; m++) {
-        const at = start + Math.round(((end - start) * m) / pieces / beat) * beat;
-        if (at > cuts[cuts.length - 1] + beat && at < end - beat) cuts.push(at);
-      }
-    }
-    cuts.push(end);
+    const cuts = cutsOf(start, end, beat, o2.shotBeats);
+    const motion = isMotion(o2.motion) && o2.motion !== 'play' ? o2.motion : undefined;
 
     let kicks = inRange(a.layers?.kick, start, end, beat * 0.45);
     if (kicks.length < 2) kicks = Array.from({ length: Math.max(1, Math.floor((end - start) / beat)) }, (_, j) => start + j * beat);
@@ -181,6 +179,7 @@ export function footageRun(o: RunInput): Run {
         layout: layoutOf(o2.seed, i, j),
         word: o.words.length ? o.words[ordinal % o.words.length] : '',
         treatment,
+        motion,
       };
       // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
       const c = mine.length ? mine[j % mine.length] : ordinal % count;
@@ -198,10 +197,13 @@ export function footageRun(o: RunInput): Run {
         shot.altFrom = alt.from;
         shot.altEcho = c2 === c;
       }
-      if (treatment === 'collage') {
-        // the fragments: the part's other pictures, else the next few in the deck
-        const rest = mine.length > 1 ? mine.filter((m) => m !== c) : Array.from({ length: Math.min(3, count - 1) }, (_, m) => (c + 1 + m) % count);
-        shot.extra = rest.slice(0, 3);
+      if (treatment === 'collage' || treatment === 'trace') {
+        // Collage's fragments and Trace's other tiles: the part's other pictures (from the one after
+        // this shot's), else the next few in the deck
+        const want = treatment === 'trace' ? 5 : 3;
+        const at = mine.indexOf(c);
+        const rest = mine.length > 1 ? [...mine.slice(at + 1), ...mine.slice(0, Math.max(0, at))].filter((m) => m !== c) : Array.from({ length: Math.min(want, count - 1) }, (_, m) => (c + 1 + m) % count);
+        shot.extra = rest.slice(0, want);
       }
       seq.shots.push(shot);
       ordinal++;
@@ -209,4 +211,139 @@ export function footageRun(o: RunInput): Run {
     return seq;
   });
   return { seqs };
+}
+
+/**
+ * Where a part is cut inside: one shot, unless the part is long (over 1.5 shots and over 8 beats),
+ * then shots of the look's length (6 beats at the least, so a fast look doesn't chop a part into
+ * flickers). The cut times, with the part's start and end.
+ */
+function cutsOf(start: number, end: number, beat: number, shotBeats: number): number[] {
+  const cuts = [start];
+  if (end - start > Math.max(8, shotBeats * 1.5) * beat) {
+    const pieces = Math.max(2, Math.round((end - start) / (Math.max(6, shotBeats) * beat)));
+    for (let m = 1; m < pieces; m++) {
+      const at = start + Math.round(((end - start) * m) / pieces / beat) * beat;
+      if (at > cuts[cuts.length - 1] + beat && at < end - beat) cuts.push(at);
+    }
+  }
+  cuts.push(end);
+  return cuts;
+}
+
+/* ───────── a part's settings, from its look and its own choices ───────── */
+
+/** looks saved before the styles carried the old settings: read them the nearest new way */
+function colourOf(p: ParamValues): Colour {
+  const c = str(p, 'colour', '');
+  if (c === 'clean' || c === 'tinted' || c === 'flat') return c;
+  const old = str(p, 'treat', '');
+  return old === 'clean' ? 'clean' : old ? 'flat' : 'tinted';
+}
+
+/** the settings that decide a part's shots, from a footage look's params */
+export function runPartOf(p: ParamValues): RunPart {
+  return {
+    style: str(p, 'style', 'auto'),
+    seed: Math.max(1, Math.round(num(p, 'seed', 1))),
+    colour: colourOf(p),
+    shotBeats: Number(str(p, 'pace', '8')) || 8,
+    treatment: str(p, 'treatment', 'none'),
+    motion: str(p, 'motion', 'play'),
+  };
+}
+
+/** a part's own choices (store.partShot, or soloShot for a look playing on its own) laid over its look's */
+export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds: string[]): RunPart {
+  if (!own) return look;
+  const media = (own.media ?? []).map((id) => deckIds.indexOf(id)).filter((x) => x >= 0);
+  return {
+    ...look,
+    ...(own.style ? { style: own.style } : {}),
+    ...(own.seed ? { seed: Math.max(1, Math.round(own.seed)) } : {}),
+    ...(own.treatment ? { treatment: own.treatment } : {}),
+    ...(own.motion ? { motion: own.motion } : {}),
+    ...(media.length ? { media } : {}),
+  };
+}
+
+/** a look's signature: two parts with the same one play the same look (see the footage scene) */
+export const sigOf = (r: RunPart) => `${r.style}|${r.seed}|${r.colour}|${r.shotBeats}|${r.treatment}|${r.motion ?? 'play'}`;
+
+/**
+ * The parts' settings when a video plan with one look per part plays this song cut (null otherwise):
+ * for each part, its look's settings (the preset with the person's tweaks) when the look is footage,
+ * with the part's own choices laid over them; and each part's look-level signature.
+ */
+export function planParts(a: TrackAnalysis, deckIds: string[]): { parts: (RunPart | null)[]; sigs: (string | null)[] } | null {
+  const s = useStudio.getState();
+  const plan = s.plan;
+  if (!s.planOn || !plan?.flat || plan.looks.length !== a.sections.length) return null;
+  const all = [...s.customPresets, ...PRESETS];
+  const sigs: (string | null)[] = [];
+  const parts = plan.looks.map((id, i) => {
+    const p = id ? all.find((x) => x.id === id) : undefined;
+    if (!p || p.sceneId !== 'footage') {
+      sigs.push(null);
+      return null;
+    }
+    const look = runPartOf({ ...(p.sceneParams ?? {}), ...(s.tweaks[p.id]?.sceneParams ?? {}) });
+    sigs.push(sigOf(look));
+    return withOwn(look, s.partShot?.[i], deckIds);
+  });
+  return { parts, sigs };
+}
+
+/* ───────── the deck ───────── */
+
+/** how many clips one picture opens players for, and how many photos its deck holds */
+export const MAX_OPEN = 6;
+export const MAX_STILLS = 24;
+
+/** when a clip or photo was added (its id carries the time it was made) */
+export const addedAt = (id: string) => parseInt(id.split('-')[1] ?? '', 36) || 0;
+
+/**
+ * The ids of the pictures a footage look deals from, in order: the person's clips (the first six) and
+ * photos, in the order they were added; with neither, the built-in placeholder photo.
+ */
+export function deckIdsOf(clips: ClipAsset[], photos: PhotoAsset[]): string[] {
+  const own = photos.filter((p) => !p.builtin).slice(0, MAX_STILLS);
+  const ids = [...clips.slice(0, MAX_OPEN).map((c) => c.id), ...own.map((p) => p.id)];
+  ids.sort((x, y) => addedAt(x) - addedAt(y));
+  return ids.length ? ids : photos.slice(0, 1).map((p) => p.id);
+}
+
+/**
+ * The id of the clip or photo part `partIndex` shows first, as the footage look would deal it now
+ * (null: the part isn't a footage part, or there are no pictures). With a video plan playing it
+ * follows the run across the song (every cut moves to the next picture; a part with its own pictures
+ * takes its first); with no plan, the part as the look on screen cuts it. Cheap: it counts the cuts
+ * before the part rather than building the run.
+ */
+export function mediaForPart(analysis: TrackAnalysis, partIndex: number): string | null {
+  const s = useStudio.getState();
+  const deck = deckIdsOf(s.clips, s.photos);
+  if (!deck.length || partIndex < 0 || partIndex >= analysis.sections.length) return null;
+  const fp = planParts(analysis, deck);
+  if (fp) {
+    const own = fp.parts[partIndex];
+    if (!own) return null;
+    const mine = (own.media ?? []).filter((m) => m < deck.length);
+    if (mine.length) return deck[mine[0]];
+    const beat = feltBeat(analysis.bpm);
+    let ordinal = 0;
+    for (let i = 0; i < partIndex; i++) {
+      const p = fp.parts[i];
+      if (!p) continue;
+      const sec = analysis.sections[i];
+      ordinal += cutsOf(sec.start, sec.end, beat, p.shotBeats).length - 1;
+    }
+    return deck[ordinal % deck.length];
+  }
+  // no plan: the look on screen cuts each part itself, its first shot on the part's own place in the deck
+  if (s.sceneId !== 'footage') return null;
+  const solo = withOwn(runPartOf(s.sceneParams), s.soloShot, deck);
+  const mine = (solo.media ?? []).filter((m) => m < deck.length);
+  return deck[(mine.length ? mine[0] : partIndex) % deck.length];
 }
