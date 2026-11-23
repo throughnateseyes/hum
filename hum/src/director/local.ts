@@ -20,7 +20,7 @@ import type {
   SceneDef,
 } from '../core/types';
 import { PALETTES, isLightPalette } from '../core/palettes';
-import { allScenes } from '../scenes';
+import { directorScenes } from './footage';
 import { allEffects } from '../fx';
 
 export interface LocalInputs {
@@ -783,7 +783,8 @@ function localShader(req: DirectorRequest, rnd: () => number): { shader: CustomS
 
 /** Offline fallback for the AI director. Only references ids that exist in the registries. */
 export function localDirect(req: DirectorRequest, inputs: LocalInputs = {}): DirectorResponse {
-  const scenes = (inputs.scenes ?? allScenes()).filter((s) => !s.tags.includes('generated'));
+  // a clip scene only once there are clips (footage.ts); the scene on screen stays, so an edit can keep it
+  const scenes = (inputs.scenes ?? directorScenes(req.current?.sceneId)).filter((s) => !s.tags.includes('generated'));
   const effects = inputs.effects ?? allEffects();
   const palettes = inputs.palettes?.length ? inputs.palettes : PALETTES;
   const rnd = seededRandom(`${req.mode}|${req.prompt}|${req.current?.id ?? ''}|${req.track?.bpm ?? ''}`);

@@ -41,6 +41,12 @@ interface ChainItem {
 export class LookPlayer {
   /** the last error a scene threw while rendering (the last good picture is kept) */
   error: string | null = null;
+  /**
+   * How many seconds of its own past the look plays through (at 60 steps a second) when it is asked
+   * for a time it wasn't just at: a still wants that, so it looks the way it would in playback; a
+   * live picture can't afford it and sets 0, so the look simply starts from now.
+   */
+  catchUp = REWIND;
 
   private readonly renderer: THREE.WebGLRenderer;
   private readonly def: SceneDef;
@@ -67,7 +73,7 @@ export class LookPlayer {
   private frameNo = 0;
   private started = false;
 
-  constructor(renderer: THREE.WebGLRenderer, presetId: string, width: number, height: number, analysis: TrackAnalysis, palette?: Palette) {
+  constructor(renderer: THREE.WebGLRenderer, presetId: string, width: number, height: number, analysis: TrackAnalysis, palette?: Palette, tellStore = true) {
     const preset = PRESETS.find((p) => p.id === presetId);
     if (!preset) throw new Error(`unknown look "${presetId}"`);
     const def = getScene(preset.sceneId);
@@ -88,8 +94,11 @@ export class LookPlayer {
     this.palette = resolvePalette(this.look.palette);
 
     // some scenes read song facts from the store; give them the analysis (lyrics stay as they are)
-    const s = useStudio.getState();
-    useStudio.setState({ analysis, track: s.track ?? { name: 'Shot', source: 'file' } });
+    // (inside the app the store already knows the song, and must not be written to from a render)
+    if (tellStore) {
+      const s = useStudio.getState();
+      useStudio.setState({ analysis, track: s.track ?? { name: 'Shot', source: 'file' } });
+    }
 
     const dataTex = (n: number) => {
       const t = new THREE.DataTexture(new Float32Array(n * 4), n, 1, THREE.RGBAFormat, THREE.FloatType);
@@ -166,9 +175,11 @@ export class LookPlayer {
         // a clock that wobbles back a few milliseconds is not a rewind: keep the frame we have
       } else if (t < this.t) {
         // (before the cut itself: start right there)
-        this.start(Math.min(t, Math.max(this.born, t - REWIND)));
+        this.start(Math.min(t, Math.max(this.born, t - this.catchUp)));
         while (this.t < t - 1e-6) this.step(Math.min(STEP, t - this.t));
       } else if (t - this.t > MAX_STEP) {
+        // a jump ahead: play through what was missed, but never more than catchUp seconds of it
+        if (t - this.t > this.catchUp) this.start(t - this.catchUp);
         while (this.t < t - 1e-6) this.step(Math.min(STEP, t - this.t));
       } else if (t > this.t) {
         this.step(t - this.t);
@@ -223,6 +234,11 @@ export class LookPlayer {
       // keep the last good picture; the scene's own state may be half-stepped, but it keeps going
       this.error = `render threw: ${e instanceof Error ? e.message : String(e)}`;
     }
+  }
+
+  /** dress the look in other colours (the same player serves shots with different palettes) */
+  setPalette(p: Palette): void {
+    resolvePalette({ id: 'shot', name: 'shot', bg: p.bg, fg: p.fg, accent: p.accent, accent2: p.accent2, muted: p.muted }, this.palette);
   }
 
   dispose(): void {

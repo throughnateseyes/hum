@@ -15,6 +15,7 @@ import { allLooks, ensureDropCuts, findLook, sectionDrops, type VideoPlan } from
 import { LYRIC_MEDIUMS, type LyricMedium } from '../state/lyricPlan';
 import { useStudio } from '../state/store';
 import { getScene } from '../scenes';
+import { mayPlan, mayPlanId } from './footage';
 import { postDirector } from './access';
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -55,14 +56,14 @@ export function applyPlanEdit(plan: VideoPlan, a: TrackAnalysis, changes: unknow
   for (const c of [...changes, ...spread]) {
     if (!isObj(c) || typeof c.index !== 'number' || c.index < 0 || c.index >= n) continue;
     const i = c.index;
-    if (typeof c.lookId === 'string' && findLook(c.lookId) && c.lookId !== looks[i]) {
+    if (typeof c.lookId === 'string' && findLook(c.lookId) && mayPlanId(c.lookId) && c.lookId !== looks[i]) {
       looks[i] = c.lookId;
       rotate[i] = null; // picked around the new look unless the edit gave one
       why[i] = 'changed on request';
       touched.add(i);
     }
     if (Array.isArray(c.rotate)) {
-      const r = c.rotate.filter((id): id is string => typeof id === 'string' && !!findLook(id) && id !== looks[i]).slice(0, 3);
+      const r = c.rotate.filter((id): id is string => typeof id === 'string' && !!findLook(id) && mayPlanId(id) && id !== looks[i]).slice(0, 3);
       rotate[i] = r.length ? r : null;
       touched.add(i);
     }
@@ -108,7 +109,8 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
   // every look, in the app's order: the list is the same for every edit, so it's read back from the
   // prompt cache after the first one
   const looks = allLooks()
-    .filter((p) => getScene(p.sceneId))
+    // footage looks only once there are clips (footage.ts)
+    .filter((p) => getScene(p.sceneId) && mayPlan(p))
     .map((p) => ({ id: p.id, tags: p.tags.slice(0, 4), style: lookStyle(p), family: familyIdOf(p), roles: familyOf(p).fit.roles.slice(0, 3) }));
   const drops = sectionDrops(a);
   let res: Response;

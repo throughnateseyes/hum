@@ -9,6 +9,7 @@ import type {
   HandStyle,
   Lyrics,
   PhotoAsset,
+  ClipAsset,
   Preset,
   TrackAnalysis,
 } from '../core/types';
@@ -89,6 +90,7 @@ export interface StudioState extends LookState {
   analysis: TrackAnalysis | null;
   analyzing: boolean;
   photos: PhotoAsset[];
+  clips: ClipAsset[];
   text: string;
   aspect: Aspect;
   inspectorTab: InspectorTab;
@@ -177,6 +179,8 @@ export interface StudioState extends LookState {
   setPaletteColor: (key: keyof Omit<Palette, 'id' | 'name'>, hex: string) => void;
   addPhotos: (p: PhotoAsset[]) => void;
   removePhoto: (id: string) => void;
+  addClips: (c: ClipAsset[]) => void;
+  removeClip: (id: string) => void;
   /** `family`: save it as a take of that look family (src/presets/families.ts) */
   saveCurrentAsPreset: (name: string, family?: string) => Preset;
   deleteCustomPreset: (id: string) => void;
@@ -255,6 +259,9 @@ function loadPersisted(): Partial<StudioState> {
     return {};
   }
 }
+/** the most clips kept at once (each is a decoded video file in memory) */
+const MAX_CLIPS = 12;
+
 function persist(s: StudioState) {
   try {
     localStorage.setItem(
@@ -332,6 +339,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   analysis: null,
   analyzing: false,
   photos: [],
+  clips: [],
   text: '',
   aspect: (persisted.aspect as Aspect) ?? 'fill',
   inspectorTab: 'scene',
@@ -439,6 +447,20 @@ export const useStudio = create<StudioState>((set, get) => ({
       const ph = s.photos.find((x) => x.id === id);
       ph?.texture.dispose();
       return { photos: s.photos.filter((x) => x.id !== id) };
+    }),
+
+  addClips: (c) =>
+    set((s) => {
+      const all = [...s.clips, ...c];
+      const dropped = all.slice(0, Math.max(0, all.length - MAX_CLIPS));
+      for (const d of dropped) URL.revokeObjectURL(d.url);
+      return { clips: all.slice(dropped.length) };
+    }),
+  removeClip: (id) =>
+    set((s) => {
+      const c = s.clips.find((x) => x.id === id);
+      if (c) URL.revokeObjectURL(c.url);
+      return { clips: s.clips.filter((x) => x.id !== id) };
     }),
 
   saveCurrentAsPreset: (name, family) => {

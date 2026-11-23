@@ -6,8 +6,8 @@
 import type { EffectDef, ParamDef, SceneDef } from '../core/types';
 import { LAYERS, PALETTES, isLightPalette } from '../core/palettes';
 import { sceneStyle } from '../core/styles';
-import { allScenes } from '../scenes';
 import { allEffects } from '../fx';
+import { directorScenes } from './footage';
 
 export const CATALOG_MAX_CHARS = 19_500;
 
@@ -58,7 +58,8 @@ export interface CatalogInputs {
 
 /** Build the prompt catalog from the live registries (or supplied lists). */
 export function buildCatalog(inputs: CatalogInputs = {}): string {
-  const scenes = (inputs.scenes ?? allScenes()).filter((s) => s.category !== 'code' || !s.tags.includes('generated'));
+  // a clip scene is only offered once the person has added clips (footage.ts); the scene on screen always stays
+  const scenes = (inputs.scenes ?? directorScenes(inputs.focusSceneId)).filter((s) => s.category !== 'code' || !s.tags.includes('generated'));
   const effects = inputs.effects ?? allEffects();
 
   const build = (detail: number) => {

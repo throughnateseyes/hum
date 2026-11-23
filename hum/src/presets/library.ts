@@ -833,6 +833,40 @@ export const PRESETS: Preset[] = [
   P({ id: 'glass-andamento-sunflower', name: 'Sunflower Smalti', description: 'The flowing mosaic in sunflower yellow, marigold and sky blue, a little faster and more iridescent: bright, busy and full of life.', tags: ['happy', 'joyful', 'playful', 'energetic', 'uplifting', 'bright', 'warm', 'pop', 'funk', 'dance', 'colorful', 'glass', 'mosaic'], sceneId: 'glass-andamento', sceneParams: { flow: 1.3, iris: 0.35, shimmer: 1.2 }, effects: [], modulations: [], palette: 'glass-sunflower' }),
   P({ id: 'glass-shatter', name: 'Shatter', description: 'A tiger-coloured window of real glass panes in 3D. Tension opens the cracks so light burns through; the drop shatters it and the shards tumble toward you, then the pieces fly back in to build a new window, a different pattern every time.', tags: ['intense', 'energetic', 'aggressive', 'dramatic', 'drops', 'heavy', 'rock', 'edm', 'electronic', 'cinematic', 'bold', 'glass'], sceneId: 'glass-shatter', effects: [{ effectId: 'bloom', params: { threshold: 0.7, strength: 0.5, radius: 0.35 } }], modulations: [], palette: 'glass-tiger' }),
   P({ id: 'glass-shatter-jewel', name: 'Jewel Shatter', description: 'The shattering window in cathedral jewel colours: finer panes, a harder burst and a longer hang in the air before it gathers again.', tags: ['intense', 'euphoric', 'dramatic', 'drops', 'electronic', 'edm', 'trance', 'cinematic', 'dark', 'glass', 'colorful'], sceneId: 'glass-shatter', sceneParams: { panes: 150, force: 1.25, hold: 11 }, effects: [{ effectId: 'bloom', params: { threshold: 0.65, strength: 0.55, radius: 0.35 } }], modulations: [], palette: 'glass-jewel' }),
+  /* ───────── footage: the person's own clips (src/scenes/footage) ───────── */
+  P({
+    id: 'footage-clean',
+    name: 'Footage · Clean',
+    description: 'Your clips, untouched and slowed down, with a few thin lines running into the distance. Long shots that speed up into the next part when it hits.',
+    tags: ['footage', 'video', 'calm', 'tender', 'dreamy', 'cinematic', 'minimal', 'acoustic', 'melancholic', 'nostalgic', 'spacious', 'personal'],
+    sceneId: 'footage',
+    sceneParams: { treat: 'clean', kit: 'quiet', pace: '16' },
+    effects: [],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+  P({
+    id: 'footage-bands',
+    name: 'Footage · Bands',
+    description: 'Your clips cut every two bars, their shadows and highlights swapped for flat colours taken from each clip. Arcs turn on the snares, a bar slides in on every kick, and hits land with a flash, a freeze and a burst of shapes.',
+    tags: ['footage', 'video', 'energetic', 'euphoric', 'pop', 'dance', 'bright', 'playful', 'graphic', 'electronic', 'driving', 'personal'],
+    sceneId: 'footage',
+    sceneParams: { treat: 'bands', kit: 'graphic', pace: '8' },
+    effects: [],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+  P({
+    id: 'footage-depth',
+    name: 'Footage · Depth',
+    description: 'Your clips with a contour map showing through their shadows and highlights, flown through a space of ribbons, standing slabs and a floor of lines that blur as they pass the lens.',
+    tags: ['footage', 'video', 'cinematic', 'driving', 'euphoric', 'electronic', 'spacious', 'epic', 'graphic', 'dreamy', 'personal'],
+    sceneId: 'footage',
+    sceneParams: { treat: 'look', kit: 'depth', pace: '8' },
+    effects: [],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
 ];
 
 /* ───────── snow (src/scenes/snow): four families, six looks ───────── */

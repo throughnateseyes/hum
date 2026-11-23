@@ -6,15 +6,10 @@
  * clip gets a palette of its own that still sits in the picture.
  */
 import { hexToLch, lchToHex } from '../core/songPalette';
+import type { ClipPalette } from '../core/types';
 
-export interface ShotPalette {
-  /** five flat colours, one per brightness band from shadows to highlights */
-  flats: string[];
-  ink: string;
-  paper: string;
-  /** four brightness levels (0..1) that split this clip's picture into five equal bands */
-  cuts: number[];
-}
+/** a shot's colours: the same shape a clip carries (core/types.ts) */
+export type ShotPalette = ClipPalette;
 
 const turn = (h: number) => ((h % 360) + 360) % 360;
 const apart = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);

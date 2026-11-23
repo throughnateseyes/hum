@@ -6,8 +6,8 @@ import App from './App';
 createRoot(document.getElementById('root')!).render(<App />);
 
 if (import.meta.env.DEV) {
-  void Promise.all([import('./state/store'), import('./presets'), import('./fx'), import('./scenes'), import('./state/live'), import('./audio/engine'), import('./dev/thumbs'), import('./dev/perfProbe'), import('./render/quality')]).then(
-    ([store, presets, fx, scenes, live, engine, thumbs, perf, q]) => {
+  void Promise.all([import('./state/store'), import('./presets'), import('./fx'), import('./scenes'), import('./state/live'), import('./audio/engine'), import('./dev/thumbs'), import('./dev/perfProbe'), import('./render/quality'), import('./state/tracks'), import('./render/timeline')]).then(
+    ([store, presets, fx, scenes, live, engine, thumbs, perf, q, tracks, timeline]) => {
       (window as unknown as Record<string, unknown>).__hum = {
         useStudio: store.useStudio,
         PRESETS: presets.PRESETS,
@@ -18,6 +18,9 @@ if (import.meta.env.DEV) {
         makeThumbs: thumbs.makeThumbs,
         perf,
         quality: q.quality,
+        // loading songs, photos and clips, and rendering, for scripted checks
+        tracks,
+        renderVideos: timeline.renderVideos,
       };
     },
   );

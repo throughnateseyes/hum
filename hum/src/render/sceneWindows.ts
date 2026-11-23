@@ -419,7 +419,8 @@ export class SceneWindows {
     const inMood = moodFilter(playingMood());
     const ok = (p: Preset) => {
       const d = getScene(p.sceneId);
-      return !!d && d.category !== 'board' && !d.showsLyrics && p.id !== opts.mainPresetId && this.allowed(p.sceneId, opts.mainSceneId) && (!inMood || inMood(p));
+      // (not the footage looks: a window would open another set of video players, and a render can't wait for theirs)
+      return !!d && d.category !== 'board' && !d.showsLyrics && !d.usesClips && p.id !== opts.mainPresetId && this.allowed(p.sceneId, opts.mainSceneId) && (!inMood || inMood(p));
     };
     const main = findLook(opts.mainPresetId);
     const related = main && base.analysis ? relatedLooks(main.id, base.analysis, [], undefined, undefined, inMood).map((id) => findLook(id)).filter((p): p is Preset => !!p && ok(p)) : [];

@@ -316,6 +316,36 @@ export interface PhotoAsset {
   builtin?: boolean;
 }
 
+/* ───────────────────────── Clips ───────────────────────── */
+
+/** A clip's colours, taken from its own frames (see src/shot/palette.ts) */
+export interface ClipPalette {
+  /** five flat colours, one per brightness band from shadows to highlights */
+  flats: string[];
+  ink: string;
+  paper: string;
+  /** four brightness levels (0..1) that split the clip's picture into five equal bands */
+  cuts: number[];
+}
+
+/** A video clip the person added: footage for the footage looks (src/scenes/footage) */
+export interface ClipAsset {
+  id: string;
+  name: string;
+  /** an object URL for the file. Every look that plays the clip opens its own <video> on it, so two
+   *  pictures (the stage and a render, say) never fight over one player. */
+  url: string;
+  /** the file itself, kept so the clip can be saved and opened again */
+  file: Blob;
+  /** seconds */
+  duration: number;
+  width: number;
+  height: number;
+  /** a small still for the library (a data URL) */
+  thumb: string;
+  palette: ClipPalette;
+}
+
 /* ───────────────────────── Scenes ───────────────────────── */
 
 export interface SharedResources {
@@ -360,9 +390,24 @@ export interface SceneInit {
   shared: SharedResources;
 }
 
+/** what a scene is told before a frame of a render (see SceneInstance.prepare) */
+export interface PrepareContext {
+  /** the look's settings for this scene, before modulation */
+  params: ParamValues;
+  analysis: TrackAnalysis | null;
+  photos: PhotoAsset[];
+}
+
 export interface SceneInstance {
   /** Draw one frame into `target` (it is already sized). Must not render to screen. */
   render(frame: FrameContext, target: THREE.WebGLRenderTarget): void;
+  /**
+   * Renders only (frame by frame, not in real time): called before each frame with the song time (s)
+   * about to be drawn, and awaited. A scene that shows something it has to wait for (a video frame)
+   * gets it ready here; render() for that same time then draws it without waiting. `frame` carries
+   * what render() is about to be given, because a scene cut to on this frame has not drawn yet.
+   */
+  prepare?(songTime: number, frame: PrepareContext): Promise<void>;
   resize?(width: number, height: number): void;
   dispose(): void;
 }
@@ -390,6 +435,8 @@ export interface SceneDef {
   params: ParamDef[];
   modulations?: ModulationSeed[];
   usesPhotos?: boolean;
+  /** true when the scene is built on the person's video clips (the footage looks) */
+  usesClips?: boolean;
   /** true when the scene expects a light (off-white) background by default */
   light?: boolean;
   /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);

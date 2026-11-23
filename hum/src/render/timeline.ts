@@ -147,14 +147,17 @@ const LAYER_DICE = { scene: 1, windows: 2, popups: 3, lyrics: 4 } as const;
  * so a scene that rolls more dice at one size doesn't move the pop-ups at another), and the
  * sequencers talk to the render stage instead of the one on screen.
  */
-function inRenderWorld(stage: Stage, songFrame: number, nowMs: number, fn: (phase: (layer: keyof typeof LAYER_DICE) => void) => void) {
+/** the dice the draw half of a frame starts with (the step half starts with 0, the layers have their own) */
+const DRAW_DICE = 5;
+
+function inRenderWorld(stage: Stage, songFrame: number, nowMs: number, fn: (phase: (layer: keyof typeof LAYER_DICE) => void) => void, dice = 0) {
   const perf = performance.now;
   const dnow = Date.now;
   const rnd = Math.random;
   const onScreen = live.stage;
   performance.now = () => nowMs;
   Date.now = () => DATE_BASE + Math.round(nowMs);
-  Math.random = mulberry(hash(SEED, songFrame, 0));
+  Math.random = mulberry(hash(SEED, songFrame, dice));
   live.stage = stage;
   try {
     fn((layer) => {
@@ -233,11 +236,22 @@ async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, a
       const songFrame = Math.round(t * fps);
       const now = (t + TIME_BASE) * 1000;
       let frame: VideoFrame | null = null;
-      inRenderWorld(stage, songFrame, now, (phase) => {
-        stage.renderFrame({ now, dt: 1 / fps, audio: a, phase });
-        // grab the picture before anything else can touch the canvas
-        if (k >= 0) frame = new VideoFrame(canvas, { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) });
-      });
+      // the sequencers run and any cut lands first, so a scene cut to on this frame exists to be prepared
+      inRenderWorld(stage, songFrame, now, (phase) => stage.beginFrame({ now, dt: 1 / fps, audio: a, phase }));
+      // footage scenes seek their videos here: on the real clock, with real timers, so `seeked` fires
+      await stage.prepareFrame(t);
+      if (isCancelled()) throw new Cancelled();
+      inRenderWorld(
+        stage,
+        songFrame,
+        now,
+        (phase) => {
+          stage.finishFrame(phase);
+          // grab the picture before anything else can touch the canvas
+          if (k >= 0) frame = new VideoFrame(canvas, { timestamp: Math.round((k * 1e6) / fps), duration: Math.round(1e6 / fps) });
+        },
+        DRAW_DICE,
+      );
       if (frame) {
         const f = frame as VideoFrame;
         try {

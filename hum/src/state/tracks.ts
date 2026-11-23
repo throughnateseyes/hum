@@ -7,6 +7,7 @@ import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
+import { loadClip, looksLikeVideo } from '../shot/clips';
 import { useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
 
@@ -551,13 +552,37 @@ export async function useTab() {
   flash('Listening to the tab. Play the song there.');
 }
 
+/** load videos as footage clips; each failure is reported with its own message */
+async function loadClips(videos: File[]) {
+  const { flash, addClips } = useStudio.getState();
+  const made = await Promise.all(
+    videos.map((f) =>
+      loadClip(f).catch((e) => {
+        console.warn('[hum] clip failed', e);
+        flash(`Could not use “${f.name.replace(/\.[^.]+$/, '')}” as footage: it ${e instanceof Error ? e.message : 'could not be opened'}`);
+        return null;
+      }),
+    ),
+  );
+  const clips = made.filter((c) => c !== null);
+  if (!clips.length) return;
+  addClips(clips);
+  flash(`${clips.length} clip${clips.length > 1 ? 's' : ''} added. Try a Footage look.`);
+}
+
+/** videos picked in the Library: footage whether or not a song is loaded */
+export async function addClipFiles(files: FileList | File[]) {
+  const videos = Array.from(files).filter(looksLikeVideo);
+  if (videos.length) await loadClips(videos);
+}
+
 export async function handleFiles(files: FileList | File[]) {
   // a drop is a gesture: use it to let the song start once it's planned (a picked file was unlocked by the tap that opened the picker)
   audioEngine.unlock();
   const list = Array.from(files);
-  // music videos work too: the browser decodes their soundtrack
-  const audio = list.find((f) => f.type.startsWith('audio/') || f.type.startsWith('video/') || /\.(mp3|wav|m4a|aac|ogg|flac|opus|mp4|m4v|mov|webm)$/i.test(f.name));
   const images = list.filter((f) => f.type.startsWith('image/'));
+  const videos = list.filter(looksLikeVideo);
+  const audio = list.find((f) => !videos.includes(f) && (f.type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(f.name)));
   if (images.length) {
     const photos = (await Promise.all(images.map((f) => loadPhoto(f).catch(() => null)))).filter((p) => p !== null);
     if (photos.length) {
@@ -565,5 +590,16 @@ export async function handleFiles(files: FileList | File[]) {
       useStudio.getState().flash(`${photos.length} photo${photos.length > 1 ? 's' : ''} added — try a Photo scene`);
     }
   }
+  // once there is a song (a file, a demo, or the microphone), or with an audio file in this drop,
+  // every video is footage; with nothing playing yet the first video is the song (a music video)
+  // and the rest are footage
+  const song = audio ?? (useStudio.getState().track ? null : (videos[0] ?? null));
+  const clipFiles = audio || song === null ? videos : videos.filter((f) => f !== song);
   if (audio) await loadTrack(audio, { name: audio.name.replace(/\.[^.]+$/, ''), source: 'file' });
+  else if (song) {
+    const name = song.name.replace(/\.[^.]+$/, '');
+    await loadTrack(song, { name, source: 'file' });
+    useStudio.getState().flash(`Playing “${name}” as the song. Drop a video again to use it as footage.`);
+  }
+  if (clipFiles.length) await loadClips(clipFiles);
 }

@@ -7,7 +7,8 @@
  * chat) are saved too, so the saved plan is the one the person last saw.
  *
  * A song is recognised by its name and the shape of its analysis (length, tempo, where the parts
- * start) plus its lyrics, so a different file with the same name, or lyrics added later, asks again.
+ * start) plus its lyrics and whether there are video clips, so a different file with the same name,
+ * lyrics added later, or clips added later, asks again.
  * At most MAX_SAVED songs are kept, oldest dropped first.
  *
  * The person's own pop-up levels per part (store.partPops, set with setPartPops) are kept beside the
@@ -46,11 +47,17 @@ export function songKey(name: string, a: TrackAnalysis): string {
   return `${name}|${hash(songShape(a))}`;
 }
 
-/** which song (and which version of its lyrics) a plan belongs to */
+/**
+ * Which song (and which version of its lyrics) a plan belongs to, and whether the person had added
+ * video clips: a plan made without clips has no footage in it, so once clips are added "Make a video"
+ * must plan again rather than replay it (and a footage plan isn't replayed after the clips are gone).
+ * Keys without clips are spelled as before, so plans saved earlier still play.
+ */
 export function planKey(name: string, a: TrackAnalysis, lyr: Lyrics | null): string {
   const shape = songShape(a);
   const words = lyr?.synced && lyr.lines.length ? `s${hash(lyr.lines.map((l) => `${l.t.toFixed(1)}${l.text}`).join('\n'))}` : lyr?.plain ? `p${hash(lyr.plain)}` : 'n';
-  return `${name}|${hash(shape)}|${words}`;
+  const clips = (useStudio.getState().clips?.length ?? 0) > 0 ? '|clips' : '';
+  return `${name}|${hash(shape)}|${words}${clips}`;
 }
 
 function readAll(): Entry[] {

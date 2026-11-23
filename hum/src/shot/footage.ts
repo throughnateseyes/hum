@@ -26,7 +26,24 @@ export class Footage {
     this.texture.colorSpace = THREE.NoColorSpace;
   }
 
+  /** settles once the clip has opened (or failed to) */
+  whenLoaded: Promise<void> = Promise.resolve();
+
   load(src: string): Promise<void> {
+    this.whenLoaded = this.open(src);
+    return this.whenLoaded;
+  }
+
+  /** let go of the clip and its texture */
+  close() {
+    this.video.pause();
+    this.video.removeAttribute('src');
+    this.video.load();
+    this.texture.dispose();
+    this.duration = 0;
+  }
+
+  private open(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const v = this.video;
       const done = () => {

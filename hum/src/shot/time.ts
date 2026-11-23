@@ -83,11 +83,16 @@ function within(times: number[] | undefined, from: number, to: number, gap: numb
   return out;
 }
 
-export function scoreFromAnalysis(a: TrackAnalysis, at?: number): ShotScore {
-  // the beat as it's felt: fast tempos count in half time, slow ones in double
-  let beat = 60 / (a.bpm || 120);
+/** seconds per beat as it's felt: fast tempos count in half time, slow ones in double */
+export function feltBeat(bpm: number): number {
+  let beat = 60 / (bpm || 120);
   while (beat < 0.38) beat *= 2;
   while (beat > 0.9) beat /= 2;
+  return beat;
+}
+
+export function scoreFromAnalysis(a: TrackAnalysis, at?: number): ShotScore {
+  const beat = feltBeat(a.bpm);
 
   const lead = LEAD_BEATS * beat;
   const tail = TAIL_BEATS * beat;

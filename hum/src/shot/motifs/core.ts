@@ -18,7 +18,6 @@ import { clamp01, easeInCubic, easeInExpo, easeOutBack, easeOutCubic, easeOutExp
 import { MONO_FONT, typeLine, type TypeLine } from './type';
 
 const TAU = Math.PI * 2;
-const RAMP_BEATS = 4;
 const unit = new THREE.PlaneGeometry(1, 1);
 
 const VERT = /* glsl */ `
@@ -102,7 +101,7 @@ export const guides: MotifFactory = (ctx) => {
   const lines = [false, true].map((upright) => ({ upright, mesh: flatPlane(group, ink, 0.7, 2) }));
   const ring = makeArc(group, Math.max(ctx.halfW, ctx.halfH) * 1.1, ink, 0.6, 0.005, TAU, 0, 0, 0);
   const { start, end, beat, halfW, halfH } = ctx;
-  const rampStart = end - RAMP_BEATS * beat;
+  const rampStart = end - ctx.rampBeats * beat;
   return {
     space: 'frame',
     object: group,
@@ -117,7 +116,7 @@ export const guides: MotifFactory = (ctx) => {
       }
       // the ring draws on through the wait, then closes in on the focus as the footage speeds up
       const wait = clamp01((f.t - start) / Math.max(0.01, rampStart - start));
-      const ramp = ctx.leave === 'ramp' ? clamp01((f.t - rampStart) / (RAMP_BEATS * beat)) : 0;
+      const ramp = ctx.leave === 'ramp' ? clamp01((f.t - rampStart) / (ctx.rampBeats * beat)) : 0;
       ring.mesh.position.set(f.focusX, f.focusY, 0);
       ring.u.uSweep.value = TAU * easeOutCubic(wait) + (wait >= 1 ? 0.1 : 0);
       ring.u.uA0.value = Math.PI / 2 - f.t * 0.25;

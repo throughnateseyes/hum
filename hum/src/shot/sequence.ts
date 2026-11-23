@@ -12,7 +12,7 @@
  * curve and its stretch of a clip. All of it is a pure function of song time.
  */
 import type { TrackAnalysis } from '../core/types';
-import { clamp01, easeInCubic, scoreFromAnalysis, since, smooth } from './time';
+import { clamp01, easeInCubic, feltBeat, scoreFromAnalysis, since, smooth } from './time';
 
 export type ShotKind = 'footage' | 'look' | 'card';
 
@@ -28,6 +28,8 @@ export interface Shot {
   arrive: 'hit' | 'cold';
   /** 'ramp': speeds up into the cut. 'settle': slows to a stop. 'cut': just ends. */
   leave: 'ramp' | 'settle' | 'cut';
+  /** beats spent speeding up when it leaves on a ramp */
+  rampBeats: number;
   /** footage only. clean: untouched. bands: shadows and highlights go flat. look: those bands show a look. */
   treat: 'clean' | 'bands' | 'look';
   /** the motifs drawn over it, by id (see src/shot/motifs) */
@@ -80,7 +82,7 @@ export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: numb
   const words = phrase.trim().split(/\s+/).filter(Boolean);
   const first = words[0] ?? '';
   const last = words[words.length - 1] ?? first;
-  const shot = (kind: ShotKind, s: number, e: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start: s, end: e, footageIndex: -1, arrive: 'cold', leave: 'cut', treat: 'clean', motifs: [], word: '', ...rest });
+  const shot = (kind: ShotKind, s: number, e: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start: s, end: e, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, treat: 'clean', motifs: [], word: '', ...rest });
   const shots = [
     shot('footage', start, hit - 2 * beat, { leave: 'ramp', motifs: ['threads', 'guides', 'ruler'] }),
     shot('card', hit - 2 * beat, hit, { motifs: ['cardType'], word: phrase.trim() }),
@@ -94,6 +96,92 @@ export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: numb
     if (s.kind === 'footage') s.footageIndex = n++;
   });
   return { start, hit, end, beat, kicks, snares, shots };
+}
+
+/* ───────── one part of a song, in the app ───────── */
+
+export interface PartOptions {
+  /** how the footage is treated, and which family of motifs sits on it */
+  treat: 'clean' | 'bands' | 'look';
+  kit: 'quiet' | 'graphic' | 'depth';
+  /** beats per shot */
+  shotBeats: number;
+  /** words to set in type, dealt to the shots in turn (none: no type) */
+  words: string[];
+  /** hold a card of type for the two beats before a hit */
+  card: boolean;
+}
+
+const KITS: Record<PartOptions['kit'], string[][]> = {
+  quiet: [['threads']],
+  graphic: [
+    ['bars', 'arcs', 'burst', 'word'],
+    ['threads', 'bars', 'burst', 'word'],
+  ],
+  depth: [
+    ['floor', 'ribbons', 'blocks', 'typeStack'],
+    ['threads', 'ribbons', 'blocks'],
+    ['floor', 'bars', 'typeStack'],
+  ],
+};
+
+/**
+ * The run of shots for one part (section) of the song, for the footage looks in the app: the part is
+ * cut into shots on the beat grid; it lands with a hit when the song does (a drop, or a jump in
+ * energy), its shots speed up into the next cut when the part is loud, and it ramps into the next
+ * part when that one lands with a hit. The last part of the song settles to a stop.
+ */
+export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): Sequence {
+  const beat = feltBeat(a.bpm);
+  const sec = a.sections[Math.min(Math.max(0, index), a.sections.length - 1)];
+  const prev = a.sections[index - 1];
+  const next = a.sections[index + 1];
+  const { start, end } = sec;
+  const dropNear = (t: number) => (a.dropInfo?.length ? a.dropInfo.some((d) => Math.abs(d.t - t) < 0.4 && d.strength >= 0.3) : a.drops.some((d) => Math.abs(d - t) < 0.4));
+  const lands = (s: typeof sec, before: typeof sec | undefined) => dropNear(s.start) || s.label === 'drop' || (!!before && s.energy - before.energy > 0.25);
+  const hitIn = lands(sec, prev);
+  const hitOut = !!next && lands(next, sec);
+  const loud = sec.energy > 0.55 && o.treat !== 'clean';
+
+  let kicks = inRange(a.layers?.kick, start, end, beat * 0.45);
+  if (kicks.length < 4) kicks = Array.from({ length: Math.floor((end - start) / beat) }, (_, i) => start + i * beat);
+  let snares = inRange(a.layers?.snare, start, end, beat * 0.45);
+  if (snares.length < 2) snares = Array.from({ length: Math.floor((end - start) / (beat * 2)) }, (_, i) => start + beat + i * beat * 2);
+
+  // a card of type holds the last two beats before a hit, when there are words and room for it
+  const cardFrom = o.card && hitOut && o.words.length && end - start > beat * 6 ? end - beat * 2 : end;
+  // cuts on the grid; a short leftover joins the shot before it
+  const len = Math.max(2, o.shotBeats) * beat;
+  const cuts = [start];
+  for (let t = start + len; t < cardFrom - len * 0.5; t += len) cuts.push(t);
+  cuts.push(cardFrom);
+
+  const kits = KITS[o.kit];
+  const shots: Shot[] = [];
+  for (let j = 0; j < cuts.length - 1; j++) {
+    const last = j === cuts.length - 2;
+    const leave: Shot['leave'] = last ? (hitOut ? 'ramp' : !next ? 'settle' : 'cut') : loud ? 'ramp' : 'cut';
+    const beats = (cuts[j + 1] - cuts[j]) / beat;
+    const motifs = [...kits[(index + j) % kits.length]];
+    // the ring that closes in belongs to a shot that speeds up into its cut
+    if (o.kit === 'quiet' && leave === 'ramp') motifs.push('guides');
+    shots.push({
+      index: shots.length,
+      kind: 'footage',
+      start: cuts[j],
+      end: cuts[j + 1],
+      // parts start on different clips, and every cut moves on to the next one
+      footageIndex: index + j,
+      arrive: j === 0 ? (hitIn ? 'hit' : 'cold') : loud ? 'hit' : 'cold',
+      leave,
+      rampBeats: Math.min(RAMP, Math.max(1, beats / 2)),
+      treat: o.treat,
+      motifs,
+      word: o.words.length ? o.words[(index + j) % o.words.length] : '',
+    });
+  }
+  if (cardFrom < end) shots.push({ index: shots.length, kind: 'card', start: cardFrom, end, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, treat: 'clean', motifs: ['cardType'], word: o.words.slice(0, 4).join(' ') });
+  return { start, hit: hitIn ? start : (shots.find((s) => s.arrive === 'hit')?.start ?? start), end, beat, kicks, snares, shots };
 }
 
 export const shotAt = (seq: Sequence, t: number): Shot => seq.shots.find((s) => t < s.end) ?? seq.shots[seq.shots.length - 1];
@@ -134,7 +222,7 @@ function speedOf(shot: Shot, seq: Sequence, freeze: number) {
       // the burst off the hit, and a small push on every kick
       v = 1 + 2.4 * Math.exp(-tau / (beat * 3)) + 0.45 * Math.exp(-since(kicks, t) / (beat * 0.22));
     }
-    if (shot.leave === 'ramp') v += (PEAK - v) * easeInCubic(clamp01((t - (shot.end - RAMP * beat)) / (RAMP * beat)));
+    if (shot.leave === 'ramp') v += (PEAK - v) * easeInCubic(clamp01((t - (shot.end - shot.rampBeats * beat)) / (shot.rampBeats * beat)));
     if (shot.leave === 'settle') v *= 1 - 0.75 * smooth(shot.end - beat * 3, shot.end, t);
     return v;
   };

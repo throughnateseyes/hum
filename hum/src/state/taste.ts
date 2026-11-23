@@ -20,6 +20,7 @@ import type { Preset, TrackAnalysis, TrackSection } from '../core/types';
 import { audioEngine } from '../audio/engine';
 import { PRESETS } from '../presets';
 import { useStudio } from './store';
+import { mayPlanId } from '../director/footage';
 
 export type TasteKind = 'keep' | 'skip' | 'place' | 'pick' | 'replace';
 type Label = TrackSection['label'];
@@ -388,7 +389,8 @@ export interface TasteSummary {
  */
 export function tasteSummary(a: TrackAnalysis): TasteSummary | null {
   const f = useTaste.getState();
-  const avoid = lastPlanLooks(a).slice(0, 8);
+  // footage looks only count while there are clips to play (director/footage.ts)
+  const avoid = lastPlanLooks(a).filter(mayPlanId).slice(0, 8);
   if (!f.on || !f.reactions.length) return avoid.length ? { liked: [], skipped: [], likedTags: [], skippedTags: [], avoid } : null;
   const ctx = songContext(a);
   const now = Date.now();
@@ -404,7 +406,7 @@ export function tasteSummary(a: TrackAnalysis): TasteSummary | null {
     looks.set(r.look, g);
     for (const t of r.tags) if (!BORING.has(t)) tags.set(t, (tags.get(t) ?? 0) + v / Math.max(3, r.tags.length));
   }
-  const ranked = [...looks.entries()].filter(([id]) => lookById(id));
+  const ranked = [...looks.entries()].filter(([id]) => lookById(id) && mayPlanId(id));
   const pick = (sign: 1 | -1) =>
     ranked
       .filter(([, g]) => sign * g.score > 0.3)
@@ -441,7 +443,9 @@ export function resetTaste() {
  * Pick one look from candidates: usually weighted toward what the person likes here, but one time in
  * five (EXPLORE) any candidate they haven't turned down, so it still surprises.
  */
-export function pickByTaste<T extends { id: string }>(candidates: T[], ctx: TasteContext = contextFor(labelNow()), random: () => number = Math.random): T | undefined {
+export function pickByTaste<T extends { id: string }>(all: T[], ctx: TasteContext = contextFor(labelNow()), random: () => number = Math.random): T | undefined {
+  // a footage look is never suggested while there are no clips for it to play (director/footage.ts)
+  const candidates = all.filter((p) => mayPlanId(p.id));
   if (!candidates.length) return undefined;
   const aff = affinityIn(ctx);
   if (random() < EXPLORE) {

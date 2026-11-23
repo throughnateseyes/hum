@@ -441,6 +441,21 @@ export function describeMood(m: unknown): string {
     .join(' ');
 }
 
+/** the most clips the app keeps at once (src/state/store.ts), so the most a request can claim */
+const MAX_CLIPS = 12;
+
+/**
+ * clips: how many video clips the person added → a line telling Claude the footage looks play them and
+ * should carry the video. Untrusted, so only a whole number from 1 to MAX_CLIPS gets through; anything
+ * else (missing, zero, text, a huge number) says nothing or is clamped. Sent in the user turn so the
+ * cached system prompt stays the same for every request.
+ */
+export function describeClips(v: unknown): string {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_CLIPS, Math.max(0, Math.floor(v))) : 0;
+  if (!n) return '';
+  return `The person added ${n === 1 ? 'a video clip' : `${n} video clips`}, and the footage looks play ${n === 1 ? 'it' : 'them'} as the picture. Give most parts a footage look, and keep one or two parts (a break, a bridge or the part after the biggest drop) on other looks as graphic cutaways.`;
+}
+
 /** character: { genre, confidence, instruments, mood } → one line */
 function describeCharacter(c: unknown): string {
   if (!isObj(c) || typeof c.genre !== 'string') return '';
@@ -627,6 +642,8 @@ ${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
   if (mode === 'plan') {
     const mood = describeMood(body.mood);
     if (mood) parts.push(mood);
+    const clips = describeClips(body.clips);
+    if (clips) parts.push(clips);
   }
   if (track) parts.push(`Track analysis:\n${track}`);
   if (mode === 'plan') {

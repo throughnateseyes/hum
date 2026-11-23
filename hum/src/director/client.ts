@@ -23,7 +23,7 @@ import type {
   TrackCharacter,
 } from '../core/types';
 import { LAYERS, PALETTES } from '../core/palettes';
-import { allScenes } from '../scenes';
+import { directorScenes } from './footage';
 import { allEffects } from '../fx';
 import { buildCatalog } from './catalog';
 import { isTweak } from './editIntent';
@@ -147,7 +147,8 @@ export interface ValidateContext {
  */
 export function validatePreset(raw: unknown, warnings: string[] = [], ctx: ValidateContext = {}): Preset | null {
   if (!isObj(raw)) return null;
-  const scenes = ctx.scenes ?? allScenes();
+  // a clip scene only once there are clips (footage.ts); the fallback scene (the one on screen) stays
+  const scenes = ctx.scenes ?? directorScenes(ctx.fallbackSceneId);
   const effects = ctx.effects ?? allEffects();
 
   // scene
@@ -498,6 +499,8 @@ export interface PlanRequest {
   lyricTake?: TypeFamily;
   /** a mood picked by the person (presets/moods.ts): `looks` then holds only its world's looks */
   mood?: { name: string; world: string; finish: string; transitions: string };
+  /** how many video clips the person added (sent only when there are some): the footage looks play them */
+  clips?: number;
 }
 export type PlanReply =
   | {
@@ -545,6 +548,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         ...(req.taste ? { taste: req.taste } : {}),
         ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
         ...(req.mood ? { mood: req.mood } : {}),
+        ...(req.clips ? { clips: req.clips } : {}),
         accessCode,
       }),
       opts,

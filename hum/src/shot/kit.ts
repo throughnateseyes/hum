@@ -56,6 +56,8 @@ export interface MotifContext {
   arrive: 'hit' | 'cold';
   leave: 'ramp' | 'settle' | 'cut';
   freeze: number;
+  /** beats a shot that leaves on a ramp spends speeding up */
+  rampBeats: number;
   /** the whole run of shots this one belongs to (song s): its start, its main hit and its end */
   run: { start: number; hit: number; end: number };
 }

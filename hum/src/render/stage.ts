@@ -119,6 +119,24 @@ export interface OfflineTick {
   phase?: (layer: 'scene' | 'windows' | 'popups' | 'lyrics') => void;
 }
 
+/** what the first half of a frame (Stage.advance) hands the second (Stage.draw) */
+interface FrameStep {
+  o: OfflineTick | undefined;
+  now: number;
+  dt: number;
+  s: StudioState;
+  finish: ReturnType<typeof activeFinish>;
+  handOn: boolean;
+  audio: AudioFrame;
+  feel: FrameContext['feel'];
+  time: number;
+  /** a hand-drawn frame that re-shows the last drawing (no scene draws) */
+  hold: boolean;
+}
+
+/** how long a render waits for one scene's prepare (real ms) before drawing the frame without it */
+const PREPARE_TIMEOUT_MS = 4000;
+
 const BREATHES = new Set<TransitionId>(TRANSITIONS.filter((t) => t.breathes).map((t) => t.id));
 const tmpColor = new THREE.Color();
 
@@ -636,7 +654,110 @@ export class Stage {
     this.feel.update(audio, useStudio.getState().analysis, dt);
   }
 
+  /**
+   * A render's frame in three steps, so a scene can get ready between the look change and the draw:
+   * beginFrame (sequencers run and any cut or transition lands, nothing is drawn), then
+   * `await prepareFrame(songTime)` outside the render's fake clock, then finishFrame (the draw).
+   * The result is the same frame renderFrame draws; renderFrame stays for callers that don't prepare.
+   */
+  beginFrame(o: OfflineTick) {
+    this.pendingStep = this.advance(o);
+  }
+
+  /** Draw the frame beginFrame started. `phase` replaces the tick's own (the dice may live in a new world by now). */
+  finishFrame(phase?: OfflineTick['phase']) {
+    const f = this.pendingStep;
+    this.pendingStep = null;
+    if (!f) return;
+    if (phase && f.o) f.o = { ...f.o, phase };
+    this.draw(f);
+  }
+
+  /**
+   * Let every scene that will draw this frame get ready for song time `songTime` (a video seeking to
+   * its exact frame), and wait for them. Call it after beginFrame, so a scene cut to on this frame is
+   * already live and gets prepared too. Scenes without `prepare` cost nothing. Who gets prepared:
+   * the current look and, while a transition is still running, the outgoing one. Not the prewarmed
+   * next look (its warm-up draw renders nothing), not the hover preview (never set on a render's
+   * stage), and not the scene windows' looks (SceneWindows owns those and opens them mid-draw).
+   */
+  async prepareFrame(songTime: number): Promise<void> {
+    const f = this.pendingStep;
+    // a held hand-drawn frame re-shows the last drawing without drawing any scene
+    if (f?.hold) return;
+    const lives = new Set<Live>();
+    if (this.current) lives.add(this.current);
+    const tr = this.tr;
+    const outLive = this.out?.live;
+    // runTransition ends a transition whose time is up before drawing the outgoing look
+    if (tr && outLive && (this.clockNow - tr.start) / tr.ms < 1) lives.add(outLive);
+    const waits: Promise<void>[] = [];
+    for (const l of lives) if (l.inst.prepare) waits.push(this.prepareOne(l, songTime));
+    if (waits.length) await Promise.all(waits);
+  }
+
+  private pendingStep: FrameStep | null = null;
+  private prepState = new WeakMap<SceneInstance, { pending: boolean; warned: boolean }>();
+
+  /**
+   * One scene's prepare, made safe: an error is logged once and the frame draws anyway, and a
+   * prepare that takes longer than PREPARE_TIMEOUT_MS (real time) is given up on for this frame.
+   * While one is still stuck we don't call it again, so a hung scene costs one wait, not one per frame.
+   */
+  private async prepareOne(live: Live, songTime: number): Promise<void> {
+    const inst = live.inst;
+    let st = this.prepState.get(inst);
+    if (!st) this.prepState.set(inst, (st = { pending: false, warned: false }));
+    if (st.pending) return;
+    const state = st;
+    const warn = (why: string, e?: unknown) => {
+      if (state.warned) return;
+      state.warned = true;
+      console.warn(`[hum] scene “${live.id}” ${why}; drawing the frame anyway`, e ?? '');
+    };
+    state.pending = true;
+    // a prepare that throws straight away becomes a rejection here
+    // what render() is about to get: a look cut to on this frame has not drawn yet, so it can't know
+    const st0 = useStudio.getState();
+    if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
+    const frame = {
+      params: live === this.current ? st0.sceneParams : (this.out?.look.sceneParams ?? live.params),
+      analysis: st0.analysis,
+      photos: st0.photos.length ? st0.photos : [this.placeholder],
+    };
+    const run = new Promise<void>((res) => res(inst.prepare!(songTime, frame))).then(
+      () => {
+        state.pending = false;
+      },
+      (e: unknown) => {
+        state.pending = false;
+        warn('failed to get ready', e);
+      },
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((res) => {
+      timer = setTimeout(() => {
+        warn(`took over ${PREPARE_TIMEOUT_MS / 1000} s to get ready`);
+        res();
+      }, PREPARE_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([run, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private tick(o?: OfflineTick) {
+    const f = this.advance(o);
+    if (f) this.draw(f);
+  }
+
+  /**
+   * The first half of a frame: clocks, sound, the sequencers, Feel, and the look change (a cut makes
+   * the new scene here). Draws nothing except the shared audio textures. Null when nothing will draw.
+   */
+  private advance(o?: OfflineTick): FrameStep | null {
     const now = o ? o.now : performance.now();
     const dt = o ? o.dt : Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
@@ -663,17 +784,25 @@ export class Stage {
     this.shared.waveformTex.needsUpdate = true;
 
     resolvePalette(s.palette, this.palette);
-    if (!s.sceneId || this.width <= 2) return; // wait for the first real layout size
+    if (!s.sceneId || this.width <= 2) return null; // wait for the first real layout size
     this.applyRung();
     this.syncLook(s, audio, now);
     this.seen = { sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette };
-    if (!this.current) return;
+    if (!this.current) return null;
     const time = (now - this.t0) / 1000;
 
     // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
     // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
     const hit = this.hitEdge(audio);
-    if (handOn && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit) {
+    const hold = handOn && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit;
+    return { o, now, dt, s, finish, handOn, audio, feel, time, hold };
+  }
+
+  /** The second half of a frame: draw everything for the step advance() made. */
+  private draw(f: FrameStep) {
+    const { o, now, dt, s, finish, handOn, audio, feel, time } = f;
+    if (!this.current) return;
+    if (f.hold) {
       this.shared.blit(this.holdRT.texture, null);
       this.resolveSnapshots();
       return;
@@ -757,7 +886,8 @@ export class Stage {
     this.renderPeek(base, s.impact, now);
 
     // how busy each kind of pop-up window is right now, split by the "Windows show" setting
-    const pops = windowLevels(popLevelAt(audio.time), s.windowKind, this.current.def.category === 'board');
+    // (none over the footage looks: their graphics are bare shapes in the picture, and windows would bury the clips)
+    const pops = this.current.def.usesClips ? { instruments: 0, looks: 0 } : windowLevels(popLevelAt(audio.time), s.windowKind, this.current.def.category === 'board');
     const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;

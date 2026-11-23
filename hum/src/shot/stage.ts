@@ -40,6 +40,11 @@ export interface StageOptions {
   /** built-in look ids: the full-frame cutaway, and the one that shows through footage and shapes */
   lookId: string;
   fillId: string;
+  /** false inside the app, where the store already knows the song (the dev page has to tell it) */
+  tellStore?: boolean;
+  /** true inside the app: a look that shows through starts from the moment it is first drawn, not from
+   *  the start of its shot (replaying seconds of a look to catch up would stall the cut) */
+  live?: boolean;
 }
 
 interface Rig {
@@ -65,6 +70,7 @@ export class ShotStage {
   /** anything that went wrong building the shots (an unknown look id, a look that failed to start) */
   errors: string[] = [];
   private rigs: Rig[] = [];
+  private readonly looks: LookPool = new Map();
   private seq: Sequence | null = null;
   private active: Rig | null = null;
   private readonly pass = new FootagePass();
@@ -123,14 +129,29 @@ export class ShotStage {
       const palette = (clip ?? clipOf(neighbour)).palette;
       const curve = curves[shot.index];
 
+      // one player per look, kept from one build to the next: starting a look costs a scene and its
+      // render targets, and a part of the song should not pay that again
       let look: LookPlayer | null = null;
       const lookId = shot.kind === 'look' ? o.lookId : shot.kind === 'footage' && shot.treat === 'look' ? o.fillId : '';
       if (lookId) {
-        try {
-          look = new LookPlayer(this.renderer, lookId, this.width, this.height, o.analysis, asLookPalette(palette));
-          look.start(shot.start);
-        } catch (err) {
-          this.errors.push(`look "${lookId}": ${err instanceof Error ? err.message : String(err)}`);
+        // in the app the players are shared by every footage look on this renderer (a new look instance
+        // is made at every cut, and each would otherwise start the look again); elsewhere, by this stage
+        const pool = o.live ? sharedLooks(this.renderer) : this.looks;
+        const key = `${lookId}|${this.width}x${this.height}`;
+        const had = pool.get(key);
+        look = had && had.analysis === o.analysis ? had.look : null;
+        if (!look) {
+          try {
+            had?.look.dispose();
+            look = new LookPlayer(this.renderer, lookId, this.width, this.height, o.analysis, asLookPalette(palette), o.tellStore ?? true);
+            if (o.live) look.catchUp = 0;
+            else look.start(shot.start);
+            pool.set(key, { look, analysis: o.analysis });
+          } catch (err) {
+            look = null;
+            pool.delete(key);
+            this.errors.push(`look "${lookId}": ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
       }
 
@@ -159,13 +180,14 @@ export class ShotStage {
           snares: seq.snares,
           travel: curve.travel,
           depth: curve.depth,
-          rnd: dice(shot.index * 101 + j * 17 + 3),
+          rnd: dice(Math.round(shot.start * 37) + shot.index * 101 + j * 17 + 3),
           fill: look && shot.kind === 'footage' ? this.fillRT.texture : null,
           word: shot.word,
           caption: o.caption,
           arrive: shot.arrive,
           leave: shot.leave,
           freeze: curve.freeze,
+          rampBeats: shot.rampBeats,
           run: { start: seq.start, hit: seq.hit, end: seq.end },
         };
         const m = make(ctx);
@@ -213,7 +235,7 @@ export class ShotStage {
     const u = tau / beat;
     const hit = shot.arrive === 'hit';
     const treated = shot.treat !== 'clean';
-    const ramp = shot.leave === 'ramp' ? clamp01((t - (shot.end - 4 * beat)) / (4 * beat)) : 0;
+    const ramp = shot.leave === 'ramp' ? clamp01((t - (shot.end - shot.rampBeats * beat)) / (shot.rampBeats * beat)) : 0;
     const settle = shot.leave === 'settle' ? smooth(shot.end - beat * 2.5, shot.end - beat * 0.5, t) : 0;
     // the colours step round the bands once a beat for the first bar, then every other beat
     const base = u < 4 ? u : 4 + (u - 4) / 2;
@@ -236,11 +258,10 @@ export class ShotStage {
     this.blit.material.uniforms.uFlash.value = flash;
     this.renderer.setRenderTarget(target);
     this.renderer.render(this.blit.scene, this.blit.camera);
-    this.renderer.setRenderTarget(null);
   }
 
-  /** `focus` is 0..1 from the bottom-left of the picture */
-  draw(t: number, focus: { x: number; y: number }) {
+  /** Draw song time `t` into `target` (the canvas when null). `focus` is 0..1 from the bottom-left of the picture. */
+  draw(t: number, focus: { x: number; y: number }, target: THREE.WebGLRenderTarget | null = null) {
     const r = this.renderer;
     if (!this.rigs.length || !this.seq) return;
     const rig = this.rigAt(t);
@@ -249,25 +270,28 @@ export class ShotStage {
       for (const other of this.rigs) other.world.visible = other.frame.visible = other === rig;
       this.pass.setPalette(palette);
       if (rig.clip) this.pass.setSource(rig.clip.texture, rig.clip.aspect);
+      rig.look?.setPalette(asLookPalette(palette));
       this.active = rig;
     }
     const tau = t - shot.start;
     const beat = this.seq.beat;
 
     // the bed
+    const autoClear = r.autoClear;
+    r.autoClear = false;
     rig.look?.render(t);
-    r.setRenderTarget(null);
+    if (shot.kind === 'footage' && rig.look) this.copy(rig.look.texture, this.fillRT);
+    r.setRenderTarget(target);
     r.setClearColor(this.clear.set(shot.kind === 'card' ? palette.ink : palette.paper), 1);
     r.clear(true, true, false);
     if (shot.kind === 'footage') {
-      if (rig.look) this.copy(rig.look.texture, this.fillRT);
       this.pass.render(r, this.width, this.height, focus, this.footageState(rig, t), rig.look ? this.fillRT.texture : null);
     } else if (shot.kind === 'look' && rig.look) {
-      this.copy(rig.look.texture, null, tau < 1 / 30 ? 0.6 : 0);
+      this.copy(rig.look.texture, target, tau < 1 / 30 ? 0.6 : 0);
     }
 
     // the camera pushes in as a shot speeds up into its cut, and snaps back on a hit
-    const ramp = shot.leave === 'ramp' ? clamp01((t - (shot.end - 4 * beat)) / (4 * beat)) : 0;
+    const ramp = shot.leave === 'ramp' ? clamp01((t - (shot.end - shot.rampBeats * beat)) / (shot.rampBeats * beat)) : 0;
     const push = -0.8 * easeInCubic(ramp) + (shot.arrive === 'hit' ? 0.55 * Math.exp(-tau / 0.28) : 0);
     const { halfW, halfH } = frameSize(this.width / this.height);
     this.worldCam.position.set(halfW * 0.09 * Math.sin(t * 0.5), halfH * 0.05 * Math.sin(t * 0.37 + 1), CAM_Z + push);
@@ -281,16 +305,69 @@ export class ShotStage {
     r.clearDepth();
     r.render(this.worldScene, this.worldCam);
     r.render(this.frameScene, this.frameCam);
+    r.autoClear = autoClear;
+  }
+
+  /** Draw every shot once into `target`: compiles everything the shots are made of */
+  drawAll(target: THREE.WebGLRenderTarget) {
+    for (const rig of this.rigs) this.draw(rig.shot.start + (rig.shot.end - rig.shot.start) * 0.5, { x: 0.5, y: 0.5 }, target);
+  }
+
+  /** free what the stage itself holds (after dispose(), when the stage is finished with) */
+  release() {
+    for (const { look } of this.looks.values()) look.dispose();
+    this.looks.clear();
+    this.fillRT.dispose();
+    this.blit.material.dispose();
   }
 
   dispose() {
     for (const rig of this.rigs) {
       for (const m of rig.motifs) m.dispose();
-      rig.look?.dispose();
       this.worldScene.remove(rig.world);
       this.frameScene.remove(rig.frame);
     }
     this.rigs = [];
     this.active = null;
+  }
+}
+
+/* ───────── compiled once, kept ───────── */
+
+/** look players by look id and size, with the song each was started for */
+type LookPool = Map<string, { look: LookPlayer; analysis: TrackAnalysis }>;
+const lookPools = new WeakMap<THREE.WebGLRenderer, LookPool>();
+/** the look players every stage on this renderer shares; they live as long as the renderer does */
+function sharedLooks(renderer: THREE.WebGLRenderer): LookPool {
+  let pool = lookPools.get(renderer);
+  if (!pool) lookPools.set(renderer, (pool = new Map()));
+  return pool;
+}
+
+const anchors = new WeakMap<THREE.WebGLRenderer, { stage: ShotStage; target: THREE.WebGLRenderTarget }>();
+
+/**
+ * Compile, once per renderer, every shader a shot can use, and keep them: three.js frees a program
+ * when the last material using it is disposed, and shots are rebuilt for every part of the song, so
+ * without this each part would compile its motifs again and the cut would stall. A small stage with
+ * one of everything is drawn once and then held on to for as long as the renderer lives.
+ *
+ * Inside the app's warm-up (render/warmup.ts, dryRun) the draw calls become background compiles.
+ */
+export function warmShots(renderer: THREE.WebGLRenderer, analysis: TrackAnalysis, clip: StageClip, fillId: string) {
+  if (anchors.has(renderer)) return;
+  const stage = new ShotStage(renderer, 96, 96);
+  const target = new THREE.WebGLRenderTarget(96, 96, { depthBuffer: true });
+  anchors.set(renderer, { stage, target });
+  const shot = (kind: Shot['kind'], start: number, end: number, motifs: string[], rest: Partial<Shot> = {}): Shot => ({ index: 0, kind, start, end, footageIndex: kind === 'footage' ? 0 : -1, arrive: 'hit', leave: 'ramp', rampBeats: 2, treat: 'look', motifs, word: 'HUM', ...rest });
+  const shots = [shot('footage', 0, 2, Object.keys(MOTIFS).filter((id) => id !== 'cardType' && id !== 'ruler')), shot('card', 2, 3, ['cardType'], { word: 'HUM HUM' })];
+  shots.forEach((s, i) => (s.index = i));
+  try {
+    stage.build({ seq: { start: 0, hit: 0, end: 3, beat: 0.5, kicks: [0, 0.5, 1, 1.5], snares: [0.5, 1.5], shots }, analysis, clips: [clip], caption: 'HUM', lookId: fillId, fillId, tellStore: false, live: true });
+    const was = renderer.getRenderTarget();
+    stage.drawAll(target);
+    renderer.setRenderTarget(was);
+  } catch (err) {
+    console.warn('[hum] could not warm the footage shots', err);
   }
 }

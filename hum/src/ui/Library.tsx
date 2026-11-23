@@ -9,12 +9,12 @@ import { live } from '../state/live';
 import { findLook, partEnergy, pickLook, pickScene, sectionIndexAt, sectionNames } from '../state/plan';
 import './library.css';
 import { sceneLook, useStudio } from '../state/store';
-import { handleFiles } from '../state/tracks';
+import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
 import { Cube, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 
-type Tab = 'looks' | 'scenes' | 'photos';
+type Tab = 'looks' | 'scenes' | 'photos' | 'footage';
 
 /* real thumbnails are captured from the stage the first time a look is shown */
 const thumbs = new Map<string, string>();
@@ -95,6 +95,7 @@ export function Thumb({ p }: { p: Preset }) {
 export function Library() {
   const [tab, setTab] = useState<Tab>('looks');
   const photos = useStudio((s) => s.photos);
+  const clips = useStudio((s) => s.clips);
   return (
     <aside className="library">
       <div className="panel-tabs">
@@ -107,11 +108,15 @@ export function Library() {
         <button className={tab === 'photos' ? 'on' : ''} onClick={() => setTab('photos')}>
           Photos{photos.length ? ` ${photos.length}` : ''}
         </button>
+        <button className={tab === 'footage' ? 'on' : ''} onClick={() => setTab('footage')}>
+          Footage{clips.length ? ` ${clips.length}` : ''}
+        </button>
       </div>
       <div className="panel-body">
         {tab === 'looks' && <Looks />}
         {tab === 'scenes' && <Scenes />}
         {tab === 'photos' && <Photos />}
+        {tab === 'footage' && <Footage />}
       </div>
     </aside>
   );
@@ -488,7 +493,7 @@ function Photos() {
         {photos.map((p) => (
           <div className="ph" key={p.id}>
             <PhotoImg src={p.image} />
-            <button onClick={() => removePhoto(p.id)}>×</button>
+            <button onClick={() => removePhoto(p.id)} aria-label="Remove photo">×</button>
           </div>
         ))}
         <button className="drop-tile" onClick={() => input.current?.click()} title="Add photos">
@@ -518,6 +523,73 @@ function Photos() {
           </span>
         </button>
       ))}
+    </>
+  );
+}
+
+const fmtClipLen = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+function Footage() {
+  const clips = useStudio((s) => s.clips);
+  const removeClip = useStudio((s) => s.removeClip);
+  const input = useRef<HTMLInputElement>(null);
+  const clipScenes = allScenes().filter((s) => s.usesClips);
+  return (
+    <>
+      <p className="panel-intro">
+        {clips.length
+          ? 'Clips become the picture in Footage looks, cut and coloured to the song. Drop more on the page any time.'
+          : 'Add video clips and Footage looks use them as the picture, cut and coloured to the song. You can also just drop them on the page.'}
+      </p>
+      <div className="clip-grid">
+        {clips.map((c) => (
+          <div className="clip" key={c.id}>
+            <div className="clip-img">
+              <img src={c.thumb} alt={`Thumbnail of ${c.name}`} loading="lazy" decoding="async" />
+              <span className="clip-len">{fmtClipLen(c.duration)}</span>
+              <button className="clip-del" onClick={() => removeClip(c.id)} aria-label={`Remove clip ${c.name}`}>
+                ×
+              </button>
+            </div>
+            <div className="clip-name" title={c.name}>
+              {c.name}
+            </div>
+          </div>
+        ))}
+        <button className="drop-tile clip-add" onClick={() => input.current?.click()} title="Add clips" aria-label="Add clips">
+          <Plus />
+        </button>
+      </div>
+      <button className="btn" style={{ marginTop: 8 }} onClick={() => input.current?.click()}>
+        Add clips
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept="video/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          if (e.target.files) void addClipFiles(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      {clipScenes.length > 0 && (
+        <>
+          <div className="section-h">
+            <span className="label">Footage looks</span>
+          </div>
+          {clipScenes.map((s) => (
+            <button key={s.id} className="scene-row" {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
+              <Glyph c={s.category} />
+              <span style={{ minWidth: 0 }}>
+                <div className="t">{s.name}</div>
+                <div className="d">{s.description}</div>
+              </span>
+            </button>
+          ))}
+        </>
+      )}
     </>
   );
 }
