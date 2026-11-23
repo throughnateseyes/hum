@@ -1,15 +1,16 @@
 import { create } from 'zustand';
 import type {
+  ClipAsset,
   CustomShaderSpec,
   EffectInstance,
+  HandStyle,
   LayerId,
+  Lyrics,
   Modulation,
   Palette,
   ParamValue,
-  HandStyle,
-  Lyrics,
+  PartShot,
   PhotoAsset,
-  ClipAsset,
   Preset,
   TrackAnalysis,
 } from '../core/types';
@@ -102,6 +103,8 @@ export interface StudioState extends LookState {
   metersOpen: boolean;
   /** hand-drawn for one part: true on, false off, null as the video is set (missing: all as the video) */
   partHand: (boolean | null)[] | null;
+  /** each part's own footage choices: style, arrangement, treatment, which media and how it is framed (missing: all as the look) */
+  partShot: (PartShot | null)[] | null;
   /** the words a look that writes text shows in one part (null: its own words, from the lyrics or the title text) */
   partWords: (string | null)[] | null;
   perform: boolean;
@@ -398,6 +401,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   selectedParts: [],
   metersOpen: false,
   partHand: null,
+  partShot: null,
   partWords: null,
   perform: false,
   autoPilot: false,

@@ -232,7 +232,6 @@ interface Flat {
 const runs = new WeakMap<TrackAnalysis, { key: string; flat: Flat }>();
 
 /** a per-part choice of style or arrangement the Part panel may keep (store.partShot), laid over the look's */
-type PartShot = { style?: string; seed?: number } | null;
 
 /**
  * The parts' settings when a video plan with one look per part plays this song cut (null otherwise):
@@ -242,7 +241,7 @@ function flatParts(a: TrackAnalysis): { parts: (RunPart | null)[]; sigs: (string
   const s = useStudio.getState();
   const plan = s.plan;
   if (!s.planOn || !plan?.flat || plan.looks.length !== a.sections.length) return null;
-  const per = (s as unknown as { partShot?: PartShot[] | null }).partShot ?? null;
+  const per = s.partShot;
   const all = [...s.customPresets, ...PRESETS];
   const sigs: (string | null)[] = [];
   const parts = plan.looks.map((id, i) => {
