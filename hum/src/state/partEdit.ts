@@ -21,11 +21,12 @@ import { audioEngine } from '../audio/engine';
 import type { TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
 import { localLyricPlan, type LyricMedium } from './lyricPlan';
-import { assignLook, ensureDropCuts, findLook, listNames, partEdits, recutParts, sectionIndexAt, sectionNames, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
+import { assignLook, ensureDropCuts, findLook, listNames, partEdits, partNames, recutParts, releaseHold, sectionIndexAt, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
+import { replacementFor, shotEdits } from './flatPlan';
 import { boundsOf, duringRecut, keepPlan, originalOf } from './planCache';
 import { isScrubbing } from './scrub';
 import { useStudio } from './store';
-import { noteHandPick } from './taste';
+import { noteHandPick, record } from './taste';
 
 /** everything a change here can touch, as it was before the change (same song only) */
 interface Snapshot {
@@ -73,9 +74,9 @@ function partsIn(is: number[], a: TrackAnalysis): number[] {
   return [...new Set(is)].filter((i) => Number.isInteger(i) && i >= 0 && i < a.sections.length).sort((x, y) => x - y);
 }
 
-/** "Verse 1", "Verse 1 and Chorus", "3 parts" */
+/** "Verse 1", "Drop, shot 2 and Drop, shot 3", "3 parts" */
 function partsName(is: number[], a: TrackAnalysis): string {
-  const names = sectionNames(a.sections);
+  const names = partNames(a);
   return is.length > 3 ? `${is.length} parts` : listNames(is.map((i) => names[i]));
 }
 
@@ -125,13 +126,17 @@ export function setPartsLook(is: number[], id: string) {
   if (!todo.length) return;
   const looks = [...plan.looks];
   const rotate = a.sections.map((_, j) => plan.rotate?.[j] ?? null);
+  const liked = plan.liked ? [...plan.liked] : undefined;
   for (const i of todo) {
     looks[i] = id;
     // a new main look gets a fresh rotation around it (the planner's own pick gets its own rotation back)
     rotate[i] = plan.base?.looks[i] === id ? plan.base.rotate[i] : null;
+    // a like was for the look that was there
+    if (liked) liked[i] = false;
   }
   // the parts you set stay as you set them; strong drops elsewhere still get their cut
-  const next = ensureDropCuts({ ...plan, looks, rotate }, a, parts);
+  const next = ensureDropCuts({ ...plan, looks, rotate, ...(liked ? { liked } : {}) }, a, parts);
+  releaseHold();
   const name = partsName(todo, a);
   commit(next, `${name}: ${look.name}`);
   s.flash(`${name} now ${todo.length > 1 ? 'use' : 'uses'} “${look.name}”`);
@@ -232,6 +237,7 @@ export function resetParts(is: number[]) {
   const looks = [...plan.looks];
   const rotate = a.sections.map((_, j) => plan.rotate?.[j] ?? null);
   let lyricPlan = plan.lyricPlan;
+  const liked = plan.liked ? plan.liked.map((v, j) => v && !parts.includes(j)) : undefined;
   for (const i of parts) {
     if (!b.looks[i] || findLook(b.looks[i])) {
       looks[i] = b.looks[i];
@@ -244,7 +250,7 @@ export function resetParts(is: number[]) {
       lyricPlan = { ...lyricPlan, parts: lp };
     }
   }
-  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}) }, a, parts);
+  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}), ...(liked ? { liked } : {}) }, a, parts);
   // pop-ups, hand-drawn and words go back too (one Undo step with the rest)
   const n = a.sections.length;
   const partPops = withValue(s.partPops, n, parts, null);
@@ -330,7 +336,7 @@ export function splitPartAt(t: number): boolean {
   const bounds = [...boundsOf(a), Math.round(p.t * 1000) / 1000].sort((x, y) => x - y);
   const r = recutParts(s, bounds);
   if (!r) return false;
-  const name = sectionNames(a.sections)[p.i];
+  const name = partNames(a)[p.i];
   applyRecut(r, `split ${name}`, [p.i, p.i + 1]);
   s.flash(`${name} split at ${clock(p.t)}. Both halves keep its look and settings.`);
   return true;
@@ -363,7 +369,7 @@ export function combineParts(is: number[]): boolean {
   if (!r) return false;
   const name = partsName(run, a);
   applyRecut(r, `combine ${name}`, [run[0]]);
-  s.flash(`${name} are one part now, with ${sectionNames(a.sections)[run[0]]}’s look and settings`);
+  s.flash(`${name} are one part now, with ${partNames(a)[run[0]]}’s look and settings`);
   return true;
 }
 
@@ -385,3 +391,44 @@ export function playFrom(t: number) {
   audioEngine.seek(Math.min(a.duration, t + 0.01));
   void audioEngine.play().catch(() => {});
 }
+
+/* ───────── skip and like, one shot at a time (one look per part: flatPlan.ts) ───────── */
+
+/**
+ * Skip part i's look: remember the dislike (taste) and give only that part the best look for the
+ * moment instead (flatPlan.replacementFor). Its neighbours, liked or not, stay as they are. One Undo
+ * step; the new look reads as a change by the person, so a remake that keeps changes keeps it.
+ */
+export function skipPart(i: number): { from: NonNullable<ReturnType<typeof findLook>>; to: NonNullable<ReturnType<typeof findLook>> } | null {
+  const cur = current();
+  if (!cur || !cur.plan.flat) return null;
+  const { plan, a } = cur;
+  const from = findLook(plan.looks[i]);
+  if (!from) return null;
+  record('skip', from.id, a.sections[i].label);
+  const to = replacementFor(plan, a, i);
+  if (!to) return null;
+  const looks = [...plan.looks];
+  looks[i] = to.id;
+  const liked = plan.liked ? plan.liked.map((v, j) => v && j !== i) : undefined;
+  commit({ ...plan, looks, ...(liked ? { liked } : {}) }, `skip ${partNames(a)[i]}`);
+  // on screen now, not at the next cut
+  releaseHold();
+  return { from, to };
+}
+
+/** like part i (on) or take the like back: a liked part is kept by a later skip and by a remake */
+export function likePart(i: number, on: boolean): boolean {
+  const cur = current();
+  if (!cur || !cur.plan.flat || i < 0 || i >= cur.a.sections.length) return false;
+  const { plan, a } = cur;
+  if (!!plan.liked?.[i] === on) return false;
+  const liked = a.sections.map((_, j) => (j === i ? on : !!plan.liked?.[j]));
+  const next: VideoPlan = { ...plan, liked };
+  if (!liked.some(Boolean)) delete next.liked;
+  commit(next, `${on ? 'like' : 'unlike'} ${partNames(a)[i]}`);
+  return true;
+}
+
+shotEdits.skip = skipPart;
+shotEdits.like = likePart;

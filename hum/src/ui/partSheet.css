@@ -598,3 +598,139 @@ html.phone.land .ps-phone {
   flex: 1;
   overflow: hidden;
 }
+
+/* quick picks: the five looks that fit the part best, as a row of pictures (1–5) */
+.pp-quick {
+  margin-top: 12px;
+}
+.pp-qrow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.pp-q {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+}
+.pp-qpic {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.12s;
+}
+.pp-qpic img,
+.pp-qpic svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pp-qpic kbd {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-1);
+  line-height: 14px;
+  text-align: center;
+}
+.pp-qn {
+  font-size: var(--fs-2);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-q:hover .pp-qpic {
+  box-shadow: 0 0 0 2px var(--ink-3);
+}
+.pp-q:hover {
+  color: var(--ink);
+}
+.pp-q:focus-visible {
+  outline: none;
+}
+.pp-q:focus-visible .pp-qpic {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* like: a quiet toggle, the heart filled when liked */
+.pp-like.on {
+  color: var(--accent);
+}
+
+/* the full look list, folded away under the quick picks */
+.pp-more {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-3);
+  font-weight: 500;
+  text-align: left;
+}
+.pp-more:hover {
+  color: var(--ink);
+}
+.pp-caret {
+  display: inline-block;
+  width: 8px;
+  color: var(--ink-3);
+  transition: transform 0.12s;
+}
+.pp-caret.open {
+  transform: rotate(90deg);
+}
+.pp-more-h {
+  margin-left: auto;
+  font-size: var(--fs-2);
+  font-weight: 400;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-morewrap .ps-sec {
+  margin-top: 10px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Shuffle, at the end of the Pop-ups row */
+.pp-shuffle {
+  margin-left: auto;
+  height: 22px;
+  padding: 0 6px;
+  gap: 4px;
+  font-size: var(--fs-2);
+}
+.ps-h:has(.pp-shuffle) {
+  align-items: center;
+}
+.ps-h:has(.pp-shuffle) > span {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+}

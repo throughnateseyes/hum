@@ -76,18 +76,50 @@ export function cutAnalysis(a: TrackAnalysis, bounds: number[] | undefined | nul
   if (!byKey) cutsOf.set(orig, (byKey = new Map()));
   const hit = byKey.get(key);
   if (hit) return hit;
+  const parents: number[] = [];
   const sections = bounds.map((b, k) => {
     let j = 0;
     for (let x = secs.length - 1; x >= 0; x--) if (b + 0.001 >= secs[x].start) {
       j = x;
       break;
     }
+    parents.push(j);
     return { ...secs[j], start: k === 0 ? secs[0].start : b, end: bounds[k + 1] ?? end };
   });
-  const cut: TrackAnalysis = { ...orig, sections };
+  // the harmony of each part is its section's (feel.ts and the planner read it by part index); a
+  // repeat points at the first part of the section it repeats
+  const H = orig.harmony;
+  const harmony = H && H.sections.length === secs.length
+    ? {
+        ...H,
+        sections: parents.map((j) => {
+          const h = H.sections[j];
+          const r = h.repeatOf;
+          return r === undefined ? h : { ...h, repeatOf: Math.max(0, parents.indexOf(r)) };
+        }),
+      }
+    : H;
+  const cut: TrackAnalysis = { ...orig, sections, ...(harmony ? { harmony } : {}) };
   cutFrom.set(cut, orig);
+  parentsBy.set(cut, parents);
+  sectionsOf.set(sections, cut);
   byKey.set(key, cut);
   return cut;
+}
+
+/** for each part of a re-cut, the section of the original it lies in */
+const parentsBy = new WeakMap<TrackAnalysis, number[]>();
+/** a re-cut's part list → the re-cut (so names can be told from a bare list of parts) */
+const sectionsOf = new WeakMap<TrackAnalysis['sections'], TrackAnalysis>();
+
+/** for each part of `a`, the section of the song as Hum heard it that the part lies in */
+export function parentsOf(a: TrackAnalysis): number[] {
+  return parentsBy.get(a) ?? a.sections.map((_, i) => i);
+}
+
+/** the re-cut a list of parts belongs to (undefined: the song's own parts, or a list from elsewhere) */
+export function cutOfSections(secs: TrackAnalysis['sections']): TrackAnalysis | undefined {
+  return sectionsOf.get(secs);
 }
 
 // a song is recognised by the parts Hum heard in it, whatever the person split or combined since

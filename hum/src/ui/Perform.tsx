@@ -11,9 +11,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../audio/engine';
 import { useStudio, type Aspect } from '../state/store';
-import { Pause, Play, Shrink } from './Icons';
+import { playingPart } from '../state/flatPlan';
+import { onFrame } from '../state/live';
+import { Pause, Play, Shrink, X } from './Icons';
+import { likeShot, skipShot } from './shotActions';
 import { SeekBar, SeekTime } from './SeekBar';
 import { Volume } from './Volume';
+import './performShot.css';
 
 export const FRAMES: { id: Aspect; name: string; hint: string }[] = [
   { id: 'fill', name: 'Fill', hint: 'Fill the space' },
@@ -149,7 +153,8 @@ const TOUCH_IDLE_MS = 3500;
 
 /**
  * A slim bar along the bottom, video-player style: the seek line on top (see SeekBar), and under it
- * play / pause, the time and the part you're in, volume, the frame and the way out. It shows on any
+ * play / pause, the time and the part you're in, Like and Skip for the shot on screen (K, X), volume,
+ * the frame and the way out. It shows on any
  * mouse move, tap or key, fades after a moment of stillness or when the pointer leaves the window,
  * and hides the cursor with it. Only the page draws it: recordings and renders take the picture
  * from the canvas, so it never shows up in them.
@@ -252,12 +257,54 @@ export function PerformControls() {
         </button>
         <SeekTime />
         <span className="spacer" />
+        <ShotButtons />
         <Volume dark />
         <FramePicker tipBelow={false} />
         <button className="btn icon ghost pb-exit has-tip tip-left" data-tip="Exit full screen  Esc" aria-label="Exit full screen" onClick={exitPerform}>
           <Shrink width={16} height={16} />
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Like (K) and Skip (X) for the shot on screen, while performing: a skip changes only that shot's look,
+ * a like keeps it (shotActions.ts). The heart is filled while the shot playing is liked.
+ */
+function ShotButtons() {
+  const plan = useStudio((s) => s.plan);
+  const [part, setPart] = useState(() => playingPart());
+  useEffect(
+    () =>
+      onFrame(() => {
+        const i = playingPart();
+        setPart((p) => (p === i ? p : i));
+      }),
+    [],
+  );
+  if (!plan || part < 0) return null;
+  const liked = !!plan.liked?.[part];
+  return (
+    <div className="pb-shot" role="group" aria-label="This shot">
+      <button className={`btn ghost pb-like has-tip ${liked ? 'on' : ''}`} data-tip={liked ? 'Liked. Press again to take it back  K' : 'Like this shot: it stays as it is  K'} aria-pressed={liked} onClick={likeShot}>
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden>
+          <path
+            d="M12 20s-7-4.4-9.2-8.7C1.3 8.2 3 4.8 6.4 4.4c2-.2 3.6.9 4.6 2.5 1-1.6 2.6-2.7 4.6-2.5 3.4.4 5.1 3.8 3.6 6.9C19 15.6 12 20 12 20z"
+            fill={liked ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+        </svg>
+        <span>Like</span>
+        <kbd>K</kbd>
+      </button>
+      <button className="btn ghost pb-skip has-tip" data-tip="Skip this shot: another look here, the rest stays  X" onClick={skipShot}>
+        <X width={13} height={13} />
+        <span>Skip</span>
+        <kbd>X</kbd>
+      </button>
     </div>
   );
 }
