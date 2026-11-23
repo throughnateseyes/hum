@@ -888,8 +888,18 @@ export class Stage {
 
     // how busy each kind of pop-up window is right now, split by the "Windows show" setting
     // (none over the footage looks: their graphics are bare shapes in the picture, and windows would bury the clips)
-    const pops = this.current.def.usesClips ? { instruments: 0, looks: 0 } : windowLevels(popLevelAt(audio.time), s.windowKind, this.current.def.category === 'board');
-    const winOpts = { level: pops.looks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
+    // Each part's windows are dealt from its own level (the same every time it plays); what's on screen now
+    // only limits how many of them show: none over footage, the odd one over a board look
+    const kind = s.windowKind;
+    const board = this.current.def.category === 'board';
+    const clips = !!this.current.def.usesClips;
+    const pops = {
+      instruments: (t: number) => windowLevels(popLevelAt(t), kind, false).instruments,
+      looks: (t: number) => windowLevels(popLevelAt(t), kind, false).looks,
+      showInstruments: clips ? 0 : board ? 2 : 4,
+      showLooks: clips ? 0 : board ? 1 : 3,
+    };
+    const winOpts = { level: pops.looks, show: pops.showLooks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
@@ -914,7 +924,7 @@ export class Stage {
       o?.phase?.('windows');
       this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, this.impactRT, pops.instruments, keep);
+      this.popups.render(r, base, this.impactRT, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
@@ -934,7 +944,7 @@ export class Stage {
       o?.phase?.('windows');
       this.sceneWindows.render(r, base, { ...winOpts, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, null, pops.instruments, keep);
+      this.popups.render(r, base, null, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(null);
       o?.phase?.('lyrics');
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
