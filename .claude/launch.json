@@ -17,6 +17,21 @@
       "port": 5178
     },
     {
+      "name": "hum-stable",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/nate/Documents/Projects/Hum-stable/hum",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
+      "port": 5199
+    },
+    {
       "name": "hum-local",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
