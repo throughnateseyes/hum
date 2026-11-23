@@ -13,6 +13,10 @@
  *                                    split; default auto, a style per shot)
  *     &seed=3                        the arrangement (any whole number; default 1)
  *     &colour=flat                   clean, tinted (default) or flat
+ *     &treatment=mosh                how the picture is broken down: none (default), mosh, sort, cells,
+ *                                    readout, collage, or auto (one per shot)
+ *     &photo=/footage.local/p.jpg,…  photos as stills (they join the clips, photos after clips)
+ *     &zoom=1.4                      push the picture in (1 fits the frame)
  *     &look=pixel-cube               the look that cuts in full frame
  *     &at=42.5                       build round this second of the song, not its biggest drop
  *     &fx=0.5&fy=0.55                the focus point (0..1 from the bottom-left); clicking the picture sets it
@@ -25,6 +29,8 @@
  *   await __shot.ready               → { ok, error }
  *   await __shot.sheet([..seconds in..], cols)   lays stills out over the page, for checking
  *   await __shot.shots([..], cols, cell)         the same as a PNG data url (scripts/shot-sheet.mjs)
+ *   await __shot.hashes([..seconds in..])        a checksum of the frame at each time, drawn in that
+ *                                                order (to check a seek lands on the same picture)
  *   __shot.clearSheet(); __shot.info()
  */
 import '@fontsource-variable/archivo';
@@ -45,6 +51,7 @@ const q = new URLSearchParams(location.search);
 const W = Number(q.get('w')) || 720;
 const H = Number(q.get('h')) || 1280;
 const MAX_CLIPS = 3;
+const zoom = Number(q.get('zoom')) || 1;
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const canvas = $<HTMLCanvasElement>('shot');
@@ -69,6 +76,7 @@ let analysis: TrackAnalysis | null = null;
 let buffer: AudioBuffer | null = null;
 let songName = '';
 let clips: StageClip[] = [];
+let stills: StageClip[] = [];
 let seq: Sequence | null = null;
 const focus = { x: Number(q.get('fx')) || 0.5, y: Number(q.get('fy')) || 0.55 };
 
@@ -177,6 +185,28 @@ async function loadClip(src: string) {
   rebuild();
 }
 
+/** a photo as a still, with its palette taken from its pixels the way the app does */
+async function loadStill(src: string) {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const c = document.createElement('canvas');
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.getContext('2d')!.drawImage(img, 0, 0);
+  const small = document.createElement('canvas');
+  small.width = 64;
+  small.height = 64;
+  const g = small.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(img, 0, 0, 64, 64);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  stills = [...stills, { footage: null, texture, aspect: c.width / c.height, duration: 1e6, palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data) }];
+  rebuild();
+}
+
 /* ───────── the shots ───────── */
 
 const wordBox = $<HTMLInputElement>('word');
@@ -189,8 +219,9 @@ function rebuild() {
   const at = q.get('at') ? Number(q.get('at')) : undefined;
   const phrase = (wordBox.value.trim() || songName.split(/[\s_\-–—]+/).slice(0, 3).join(' ') || 'hum').toUpperCase();
   const colour = q.get('colour');
-  seq = sequenceFromAnalysis(analysis, phrase, at, { style: q.get('style') || 'auto', seed: Number(q.get('seed')) || 1, colour: colour === 'clean' || colour === 'flat' ? colour : 'tinted' });
-  stage.build({ seq, analysis, clips: clips.length ? clips : [placeholder], title: songName.toUpperCase(), lookId: q.get('look') || 'pixel-cube' });
+  seq = sequenceFromAnalysis(analysis, phrase, at, { style: q.get('style') || 'auto', seed: Number(q.get('seed')) || 1, colour: colour === 'clean' || colour === 'flat' ? colour : 'tinted', treatment: q.get('treatment') || 'none' });
+  const deck = [...clips, ...stills];
+  stage.build({ seq, analysis, clips: deck.length ? deck : [placeholder], title: songName.toUpperCase(), lookId: q.get('look') || 'pixel-cube' });
   pausedAt = Math.min(Math.max(pausedAt, seq.start), seq.end);
   if (pausedAt === seq.end) pausedAt = seq.start;
   const n = clips.length;
@@ -234,7 +265,7 @@ function frame(now: number) {
   }
   const began = performance.now();
   stage.follow(t, playing);
-  stage.draw(t, focus);
+  stage.draw(t, focus, null, zoom);
   workMs += (performance.now() - began - workMs) * 0.05;
   readout(t);
 }
@@ -304,7 +335,7 @@ async function contact(times: number[], cols: number, cell: number, into?: HTMLC
   for (let i = 0; i < times.length; i++) {
     const t = seq.start + times[i];
     await stage.settle(t);
-    stage.draw(t, focus);
+    stage.draw(t, focus, null, zoom);
     const x = (i % cols) * cell;
     const y = Math.floor(i / cols) * ch;
     g.drawImage(canvas, x + 1, y + 1, cell - 2, ch - 2);
@@ -313,7 +344,7 @@ async function contact(times: number[], cols: number, cell: number, into?: HTMLC
     g.fillRect(x + 1, y + 1, 170, 14);
     g.fillStyle = '#fff';
     g.font = '10px ui-monospace, monospace';
-    g.fillText(`${(t - seq.hit).toFixed(2)}s  ${NAMES[shot.index] ?? ''} ${shot.style}`, x + 4, y + 11);
+    g.fillText(`${(t - seq.hit).toFixed(2)}s  ${NAMES[shot.index] ?? ''} ${shot.style} ${shot.treatment ?? ''}`, x + 4, y + 11);
   }
   return c;
 }
@@ -339,6 +370,7 @@ const ready = (async () => {
     const demo = DEMO_TRACKS[0];
     await loadSong(demo.render(), demo.name);
     for (const src of (q.get('clip') ?? '').split(',').filter(Boolean).slice(0, MAX_CLIPS)) await loadClip(src);
+    for (const src of (q.get('photo') ?? '').split(',').filter(Boolean)) await loadStill(src);
     requestAnimationFrame(frame);
     return { ok: true, error: '' };
   } catch (err) {
@@ -357,6 +389,27 @@ window.__shot = {
   ready,
   sheet,
   shots: async (times: number[], cols = 4, cell = 360) => (await contact(times, cols, cell)).toDataURL('image/png'),
+  hashes: async (times: number[]) => {
+    const out: { t: number; hash: number; ms: number; ticks: number }[] = [];
+    if (!seq) return out;
+    pause();
+    const gl = renderer.getContext();
+    const px = new Uint8Array(W * H * 4);
+    for (const at of times) {
+      const t = seq.start + at;
+      await stage.settle(t);
+      const t0 = performance.now();
+      stage.draw(t, focus, null, zoom);
+      gl.finish();
+      const ms = performance.now() - t0;
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      // a checksum that forgives rounding: every pixel's value to the nearest 4
+      let h = 0;
+      for (let i = 0; i < px.length; i += 4) h = (Math.imul(h, 31) + (px[i] >> 2) * 3 + (px[i + 1] >> 2) * 5 + (px[i + 2] >> 2) * 7) | 0;
+      out.push({ t: at, hash: h, ms: +ms.toFixed(2), ticks: stage.moshTicks });
+    }
+    return out;
+  },
   clearSheet: () => document.getElementById('sheet')?.remove(),
   info: () => ({
     live: seq ? { at: +(songTime() - seq.start).toFixed(2), playing, drift: stage.drift(songTime()), frameMs: +frameMs.toFixed(1), workMs: +workMs.toFixed(2) } : null,

@@ -11,6 +11,9 @@
  *   --clip /footage.local/a.mp4,/footage.local/b.mp4   clips the dev server can serve
  *   --words "LOUDER THAN THE DARK"   --look <id>   --at-song 42.5
  *   --style poster  --seed 3  --colour flat   the footage style, its arrangement and its colour
+ *   --treatment mosh            how the picture is broken down (none, mosh, sort, cells, readout, collage, auto)
+ *   --photo /footage.local/p.jpg,...   photos as stills   --zoom 1.4   push the picture in
+ *   --hash 5,1,3,5               checksums of the frames at these times, drawn in that order (seek check)
  *   --size 720x1280             picture size (default 9:16)
  *   --cols 6  --cell 300        sheet layout
  *   --port 5178                 the dev server's port
@@ -25,7 +28,7 @@ const opt = (k, d) => {
 const port = opt('port', '5178');
 const [w, h] = opt('size', '720x1280').split('x').map(Number);
 const qs = new URLSearchParams({ w: String(w), h: String(h) });
-for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['style', 'style'], ['seed', 'seed'], ['colour', 'colour'], ['at-song', 'at']]) if (opt(k)) qs.set(name, opt(k));
+for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['style', 'style'], ['seed', 'seed'], ['colour', 'colour'], ['at-song', 'at'], ['treatment', 'treatment'], ['photo', 'photo'], ['zoom', 'zoom']]) if (opt(k)) qs.set(name, opt(k));
 const out = opt('out', `${process.cwd()}/shot-sheet.png`);
 const cols = Number(opt('cols', '6'));
 const cell = Number(opt('cell', '300'));
@@ -82,6 +85,12 @@ try {
   } else {
     // a tour: a few moments from every shot, more of them just after it starts
     times = info.shots.flatMap((s) => [0.04, 0.2, 0.45, 0.7, 0.93].map((f) => Math.round((s.from + (s.to - s.from) * f) * 100) / 100));
+  }
+  if (opt('hash')) {
+    const hs = await page.evaluate((ts) => window.__shot.hashes(ts), opt('hash').split(',').map(Number));
+    console.log(JSON.stringify(hs));
+    await browser.close();
+    process.exit(0);
   }
   const t0 = Date.now();
   const url = await page.evaluate((o) => window.__shot.shots(o.times, o.cols, o.cell), { times, cols, cell });

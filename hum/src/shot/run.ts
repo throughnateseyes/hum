@@ -21,8 +21,9 @@
  */
 import type { TrackAnalysis, TrackSection } from '../core/types';
 import type { Colour } from './kit';
-import { footageNeed, layoutOf, type Sequence, type Shot } from './sequence';
+import { footageNeed, hatsIn, layoutOf, type Sequence, type Shot } from './sequence';
 import { styleForShot, type StyleId } from './styles';
+import { treatmentForShot, type TreatmentId } from './treatments';
 import { feltBeat } from './time';
 
 /** one footage part's settings (its look's, or a per-part choice laid over them) */
@@ -32,6 +33,13 @@ export interface RunPart {
   colour: Colour;
   /** beats per shot: only parts longer than 1.5 times this are cut inside */
   shotBeats: number;
+  /** a treatment id, 'auto' or 'none' */
+  treatment: string;
+  /**
+   * The pictures this part uses, as places in the deck, in order (a per-part choice; missing: dealt
+   * automatically). The first is the picture; Split's second panel and Collage's fragments take the rest.
+   */
+  media?: number[];
 }
 
 export interface RunInput {
@@ -42,7 +50,7 @@ export interface RunInput {
   parents: number[];
   /** each part's settings, or null when the part is not footage */
   parts: (RunPart | null)[];
-  /** clip lengths (s), at least one */
+  /** the deck's lengths (s; a still lasts for ever), at least one */
   clips: number[];
   /** words to set in type, dealt to the shots in turn */
   words: string[];
@@ -102,6 +110,7 @@ export function footageRun(o: RunInput): Run {
 
   let ordinal = 0;
   let prevStyle: StyleId | '' = '';
+  let prevTreat: TreatmentId | '' = '';
   const seqs: (Sequence | null)[] = parts.map((part, i) => {
     const o2 = o.parts[i];
     if (!o2) return null;
@@ -111,6 +120,10 @@ export function footageRun(o: RunInput): Run {
     while (i - k > 0 && o.parents[i - k - 1] === o.parents[i]) k++;
     const style = styleForShot(sec, k, o2.style, o2.seed, prevStyle);
     prevStyle = style;
+    // the part's own pictures, when it has a choice of them (places that are still in the deck)
+    const mine = o2.media?.filter((m) => m >= 0 && m < count) ?? [];
+    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count);
+    prevTreat = treatment;
     const loud = sec.energy > 0.55 && style !== 'caption';
     const hitIn = lands(i);
     const hitOut = lands(i + 1);
@@ -141,6 +154,7 @@ export function footageRun(o: RunInput): Run {
       beat,
       kicks,
       snares,
+      hats: hatsIn(a, start, end, beat),
       shots: [],
       part: sec.label.toUpperCase(),
       // bar numbers and the part's time count from the section's start, so they carry on across its shots
@@ -164,19 +178,28 @@ export function footageRun(o: RunInput): Run {
         style,
         layout: layoutOf(o2.seed, i, j),
         word: o.words.length ? o.words[ordinal % o.words.length] : '',
+        treatment,
       };
-      const c = ordinal % count;
+      // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
+      const c = mine.length ? mine[j % mine.length] : ordinal % count;
+      shot.footageIndex = c;
       const need = footageNeed(seq, shot);
       const own = take(c, need);
       shot.clipFrom = own.from;
       shot.clipRate = own.k;
       if (style === 'split') {
-        // Split shows a second moment: the next clip where it stopped, or, with one clip, this clip further on
-        const c2 = count > 1 ? (c + 1) % count : c;
+        // Split shows a second moment: the part's next picture, else the next in the deck where it
+        // stopped, or, with one clip, this clip further on
+        const c2 = mine.length > 1 ? mine[(j + 1) % mine.length] : count > 1 ? (c + 1) % count : c;
         const alt = take(c2, need);
-        shot.alt = count > 1 ? ordinal + 1 : ordinal;
+        shot.alt = c2;
         shot.altFrom = alt.from;
-        shot.altEcho = count === 1;
+        shot.altEcho = c2 === c;
+      }
+      if (treatment === 'collage') {
+        // the fragments: the part's other pictures, else the next few in the deck
+        const rest = mine.length > 1 ? mine.filter((m) => m !== c) : Array.from({ length: Math.min(3, count - 1) }, (_, m) => (c + 1 + m) % count);
+        shot.extra = rest.slice(0, 3);
       }
       seq.shots.push(shot);
       ordinal++;
