@@ -8,7 +8,6 @@
  *   march    one column (one row in a wide frame) filled, stepping across one place per beat
  *   build    cells fill in a fixed scattered order, a few more every beat, and all clear on the bar
  *   rise     rows fill from the bottom up, one per beat, and clear on the bar
- *   checker  half the cells, in a checkerboard, swapping over every beat (loud parts only)
  *
  *   arrives   on the shot's first beat, at once
  *   the beat  every beat a hard change, nothing in between
@@ -25,8 +24,8 @@ export const grid: StyleFactory = (ctx) => {
   const group = new THREE.Group();
   const windows = ctx.colour !== 'clean';
   const mask = windows ? new THREE.Group() : null;
-  // cells edge to edge: as many columns as the layout grid, rows to keep them near square
-  const cols = g.portrait ? g.cols : Math.round(g.cols / 2);
+  // cells edge to edge: as many columns as the layout grid (4 tall, 8 wide), rows to keep them near square
+  const cols = g.cols;
   const cw = (2 * g.halfW) / cols;
   const rows = Math.max(2, Math.round((2 * g.halfH) / cw));
   const ch = (2 * g.halfH) / rows;
@@ -41,8 +40,8 @@ export const grid: StyleFactory = (ctx) => {
     return l;
   });
 
-  const loud = ctx.energy > 0.6;
-  const patterns = loud ? (['march', 'build', 'rise', 'checker'] as const) : (['march', 'build', 'rise', 'march'] as const);
+  // (a checkerboard was tried and dropped: on busy footage it reads as noise)
+  const patterns = ['march', 'build', 'rise'] as const;
   const pattern = patterns[ctx.layout % patterns.length];
   // a fixed scattered order for 'build'
   const rnd = dice(ctx.layout * 7 + 11);
@@ -58,16 +57,14 @@ export const grid: StyleFactory = (ctx) => {
     const { c, r } = at(i);
     const inBar = b % 4;
     if (pattern === 'march') return g.portrait ? c === b % cols : r === b % rows;
-    if (pattern === 'rise') return rows - 1 - r <= inBar;
-    if (pattern === 'checker') return (c + r + b) % 2 === 0;
-    // build: a quarter of the cells more every beat, at most half of them
+    if (pattern === 'rise') return rows - 1 - r <= Math.min(inBar, Math.ceil(rows / 2) - 1);
+    // build: an eighth of the cells more every beat, at most half of them
     const k = order.indexOf(i);
     return k < Math.ceil((n / 8) * (inBar + 1));
   };
   const accentOf = (b: number): number => {
     if (pattern === 'march') return g.portrait ? (b % cols) + cols * ((b * 3) % rows) : ((b * 3) % cols) + cols * (b % rows);
     if (pattern === 'rise') return (rows - 1 - (b % 4)) * cols + ((b * 3 + 1) % cols);
-    if (pattern === 'checker') return (b * 5) % n;
     return order[Math.ceil((n / 8) * ((b % 4) + 1)) - 1] ?? 0;
   };
 

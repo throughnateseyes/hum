@@ -197,7 +197,9 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
   if (cardFrom < end) shots.push(blank('card', cardFrom, end, { index: shots.length, word: o.words.slice(0, 4).join(' ') }));
   return {
     start,
-    hit: hitIn ? start : (shots.find((s) => s.arrive === 'hit')?.start ?? start),
+    // the moment the part lands (it gets the full white-out); a part that doesn't land has none, and
+    // the cuts on the beat inside it only glint
+    hit: hitIn ? start : -1,
     end,
     beat,
     kicks,
