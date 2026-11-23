@@ -1052,3 +1052,8 @@ html.phone.land .ps-phone {
     transform: translate(-50%, 6px);
   }
 }
+
+/* the phone part sheet: the Picture group sits in its own wrapper (PartSheet.tsx) */
+.ps-pic-wrap {
+  padding: 0;
+}

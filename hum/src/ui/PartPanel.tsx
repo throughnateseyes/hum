@@ -41,7 +41,7 @@ import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { Play } from './Icons';
 import { FootagePicture, ShuffleIcon } from './FootagePicture';
-import { lookParam, pictureKind, scrollToPicture, usePartsTarget, useSoloTarget } from './footageMedia';
+import { lookParam, pictureKind, scrollToPicture, shownMedia, useMedia, usePartsTarget, useSoloTarget } from './footageMedia';
 import { Thumb } from './Library';
 import { SwapList, useRankedLooks } from './PartSheet';
 import { fmtTime, lookBg } from './song';
@@ -81,15 +81,18 @@ export function PartPanel() {
   const analysis = useStudio((s) => s.analysis);
   const plan = useStudio((s) => s.plan);
   const selected = useStudio((s) => s.selectedParts);
+  const planOn = useStudio((s) => s.planOn);
   const playing = usePlayingPart(analysis);
   if (!analysis || !analysis.sections.length || !validPlan(plan, analysis)) return <NoPlan a={analysis} />;
   const picked = selected.filter((i) => i >= 0 && i < analysis.sections.length).sort((x, y) => x - y);
+  // the plan is switched off and a look plays on its own: that look, until a part is picked
+  if (!planOn && !picked.length) return <NoPlan a={analysis} paused />;
   const parts = picked.length ? picked : [Math.min(playing, analysis.sections.length - 1)];
   return <PartBody key={parts.join(',')} a={analysis} parts={parts} picked={picked.length > 0} />;
 }
 
-/** no video plan: what's on screen, and how to get parts */
-function NoPlan({ a }: { a: TrackAnalysis | null }) {
+/** no video plan playing: the look on screen, its picture, and how to get parts (or back to them) */
+function NoPlan({ a, paused }: { a: TrackAnalysis | null; paused?: boolean }) {
   const presetId = useStudio((s) => s.presetId);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
@@ -108,6 +111,23 @@ function NoPlan({ a }: { a: TrackAnalysis | null }) {
         </div>
       )}
       {kind && <SoloPicture busy={busy} />}
+      {paused ? (
+        <>
+          <p className="pp-note">This look plays on its own while the video plan is off. Pick a part on the timeline to change it, or play the plan again.</p>
+          <button className="btn sm" disabled={busy} onClick={() => useStudio.getState().set({ planOn: true })}>
+            Play the video plan
+          </button>
+        </>
+      ) : (
+        <NoPlanNote a={a} planning={planning} busy={busy} />
+      )}
+    </div>
+  );
+}
+
+function NoPlanNote({ a, planning, busy }: { a: TrackAnalysis | null; planning: boolean; busy: boolean }) {
+  return (
+    <>
       <p className="pp-note">
         {a?.sections.length
           ? 'Make a video to give every part of the song its own look. Then pick a part on the timeline to change it here.'
@@ -118,7 +138,7 @@ function NoPlan({ a }: { a: TrackAnalysis | null }) {
           {planning ? 'Planning…' : 'Make a video'}
         </button>
       )}
-    </div>
+    </>
   );
 }
 
@@ -173,6 +193,9 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   }, [quickKey, parts.join(',')]);
   const edits = partEdits(plan, a, partPops, partHand, partWords, partShot);
   const anyEdit = parts.some((j) => edits[j]);
+  // a footage or photo part shows the clip or photo it plays, as the timeline does
+  const media = useMedia();
+  const headPic = one ? shownMedia(useStudio.getState(), i, media) : null;
   const len = parts.reduce((t, j) => t + a.sections[j].end - a.sections[j].start, 0);
 
   // looks
@@ -211,7 +234,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   return (
     <div className="pp">
       <div className="pp-head">
-        <span className={`pp-pic ${one ? '' : 'stack'}`} style={look && sameLook !== 'mixed' ? lookBg(look) : undefined} aria-hidden>
+        <span className={`pp-pic ${one ? '' : 'stack'}`} style={headPic?.thumb ? { backgroundImage: `url("${headPic.thumb}")` } : look && sameLook !== 'mixed' ? lookBg(look) : undefined} aria-hidden>
           {sameLook === 'mixed' && looksHere.slice(0, 3).map((p) => <i key={p.id} style={lookBg(p)} />)}
         </span>
         <div className="pp-title">

@@ -450,3 +450,7 @@
   font-weight: 500;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
 }
+.lib-tile:hover:has(.lib-tile-use) .lib-tile-len,
+.lib-tile:focus-within:has(.lib-tile-use) .lib-tile-len {
+  opacity: 0;
+}

@@ -440,7 +440,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
 
       {/* a look that shows the person's clips or photos: which one plays here, for this shot only */}
       {hasPlan && look && pictured && (
-        <div className="ps-sec pp">
+        <div className="pp ps-pic-wrap">
           <FootageControls look={look} busy={busy} parts={[i]} />
         </div>
       )}

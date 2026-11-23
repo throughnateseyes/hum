@@ -162,7 +162,6 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const [frameOpen, setFrameOpen] = useState(openRows.frame);
   const footage = kind === 'footage';
   const shots = t.shots;
-  const owned = shots.some((r) => !!r);
 
   // media: the shots' common choice (null: automatic)
   const chosen = common(shots.map((r) => r?.media ?? null));
@@ -218,7 +217,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
         <>
           <div className="pp-sub-h pp-gap">
             <span>Style</span>
-            <span>{owned ? `Set for ${t.scope}` : 'As the look'}</span>
+            <span>{shots.some((r) => r?.style || r?.seed) ? `Set for ${t.scope}` : 'As the look'}</span>
           </div>
           <ShotStyle t={t} busy={busy} />
 

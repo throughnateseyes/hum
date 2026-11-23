@@ -246,6 +246,11 @@ export function planPlaying(s = useStudio.getState()): boolean {
 
 /** the scene the look's own picture was chosen for: another scene on screen clears it */
 let soloScene = '';
+/**
+ * A record brought back by a reload waits for its scene to come on screen before another scene may
+ * clear it: while the page starts, the song's looks come and go before the person has seen anything.
+ */
+let soloArmed = true;
 
 /**
  * Change the picture of the look playing on its own (no video plan): the same fields as a part's,
@@ -256,6 +261,7 @@ export function setSoloShot(patch: Partial<PartShot> | null) {
   const v = patch === null ? null : tidyShot({ ...(s.soloShot ?? {}), ...patch });
   if (JSON.stringify(s.soloShot ?? null) === JSON.stringify(v)) return;
   soloScene = s.sceneId;
+  soloArmed = true;
   s.set({ soloShot: v });
   rememberSoloShot(s.sceneId, v);
 }
@@ -266,15 +272,18 @@ export function setSoloShot(patch: Partial<PartShot> | null) {
   const saved = recallSoloShot();
   if (saved) {
     soloScene = saved.sceneId;
+    soloArmed = false;
     setSoloShotQuietly(saved.shot);
   }
   useStudio.subscribe((s, prev) => {
     if (s.soloShot !== prev.soloShot && s.soloShot && !isSoloQuiet()) {
       // an undo bringing a record back: it belongs to what's on screen now
       soloScene = s.sceneId;
+      soloArmed = true;
       rememberSoloShot(s.sceneId, s.soloShot);
     } else if (s.soloShot !== prev.soloShot && !s.soloShot) rememberSoloShot('', null);
-    if (!s.soloShot || !s.sceneId || s.sceneId === soloScene) return;
+    if (s.sceneId === soloScene) soloArmed = true;
+    if (!s.soloShot || !s.sceneId || s.sceneId === soloScene || !soloArmed) return;
     if (s.sceneId === prev.sceneId && s.planOn === prev.planOn && s.plan === prev.plan) return;
     if (planPlaying(s)) return;
     setSoloShotQuietly(null);
@@ -293,7 +302,7 @@ export function chosenPhotosAt(s: StudioState, t: number): PhotoAsset[] | null {
   if (planPlaying(s)) {
     const i = sectionIndexAt(s.analysis!.sections, t);
     ids = s.partShot?.length === s.analysis!.sections.length ? s.partShot[i]?.media : undefined;
-  } else ids = s.soloShot?.media;
+  } else ids = s.sceneId === soloScene ? s.soloShot?.media : undefined;
   if (!ids?.length) return null;
   const out = ids.map((id) => s.photos.find((p) => p.id === id)).filter((p) => !!p);
   return out.length ? out : null;
