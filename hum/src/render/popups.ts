@@ -13,6 +13,7 @@ import { popLevelAt, sectionIndexAt } from '../state/plan';
 import { originalOf } from '../state/planCache';
 import { popDealsVersion, popSeedAt } from '../state/popSeed';
 import { useStudio } from '../state/store';
+import { noteLineWindow } from './lyricTiming';
 import { NO_KEEP_OUT, type KeepOut, type Rect as NRect } from './legibility';
 import { glide, newGlide, overlap, toPx, toRect, type Glide, type PxBox } from './keepClear';
 
@@ -44,6 +45,19 @@ interface Kind {
   needs?: 'words' | 'map';
 }
 
+/** a words module that shows the sung line: it tells the lyric layer each time it draws with synced lyrics */
+function sungLine(mod: ReturnType<typeof typewriter>): ReturnType<typeof typewriter> {
+  const draw = mod.draw.bind(mod);
+  return {
+    ...mod,
+    draw(ctx, r, bf) {
+      const l = useStudio.getState().lyrics;
+      if (l?.synced && l.lines.length) noteLineWindow();
+      draw(ctx, r, bf);
+    },
+  };
+}
+
 const KINDS: Kind[] = [
   { title: 'SONG.LOG', make: terminal, w: 1.3, h: 0.85 },
   { title: 'RADAR', make: radar, w: 0.95, h: 0.95 },
@@ -54,8 +68,10 @@ const KINDS: Kind[] = [
   { title: 'FORECAST', make: weather, w: 1.35, h: 0.78 },
   { title: 'SONG MAP', make: minimap, w: 1.45, h: 0.52, needs: 'map' },
   { title: 'WORDS', make: wordCloud, w: 1.15, h: 0.85, needs: 'words' },
-  { title: 'TYPEWRITER', make: typewriter, w: 1.4, h: 0.62, needs: 'words' },
-  { title: 'UP NEXT', make: upNext, w: 1.3, h: 0.62, needs: 'words' },
+  // the two windows that show the sung line say so while they draw, and the lyric overlay stands down:
+  // the words are in one place at a time
+  { title: 'TYPEWRITER', make: () => sungLine(typewriter()), w: 1.4, h: 0.62, needs: 'words' },
+  { title: 'NOW SINGING', make: upNext, w: 1.3, h: 0.62, needs: 'words' },
   { title: 'NEWS.WIRE', make: () => ticker('WIRE'), w: 1.6, h: 0.34, needs: 'words' },
   { title: 'HI-SCORES', make: () => topWords('MOST SUNG'), w: 1, h: 0.85, needs: 'words' },
   { title: 'TETRIS', make: tetris, w: 0.72, h: 1.05 },
