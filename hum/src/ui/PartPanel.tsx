@@ -2,11 +2,14 @@
  * The Part tab of the right panel: everything about the part (or parts) picked on the timeline, or
  * the part that is playing when nothing is picked; with no video plan, a line about the look on screen.
  *
- *   name, time, length     Play this part, Reset, Undo
- *   Look                   its picture and name, and its other takes (versions)
- *   Swap the look          the looks that fit this part best, More looks… with a search (PartSheet.tsx)
+ *   name, time, length     which section and shot it is
+ *   Quick picks            the five looks that fit this part best, as pictures: one click (or 1–5) swaps
+ *   actions                Play this part, Like, Reset, Undo (the app's one history, state/history.ts)
+ *   Look                   its picture and name, and its other takes (versions); a footage look shows
+ *                          its styles and Shuffle instead of takes
+ *   More looks             the full Swap the look list, with moods and a search (PartSheet.tsx), folded away
  *   Hand-drawn             As the video / On / Off, for these parts only
- *   Pop-ups                Auto / Off / Few / Lots
+ *   Pop-ups                Auto / Off / Few / Lots, and Shuffle for a different deal of them (popSeed.ts)
  *   Lyrics                 the lyric styles (lyricPlan.ts MEDIUM_CHOICES), parts with words sung only
  *   Words                  what a look that writes text shows here (flip cards, boards, type looks)
  *
@@ -24,8 +27,14 @@ import { sceneShowsWords } from '../scenes/three/songInfo';
 import { activeFinish } from '../state/direction';
 import { onFrame } from '../state/live';
 import { MEDIUM_CHOICES, vocalDensity, type LyricMedium } from '../state/lyricPlan';
-import { onUndoChange, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords, undoLabel, undoPartEdit } from '../state/partEdit';
-import { findLook, listNames, makeVideo, partEdits, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
+import { historyLabels, onHistoryChange, undo } from '../state/history';
+import { likePart, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords } from '../state/partEdit';
+import { findLook, listNames, makeVideo, partEdits, partNames, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
+import { parentsOf } from '../state/planCache';
+import { reshufflePops } from '../state/popSeed';
+import type { ParamValue, Preset } from '../core/types';
+import { setQuickPicks } from './shotActions';
+import type { LookTweak } from '../state/tweaks';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { Play } from './Icons';
@@ -116,14 +125,29 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const partWords = useStudio((s) => s.partWords);
   const videoFinish = useStudio((s) => activeFinish(s));
   const busy = useStudio((s) => !!s.clip);
-  const undoText = useSyncExternalStore(onUndoChange, undoLabel);
+  // the app's one undo (state/history.ts): the same step Cmd+Z and the transport's arrow take back
+  const undoText = useSyncExternalStore(onHistoryChange, historyLabels).undo;
   const n = a.sections.length;
   const one = parts.length === 1;
   const i = parts[0];
-  const names = sectionNames(a.sections);
-  const name = one ? names[i] : `${parts.length} parts selected`;
+  const names = partNames(a);
+  const name = one ? sectionNames(a.sections)[i] : `${parts.length} parts selected`;
   const partList = listNames(parts.map((j) => names[j]));
-  const { look, fam } = useRankedLooks(a, i, 'all');
+  const { look, fam, ranked } = useRankedLooks(a, i, 'all');
+  const [moreOpen, setMoreOpen] = useState(false);
+  // which shot of its section this part is (one look per part: flatPlan.ts)
+  const parents = parentsOf(a);
+  const siblings = parents.map((p, k) => (p === parents[i] ? k : -1)).filter((k) => k >= 0);
+  const shotNo = siblings.indexOf(i) + 1;
+  const liked = one && !!plan.liked?.[i];
+  const quick = one ? ranked.slice(0, 5).map((r) => r.take) : [];
+  const quickKey = quick.map((p) => p.id).join(',');
+  // the number keys 1–5 put these in while a part is picked (App.tsx)
+  useEffect(() => {
+    setQuickPicks(quick.length ? { parts, looks: quick } : null);
+    return () => setQuickPicks(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickKey, parts.join(',')]);
   const edits = partEdits(plan, a, partPops, partHand, partWords);
   const anyEdit = parts.some((j) => edits[j]);
   const len = parts.reduce((t, j) => t + a.sections[j].end - a.sections[j].start, 0);
@@ -164,24 +188,38 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         <div className="pp-title">
           <h2>{name}</h2>
           <span className="pp-sub">
-            {one ? `${fmtTime(a.sections[i].start)}–${fmtTime(a.sections[i].end)} · ${Math.round(len)} s` : `${partList} · ${Math.round(len)} s in all`}
+            {one ? `${siblings.length > 1 ? `Shot ${shotNo} of ${siblings.length} · ` : ''}${fmtTime(a.sections[i].start)}–${fmtTime(a.sections[i].end)} · ${Math.round(len)} s` : `${partList} · ${Math.round(len)} s in all`}
             {!picked && ' · playing now'}
           </span>
         </div>
       </div>
+
+      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
 
       <div className="pp-actions">
         <button className="btn sm" onClick={() => playPart(i)} disabled={busy} title={`Jump to ${names[i]} and play it`}>
           <Play width={11} height={11} />
           {one ? 'Play this part' : `Play from ${names[i]}`}
         </button>
+        {one && plan.flat && look && (
+          <button
+            className={`btn sm ghost pp-like ${liked ? 'on' : ''}`}
+            aria-pressed={liked}
+            onClick={() => likePart(i, !liked)}
+            disabled={busy}
+            title={liked ? 'Liked: a skip next to it or a remake leaves it alone. Click to take the like back.' : 'Like this look here: a skip next to it or a remake leaves it alone (K while it plays)'}
+          >
+            <HeartIcon filled={liked} />
+            {liked ? 'Liked' : 'Like'}
+          </button>
+        )}
         {anyEdit && (
           <button className="btn sm ghost" onClick={() => resetParts(parts)} disabled={busy} title={one ? 'Put back what the plan picked for this part' : 'Put back what the plan picked for these parts'}>
             {one ? 'Reset this part' : 'Reset these parts'}
           </button>
         )}
         {undoText && (
-          <button className="btn sm ghost" onClick={undoPartEdit} disabled={busy} title={`Undo ${undoText}`}>
+          <button className="btn sm ghost" onClick={undo} disabled={busy} title={`Undo ${undoText} (⌘Z)`}>
             Undo
           </button>
         )}
@@ -210,7 +248,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         ) : (
           <p className="pp-note">No look yet.</p>
         )}
-        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && (
+        {sameLook !== 'mixed' && look && isFootage(look) && <FootageControls look={look} busy={busy} />}
+        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
           <div className="ps-takes" role="group" aria-label={`Versions of ${fam.name}`}>
             {fam.takes.map((p) => (
               <button key={p.id} className={`ps-take ${p.id === look?.id ? 'on' : ''}`} aria-pressed={p.id === look?.id} disabled={busy} title={`${takeName(p)}: ${p.description}`} onClick={() => setPartsLook(parts, p.id)}>
@@ -224,7 +263,16 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         )}
       </section>
 
-      <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />
+      <div className="pp-sec pp-morewrap">
+        <button className="pp-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+          <span className={`pp-caret ${moreOpen ? 'open' : ''}`} aria-hidden>
+            ›
+          </span>
+          {moreOpen ? 'Fewer looks' : one ? 'More looks' : 'Swap the look'}
+          {!moreOpen && <span className="pp-more-h">Every look, by how well it fits, with moods and a search</span>}
+        </button>
+        {moreOpen && <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />}
+      </div>
 
       <section className="pp-sec" aria-labelledby={`${headingId}-hand`}>
         <div className="ps-h">
@@ -247,6 +295,15 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         <div className="ps-h">
           <h3 id={`${headingId}-pop`}>Pop-ups</h3>
           <span>{pops === 'mixed' ? 'Mixed' : planned === 'mixed' ? 'Auto differs by part' : `Auto here is ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`}</span>
+          <button
+            className="btn sm ghost pp-shuffle"
+            disabled={busy || popups === 'off'}
+            onClick={() => reshufflePops(parts)}
+            title={`Deal ${one ? 'this part' : 'these parts'} a different set of pop-ups. They stay the same every time it plays until you shuffle again.`}
+          >
+            <ShuffleIcon />
+            Shuffle
+          </button>
         </div>
         <div className="seg full" role="group" aria-label={`Pop-up windows in ${one ? names[i] : 'these parts'}`}>
           {POP_LEVELS.map((o) => {
@@ -283,6 +340,103 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
       )}
 
       {wordy && <WordsField key={`${parts.join(',')}|${words}`} parts={parts} value={words} disabled={busy} />}
+    </div>
+  );
+}
+
+/** a look built on the person's clips (the footage looks): styles and Shuffle stand in for takes */
+function isFootage(p: Preset): boolean {
+  return !!getScene(p.sceneId)?.usesClips;
+}
+
+/** the value a look plays with for one of its scene's settings: the person's tweak, the preset, the default */
+function lookParam(p: Preset, tweak: { sceneParams?: Record<string, ParamValue> } | undefined, k: string): ParamValue | undefined {
+  return tweak?.sceneParams?.[k] ?? p.sceneParams?.[k] ?? getScene(p.sceneId)?.params.find((d) => d.id === k)?.default;
+}
+
+/**
+ * Change one of a look's scene settings for this video. The look on screen goes through setSceneParam
+ * like any slider; a look that isn't on screen gets the same change in its tweak (state/tweaks.ts), which
+ * is what setSceneParam would have kept. Either way it is one Undo step, and every part playing the look
+ * shows it.
+ */
+function setLookParam(p: Preset, k: string, v: ParamValue) {
+  const s = useStudio.getState();
+  if (s.presetId === p.id) return s.setSceneParam(k, v);
+  const orig = p.sceneParams?.[k] ?? getScene(p.sceneId)?.params.find((d) => d.id === k)?.default;
+  const t = s.tweaks[p.id];
+  const sceneParams = { ...t?.sceneParams };
+  if (v === orig) delete sceneParams[k];
+  else sceneParams[k] = v;
+  const next: LookTweak = { ...t, sceneParams };
+  if (!Object.keys(sceneParams).length) delete next.sceneParams;
+  const tweaks = { ...s.tweaks };
+  if (Object.keys(next).length) tweaks[p.id] = next;
+  else delete tweaks[p.id];
+  s.set({ tweaks });
+}
+
+/** the arrangements a footage look had before its last shuffles, by look id (Previous steps back) */
+const seedsBefore = new Map<string, number[]>();
+
+/**
+ * A footage look's own row: its styles (Auto first) and Shuffle, which deals a new arrangement of the
+ * same style (the `seed` setting), with Previous to go back one. The arrangement belongs to the look,
+ * like any fine-tuning, so every part that plays this look changes with it; the hint says so.
+ */
+export function FootageControls({ look, busy }: { look: Preset; busy: boolean }) {
+  const tweak = useStudio((s) => s.tweaks[look.id]);
+  const [, redraw] = useState(0);
+  const styleDef = getScene(look.sceneId)?.params.find((d) => d.id === 'style');
+  const styles = styleDef?.type === 'select' ? styleDef.options : [];
+  const style = String(lookParam(look, tweak, 'style') ?? 'auto');
+  const seed = Number(lookParam(look, tweak, 'seed') ?? 1);
+  const before = seedsBefore.get(look.id) ?? [];
+  const shuffle = () => {
+    let next = seed;
+    while (next === seed) next = 1 + Math.floor(Math.random() * 999);
+    seedsBefore.set(look.id, [...before, seed].slice(-5));
+    setLookParam(look, 'seed', next);
+    redraw((n) => n + 1);
+  };
+  const previous = () => {
+    const prev = before[before.length - 1];
+    if (prev === undefined) return;
+    seedsBefore.set(look.id, before.slice(0, -1));
+    setLookParam(look, 'seed', prev);
+    redraw((n) => n + 1);
+  };
+  return (
+    <div className="pp-foot">
+      {styles.length > 0 && (
+        <div className="seg grid pp-styles" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }} role="group" aria-label="Footage style">
+          {styles.map((o) => (
+            <button
+              key={o.value}
+              className={style === o.value ? 'on' : ''}
+              aria-pressed={style === o.value}
+              disabled={busy}
+              title={o.value === 'auto' ? 'A style picked for each part of the song' : `${o.label} in every part`}
+              onClick={() => setLookParam(look, 'style', o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="pp-foot-row">
+        <button className="btn sm" disabled={busy} onClick={shuffle} title="Lay the same style out another way">
+          <ShuffleIcon />
+          Shuffle
+        </button>
+        <button className="btn sm ghost" disabled={busy || !before.length} onClick={previous} title="Go back to the arrangement before the last shuffle">
+          Previous
+        </button>
+        <span className="pp-foot-n" title="Which arrangement is playing (1 to 999)">
+          No. {seed}
+        </span>
+      </div>
+      <p className="pp-note">Style and Shuffle change every part that plays this look.</p>
     </div>
   );
 }
@@ -331,5 +485,50 @@ function WordsField({ parts, value, disabled }: { parts: number[]; value: string
       </div>
       <p className="pp-note">This look writes words of its own. What you type here is what it shows in {parts.length > 1 ? 'these parts' : 'this part'}.</p>
     </section>
+  );
+}
+
+/** the five looks that fit the part best, as pictures in a row: one click swaps (1–5 on the keyboard) */
+function QuickPicks({ looks, busy, onPick }: { looks: Preset[]; busy: boolean; onPick: (p: Preset) => void }) {
+  return (
+    <section className="pp-quick" aria-label="Quick picks: looks that fit this part">
+      <div className="ps-h">
+        <h3>Quick picks</h3>
+        <span>Click or press 1–5 to swap</span>
+      </div>
+      <div className="pp-qrow">
+        {looks.map((p, k) => (
+          <button key={p.id} className="pp-q" disabled={busy} onClick={() => onPick(p)} title={`${p.name}: ${p.description} (${k + 1})`} aria-label={`Use ${p.name} (${k + 1})`}>
+            <span className="pp-qpic">
+              <Thumb p={p} />
+              <kbd>{k + 1}</kbd>
+            </span>
+            <span className="pp-qn">{p.name}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 20s-7-4.4-9.2-8.7C1.3 8.2 3 4.8 6.4 4.4c2-.2 3.6.9 4.6 2.5 1-1.6 2.6-2.7 4.6-2.5 3.4.4 5.1 3.8 3.6 6.9C19 15.6 12 20 12 20z"
+        fill={filled ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ShuffleIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden>
+      <path d="M2 4h2.5c1.6 0 2.6.8 3.5 2.2l1 1.6c.9 1.4 1.9 2.2 3.5 2.2H14M2 12h2.5c1.2 0 2-.4 2.7-1.2M9.3 5.2C10 4.4 10.8 4 12 4h2M12 2l2 2-2 2M12 8l2 2-2 2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

@@ -19,7 +19,7 @@ import { LyricsChip } from './ui/Lyrics';
 import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
 import { noteHandPick } from './state/taste';
-import { keepNow, skipNow } from './ui/Taste';
+import { applyQuickPick, likeShot, skipShot } from './ui/shotActions';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
 import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
@@ -87,9 +87,14 @@ export default function App() {
           pickLook(PRESETS[j]);
         }
       } else if ((e.key === 'k' || e.key === 'K') && !e.metaKey && !e.ctrlKey) {
-        keepNow();
+        // like the shot playing (in Perform too): only its part, marked on the timeline
+        likeShot();
       } else if ((e.key === 'x' || e.key === 'X') && !e.metaKey && !e.ctrlKey) {
-        skipNow();
+        // skip the shot playing: only its part gets a new look, at once
+        skipShot();
+      } else if (/^[1-5]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && !s.perform && s.selectedParts.length) {
+        // the Part panel's quick picks for the picked part
+        if (applyQuickPick(Number(e.key))) e.preventDefault();
       } else if (e.key === '/') {
         e.preventDefault();
         s.set({ directorOpen: true });

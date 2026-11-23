@@ -1,15 +1,16 @@
 import { create } from 'zustand';
 import type {
+  ClipAsset,
   CustomShaderSpec,
   EffectInstance,
+  HandStyle,
   LayerId,
+  Lyrics,
   Modulation,
   Palette,
   ParamValue,
-  HandStyle,
-  Lyrics,
+  PartShot,
   PhotoAsset,
-  ClipAsset,
   Preset,
   TrackAnalysis,
 } from '../core/types';
@@ -23,6 +24,7 @@ import { uid } from './modulation';
 import type { VideoPlan } from './plan';
 import { isTransitionId, type TransitionId } from '../core/transitionList';
 import { isFinishId, type FinishId } from '../core/direction';
+import { loadTweaks, saveTweaks, tweakOf, withTweak, type LookTweak, type TweakTable } from './tweaks';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 /** the right panel's tabs. 'video', 'part' and 'render' are the new layout; the first four are the old one, on their way out */
@@ -101,6 +103,8 @@ export interface StudioState extends LookState {
   metersOpen: boolean;
   /** hand-drawn for one part: true on, false off, null as the video is set (missing: all as the video) */
   partHand: (boolean | null)[] | null;
+  /** each part's own footage choices: style, arrangement, treatment, which media and how it is framed (missing: all as the look) */
+  partShot: (PartShot | null)[] | null;
   /** the words a look that writes text shows in one part (null: its own words, from the lyrics or the title text) */
   partWords: (string | null)[] | null;
   perform: boolean;
@@ -167,6 +171,11 @@ export interface StudioState extends LookState {
   finishPicked: boolean;
   /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
   oneTap: boolean;
+  /**
+   * Changes made to looks while fine-tuning them, by look id, for the loaded song (state/tweaks.ts).
+   * applyPreset lays a look's tweak over its preset every time the look comes back.
+   */
+  tweaks: TweakTable;
   /** a one-tap start under way (null when nothing is loading) */
   startup: Startup;
   /** the song is ready but the browser wouldn't start sound without a tap: the stage shows a big play button */
@@ -185,6 +194,10 @@ export interface StudioState extends LookState {
   removeModulation: (id: string) => void;
   setPalette: (p: Palette) => void;
   setPaletteColor: (key: keyof Omit<Palette, 'id' | 'name'>, hex: string) => void;
+  /** the look on screen back to its preset: its tweaks for this song are forgotten */
+  resetLookTweaks: () => void;
+  /** put the look on screen back together from its preset and its tweaks (after an undo changed the tweaks) */
+  reapplyLook: () => void;
   addPhotos: (p: PhotoAsset[]) => void;
   removePhoto: (id: string) => void;
   addClips: (c: ClipAsset[]) => void;
@@ -319,6 +332,40 @@ for (const spec of persisted.customShaders ?? []) {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * The look on screen as its preset made it, before any tweak: what a change made while fine-tuning is
+ * told against. applyPreset sets it; a scene picked on its own (setScene) has no preset, so no tweaks.
+ */
+let base: { preset: Preset; look: LookState } | null = null;
+
+/** true while applyPreset puts a look on (playback, not an edit: history.ts reads it) */
+let applyingLook = false;
+export function isApplyingLook(): boolean {
+  return applyingLook;
+}
+
+/**
+ * A fine-tuning change `next` to the look on screen, with the look's tweak for this song brought up to
+ * date in the same store change (so the change is there again the next time the look comes back).
+ */
+function tuned(s: StudioState, next: Partial<StudioState>): Partial<StudioState> {
+  const id = s.presetId;
+  if (!Object.keys(next).length || !id || !base || base.preset.id !== id) return next;
+  const now: LookState = {
+    sceneId: s.sceneId,
+    sceneParams: next.sceneParams ?? s.sceneParams,
+    effects: next.effects ?? s.effects,
+    modulations: next.modulations ?? s.modulations,
+    palette: next.palette ?? s.palette,
+  };
+  const t: LookTweak | null = tweakOf(base.look, now);
+  if (!t && !s.tweaks[id]) return next;
+  const tweaks = { ...s.tweaks };
+  if (t) tweaks[id] = t;
+  else delete tweaks[id];
+  return { ...next, tweaks };
+}
+
 /** a scene with its default params; keeps effect routings, swaps in the scene's own suggested routings */
 export function sceneLook(id: string, mods: Modulation[]) {
   const def = getScene(id);
@@ -354,6 +401,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   selectedParts: [],
   metersOpen: false,
   partHand: null,
+  partShot: null,
   partWords: null,
   perform: false,
   autoPilot: false,
@@ -397,14 +445,24 @@ export const useStudio = create<StudioState>((set, get) => ({
   finish: persisted.finish ?? 'hand',
   finishPicked: persisted.finishPicked ?? false,
   oneTap: persisted.oneTap ?? true,
+  tweaks: loadTweaks(''),
   startup: null,
   needsTap: false,
 
   applyPreset: (p) => {
-    const look = presetToLook(p);
-    if (!getScene(look.sceneId)) return;
+    const plain = presetToLook(p);
+    if (!getScene(plain.sceneId)) return;
+    base = { preset: p, look: plain };
+    // the person's changes to this look in this song go back on top of the preset, every time
+    const t = get().tweaks[p.id];
+    const look = t ? presetToLook(withTweak(p, t)) : plain;
     const hand = cleanHand(p.hand);
-    set({ ...look, presetId: p.id, shaderError: null, ...(hand ? { hand } : {}) });
+    applyingLook = true;
+    try {
+      set({ ...look, presetId: p.id, shaderError: null, ...(hand ? { hand } : {}) });
+    } finally {
+      applyingLook = false;
+    }
   },
 
   setScene: (id) => {
@@ -412,7 +470,7 @@ export const useStudio = create<StudioState>((set, get) => ({
     if (!look) return;
     set({ ...look, presetId: null, shaderError: null });
   },
-  setSceneParam: (id, v) => set((s) => ({ sceneParams: { ...s.sceneParams, [id]: v } })),
+  setSceneParam: (id, v) => set((s) => tuned(s, { sceneParams: { ...s.sceneParams, [id]: v } })),
 
   addEffect: (effectId) => {
     const def = getEffect(effectId);
@@ -420,15 +478,17 @@ export const useStudio = create<StudioState>((set, get) => ({
     const params: Record<string, ParamValue> = {};
     for (const d of def.params) params[d.id] = d.default;
     const inst: EffectInstance = { instanceId: uid('fx'), effectId, enabled: true, params };
-    set((s) => ({ effects: [...s.effects, inst] }));
+    set((s) => tuned(s, { effects: [...s.effects, inst] }));
   },
   removeEffect: (instanceId) =>
-    set((s) => ({
-      effects: s.effects.filter((e) => e.instanceId !== instanceId),
-      modulations: s.modulations.filter((m) => !m.target.startsWith(`fx.${instanceId}.`)),
-    })),
+    set((s) =>
+      tuned(s, {
+        effects: s.effects.filter((e) => e.instanceId !== instanceId),
+        modulations: s.modulations.filter((m) => !m.target.startsWith(`fx.${instanceId}.`)),
+      }),
+    ),
   toggleEffect: (instanceId) =>
-    set((s) => ({ effects: s.effects.map((e) => (e.instanceId === instanceId ? { ...e, enabled: !e.enabled } : e)) })),
+    set((s) => tuned(s, { effects: s.effects.map((e) => (e.instanceId === instanceId ? { ...e, enabled: !e.enabled } : e)) })),
   moveEffect: (instanceId, dir) =>
     set((s) => {
       const i = s.effects.findIndex((e) => e.instanceId === instanceId);
@@ -436,21 +496,37 @@ export const useStudio = create<StudioState>((set, get) => ({
       if (i < 0 || j < 0 || j >= s.effects.length) return {};
       const arr = s.effects.slice();
       [arr[i], arr[j]] = [arr[j], arr[i]];
-      return { effects: arr };
+      return tuned(s, { effects: arr });
     }),
   setEffectParam: (instanceId, id, v) =>
-    set((s) => ({
-      effects: s.effects.map((e) => (e.instanceId === instanceId ? { ...e, params: { ...e.params, [id]: v } } : e)),
-    })),
+    set((s) =>
+      tuned(s, {
+        effects: s.effects.map((e) => (e.instanceId === instanceId ? { ...e, params: { ...e.params, [id]: v } } : e)),
+      }),
+    ),
 
   addModulation: (source, target, amount = 0.5) =>
-    set((s) => ({ modulations: [...s.modulations, { id: uid('mod'), source, target, amount, enabled: true }] })),
+    set((s) => tuned(s, { modulations: [...s.modulations, { id: uid('mod'), source, target, amount, enabled: true }] })),
   updateModulation: (id, patch) =>
-    set((s) => ({ modulations: s.modulations.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
-  removeModulation: (id) => set((s) => ({ modulations: s.modulations.filter((m) => m.id !== id) })),
+    set((s) => tuned(s, { modulations: s.modulations.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+  removeModulation: (id) => set((s) => tuned(s, { modulations: s.modulations.filter((m) => m.id !== id) })),
 
-  setPalette: (p) => set({ palette: { ...p } }),
-  setPaletteColor: (key, hex) => set((s) => ({ palette: { ...s.palette, id: 'custom', name: 'Custom', [key]: hex } })),
+  setPalette: (p) => set((s) => tuned(s, { palette: { ...p } })),
+  setPaletteColor: (key, hex) => set((s) => tuned(s, { palette: { ...s.palette, id: 'custom', name: 'Custom', [key]: hex } })),
+
+  resetLookTweaks: () => {
+    const s = get();
+    const id = s.presetId;
+    if (!id || !s.tweaks[id]) return;
+    const tweaks = { ...s.tweaks };
+    delete tweaks[id];
+    if (base && base.preset.id === id) set({ ...presetToLook(base.preset), tweaks });
+    else set({ tweaks });
+  },
+  reapplyLook: () => {
+    const s = get();
+    if (base && base.preset.id === s.presetId) s.applyPreset(base.preset);
+  },
 
   addPhotos: (p) => set((s) => ({ photos: [...s.photos, ...p] })),
   removePhoto: (id) =>
@@ -484,6 +560,9 @@ export const useStudio = create<StudioState>((set, get) => ({
       p.variant = name;
     }
     if (s.hand.on) p.hand = { ...s.hand };
+    // The take is what's on screen now, and later changes are told against it. The look it came from
+    // keeps its tweak: the parts of this video that use that look still look the way they were made.
+    base = { preset: p, look: { sceneId: s.sceneId, sceneParams: s.sceneParams, effects: s.effects, modulations: s.modulations, palette: s.palette } };
     set({ customPresets: [p, ...s.customPresets], presetId: p.id });
     persist(get());
     return p;
@@ -529,3 +608,15 @@ export const useStudio = create<StudioState>((set, get) => ({
     toastTimer = setTimeout(() => set({ toast: null }), 2600);
   },
 }));
+
+// Each song keeps its own look tweaks: a song that loads brings its own back, and every change is saved.
+let tweakSong = '';
+useStudio.subscribe((s, prev) => {
+  const song = s.track?.name ?? '';
+  if (song !== tweakSong) {
+    tweakSong = song;
+    useStudio.setState({ tweaks: loadTweaks(song) });
+    return;
+  }
+  if (s.tweaks !== prev.tweaks) saveTweaks(song, s.tweaks);
+});

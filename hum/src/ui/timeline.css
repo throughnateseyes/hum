@@ -6,9 +6,6 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
 }
-.tl.tln .tl-lane {
-  grid-template-rows: 62px 26px;
-}
 .tl.tln.blade .tln-parts,
 .tl.tln.blade .tln-part {
   cursor: crosshair;
@@ -50,7 +47,141 @@
   transform: none;
 }
 
-/* the parts row: every part placed by its time, so it lines up with the waveform under it */
+/* the view: the song laid out at the zoom's width, scrolled sideways (no scrollbar: wheel, pinch, keys) */
+.tln-stage {
+  position: relative;
+  min-width: 0;
+}
+.tln-view {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* room for the playhead's dot and the rings of the edge blocks */
+  padding: 6px 2px 3px;
+  margin: -6px 0 -3px;
+  overscroll-behavior-x: contain;
+}
+.tln-view::-webkit-scrollbar {
+  display: none;
+}
+.tl.tln .tl-lane {
+  grid-template-rows: 15px 44px 26px;
+}
+
+/* the song's sections over the blocks they gave */
+.tln-heads {
+  position: relative;
+  min-width: 0;
+}
+.tln-hd {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 5px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-2);
+  line-height: 1;
+  color: var(--ink-2);
+  white-space: nowrap;
+  /* clip, not hidden: hidden would make each header its own scroller and the sticky name below
+     would stick inside it instead of to the timeline's left edge */
+  overflow: clip;
+  cursor: pointer;
+}
+/* the dot and the name, pinned to the left edge of the view while the section is on screen */
+.tln-hd-l {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+.tln-hd:first-child {
+  border-left-color: transparent;
+}
+.tln-hd:hover {
+  color: var(--ink);
+  background: var(--panel-2);
+}
+.tln-hd i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.tln-hd b {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tln-hd.now {
+  color: var(--ink);
+}
+.tln-hd.now b {
+  font-weight: 600;
+}
+.tln-hd.tiny {
+  justify-content: center;
+  padding: 0;
+}
+
+/* the zoom control, at the end of the header row */
+.tln-zoom {
+  position: absolute;
+  right: 0;
+  top: -2px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 19px;
+  padding-left: 14px;
+  background: linear-gradient(to right, transparent, var(--panel) 12px);
+}
+.tln-zb {
+  display: grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-1);
+  font-weight: 500;
+}
+.tln-zb:hover:not([disabled]) {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.tln-zb[disabled] {
+  opacity: 0.35;
+  cursor: default;
+}
+.tln-zb.fit {
+  margin-left: 2px;
+}
+.tln-zr {
+  min-width: 26px;
+  text-align: center;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/* the blocks: every part placed by its time, so it lines up with the waveform under it */
 .tln-parts {
   position: relative;
   min-width: 0;
@@ -58,6 +189,7 @@
 .tln-parts.tl-placeholder {
   display: flex;
   align-items: center;
+  grid-row: 1 / span 2;
 }
 .tln-part {
   position: absolute;
@@ -65,58 +197,55 @@
   bottom: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
   padding: 0 1px;
   min-width: 0;
   outline: none;
   cursor: pointer;
 }
-/* the part's name over its shots */
-.tln-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: 4px;
-  font-size: var(--fs-2);
-  line-height: 1;
-  color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
+/* thin blocks at fit zoom: no gap, a hairline between them */
+.tln-part.tiny {
+  padding: 0;
 }
-.tln-label i {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.tln-label b {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tln-part.tiny .tln-shots {
+  border-radius: 1px;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.7);
 }
 .tln-hand {
   flex: none;
-  color: var(--ink-3);
+  color: var(--ink-2);
+}
+.tln-heart {
+  flex: none;
+  color: var(--accent);
 }
 .tln-edit {
   flex: none;
   width: 6px;
   height: 6px;
-  margin-left: auto;
   border-radius: 50%;
   background: var(--accent);
 }
-.tln-part.tiny .tln-label {
-  justify-content: center;
-  padding: 0;
+/* the person's marks on a block: liked, hand-drawn, changed */
+.tln-marks {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 3px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  pointer-events: none;
 }
-.tln-part.tiny .tln-edit {
-  margin-left: 0;
+.tln-part.small .tln-marks {
+  top: 2px;
+  right: 2px;
+  padding: 1px 2px;
 }
 
-/* the shots: the part's main look under them, each shot's own picture on top */
+/* a block's picture (or the shots inside it, for a plan that isn't one look per part) */
 .tln-shots {
   position: relative;
   flex: 1;
@@ -125,6 +254,18 @@
   background: var(--panel-2) center / cover no-repeat;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
   transition: box-shadow 0.12s, transform 0.12s;
+}
+.tln-one {
+  position: absolute;
+  inset: 0;
+}
+.tln-part:not(.small):not(.tiny) .tln-one::after,
+.tln-shot.full::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(10, 10, 12, 0.6), rgba(10, 10, 12, 0) 70%);
+  pointer-events: none;
 }
 .tln-shot {
   position: absolute;
@@ -143,13 +284,6 @@
   background: center / cover no-repeat;
   pointer-events: none;
 }
-.tln-shot.full::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(10, 10, 12, 0.6), rgba(10, 10, 12, 0) 70%);
-  pointer-events: none;
-}
 .tln-sname {
   position: absolute;
   left: 6px;
@@ -165,11 +299,11 @@
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
-/* a board interlude that opens the part reads as its own shot */
 .tln-shot.inter {
   box-shadow: inset -2px 0 0 #fff;
 }
-/* the shot on screen now: a quiet line under it */
+/* the block on screen now: a quiet line along its foot */
+.tln-part.now .tln-shots::before,
 .tln-shot.now::before {
   content: '';
   position: absolute;
@@ -181,6 +315,10 @@
   border-radius: 1px;
   background: #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.tln-part.tiny.now .tln-shots::before {
+  left: 0;
+  right: 0;
 }
 .tln-empty {
   position: absolute;
@@ -196,37 +334,21 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.tln-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
 
 /* states */
 .tln-part:hover .tln-shots {
   box-shadow: 0 0 0 1.5px var(--ink-3);
 }
-.tln-part.now .tln-label {
-  color: var(--ink);
-}
-.tln-part.now .tln-label b {
-  font-weight: 600;
-}
 .tln-part:focus-visible .tln-shots {
   box-shadow: 0 0 0 2px var(--ink);
 }
-/* picked: the accent ring and a tinted name */
+/* picked: the accent ring */
 .tln-part.sel .tln-shots {
   box-shadow: 0 0 0 2px var(--accent);
+  z-index: 1;
 }
-.tln-part.sel .tln-label {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.tln-part.sel .tln-hand {
-  color: var(--accent);
+.tln-part.sel {
+  z-index: 1;
 }
 /* dragging a look from the library: every part is a drop target */
 .tln-parts.dragging .tln-shots {
@@ -243,21 +365,31 @@
   box-shadow: 0 0 0 2.5px var(--accent);
   transform: translateY(-2px);
 }
+/* what a dragged look will do: fixed over the block, so the scrolling view doesn't clip it */
+.tl-droptip.tln-droptip {
+  position: fixed;
+  bottom: auto;
+  transform: translate(-50%, -100%);
+}
 
-/* where a split would land: a line through the lane with the time on the beat */
+/* where a split would land: a line through the lane, and its time on the beat over the view */
 .tln-guide {
   position: absolute;
-  top: 14px;
+  top: 0;
   bottom: -3px;
   width: 0;
   border-left: 1.5px solid var(--accent);
   pointer-events: none;
   z-index: 4;
 }
-.tln-guide span {
+.tln-guide.no {
+  border-left-style: dashed;
+  border-left-color: var(--ink-3);
+}
+.tln-guide-t {
   position: absolute;
-  top: -16px;
-  left: 0;
+  top: -1px;
+  z-index: 7;
   transform: translateX(-50%);
   padding: 1px 5px;
   border-radius: 4px;
@@ -266,13 +398,19 @@
   font-size: var(--fs-1);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  pointer-events: none;
 }
-.tln-guide.no {
-  border-left-style: dashed;
-  border-left-color: var(--ink-3);
-}
-.tln-guide.no span {
+.tln-guide-t.no {
   background: var(--ink-2);
+}
+
+/* the waveform canvas is the width of the view and stays put while the song scrolls under it */
+.tln .tl-wave canvas {
+  position: sticky;
+  inset: auto;
+  left: 0;
+  display: block;
+  height: 100%;
 }
 
 /* ───────── the transport row ───────── */
@@ -391,7 +529,7 @@
   display: none;
 }
 .app.phone .tl.tln .tl-lane {
-  grid-template-rows: 54px 28px;
+  grid-template-rows: 14px 40px 28px;
 }
 
 /* the transport keeps a volume control too (index.css hides it where the stage has its own) */

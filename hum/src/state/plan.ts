@@ -25,7 +25,8 @@ import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type L
 import { profileFor } from '../render/lyricProfiles';
 import type { Direction } from '../core/direction';
 import { localDirection, moodDirection, preferredTransitions } from './direction';
-import { boundsOf, cutAnalysis, originalOf, planKey, savedPlan, savePlan, watchPlan } from './planCache';
+import { boundsOf, cutAnalysis, cutOfSections, originalOf, parentsOf, planKey, savedPlan, savePlan, watchPlan } from './planCache';
+import { carryEdits, putOn, skipPlayingPart } from './flatPlan';
 import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, playsClips } from '../director/footage';
@@ -70,6 +71,21 @@ export interface VideoPlan {
    * analysis the same way before checking the part count (planCache.cutAnalysis).
    */
   bounds?: number[];
+  /**
+   * One look per part (flatPlan.ts): the plan's shots made parts of their own, so every block on the
+   * timeline is one look that can be changed, skipped or liked on its own. `src` is the plan as the
+   * planner made it (a look per section with its rotation), kept so a new Pace can cut it again.
+   */
+  flat?: FlatInfo;
+  /** parts the person liked (K): a later skip or a remake that keeps changes leaves them alone */
+  liked?: boolean[];
+}
+
+export interface FlatInfo {
+  /** the plan as the planner made it, per section of the song with its rotations */
+  src: VideoPlan;
+  /** the Pace its shots were cut at */
+  pace: Pace;
 }
 
 export interface PlanBase {
@@ -90,14 +106,41 @@ export const LABEL_NAME: Record<TrackSection['label'], string> = {
   outro: 'Outro',
 };
 
-/** "Verse 2", "Chorus 1"… numbered only when a label appears more than once */
+/**
+ * "Verse 2", "Chorus 1"… numbered only when a label appears more than once. The parts of a re-cut
+ * (one look per part, or parts the person split) are named after the section of the song they lie in,
+ * so every shot of the drop reads "Drop"; partNames tells the shots apart.
+ */
 export function sectionNames(sections: TrackSection[]): string[] {
+  const cut = cutOfSections(sections);
+  if (cut) {
+    const orig = originalOf(cut);
+    const names = sectionNames(orig.sections);
+    return parentsOf(cut).map((j) => names[j] ?? '');
+  }
   const total: Record<string, number> = {};
   for (const s of sections) total[s.label] = (total[s.label] ?? 0) + 1;
   const seen: Record<string, number> = {};
   return sections.map((s) => {
     seen[s.label] = (seen[s.label] ?? 0) + 1;
     return total[s.label] > 1 ? `${LABEL_NAME[s.label]} ${seen[s.label]}` : LABEL_NAME[s.label];
+  });
+}
+
+/**
+ * A name for every part that tells them apart: the section's name, and which shot of it the part is
+ * when the section has several ("Drop, shot 3"). Parts that are a whole section keep its plain name.
+ */
+export function partNames(a: TrackAnalysis): string[] {
+  const names = sectionNames(a.sections);
+  const parents = parentsOf(a);
+  const count = new Map<number, number>();
+  for (const j of parents) count.set(j, (count.get(j) ?? 0) + 1);
+  const seen = new Map<number, number>();
+  return parents.map((j, k) => {
+    const m = (seen.get(j) ?? 0) + 1;
+    seen.set(j, m);
+    return (count.get(j) ?? 1) > 1 ? `${names[k]}, shot ${m}` : names[k];
   });
 }
 
@@ -166,7 +209,9 @@ export function strongDropAt(a: TrackAnalysis, i: number): boolean {
  * person just set by hand, which is left alone.
  */
 export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep: number | number[] = -1): VideoPlan {
-  if (plan.looks.length !== a.sections.length) return plan;
+  // one look per part: the planner's plan already cut on every drop when it was flattened, and what
+  // the person changes since is theirs (nothing is swapped behind their back)
+  if (plan.looks.length !== a.sections.length || plan.flat) return plan;
   const kept = new Set(Array.isArray(keep) ? keep : [keep]);
   const looks = [...plan.looks];
   const pops = plan.pops ? [...plan.pops] : a.sections.map((x) => POPS_BY_LABEL[x.label]);
@@ -405,6 +450,7 @@ export function partEnergy(a: TrackAnalysis, i: number): number {
 function poolFor(plan: VideoPlan, a: TrackAnalysis, i: number, pace: Pace, drive: number): string[] {
   const main = plan.looks[i];
   if (!main) return [];
+  if (plan.flat) return [main];
   const given = plan.rotate?.[i] ?? null;
   const want = poolSize(drive, pace, given ? given.length + 1 : undefined);
   // the look the next part starts on stays out, so every section change (and every drop) shows
@@ -456,6 +502,12 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     const sec = secs[i];
     const main = plan.looks[i];
     if (!main) continue;
+    // one look per part: the part is one shot, arriving the way it did before it was flattened
+    if (plan.flat) {
+      const strong = strongDropAt(a, i);
+      out.push({ t: sec.start, lookId: main, tr: CUT, section: i, on: 'section', strongDrop: strong, pick: { on: 'section', label: sec.label, energy: sec.energy, first: i === 0, strongDrop: strong, drop: sd[i]?.strength ?? 0 } });
+      continue;
+    }
     const first = out.length;
     const P = sectionPacing(plan, a, i, pace);
     const pool = poolFor(plan, a, i, pace, P.drive);
@@ -584,7 +636,10 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     const picked = pickTransition(a, { ...sh.pick!, seed: k * 7.31 + Math.round(a.duration), prev, room, prefer });
     const own = plan.transitions?.[sh.section];
     const ownId = sh.on === 'section' || sh.on === 'interlude' ? own?.into : own?.within;
-    if (ownId && !sh.strongDrop && k > 0) {
+    if (plan.flat && own?.into) {
+      // a flattened part keeps the exact transition its shot had (flatPlan.ts stores it)
+      sh.tr = { id: own.into, beats: own.beats ?? 0 };
+    } else if (ownId && !sh.strongDrop && k > 0) {
       const beats = ownId === 'cut' ? 0 : (own?.beats ?? (picked.beats || 1));
       sh.tr = { id: ownId, beats: Math.min(beats, Math.max(0.25, (room * 0.6) / beat)) };
     } else sh.tr = picked;
@@ -612,6 +667,11 @@ export function shotIndexAt(shots: Shot[], t: number): number {
 
 /** transitions start up to half their length early, so they're halfway through on the beat */
 const LEAD_S = 1.6;
+
+/** a hand pick's hold ends now (a skip or a quick pick puts a new look on at once) */
+export function releaseHold() {
+  hold = null;
+}
 /** hard cuts fire a frame early so the new look is on screen when the hit lands */
 const CUT_EARLY_S = 0.02;
 
@@ -679,8 +739,26 @@ export function interludeLength(sec: TrackSection, bpm: number): number {
  * The look a video's colours come from: the one on screen for most of the song (choruses and drops
  * count double, since that's what people remember). Null when there's no plan to follow.
  */
+const keyCache = new WeakMap<VideoPlan, { a: TrackAnalysis; key: Preset | undefined; looks: number }>();
 export function keyLookOf(plan: VideoPlan | null, a: TrackAnalysis | null): Preset | undefined {
   if (!plan || !a || !validPlan(plan, a)) return undefined;
+  // read every frame (Song colours): worked out once per plan
+  const hit = keyCache.get(plan);
+  const nLooks = useStudio.getState().customPresets.length;
+  if (hit && hit.a === a && hit.looks === nLooks) return hit.key;
+  const key = keyLookNow(plan, a);
+  keyCache.set(plan, { a, key, looks: nLooks });
+  return key;
+}
+function keyLookNow(plan: VideoPlan, a: TrackAnalysis): Preset | undefined {
+  // one look per part: the colours come from the planner's own plan, so flattening doesn't change
+  // them, as long as that look still plays somewhere
+  const src = plan.flat?.src;
+  if (src) {
+    const sa = cutAnalysis(a, src.bounds);
+    const key = sa && validPlan(src, sa) ? keyLookOf(src, sa) : undefined;
+    if (key && plan.looks.includes(key.id)) return key;
+  }
   const time = new Map<string, number>();
   a.sections.forEach((sec, i) => {
     const id = plan.looks[i];
@@ -799,6 +877,8 @@ export function pickLook(p: Preset) {
 export function assignLook(i: number, presetId: string, spread = true) {
   const s = useStudio.getState();
   if (!s.analysis) return;
+  // one look per part: a pick changes the part it lands on and nothing else
+  if (s.plan?.flat && validPlan(s.plan, s.analysis)) spread = false;
   const secs = s.analysis.sections;
   const plan: VideoPlan = validPlan(s.plan, s.analysis)
     ? { ...s.plan!, looks: [...s.plan!.looks], rotate: secs.map((_, j) => s.plan!.rotate?.[j] ?? null) }
@@ -820,8 +900,10 @@ export function assignLook(i: number, presetId: string, spread = true) {
   // fill empty sections so the song map always has something to follow
   for (let j = 0; j < plan.looks.length; j++) if (!plan.looks[j]) plan.looks[j] = presetId;
   // the section you picked stays as you set it; strong drops elsewhere still get their cut
-  s.set({ plan: ensureDropCuts(plan, s.analysis, i), planOn: true, autoPilot: false });
-  const names = sectionNames(secs);
+  const next = ensureDropCuts(plan, s.analysis, i);
+  const names = partNames(s.analysis);
+  if (next.flat) s.set({ plan: next, planOn: true, autoPilot: false });
+  else putOn(next, s.analysis); // a map started from one look: its shots become parts of their own too
   const look = findLook(presetId);
   s.flash(`${names[i]}${also ? ` and ${also} like it now use` : ' now uses'} “${look?.name ?? 'this look'}”`);
 }
@@ -1035,9 +1117,13 @@ export function footageCut(a: TrackAnalysis, looks: string[], footage: Preset[])
  */
 export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodId | null; keepEdits?: boolean } = {}) {
   const s = useStudio.getState();
-  const a = s.analysis;
-  if (!a || s.planning) return;
-  const prev = validPlan(s.plan, a) ? s.plan : null;
+  const cur = s.analysis;
+  if (!cur || s.planning) return;
+  const prev = validPlan(s.plan, cur) ? s.plan : null;
+  // the planner plans the song's own sections, each with its rotation; the playing video's parts
+  // (one per shot, and any the person split or combined) are flattened again from the new plan, and
+  // the changes made to them carried across by time (flatPlan.ts carryEdits)
+  const a = originalOf(cur);
   const moodId = opts.mood === undefined ? (opts.fresh ? prev?.mood : undefined) : (opts.mood ?? undefined);
   const mood = moodById(moodId);
   // cost: a song that already has a plan from Claude plays it again without a new request
@@ -1046,38 +1132,34 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   if (cacheKey && !wish.trim() && !opts.fresh && !mood) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     if (saved) {
-      void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim());
-      watchPlan(cacheKey, saved, a);
+      void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim(), { restore: true });
+      const on = useStudio.getState();
+      if (on.plan && on.analysis) watchPlan(cacheKey, on.plan, on.analysis);
       return;
     }
   }
   s.set({ planning: true });
   const asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
   const reason = asked.reason;
-  let plan = withBase(asked.plan, a);
+  const plan = withBase(asked.plan, a);
   // the song may have changed while Claude was thinking
   const now = useStudio.getState();
-  if (now.analysis !== a) {
+  if (!now.analysis || originalOf(now.analysis) !== a) {
     now.set({ planning: false });
     return;
   }
-  // the parts the person changed by hand keep their changes (the new plan's own picks stay as its base,
-  // so they still read as changed, and "Reset this part" gives the new plan's pick)
-  const before = validPlan(now.plan, a) ? now.plan : prev;
-  if (before && opts.keepEdits !== false) {
-    const k = keepEdits(plan, before, a);
-    plan = k.plan;
-    if (k.kept.length) {
-      const names = sectionNames(a.sections);
-      plan = { ...plan, note: `${plan.note} Kept your changes to ${listNames(k.kept.map((i) => names[i]))}.` };
-    }
-  } else if (opts.keepEdits === false && now.partPops) now.set({ partPops: null }); // "Start fresh": the pop-up overrides go too
-  if (cacheKey && plan.source === 'claude') {
-    savePlan(cacheKey, plan);
-    watchPlan(cacheKey, plan, a);
-  }
+  // the parts the person changed by hand (and liked) keep their changes (the new plan's own picks stay
+  // as its base, so they still read as changed, and "Reset this part" gives the new plan's pick);
+  // "Start fresh" (keepEdits false) drops them, and the pop-up overrides with them
+  const before = validPlan(now.plan, now.analysis) ? now.plan : prev;
+  const keep = before && opts.keepEdits !== false ? before : null;
   now.set({ planning: false });
-  void startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim());
+  void startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
+  const on = useStudio.getState();
+  if (cacheKey && plan.source === 'claude' && on.plan && on.analysis) {
+    savePlan(cacheKey, on.plan);
+    watchPlan(cacheKey, on.plan, on.analysis);
+  }
 }
 
 /** the saved Claude plan for the loaded song, if there is one (Make a video plays it again for free) */
@@ -1226,13 +1308,18 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
  * Put a plan on, say so in the chat and play the song from the top. Resolves true once sound has
  * really started, false when the browser wants a tap first (or `play` is false: the caller plays).
  */
-export function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string, opts: { play?: boolean } = {}): Promise<boolean> {
+export function startPlan(
+  plan: VideoPlan,
+  a: TrackAnalysis,
+  text: string,
+  opts: { play?: boolean; keep?: VideoPlan | null; freshPops?: boolean; restore?: boolean } = {},
+): Promise<boolean> {
   const now = useStudio.getState();
-  a = adoptCut(plan, a);
-  plan = withBase(plan, a);
-  rememberPlan(a, planSignature(plan));
-  now.set({ plan, planOn: true, autoPilot: false });
-  now.pushChat({ role: 'director', mode: 'plan', title: plan.title, text, source: plan.source, via: plan.via });
+  // remembered as the planner made it (taste compares plans per section), then put on one look per part
+  rememberPlan(originalOf(a), planSignature(plan.flat?.src ?? plan));
+  const on = putOn(plan, a, { keep: opts.keep, freshPops: opts.freshPops, restore: opts.restore });
+  const kept = on.kept ? ` Kept your changes to ${on.kept === 1 ? 'one part' : `${on.kept} parts`}.` : '';
+  now.pushChat({ role: 'director', mode: 'plan', title: plan.title, text: `${text}${kept}`, source: plan.source, via: plan.via });
   audioEngine.seek(0);
   if (opts.play === false) return Promise.resolve(false);
   return audioEngine.start().then((ok) => {
@@ -1242,24 +1329,12 @@ export function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string, opts:
 }
 
 /**
- * The parts a plan plays on: a plan with the person's own part lines (`bounds`) puts the song cut at
- * those lines on (the store's analysis and the audio engine's), so everything that reads the parts
- * (the planner, the timeline, the footage scene, lyrics, renders, Breakdown) sees the same list. A plan
- * without them puts the song's own parts back. Returns the analysis to use with the plan.
+ * The lyrics arrived (or changed) after this plan was made: give it a lyric plan for them. A plan
+ * flattened to one look per part gets it through the planner's own plan (`a`: the song's own
+ * analysis), which the caller puts on again (putOn), so its shots can follow the words too.
  */
-export function adoptCut(plan: VideoPlan, a: TrackAnalysis): TrackAnalysis {
-  const s = useStudio.getState();
-  const target = cutAnalysis(a, plan.bounds);
-  if (!target || target.sections.length !== plan.looks.length) return a;
-  if (s.analysis && s.analysis !== target && originalOf(s.analysis) === originalOf(target)) {
-    audioEngine.setAnalysis(target);
-    s.set({ analysis: target });
-  }
-  return target;
-}
-
-/** the lyrics arrived (or changed) after this plan was made: give it a lyric plan for them */
 export async function withLyricsNow(plan: VideoPlan, a: TrackAnalysis, lyr: Lyrics | null): Promise<VideoPlan> {
+  if (plan.flat) return withLyricsNow(plan.flat.src, originalOf(a), lyr);
   const { getScene } = await import('../scenes');
   const bare: VideoPlan = { ...plan, lyricPlan: undefined, note: plan.note.replace(/ Lyrics: .*$/, '') };
   return withLyricPlan(bare, a, lyr, null, getScene, plan.lyricPlan?.seed ?? ((Math.random() * 2 ** 31) | 0));
@@ -1399,6 +1474,7 @@ export function recutParts(s: Pick<StudioState, 'analysis' | 'plan' | 'partPops'
       ...(p.rotate ? { rotate: from.map((j) => (p.rotate![j] ? [...p.rotate![j]!] : null)) } : {}),
       ...(p.shotBars ? { shotBars: pick(p.shotBars, null) } : {}),
       ...(p.transitions ? { transitions: pick(p.transitions, null) } : {}),
+      ...(p.liked ? { liked: pick(p.liked, false) } : {}),
       ...(lp ? { lyricPlan: { ...lp, parts: now.map((_, k) => lp.parts[firstSung(k)] ?? null) } } : {}),
       ...(base
         ? {
@@ -1416,30 +1492,8 @@ export function recutParts(s: Pick<StudioState, 'analysis' | 'plan' | 'partPops'
   return { analysis: cut, plan, partPops: mine(s.partPops), partHand: mine(s.partHand), partWords: mine(s.partWords), from };
 }
 
-/**
- * Carry the parts changed by hand in `prev` over to a new plan `next` for the same song. Pop-up
- * overrides need no carrying: they live in store.partPops, outside the plan, and outlast re-plans.
- * `kept` lists every changed part, pop-ups included, for the "Kept your changes" note.
- */
-export function keepEdits(next: VideoPlan, prev: VideoPlan, a: TrackAnalysis): { plan: VideoPlan; kept: number[] } {
-  const edits = partEdits(prev, a);
-  const kept = edits.map((e, i) => (e ? i : -1)).filter((i) => i >= 0);
-  if (!kept.length) return { plan: next, kept };
-  const base = withBase(next, a).base!;
-  const looks = [...next.looks];
-  const rotate = a.sections.map((_, i) => next.rotate?.[i] ?? null);
-  const lp = next.lyricPlan ? { ...next.lyricPlan, parts: [...next.lyricPlan.parts] } : undefined;
-  for (const i of kept) {
-    const e = edits[i]!;
-    if (e.look && prev.looks[i] && findLook(prev.looks[i])) {
-      looks[i] = prev.looks[i];
-      rotate[i] = prev.rotate?.[i] ?? null;
-    }
-    const was = prev.lyricPlan?.parts[i];
-    if (e.lyric && lp && was && lp.parts[i]) lp.parts[i] = { ...lp.parts[i]!, medium: was.medium, why: was.why };
-  }
-  return { plan: { ...next, looks, rotate, ...(lp ? { lyricPlan: lp } : {}), base }, kept };
-}
+// carrying the person's changes to a new plan: flatPlan.ts carryEdits (by time, one look per part)
+export { carryEdits };
 
 /** the mood of the plan playing now (scene windows keep to it too) */
 export function playingMood(): MoodId | undefined {
@@ -1582,8 +1636,10 @@ export function skipLook(): boolean {
   const s = useStudio.getState();
   const id = s.presetId;
   if (!id) return false;
-  record('skip', id);
   const a = s.analysis;
+  // one look per part: only the shot that's playing gets a new look (flatPlan.ts)
+  if (s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a) && s.plan!.flat) return !!skipPlayingPart();
+  record('skip', id);
   if (!(s.planOn && audioEngine.kind === 'file' && validPlan(s.plan, a))) return false;
   const i = sectionIndexAt(a!.sections, audioEngine.currentTime);
   const plan = s.plan!;

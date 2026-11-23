@@ -110,14 +110,6 @@ select.sel:focus-visible,
 textarea:focus-visible {
   outline: none;
 }
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
 .spacer {
   flex: 1;
 }
@@ -583,42 +575,19 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
 }
-.panel-tabs {
-  display: flex;
-  gap: 2px;
-  height: 40px;
-  align-items: center;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--line);
-  flex: none;
-}
-.panel-tabs button {
-  border: 0;
-  background: transparent;
-  padding: 5px 8px;
-  border-radius: var(--r-sm);
-  color: var(--ink-3);
-  font-weight: 500;
-}
-.panel-tabs button:hover {
-  color: var(--ink-2);
-}
-.panel-tabs button {
+/* the Library's tabs are the right panel's segmented control (.insp-tabs below); a count rides along */
+.lib-tabs .seg button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-}
-.panel-tabs button.on {
-  color: var(--ink);
-  font-weight: 600;
-  background: var(--panel-2);
 }
 .tab-n {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--panel-2);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--ink-3);
   font-size: var(--fs-1);
   font-weight: 600;
@@ -626,8 +595,7 @@ textarea:focus-visible {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.panel-tabs button.on .tab-n {
-  background: #fff;
+.lib-tabs .seg button.on .tab-n {
   color: var(--ink-2);
 }
 /* the right panel's three tabs: one segmented control across the top */
@@ -831,56 +799,6 @@ div:hover > .card-del {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* photos */
-.photo-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-.photo-grid .ph {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  background: var(--panel-2);
-}
-.photo-grid .ph img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.photo-grid .ph button {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 0;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  font-size: var(--fs-2);
-  line-height: 18px;
-  padding: 0;
-  opacity: 0;
-}
-.photo-grid .ph:hover button {
-  opacity: 1;
-}
-.drop-tile {
-  aspect-ratio: 1;
-  border: 1px dashed var(--line-2);
-  border-radius: var(--r-sm);
-  display: grid;
-  place-items: center;
-  color: var(--ink-3);
-  background: transparent;
-}
-.drop-tile:hover {
-  color: var(--ink);
-  border-color: var(--ink-3);
 }
 
 /* ───────── center: the canvas ───────── */
@@ -1400,166 +1318,12 @@ div:hover > .card-del {
   gap: 3px;
   min-width: 0;
 }
-.tl-secs {
-  position: relative;
-  display: flex;
-  gap: 2px;
-  min-width: 0;
-}
 .tl-placeholder {
   align-items: center;
   padding: 0 12px;
   border: 1px dashed var(--line-2);
   border-radius: var(--r-ctl);
   color: var(--ink-3);
-}
-.tl-sec {
-  position: relative;
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 4px 6px 4px;
-  border: 0;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  text-align: left;
-  color: var(--ink);
-  background: var(--panel-2);
-  transition: box-shadow 0.12s, transform 0.12s;
-}
-/* a part with a look: its picture fills the block */
-.tl-pic {
-  position: absolute;
-  inset: 0;
-  background: center / cover no-repeat;
-  pointer-events: none;
-}
-.tl-sec.filled::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(10, 10, 12, 0.62), rgba(10, 10, 12, 0) 62%);
-  pointer-events: none;
-}
-/* a part without one: a dashed empty slot, clearly not a look */
-.tl-sec.empty {
-  background: repeating-linear-gradient(-45deg, transparent 0 6px, rgba(27, 27, 26, 0.035) 6px 7px), var(--panel);
-  box-shadow: inset 0 0 0 1px var(--line-2);
-  outline: 1px dashed transparent;
-}
-.tl-sec.empty::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1.5px dashed var(--line-2);
-  border-radius: var(--r-sm);
-  pointer-events: none;
-}
-.tl-name {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  height: 17px;
-  padding: 0 6px 0 5px;
-  border-radius: var(--r-sm);
-  background: rgba(255, 255, 255, 0.92);
-  font-size: var(--fs-2);
-  line-height: 1;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-.tl-sec.empty .tl-name {
-  background: transparent;
-  box-shadow: none;
-  padding-left: 1px;
-}
-.tl-name i {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.tl-name b {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tl-look {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  max-width: 100%;
-  font-size: var(--fs-2);
-  font-weight: 500;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
-.tl-sec.empty .tl-look {
-  color: var(--ink-3);
-  font-weight: 400;
-  text-shadow: none;
-}
-.tl-look svg {
-  flex: none;
-}
-.tl-sec.tiny {
-  padding: 4px 0 0;
-  align-items: center;
-}
-.tl-sec.tiny .tl-name {
-  padding: 0 5px;
-}
-/* a board interlude that opens the part */
-.tl-inter {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: center / cover no-repeat;
-  border-right: 2px solid #fff;
-  opacity: 0.95;
-}
-.tl-sec:hover {
-  box-shadow: 0 0 0 1.5px var(--ink-3);
-}
-.tl-sec.now {
-  box-shadow: 0 0 0 2px var(--ink);
-}
-/* dragging a look from the library: every part is a drop target */
-.tl-secs.dragging .tl-sec {
-  box-shadow: 0 0 0 1.5px var(--accent-soft);
-}
-.tl-secs.dragging .tl-sec.empty::before {
-  border-color: var(--accent);
-  opacity: 0.6;
-}
-.tl-secs.dragging .tl-sec.empty .tl-look {
-  color: var(--accent);
-}
-.tl-sec.preview {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-.tl-sec.preview .tl-pic {
-  opacity: 0.8;
-}
-.tl-sec.over {
-  box-shadow: 0 0 0 2.5px var(--accent);
-  transform: translateY(-2px);
-}
-.tl-sec.over .tl-pic {
-  opacity: 1;
 }
 .tl-droptip {
   position: absolute;
@@ -2427,18 +2191,6 @@ textarea.txt:focus {
   overflow: hidden;
 }
 
-/* modulation rows */
-.mod-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
-}
-.mod-row:last-child {
-  border-bottom: 0;
-}
 .src-chip {
   font-size: var(--fs-2);
   font-weight: 500;
@@ -2450,28 +2202,6 @@ textarea.txt:focus {
   white-space: nowrap;
   appearance: none;
   cursor: pointer;
-}
-.mod-end {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.mod-end .param-val {
-  width: 34px;
-  text-align: right;
-}
-.mod-add {
-  display: grid;
-  grid-template-columns: 84px 1fr auto;
-  gap: 6px;
-  padding: 10px 0 2px;
-}
-.mod-target {
-  color: var(--ink-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 2px;
 }
 
 /* palettes */
@@ -3044,10 +2774,6 @@ html.perform-idle * {
 .lyr-h {
   font-weight: 600;
 }
-.lyr-who {
-  color: var(--ink-2);
-  margin-top: -4px;
-}
 .lyr-seg {
   width: 100%;
 }
@@ -3096,12 +2822,6 @@ html.perform-idle * {
 }
 .lyr-offset {
   width: 100%;
-}
-.lyr-boards {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
 }
 .lyr-pop.wide {
   width: 340px;
@@ -3829,28 +3549,169 @@ html.perform-idle * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wl-other {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 2px 14px;
-  margin-top: 14px;
-}
-.wl-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--h);
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
+/* the bottom section: the AI access code (ui/AccessSection.tsx), shared with the access overlay */
+.wl-access {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
   font-size: var(--fs-3);
   color: var(--ink-2);
 }
-.wl-link:hover {
+.acc-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.acc-label {
+  margin: 0;
+  font-size: var(--fs-3);
+  color: var(--ink-2);
+}
+.acc-off .acc-label {
+  margin-bottom: 4px;
+}
+.acc-info-btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.acc-info-btn:hover,
+.acc-info-btn[aria-expanded='true'] {
   background: var(--panel-2);
   color: var(--ink);
+}
+.acc-info-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* what a code is for: a small card floating by the "i" (placed by AccessSection, in a portal) */
+.acc-pop {
+  position: fixed;
+  z-index: 130;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--fs-3);
+  line-height: 1.5;
+  color: var(--ink-2);
+  animation: wl-fade 0.15s ease-out both;
+}
+.acc-form {
+  display: flex;
+  gap: 8px;
+}
+.acc-form .txt {
+  flex: 1;
+  min-width: 0;
+  height: var(--h-lg);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-4);
+}
+/* 16px keeps phones from zooming into the field */
+@media (pointer: coarse) {
+  .acc-form .txt {
+    font-size: 16px;
+  }
+}
+.acc-form .txt::placeholder {
+  color: var(--ink-3);
+}
+.acc-form .txt[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.acc-form .btn {
+  height: var(--h-lg);
+  padding: 0 16px;
+}
+.acc-err {
+  margin: 6px 0 0;
+  font-size: var(--fs-2);
+  line-height: 1.4;
+  color: var(--danger);
+}
+.acc-ask {
+  margin: 8px 0 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.acc-note:last-child {
+  margin-bottom: 0;
+}
+.acc-ask a,
+.acc-note a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.acc-ask a:hover,
+.acc-note a:hover {
+  color: var(--ink);
+}
+/* "Change code", "Keep the saved code": a quiet text action, not a button shape */
+.acc-quiet {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 2px;
+}
+.acc-quiet:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+/* a saved code, or no code needed: one calm line */
+.acc-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.acc-line > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.acc-line .acc-quiet {
+  margin-left: auto;
+}
+.acc-note {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.acc-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+}
+.acc-steps code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--ink);
+}
+.acc-gh {
+  text-decoration: none;
 }
 /* after a reload, while the saved song comes back: one quiet line instead of the start screen */
 .wl-back {
@@ -3899,8 +3760,9 @@ html.perform-idle * {
     margin-top: 16px;
     padding-top: 14px;
   }
-  .wl-other {
-    margin-top: 10px;
+  .wl-access {
+    margin-top: 14px;
+    padding-top: 12px;
   }
 }
 @container (max-height: 430px) {
@@ -3944,7 +3806,7 @@ html.perform-idle * {
   content: '';
 }
 
-/* ───────── access gate (AI code / run it yourself) ───────── */
+/* ───────── access gate: the start screen's island again, over the same veil ───────── */
 .gate-scrim {
   position: fixed;
   inset: 0;
@@ -3952,137 +3814,61 @@ html.perform-idle * {
   display: grid;
   place-items: center;
   padding: var(--s-4);
-  background: rgba(27, 27, 26, 0.32);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  animation: gateFade 0.14s ease-out;
+  container-type: size; /* so the island's short and narrow rules apply here too */
+  background: color-mix(in srgb, var(--canvas) 66%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(0.55);
+  backdrop-filter: blur(28px) saturate(0.55);
+  animation: wl-fade 0.2s ease-out both;
 }
-.gate {
-  position: relative;
-  width: min(380px, 100%);
-  max-height: calc(100dvh - 2 * var(--s-4));
-  overflow-y: auto;
-  padding: var(--s-5) var(--s-5) var(--s-4);
-  border-radius: var(--r-lg);
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--shadow-lg);
-  font-size: var(--fs-3);
-  animation: gateIn 0.18s ease-out;
+.welcome.wl-gate {
+  width: min(460px, 100%);
+  padding: 28px 28px 20px;
 }
-.gate:focus {
+.wl-gate:focus {
   outline: none;
+}
+.wl-gate .wl-title {
+  margin-right: 28px;
+  font-size: 22px;
+}
+.wl-gate .wl-lede {
+  margin-bottom: 18px;
+}
+/* in the overlay the section is the main content, so it needs no rule above it */
+.wl-gate .wl-access {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 .gate-x {
   position: absolute;
-  top: var(--s-2);
-  right: var(--s-2);
-}
-.gate h2 {
-  margin: 0 var(--s-5) var(--s-2) 0;
-  font-size: var(--fs-5);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.gate-lede {
-  margin: 0 0 var(--s-4);
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-.gate-form {
-  display: flex;
-  gap: var(--s-2);
-}
-.gate-form .txt {
-  flex: 1;
-  min-width: 0;
-  height: var(--h-lg);
-  font-size: 16px; /* 16px keeps phones from zooming into the field */
-}
-.gate-form .btn {
-  height: var(--h-lg);
-  padding: 0 var(--s-3);
-}
-.gate-form .txt[aria-invalid='true'] {
-  border-color: var(--danger);
-}
-.gate-err {
-  margin: var(--s-2) 0 0;
-  color: var(--danger);
-  font-size: var(--fs-2);
-  line-height: 1.4;
+  top: 12px;
+  right: 12px;
 }
 .gate-skip {
   display: block;
-  margin: var(--s-3) 0 0;
+  margin: 16px 0 0;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--ink-3);
   font-size: var(--fs-2);
+  color: var(--ink-3);
 }
 .gate-skip:hover {
   color: var(--ink);
   text-decoration: underline;
 }
-.gate-diy {
-  margin-top: var(--s-4);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
-  color: var(--ink-2);
-}
-.gate-diy.solo {
-  margin-top: 0;
-}
-.gate-diy h3 {
-  margin: 0 0 var(--s-2);
-  font-size: var(--fs-4);
-  font-weight: 600;
-  color: var(--ink);
-}
-.gate-diy ol {
-  margin: 0 0 var(--s-3);
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  font-size: var(--fs-2);
-  line-height: 1.45;
-}
-.gate-diy code {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 0.92em;
-  color: var(--ink);
-}
-.gate-gh {
-  text-decoration: none;
-}
-@keyframes gateFade {
-  from {
-    opacity: 0;
+@container (max-width: 520px) {
+  .welcome.wl-gate {
+    padding: 22px 18px 16px;
   }
-}
-@keyframes gateIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.985);
-  }
-}
-@media (max-width: 520px) {
-  .gate-scrim {
-    place-items: end center;
-  }
-  .gate {
-    padding: var(--s-4);
+  .wl-gate .wl-title {
+    font-size: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .gate-scrim,
-  .gate {
+  .acc-pop {
     animation: none;
   }
 }

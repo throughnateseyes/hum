@@ -10,6 +10,7 @@ import { ticker, topWords, upNext } from '../scenes/board/mod-words';
 import { tetris } from '../scenes/board/mod-gen';
 import { chroma, radial, scope, spectrogram, stepSeq } from '../scenes/board/mod-signal';
 import { popLevelAt, sectionIndexAt } from '../state/plan';
+import { originalOf } from '../state/planCache';
 import { popDealsVersion, popSeedAt } from '../state/popSeed';
 import { useStudio } from '../state/store';
 import { NO_KEEP_OUT, type KeepOut, type Rect as NRect } from './legibility';
@@ -73,6 +74,8 @@ export interface PopPart {
   start: number;
   end: number;
   seed: number;
+  /** starts one of the song's real sections (not just a shot inside one), so it opens with a burst */
+  opens: boolean;
 }
 
 /** without a song map (the mic, a song still being analysed) the song is dealt in stretches this long */
@@ -83,12 +86,14 @@ export function popPartAt(a: TrackAnalysis | null | undefined, t: number): PopPa
   const secs = a?.sections ?? [];
   if (!secs.length) {
     const index = Math.max(0, Math.floor(t / FREE_PART));
-    return { index, start: index * FREE_PART, end: (index + 1) * FREE_PART, seed: popSeedAt(index * FREE_PART) };
+    return { index, start: index * FREE_PART, end: (index + 1) * FREE_PART, seed: popSeedAt(index * FREE_PART), opens: index > 0 };
   }
   const index = sectionIndexAt(secs, t);
   const sec = secs[index];
   const end = secs[index + 1]?.start ?? Math.max(sec.end, a!.duration);
-  return { index, start: sec.start, end, seed: popSeedAt(sec.start) };
+  // every shot is its own part now: the song's real sections (originalOf) say where a new section opens
+  const opens = sec.start > 1 && originalOf(a!).sections.some((o) => Math.abs(o.start - sec.start) < 0.05);
+  return { index, start: sec.start, end, seed: popSeedAt(sec.start), opens };
 }
 
 /** the part before `p` (its windows may still be closing as `p` starts), or null at the top */
@@ -576,8 +581,8 @@ function dealPopups(part: PopPart, level: number, a: TrackAnalysis | null | unde
   const when = dealer(part.seed ^ 0x9e3779b9);
   const pick = dealer(part.seed ^ 0x85ebca6b);
   const times: number[] = [];
-  // a new part (not the very top of the song, which opens on its bars instead)
-  if (part.start > 1) for (let k = 0; k < level; k++) times.push(part.start + k * spb);
+  // a new section of the song (not the very top, which opens on its bars instead)
+  if (part.opens) for (let k = 0; k < level; k++) times.push(part.start + k * spb);
   for (const d of dropsIn(a, part.start, part.end)) for (let k = 0; k < Math.min(3, level + 1); k++) times.push(d + k * spb * 0.5);
   for (const b of barsIn(part.start, part.end, spb, off)) {
     const chance = BAR_CHANCE[level] + (b.n % 4 === 0 ? 0.15 * level : 0);

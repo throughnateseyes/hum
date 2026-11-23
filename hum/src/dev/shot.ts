@@ -9,8 +9,11 @@
  *   /shot.html                       the built-in demo song, with a stand-in picture until a clip is dropped
  *     ?clip=/footage.local/a.mp4,/footage.local/b.mp4   clips served by the dev server (that folder is ignored by git)
  *     &words=LOUDER THAN THE DARK    the phrase set in type (the card shows all of it)
+ *     &style=poster                  the style of every footage shot (caption, poster, window, slab, grid,
+ *                                    split; default auto, a style per shot)
+ *     &seed=3                        the arrangement (any whole number; default 1)
+ *     &colour=flat                   clean, tinted (default) or flat
  *     &look=pixel-cube               the look that cuts in full frame
- *     &fill=contours                 the look that shows through the footage and the slabs
  *     &at=42.5                       build round this second of the song, not its biggest drop
  *     &fx=0.5&fy=0.55                the focus point (0..1 from the bottom-left); clicking the picture sets it
  *     &w=720&h=1280                  picture size (9:16 by default)
@@ -185,8 +188,9 @@ function rebuild() {
   if (!analysis) return;
   const at = q.get('at') ? Number(q.get('at')) : undefined;
   const phrase = (wordBox.value.trim() || songName.split(/[\s_\-–—]+/).slice(0, 3).join(' ') || 'hum').toUpperCase();
-  seq = sequenceFromAnalysis(analysis, phrase, at);
-  stage.build({ seq, analysis, clips: clips.length ? clips : [placeholder], caption: `${songName} · ${clock(seq.hit)}`, lookId: q.get('look') || 'pixel-cube', fillId: q.get('fill') || 'contours' });
+  const colour = q.get('colour');
+  seq = sequenceFromAnalysis(analysis, phrase, at, { style: q.get('style') || 'auto', seed: Number(q.get('seed')) || 1, colour: colour === 'clean' || colour === 'flat' ? colour : 'tinted' });
+  stage.build({ seq, analysis, clips: clips.length ? clips : [placeholder], title: songName.toUpperCase(), lookId: q.get('look') || 'pixel-cube' });
   pausedAt = Math.min(Math.max(pausedAt, seq.start), seq.end);
   if (pausedAt === seq.end) pausedAt = seq.start;
   const n = clips.length;
@@ -306,10 +310,10 @@ async function contact(times: number[], cols: number, cell: number, into?: HTMLC
     g.drawImage(canvas, x + 1, y + 1, cell - 2, ch - 2);
     const shot = shotAt(seq, t);
     g.fillStyle = 'rgba(0,0,0,.7)';
-    g.fillRect(x + 1, y + 1, 118, 14);
+    g.fillRect(x + 1, y + 1, 170, 14);
     g.fillStyle = '#fff';
     g.font = '10px ui-monospace, monospace';
-    g.fillText(`${(t - seq.hit).toFixed(2)}s  ${NAMES[shot.index] ?? ''}`, x + 4, y + 11);
+    g.fillText(`${(t - seq.hit).toFixed(2)}s  ${NAMES[shot.index] ?? ''} ${shot.style}`, x + 4, y + 11);
   }
   return c;
 }
@@ -358,7 +362,7 @@ window.__shot = {
     live: seq ? { at: +(songTime() - seq.start).toFixed(2), playing, drift: stage.drift(songTime()), frameMs: +frameMs.toFixed(1), workMs: +workMs.toFixed(2) } : null,
     seq,
     length: seq ? seq.end - seq.start : 0,
-    shots: stage.shots.map((s) => ({ kind: s.shot.kind, from: +(s.shot.start - (seq?.start ?? 0)).toFixed(2), to: +(s.shot.end - (seq?.start ?? 0)).toFixed(2), depth: +s.curve.depth.toFixed(2), flip: s.curve.flip, motifs: s.shot.motifs, palette: s.palette })),
+    shots: stage.shots.map((s) => ({ kind: s.shot.kind, from: +(s.shot.start - (seq?.start ?? 0)).toFixed(2), to: +(s.shot.end - (seq?.start ?? 0)).toFixed(2), flip: s.curve.flip, style: s.shot.style, layout: s.shot.layout, scheme: s.scheme.name })),
     clips: clips.map((c) => ({ duration: c.duration, aspect: c.aspect })),
     errors: [...stage.errors, ...glErrors],
     focus,

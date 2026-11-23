@@ -208,3 +208,18 @@ export const Grid = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3.5 12h17M12 12v8.5" />
   </svg>
 );
+/** a small "i" in a circle: opens a short explanation */
+export const Info = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5.5" />
+    <circle cx="12" cy="7.6" r="0.6" fill="currentColor" />
+  </svg>
+);
+/** a closed padlock: this needs an access code */
+export const Lock = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="5" y="10.5" width="14" height="10" rx="2" />
+    <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" />
+  </svg>
+);

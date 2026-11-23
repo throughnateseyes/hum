@@ -1,0 +1,33 @@
+/* Like and Skip for the shot on screen, in the Perform bar (Perform.tsx). Quiet: they hide with the bar. */
+.pb-shot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+}
+.perform-bar .pb-shot .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.pb-shot kbd {
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.7);
+}
+.perform-bar .pb-like.on {
+  color: #ff6b8a;
+}
+@media (max-width: 600px) {
+  .pb-shot span,
+  .pb-shot kbd {
+    display: none;
+  }
+}

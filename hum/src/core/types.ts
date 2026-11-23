@@ -346,6 +346,27 @@ export interface ClipAsset {
   palette: ClipPalette;
 }
 
+/**
+ * What one part of the video does with the person's media, when its look is a footage look. Every
+ * field is optional: a missing one falls back to the look's own setting (or, for media, to the
+ * automatic dealing of clips and photos).
+ */
+export interface PartShot {
+  /** a footage style id, or 'auto' */
+  style?: string;
+  /** 1..999: the same style arranged differently */
+  seed?: number;
+  /** how the picture itself is broken down: 'none', 'mosh', 'sort', 'cells', 'readout', 'collage' */
+  treatment?: string;
+  /** ids of the clips and photos this part may use, in order (missing: dealt automatically) */
+  media?: string[];
+  /** where the picture is centred, 0..1 from the left and from the bottom */
+  focusX?: number;
+  focusY?: number;
+  /** how far it is pushed in: 1 fits the frame, up to 3 */
+  zoom?: number;
+}
+
 /* ───────────────────────── Scenes ───────────────────────── */
 
 export interface SharedResources {

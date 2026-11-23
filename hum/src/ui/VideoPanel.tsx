@@ -4,17 +4,17 @@
  * since that's the one people come here for), how hard and how fast it moves, the pop-ups, the
  * transitions, the words and the song colours. The rarely touched switches sit under More.
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
-import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
+import { forgetAccessCode, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { LADDER, quality as governor } from '../render/quality';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
 import { Field, Section, Seg, Slider, SwitchRow } from './controls';
-import { Sparkle } from './Icons';
+import { Lock, Sparkle } from './Icons';
 import { MoodRow } from './Moods';
 import { TasteGroup } from './Taste';
 
@@ -22,6 +22,7 @@ export function VideoPanel() {
   return (
     <div className="vp">
       <MakeBlock />
+      <FramesSection />
       <FinishSection />
       <Section id="video.move" title="Movement">
         <ImpactField />
@@ -46,19 +47,29 @@ function MakeBlock() {
   const planOn = useStudio((s) => s.planOn);
   const hasPlan = validPlan(plan, analysis);
   const parts = analysis?.sections.length ?? 0;
+  // without a code on a site that wants one, the button wears a lock (it still works: it asks first)
+  const locked = useAccessGate((s) => s.need === 'code' && !s.saved);
+  // after a reload the start screen never shows, so ask the server here too (once per page, free)
+  useEffect(() => {
+    void learnNeed();
+  }, []);
   return (
     <div className="vp-make">
       <button
-        className="btn primary vp-go has-tip"
+        className={`btn primary vp-go has-tip tip-below ${locked ? 'locked' : ''}`}
         disabled={planning || !parts}
+        // locked: the press goes through the access gate first (postDirector opens it straight away,
+        // since the server's answer is already known), then plans once the code is in
         onClick={() => void makeVideo('', { fresh: hasPlan })}
         data-tip={
-          hasPlan
-            ? 'A fresh take on this song: new looks for every part, played from the top.'
-            : 'Gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top. A song you made a video for before plays its saved video.'
+          locked
+            ? `Claude’s version needs an access code. Press to enter one. ${hasPlan ? 'The video playing now was made by Hum’s built-in director.' : 'Without a code, Hum’s built-in director makes it.'}`
+            : hasPlan
+              ? 'A fresh take on this song: new looks for every part, played from the top.'
+              : 'Gives every part of the song a look (calm intro, big drops, the chorus coming back) and plays it from the top. A song you made a video for before plays its saved video.'
         }
       >
-        {planning ? <span className="spin" /> : <Sparkle width={13} height={13} />}
+        {planning ? <span className="spin" /> : locked ? <Lock width={13} height={13} aria-hidden /> : <Sparkle width={13} height={13} />}
         {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
       </button>
       {!parts && (
@@ -113,11 +124,30 @@ function FinishSection() {
   );
 }
 
-const HAND_FPS: { v: HandStyle['fps']; label: string }[] = [
-  { v: 60, label: 'Smooth' },
-  { v: 12, label: 'Drawn' },
-  { v: 8, label: 'Choppy' },
+const FRAMES: { v: HandStyle['fps']; label: string; tip: string }[] = [
+  { v: 60, label: 'Smooth', tip: 'A new picture every frame: fluid, like normal video' },
+  { v: 12, label: 'Drawn', tip: '12 pictures a second, each held for a moment, the way hand-drawn animation moves. Kicks, snares and drops still land exactly on time.' },
+  { v: 8, label: 'Choppy', tip: '8 pictures a second: a stop-motion feel. Kicks, snares and drops still land exactly on time.' },
 ];
+const FRAMES_NOTE: Record<HandStyle['fps'], string> = {
+  60: 'Fluid motion. Try Drawn for a hand-made, less polished feel.',
+  12: 'Each picture is held for a moment, like hand-drawn animation. Works with every look and finish.',
+  8: 'Fewer pictures, held longer: stop-motion. Works with every look and finish.',
+};
+
+/** How many pictures a second: for the whole video, whatever the finish */
+function FramesSection() {
+  const fps = useStudio((s) => s.hand.fps);
+  // hovering a choice explains that choice; otherwise the line describes the one in use
+  const [hover, setHover] = useState<HandStyle['fps'] | null>(null);
+  const note = hover !== null && hover !== fps ? (FRAMES.find((f) => f.v === hover)?.tip ?? '') : FRAMES_NOTE[fps];
+  return (
+    <Section id="video.frames" title="Frames" sub="How smoothly the picture moves">
+      <Seg value={fps} options={FRAMES} onChange={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })} onHover={setHover} label="Frames" />
+      <p className="field-note">{note}</p>
+    </Section>
+  );
+}
 const HAND_INKS: { v: HandStyle['inks']; label: string }[] = [
   { v: 0, label: 'All' },
   { v: 1, label: '1' },
@@ -137,12 +167,6 @@ function HandSettings() {
   );
   return (
     <div className="vp-hand" aria-label="Hand-drawn settings">
-      <Field
-        label="Frames"
-        tip="Smooth keeps motion fluid and only re-draws the lines. Drawn (12 a second) and Choppy (8) hold each picture like hand animation; kicks, snares and drops always get a fresh one."
-      >
-        <Seg value={hand.fps} options={HAND_FPS} onChange={(v) => put({ fps: v })} label="Frames" />
-      </Field>
       <Field label="Inks" tip="Print with a few flat inks from the palette, or keep every colour.">
         <Seg value={hand.inks} options={HAND_INKS} onChange={(v) => put({ inks: v })} label="Inks" />
       </Field>

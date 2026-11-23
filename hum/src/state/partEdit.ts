@@ -10,8 +10,8 @@
  * the store (partPops, partHand, partWords), outside the plan, so they outlast re-plans; they are kept
  * per song in planCache.ts. The plan's `base` (what the planner chose) tells a changed part from a
  * planned one: a re-plan keeps the changes (plan.ts keepEdits), "Reset this part" puts the planner's
- * pick back, and Undo steps back through the last few changes (splits and combines included). A plan
- * changed here is saved for the song (planCache.keepPlan), whoever planned it.
+ * pick back. Undo is the app's one history (state/history.ts), which follows the store, so nothing here
+ * has to record a step. A plan changed here is saved for the song (planCache.keepPlan), whoever planned it.
  *
  * Split and combine re-cut the song's parts (analysis.sections) and re-index every per-part setting in
  * the same step (plan.ts recutParts); the plan keeps the new part lines as `bounds`, so a re-plan, the
@@ -21,44 +21,12 @@ import { audioEngine } from '../audio/engine';
 import type { TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
 import { localLyricPlan, type LyricMedium } from './lyricPlan';
-import { assignLook, ensureDropCuts, findLook, listNames, partEdits, recutParts, sectionIndexAt, sectionNames, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
-import { boundsOf, duringRecut, keepPlan, originalOf } from './planCache';
+import { assignLook, ensureDropCuts, findLook, listNames, partEdits, partNames, recutParts, releaseHold, sectionIndexAt, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
+import { replacementFor, shotEdits } from './flatPlan';
+import { boundsOf, duringRecut, keepPlan } from './planCache';
 import { isScrubbing } from './scrub';
 import { useStudio } from './store';
-import { noteHandPick } from './taste';
-
-/** everything a change here can touch, as it was before the change (same song only) */
-interface Snapshot {
-  plan: VideoPlan | null;
-  analysis: TrackAnalysis;
-  partPops: (number | null)[] | null;
-  partHand: (boolean | null)[] | null;
-  partWords: (string | null)[] | null;
-  selectedParts: number[];
-  what: string;
-}
-const undo: Snapshot[] = [];
-const UNDO_MAX = 20;
-function pushUndo(what: string) {
-  const s = useStudio.getState();
-  if (!s.analysis) return;
-  undo.push({ plan: s.plan, analysis: s.analysis, partPops: s.partPops, partHand: s.partHand, partWords: s.partWords, selectedParts: s.selectedParts, what });
-  if (undo.length > UNDO_MAX) undo.shift();
-}
-const undoSubs = new Set<() => void>();
-const changed = () => undoSubs.forEach((f) => f());
-
-export function onUndoChange(f: () => void): () => void {
-  undoSubs.add(f);
-  return () => undoSubs.delete(f);
-}
-
-/** what Undo would take back (null when there's nothing for this song) */
-export function undoLabel(): string | null {
-  const a = useStudio.getState().analysis;
-  const top = undo[undo.length - 1];
-  return top && a && originalOf(top.analysis) === originalOf(a) ? top.what : null;
-}
+import { noteHandPick, record } from './taste';
 
 /** the playing plan for this song, with a base to tell changes by (null without one) */
 function current(): { plan: VideoPlan; a: TrackAnalysis } | null {
@@ -73,19 +41,17 @@ function partsIn(is: number[], a: TrackAnalysis): number[] {
   return [...new Set(is)].filter((i) => Number.isInteger(i) && i >= 0 && i < a.sections.length).sort((x, y) => x - y);
 }
 
-/** "Verse 1", "Verse 1 and Chorus", "3 parts" */
+/** "Verse 1", "Drop, shot 2 and Drop, shot 3", "3 parts" */
 function partsName(is: number[], a: TrackAnalysis): string {
-  const names = sectionNames(a.sections);
+  const names = partNames(a);
   return is.length > 3 ? `${is.length} parts` : listNames(is.map((i) => names[i]));
 }
 
 /** put a changed plan on (the timeline follows it from now on) and save it for the song */
-function commit(next: VideoPlan, what: string) {
-  pushUndo(what);
+function commit(next: VideoPlan) {
   const s = useStudio.getState();
   s.set({ plan: next, planOn: true, autoPilot: false });
   keepPlan(next);
-  changed();
 }
 
 /** one value per part, with `v` in parts `is` (null when no part has one left) */
@@ -125,15 +91,19 @@ export function setPartsLook(is: number[], id: string) {
   if (!todo.length) return;
   const looks = [...plan.looks];
   const rotate = a.sections.map((_, j) => plan.rotate?.[j] ?? null);
+  const liked = plan.liked ? [...plan.liked] : undefined;
   for (const i of todo) {
     looks[i] = id;
     // a new main look gets a fresh rotation around it (the planner's own pick gets its own rotation back)
     rotate[i] = plan.base?.looks[i] === id ? plan.base.rotate[i] : null;
+    // a like was for the look that was there
+    if (liked) liked[i] = false;
   }
   // the parts you set stay as you set them; strong drops elsewhere still get their cut
-  const next = ensureDropCuts({ ...plan, looks, rotate }, a, parts);
+  const next = ensureDropCuts({ ...plan, looks, rotate, ...(liked ? { liked } : {}) }, a, parts);
+  releaseHold();
   const name = partsName(todo, a);
-  commit(next, `${name}: ${look.name}`);
+  commit(next);
   s.flash(`${name} now ${todo.length > 1 ? 'use' : 'uses'} “${look.name}”`);
 }
 
@@ -164,7 +134,7 @@ export function setPartsLyric(is: number[], medium: LyricMedium) {
   for (const i of todo) parts[i] = { ...parts[i]!, medium, why: 'your pick' };
   const next = { ...plan, base, lyricPlan: { ...lp, parts } };
   const name = partsName(todo, a);
-  commit(next, `${name} lyrics`);
+  commit(next);
   // the per-part styles only show while lyrics are on Auto
   if (s.lyricStyle !== 'auto') {
     s.set({ lyricStyle: 'auto', lyricStylePicked: true });
@@ -178,8 +148,8 @@ export function setPartLyric(i: number, medium: LyricMedium) {
 
 /* ───────── pop-ups, hand-drawn, words (kept in the store, outside the plan) ───────── */
 
-/** a per-part store setting changed: one Undo step, the plan switched on so it shows */
-function setStored<K extends 'partPops' | 'partHand' | 'partWords'>(key: K, is: number[], v: NonNullable<ReturnType<typeof useStudio.getState>[K]>[number], what: string, flash?: string) {
+/** a per-part store setting changed (one Undo step, state/history.ts), the plan switched on so it shows */
+function setStored<K extends 'partPops' | 'partHand' | 'partWords'>(key: K, is: number[], v: NonNullable<ReturnType<typeof useStudio.getState>[K]>[number], flash?: string) {
   const s = useStudio.getState();
   const cur = current();
   if (!cur) return;
@@ -187,11 +157,9 @@ function setStored<K extends 'partPops' | 'partHand' | 'partWords'>(key: K, is: 
   const n = cur.a.sections.length;
   const arr = s[key] as unknown[] | null;
   if (!parts.length || parts.every((i) => (arr?.length === n ? (arr[i] ?? null) : null) === v)) return;
-  pushUndo(`${partsName(parts, cur.a)} ${what}`);
   s.set({ [key]: withValue(arr, n, parts, v) } as Partial<ReturnType<typeof useStudio.getState>>);
   if (!useStudio.getState().planOn) useStudio.getState().set({ planOn: true, autoPilot: false });
   if (flash) s.flash(flash.replace('$', partsName(parts, cur.a)));
-  changed();
 }
 
 /**
@@ -200,7 +168,7 @@ function setStored<K extends 'partPops' | 'partHand' | 'partWords'>(key: K, is: 
  */
 export function setPartsPops(is: number[], level: number | null) {
   const v = level === null || !Number.isFinite(level) ? null : Math.max(0, Math.min(3, Math.round(level)));
-  setStored('partPops', is, v, 'pop-ups');
+  setStored('partPops', is, v);
 }
 
 export function setPartPopsLevel(i: number, level: number | null) {
@@ -209,16 +177,16 @@ export function setPartPopsLevel(i: number, level: number | null) {
 
 /** parts `is` drawn by hand (true), kept clean of it (false), or as the whole video is set (null) */
 export function setPartsHand(is: number[], v: boolean | null) {
-  setStored('partHand', is, v, 'hand-drawn', v === null ? '$: hand-drawn as the video' : v ? '$: hand-drawn on' : '$: hand-drawn off');
+  setStored('partHand', is, v, v === null ? '$: hand-drawn as the video' : v ? '$: hand-drawn on' : '$: hand-drawn off');
 }
 
 /** the words a text look shows in parts `is` ('' or null: its own words again) */
 export function setPartsWords(is: number[], text: string | null) {
   const v = text?.replace(/\s+/g, ' ').trim().slice(0, 120) || null;
-  setStored('partWords', is, v, 'words');
+  setStored('partWords', is, v);
 }
 
-/* ───────── reset and undo ───────── */
+/* ───────── reset ───────── */
 
 /** put the planner's own picks back into parts `is` (looks, lyrics, pop-ups, hand-drawn and words) */
 export function resetParts(is: number[]) {
@@ -232,6 +200,7 @@ export function resetParts(is: number[]) {
   const looks = [...plan.looks];
   const rotate = a.sections.map((_, j) => plan.rotate?.[j] ?? null);
   let lyricPlan = plan.lyricPlan;
+  const liked = plan.liked ? plan.liked.map((v, j) => v && !parts.includes(j)) : undefined;
   for (const i of parts) {
     if (!b.looks[i] || findLook(b.looks[i])) {
       looks[i] = b.looks[i];
@@ -244,7 +213,7 @@ export function resetParts(is: number[]) {
       lyricPlan = { ...lyricPlan, parts: lp };
     }
   }
-  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}) }, a, parts);
+  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}), ...(liked ? { liked } : {}) }, a, parts);
   // pop-ups, hand-drawn and words go back too (one Undo step with the rest)
   const n = a.sections.length;
   const partPops = withValue(s.partPops, n, parts, null);
@@ -253,7 +222,7 @@ export function resetParts(is: number[]) {
   // the plan's "kept your changes" line goes once nothing is changed any more
   if (partEdits(next, a, partPops, partHand, partWords).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
   const name = partsName(parts, a);
-  commit(next, `reset ${name}`);
+  commit(next);
   s.set({ partPops, partHand, partWords });
   s.flash(`${name} ${parts.length > 1 ? 'are' : 'is'} back to the plan`);
 }
@@ -262,44 +231,19 @@ export function resetPart(i: number) {
   resetParts([i]);
 }
 
-/** take back the last change made here (a split or combine puts the old parts back too) */
-export function undoPartEdit() {
-  const s = useStudio.getState();
-  const top = undo[undo.length - 1];
-  if (!top || !s.analysis || originalOf(top.analysis) !== originalOf(s.analysis)) return;
-  undo.pop();
-  duringRecut(() => {
-    if (top.analysis !== s.analysis) audioEngine.setAnalysis(top.analysis);
-    s.set({
-      analysis: top.analysis,
-      plan: top.plan,
-      partPops: top.partPops,
-      partHand: top.partHand,
-      partWords: top.partWords,
-      selectedParts: top.selectedParts,
-      ...(top.plan ? { planOn: true, autoPilot: false } : {}),
-    });
-  });
-  if (top.plan) keepPlan(top.plan);
-  s.flash(`Undid ${top.what}`);
-  changed();
-}
-
 /* ───────── split and combine ───────── */
 
 /** a part shorter than this can't be made by a split */
 export const MIN_PART_S = 1;
 
 /** put a re-cut on: the new parts, the re-indexed plan and settings, in one store change and one Undo step */
-function applyRecut(r: Recut, what: string, selected: number[]) {
+function applyRecut(r: Recut, selected: number[]) {
   const s = useStudio.getState();
-  pushUndo(what);
   duringRecut(() => {
     audioEngine.setAnalysis(r.analysis);
     s.set({ analysis: r.analysis, plan: r.plan, partPops: r.partPops, partHand: r.partHand, partWords: r.partWords, selectedParts: selected, planOn: true, autoPilot: false });
   });
   if (r.plan) keepPlan(r.plan);
-  changed();
 }
 
 /**
@@ -330,8 +274,8 @@ export function splitPartAt(t: number): boolean {
   const bounds = [...boundsOf(a), Math.round(p.t * 1000) / 1000].sort((x, y) => x - y);
   const r = recutParts(s, bounds);
   if (!r) return false;
-  const name = sectionNames(a.sections)[p.i];
-  applyRecut(r, `split ${name}`, [p.i, p.i + 1]);
+  const name = partNames(a)[p.i];
+  applyRecut(r, [p.i, p.i + 1]);
   s.flash(`${name} split at ${clock(p.t)}. Both halves keep its look and settings.`);
   return true;
 }
@@ -362,8 +306,8 @@ export function combineParts(is: number[]): boolean {
   const r = recutParts(s, bounds);
   if (!r) return false;
   const name = partsName(run, a);
-  applyRecut(r, `combine ${name}`, [run[0]]);
-  s.flash(`${name} are one part now, with ${sectionNames(a.sections)[run[0]]}’s look and settings`);
+  applyRecut(r, [run[0]]);
+  s.flash(`${name} are one part now, with ${partNames(a)[run[0]]}’s look and settings`);
   return true;
 }
 
@@ -385,3 +329,44 @@ export function playFrom(t: number) {
   audioEngine.seek(Math.min(a.duration, t + 0.01));
   void audioEngine.play().catch(() => {});
 }
+
+/* ───────── skip and like, one shot at a time (one look per part: flatPlan.ts) ───────── */
+
+/**
+ * Skip part i's look: remember the dislike (taste) and give only that part the best look for the
+ * moment instead (flatPlan.replacementFor). Its neighbours, liked or not, stay as they are. One Undo
+ * step; the new look reads as a change by the person, so a remake that keeps changes keeps it.
+ */
+export function skipPart(i: number): { from: NonNullable<ReturnType<typeof findLook>>; to: NonNullable<ReturnType<typeof findLook>> } | null {
+  const cur = current();
+  if (!cur || !cur.plan.flat) return null;
+  const { plan, a } = cur;
+  const from = findLook(plan.looks[i]);
+  if (!from) return null;
+  record('skip', from.id, a.sections[i].label);
+  const to = replacementFor(plan, a, i);
+  if (!to) return null;
+  const looks = [...plan.looks];
+  looks[i] = to.id;
+  const liked = plan.liked ? plan.liked.map((v, j) => v && j !== i) : undefined;
+  commit({ ...plan, looks, ...(liked ? { liked } : {}) });
+  // on screen now, not at the next cut
+  releaseHold();
+  return { from, to };
+}
+
+/** like part i (on) or take the like back: a liked part is kept by a later skip and by a remake */
+export function likePart(i: number, on: boolean): boolean {
+  const cur = current();
+  if (!cur || !cur.plan.flat || i < 0 || i >= cur.a.sections.length) return false;
+  const { plan, a } = cur;
+  if (!!plan.liked?.[i] === on) return false;
+  const liked = a.sections.map((_, j) => (j === i ? on : !!plan.liked?.[j]));
+  const next: VideoPlan = { ...plan, liked };
+  if (!liked.some(Boolean)) delete next.liked;
+  commit(next);
+  return true;
+}
+
+shotEdits.skip = skipPart;
+shotEdits.like = likePart;

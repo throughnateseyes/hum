@@ -13,6 +13,7 @@ import { resolveParams } from '../state/modulation';
 import { allLooks, findLook, planShots, playingMood, relatedLooks, shotIndexAt, songTinted, validPlan } from '../state/plan';
 import { popDealsVersion } from '../state/popSeed';
 import { useStudio, type WindowKind } from '../state/store';
+import { withTweak } from '../state/tweaks';
 import { moodFilter } from '../presets/moods';
 import { FxChain } from './fxChain';
 import { newGlide, toPx, toRect, type Glide, type PxBox } from './keepClear';
@@ -487,7 +488,7 @@ export class SceneWindows {
     if (!p || !def) return null;
     const spec = specOf(d.shape, base.width, base.height);
     // in a video, a window wears the song's colours like the main picture does
-    const look = presetToLook(songTinted(p));
+    const look = presetToLook(songTinted(withTweak(p, useStudio.getState().tweaks[p.id])));
     const rt = makeRenderTarget(spec.cw, spec.ch, { depthBuffer: true, samples: 0 });
     let inst: SceneInstance;
     try {
@@ -692,7 +693,7 @@ function dealWindows(part: PopPart, level: number, base: Omit<FrameContext, 'par
   const drops = dropsIn(base.analysis, part.start, part.end);
   type Step = { at: number; drop: boolean; trail: boolean };
   const steps: Step[] = [];
-  if (part.start > 1) for (let k = 0; k < level; k++) steps.push({ at: part.start + k * spb, drop: false, trail: false });
+  if (part.opens) for (let k = 0; k < level; k++) steps.push({ at: part.start + k * spb, drop: false, trail: false });
   for (const b of barsIn(part.start, part.end, spb, off)) {
     if (b.n % 4 !== 0) continue;
     if (when() < PHRASE_CHANCE[level]) steps.push({ at: b.t, drop: false, trail: false });

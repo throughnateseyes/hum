@@ -177,6 +177,12 @@ html.phone body {
   justify-content: center;
   padding: 0 8px;
 }
+/* undo and redo at the end of the row: just the arrows */
+.app.phone .tl-side .btn.ph-hist {
+  flex: none;
+  width: 36px;
+  padding: 0;
+}
 .app.phone .tl-lane {
   grid-template-rows: 44px 30px;
 }
@@ -260,13 +266,12 @@ html.phone body {
   border: 0;
   background: transparent;
 }
-.ph-sheet .panel-tabs {
-  height: 44px;
-  padding: 0 10px;
+/* both sets of tabs (Library, Look settings): big enough for a thumb */
+.ph-sheet .insp-tabs {
+  padding: 6px 10px;
 }
-.ph-sheet .panel-tabs button {
-  min-height: 36px;
-  padding: 6px 12px;
+.ph-sheet .insp-tabs .seg button {
+  height: 34px;
 }
 .ph-sheet .panel-body {
   padding: 2px 16px calc(24px + env(safe-area-inset-bottom));
@@ -274,7 +279,8 @@ html.phone body {
 .ph-sheet .director {
   border-top: 1px solid var(--line);
 }
-.ph-sheet .split-handle {
+/* the phone renders from Export: Look settings shows the Video and Part tabs only (Phone.tsx SettingsPanel) */
+.ph-settings .insp-tabs .seg button:nth-child(3) {
   display: none;
 }
 /* Look settings is one long scroll (the sheet's body scrolls), not panels squeezed into it */
@@ -289,12 +295,6 @@ html.phone body {
 .ph-settings .inspector .panel-body {
   flex: none;
   overflow: visible;
-}
-.ph-settings .inspector .panel-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--panel);
 }
 .ph-row {
   display: flex;
