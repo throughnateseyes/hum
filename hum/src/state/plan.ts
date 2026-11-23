@@ -13,7 +13,7 @@ import { audioEngine } from '../audio/engine';
 import { textBetween } from '../audio/lyrics';
 import { harmonize } from '../core/songPalette';
 import { lookStyle } from '../core/styles';
-import type { AudioFrame, Lyrics, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
+import type { AudioFrame, Lyrics, PartShot, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
 import { familyIdOf, familyOf, fitScore, neighbourScore, rememberTake, takeFit, takeName } from '../presets/fit';
 import { live } from './live';
@@ -1379,12 +1379,15 @@ export interface PartEdit {
   hand: boolean;
   /** its own words (store.partWords) */
   words: boolean;
+  /** its own picture: which clip or photo, style, treatment, framing (store.partShot) */
+  shot: boolean;
 }
 
 /**
  * What the person changed in each part (null where the part is as planned): looks and lyric styles
  * against the plan's base, pop-ups from the overrides in store.partPops (pass them in from a
- * component that subscribes to them, so it redraws when they change).
+ * component that subscribes to them, so it redraws when they change); a part's own picture
+ * (store.partShot) counts too, so the timeline's dot and a remake's "keep your changes?" see it.
  */
 export function partEdits(
   plan: VideoPlan | null,
@@ -1392,6 +1395,7 @@ export function partEdits(
   partPops: (number | null)[] | null = useStudio.getState().partPops,
   partHand: (boolean | null)[] | null = useStudio.getState().partHand,
   partWords: (string | null)[] | null = useStudio.getState().partWords,
+  partShot: (PartShot | null)[] | null = useStudio.getState().partShot,
 ): (PartEdit | null)[] {
   if (!plan || !a || !validPlan(plan, a)) return [];
   const b = plan.base && plan.base.looks.length === plan.looks.length ? plan.base : null;
@@ -1403,8 +1407,9 @@ export function partEdits(
       lyric: !!b && !!plan.lyricPlan?.parts[i] && plan.lyricPlan.parts[i]!.medium !== b.lyric[i],
       hand: partHand?.length === n && typeof partHand[i] === 'boolean',
       words: partWords?.length === n && !!partWords[i],
+      shot: partShot?.length === n && !!partShot[i],
     };
-    return e.look || e.pops || e.lyric || e.hand || e.words ? e : null;
+    return e.look || e.pops || e.lyric || e.hand || e.words || e.shot ? e : null;
   });
 }
 

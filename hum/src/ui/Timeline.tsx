@@ -4,7 +4,7 @@
  * through all of it. It zooms: at fit the whole song shows and the blocks are thin (a picture, then a
  * plain colour); zoomed in each block shows its picture and its look's name.
  *
- * A block shows its look's picture, and a small mark when the person changed it (dot), liked it
+ * A block shows its look's picture (a footage or photo part: the clip or photo it plays), and a small mark when the person changed it (dot), liked it
  * (heart) or set it hand-drawn on its own (pencil). The section headers (Intro, Build, Drop…) span
  * the blocks that came from them.
  *
@@ -16,6 +16,8 @@
  *   C or ✂           the split tool: a guide follows the pointer, a click splits on the nearest beat
  *   ⌘/Ctrl+J         combine the picked parts (or the picked part with the next one)
  *   drag a look      from the Library onto a part (onto any picked part: all the picked parts)
+ *   drag a picture   a clip or photo from the Library onto a part: it becomes that part's picture (a look
+ *                    that can't show it gets a one-click offer to switch to Footage: footageMedia.ts)
  *   ⌘/Ctrl+wheel     zoom around the pointer (a trackpad pinch too); Shift+wheel or a sideways swipe pans
  *   + / − / 0        zoom in, out, fit the whole song
  *
@@ -35,6 +37,9 @@ import { useStudio } from '../state/store';
 import { withTweak } from '../state/tweaks';
 import { noteHandPick } from '../state/taste';
 import { ContextMenu, MOD, type MenuItem } from './ContextMenu';
+import { canShow, giveMedia, MEDIA_MIME, mediaOf, pictureKind, showPicture, shownMedia, type MediaItem } from './footageMedia';
+import { MediaNote } from './MediaPicker';
+
 import { Plus } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { useLayout } from './layout';
@@ -381,6 +386,7 @@ export function Timeline({ side }: { side?: React.ReactNode }) {
       </div>
       {side && <div className="tl-side">{side}</div>}
       {menu && analysis && <PartMenu at={menu} a={analysis} onClose={closeMenu} />}
+      <MediaNote />
     </div>
   );
 }
@@ -481,6 +487,27 @@ function useDraggedLook() {
   return id;
 }
 
+/** the clip or photo being dragged from the Library (its id), while it is */
+function useDraggedMedia() {
+  const [id, setId] = useState<string | null>(null);
+  useEffect(() => {
+    const start = (e: DragEvent) => {
+      const dt = e.dataTransfer;
+      if (dt?.types.includes(MEDIA_MIME)) setId(dt.getData(MEDIA_MIME) || null);
+    };
+    const end = () => setId(null);
+    window.addEventListener('dragstart', start);
+    window.addEventListener('dragend', end);
+    window.addEventListener('drop', end);
+    return () => {
+      window.removeEventListener('dragstart', start);
+      window.removeEventListener('dragend', end);
+      window.removeEventListener('drop', end);
+    };
+  }, []);
+  return id;
+}
+
 /** a block this wide (px) shows its picture and name; narrower, the picture; narrower still, a colour */
 const FULL_PX = 72;
 const PIC_PX = 14;
@@ -507,6 +534,10 @@ function PartsRow({
   const partPops = useStudio((s) => s.partPops);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
+  const partShot = useStudio((s) => s.partShot);
+  const clips = useStudio((s) => s.clips);
+  const photos = useStudio((s) => s.photos);
+  const media = mediaOf({ clips, photos });
   // looks fine-tuned for this video show as they play (state/tweaks.ts): their colours on the blocks
   const tweaks = useStudio((s) => s.tweaks);
   const tuned = (p: Preset | undefined) => (p ? withTweak(p, tweaks[p.id]) : undefined);
@@ -514,6 +545,9 @@ function PartsRow({
   useStudio((s) => s.customPresets.length);
   const dragId = useDraggedLook();
   const [over, setOver] = useState<{ i: number; alt: boolean; x: number; y: number } | null>(null);
+  const dragMediaId = useDraggedMedia();
+  const dragMedia = dragMediaId ? media.find((m) => m.id === dragMediaId) : undefined;
+  const [mover, setMover] = useState<{ i: number; x: number; y: number } | null>(null);
   const partEls = useRef<(HTMLDivElement | null)[]>([]);
   const shotEls = useRef<(HTMLSpanElement | null)[]>([]);
   const secs = a.sections;
@@ -523,8 +557,8 @@ function PartsRow({
   const looks = secs.map((_, i) => (hasPlan ? (plan.looks[i] ?? null) : null));
   const shots = hasPlan ? planShots(plan, a, pace, lyrics) : NO_SHOTS;
   const dragLook = dragId ? findLook(dragId) : undefined;
-  const dragging = !!dragId;
-  const edits = partEdits(plan, a, partPops, partHand, partWords);
+  const dragging = !!dragId || !!dragMediaId;
+  const edits = partEdits(plan, a, partPops, partHand, partWords, partShot);
   const n = secs.length;
 
   // the part and the shot playing now (classes change only when they do)
@@ -549,8 +583,13 @@ function PartsRow({
   }, [secs, shots]);
 
   useEffect(() => {
-    if (!dragging) setOver(null);
+    if (!dragging) {
+      setOver(null);
+      setMover(null);
+    }
   }, [dragging]);
+  // a picture dropped on a picked part goes to every picked part, else to that part
+  const mediaParts = (i: number) => (selected.length > 1 && selected.includes(i) ? [...selected].sort((x, y) => x - y) : [i]);
 
   // a drop onto a picked part goes into every picked part; one look per part: into that part only;
   // otherwise as assignLook does it: the target, the parts that sound alike and share its look, and
@@ -608,6 +647,9 @@ function PartsRow({
         const size = px < PIC_PX ? 'tiny' : px < FULL_PX ? 'small' : '';
         const why = hasPlan ? (plan.why[i] ?? '') : '';
         const preview = over && dragLook && affected(i) ? dragLook : undefined;
+        // a picture being dragged: the parts it would go to, and whether their looks can show it
+        const mTarget = !!mover && !!dragMedia && mediaParts(mover.i).includes(i);
+        const mOk = mTarget && canShow(pictureKind(look?.sceneId), dragMedia!);
         const mine = shots.map((sh, k) => ({ sh, k })).filter((x) => x.sh.section === i);
         const isSel = selected.includes(i);
         const hand = partHand?.length === n ? partHand[i] : null;
@@ -615,7 +657,9 @@ function PartsRow({
         const shown = preview ?? look;
         const tip = `${names[i]} · ${fmtTime(sec.start)}–${fmtTime(sec.end)} · ${look ? look.name : 'no look yet'}${liked ? ' · liked' : ''}${edits[i] ? ' · changed by you' : ''}${why ? ` · ${why}` : ''}`;
         // a plain colour when it's too thin for a picture
-        const fill = shown ? (size === 'tiny' ? { background: shown.palette.accent } : lookBg(shown)) : undefined;
+        // a footage or photo part shows the clip or photo it plays
+        const pic = !preview && hasPlan ? shownMedia(useStudio.getState(), i, media) : null;
+        const fill = shown ? (size === 'tiny' && !pic ? { background: shown.palette.accent } : pic?.thumb ? { backgroundImage: `url("${pic.thumb}")` } : lookBg(shown)) : undefined;
         return (
           <div
             key={`${i}:${sec.start}`}
@@ -625,7 +669,7 @@ function PartsRow({
             role="button"
             tabIndex={0}
             aria-pressed={isSel}
-            className={`tln-part ${shown ? 'has-look' : 'no-look'} ${size} ${isSel ? 'sel' : ''} ${preview ? 'preview' : ''} ${over?.i === i ? 'over' : ''} ${edits[i] ? 'edited' : ''} ${liked ? 'liked' : ''}`}
+            className={`tln-part ${shown ? 'has-look' : 'no-look'} ${size} ${isSel ? 'sel' : ''} ${preview ? 'preview' : ''} ${over?.i === i ? 'over' : ''} ${mTarget ? (mOk ? 'm-over' : 'm-no') : ''} ${pic ? 'has-media' : ''} ${edits[i] ? 'edited' : ''} ${liked ? 'liked' : ''}`}
             style={{ left: `${(sec.start / a.duration) * 100}%`, width: `${(len / a.duration) * 100}%` }}
             data-part={i}
             aria-label={`${names[i]}, ${fmtTime(sec.start)} to ${fmtTime(sec.end)}, ${look ? look.name : 'no look yet'}${liked ? ', liked' : ''}${mine.length > 1 ? `, ${mine.length} shots` : ''}`}
@@ -644,6 +688,16 @@ function PartsRow({
               }
             }}
             onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(MEDIA_MIME)) {
+                if (!hasPlan) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+                if (mover?.i !== i) {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setMover({ i, x: r.left + r.width / 2, y: r.top });
+                }
+                return;
+              }
               if (!e.dataTransfer.types.includes(LOOK_MIME)) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = 'copy';
@@ -653,11 +707,20 @@ function PartsRow({
               }
             }}
             onDragLeave={(e) => {
-              if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setOver((o) => (o?.i === i ? null : o));
+              if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+                setOver((o) => (o?.i === i ? null : o));
+                setMover((o) => (o?.i === i ? null : o));
+              }
             }}
             onDrop={(e) => {
               e.preventDefault();
               setOver(null);
+              setMover(null);
+              const mid = e.dataTransfer.getData(MEDIA_MIME);
+              if (mid) {
+                giveMedia(mid, { parts: mediaParts(i) }, e.metaKey || e.ctrlKey);
+                return;
+              }
               const id = e.dataTransfer.getData(LOOK_MIME);
               if (!id) return;
               const sel = useStudio.getState().selectedParts;
@@ -714,7 +777,7 @@ function PartsRow({
               ) : (
                 <span className="tln-empty">
                   <Plus width={11} height={11} />
-                  {size === '' ? (dragging ? 'Drop a look' : 'No look yet') : ''}
+                  {size === '' ? (dragId ? 'Drop a look' : 'No look yet') : ''}
                 </span>
               )}
             </span>
@@ -728,6 +791,7 @@ function PartsRow({
           </div>
         );
       })}
+      {mover && dragMedia && <MediaDropTip x={mover.x} y={mover.y} item={dragMedia} parts={mediaParts(mover.i)} names={names} looks={looks} />}
       {over && dragLook && <DropTip x={over.x} y={over.y} at={over.i} look={dragLook} names={names} multi={multi ? selected.length : 0} alike={alike} fills={fills} alt={over.alt} />}
     </div>
   );
@@ -741,6 +805,19 @@ function DropTip({ x, y, at, look, names, multi, alike, fills, alt }: { x: numbe
       {alike > 0 && !multi && <span>+ {alike === 1 ? 'the part like it' : `${alike} parts like it`}</span>}
       {fills > 0 && <span>+ fills {fills === 1 ? 'the empty part' : `${fills} empty parts`}</span>}
       {!alt && alike > 0 && !multi && <em>hold ⌥ for just this part</em>}
+    </div>
+  );
+}
+
+/** what a dragged clip or photo will do, over the part it's on */
+function MediaDropTip({ x, y, item, parts, names, looks }: { x: number; y: number; item: MediaItem; parts: number[]; names: string[]; looks: (string | null)[] }) {
+  const ok = parts.filter((j) => canShow(pictureKind(findLook(looks[j])?.sceneId), item));
+  const who = parts.length > 1 ? `${parts.length} picked parts` : names[parts[0]];
+  return (
+    <div className="tl-droptip tln-droptip" style={{ left: x, top: y - 8 }}>
+      <b>{item.name}</b> → {who}
+      {ok.length === parts.length ? <span>as the picture</span> : ok.length ? <span>{parts.length - ok.length} can’t show it: you can switch them to Footage</span> : <span>this look can’t show it: drop to switch to Footage</span>}
+      <em>hold ⌘ to add it to the pictures there</em>
     </div>
   );
 }
@@ -809,6 +886,8 @@ function PartMenu({ at, a, onClose }: { at: MenuAt; a: TrackAnalysis; onClose: (
   const partLook = hasPlan ? findLook(plan.looks[at.part]) : undefined;
   const flat = hasPlan && !!plan.flat;
   const liked = hasPlan && !!plan.liked?.[at.part];
+  // every part here plays a look that shows the person's clips or photos
+  const pictured = hasPlan && sel.every((j) => !!pictureKind(findLook(plan.looks[j])?.sceneId));
 
   const items: MenuItem[] = [{ kind: 'label', label: `${many ? `${sel.length} parts` : names[at.part]}${partLook && !many ? ` · ${partLook.name}` : ''} · ${fmtFine(at.t)}` }];
   if (flat && !many) {
@@ -872,6 +951,15 @@ function PartMenu({ at, a, onClose }: { at: MenuAt; a: TrackAnalysis; onClose: (
       disabled: !hasPlan,
       onSelect: () => pickParts(sel),
     },
+    ...(pictured
+      ? [
+          {
+            label: 'Change picture…',
+            hint: `Pick which clip or photo plays in ${who}, in the Part tab`,
+            onSelect: () => showPicture(sel),
+          } satisfies MenuItem,
+        ]
+      : []),
     {
       label: 'Hand-drawn',
       hint: !hasPlan ? noPlan : all(hand, null) ? 'As the video' : all(hand, true) ? 'On here' : all(hand, false) ? 'Off here' : 'Mixed',

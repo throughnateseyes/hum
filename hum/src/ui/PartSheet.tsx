@@ -5,8 +5,9 @@
  *   Play this part   jump there and play
  *   Look             a few families that fit this part and sit well with its neighbours (fit.ts),
  *                    filtered by mood; More looks… lists every family for the part, with a search
- *   Version          the other takes of the part's look, one tap each (a footage look: its styles
- *                    and Shuffle instead, PartPanel.tsx FootageControls)
+ *   Picture          a footage or photo look: which clip or photo plays in this shot, and (footage)
+ *                    its style, Shuffle and treatment, for this shot only (PartPanel.tsx FootageControls)
+ *   Version          the other takes of the part's look, one tap each (not for footage looks)
  *   Lyrics           the part's lyric style (songs with timed lyrics)
  *   Pop-ups          Auto / Off / Few / Lots
  *
@@ -363,6 +364,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const partPops = useStudio((s) => s.partPops);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
+  const partShot = useStudio((s) => s.partShot);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
   // the app's one undo (state/history.ts), the same step as Cmd+Z and the transport's arrow
@@ -373,7 +375,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const names = sectionNames(a.sections);
   const name = names[i];
   const { look, fam } = useRankedLooks(a, i, 'all');
-  const edit = hasPlan ? partEdits(plan, a, partPops, partHand, partWords)[i] : null;
+  const edit = hasPlan ? partEdits(plan, a, partPops, partHand, partWords, partShot)[i] : null;
 
   const synced = !!lyrics?.synced && lyrics.lines.length > 0;
   const sung = synced && vocalDensity(lyrics!.lines, sec).lines > 0;
@@ -382,10 +384,11 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const ownOk = !!look && profileFor(look.id, sc?.category, !!sc?.showsLyrics).own !== 'none';
   // a footage look (the person's clips): its styles and Shuffle instead of versions
   const footage = !!sc?.usesClips;
+  const pictured = footage || !!sc?.usesPhotos;
   // the person's level for this part (null: Auto), and what the plan gives it
   const mine = typeof partPops?.[i] === 'number' ? partPops[i] : null;
   const planned = hasPlan ? popsOf(plan, a, i) : null;
-  const changedWhat = edit ? [edit.look && 'look', edit.lyric && 'lyrics', edit.pops && 'pop-ups', edit.hand && 'hand-drawn', edit.words && 'words'].filter(Boolean).join(', ') : '';
+  const changedWhat = edit ? [edit.look && 'look', edit.lyric && 'lyrics', edit.pops && 'pop-ups', edit.hand && 'hand-drawn', edit.words && 'words', edit.shot && 'picture'].filter(Boolean).join(', ') : '';
 
   const pickLookHere = (p: Preset) => {
     hidePeek();
@@ -435,17 +438,15 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
         </div>
       )}
 
+      {/* a look that shows the person's clips or photos: which one plays here, for this shot only */}
+      {hasPlan && look && pictured && (
+        <div className="ps-sec pp">
+          <FootageControls look={look} busy={busy} parts={[i]} />
+        </div>
+      )}
+
       <SwapList a={a} i={i} name={name} busy={busy} onPick={pickLookHere} headingId={`${headingId}-look`} />
 
-      {hasPlan && look && footage && (
-        <section className="ps-sec pp" aria-label="Footage style">
-          <div className="ps-h">
-            <h3>Style</h3>
-            <span>{look.name}</span>
-          </div>
-          <FootageControls look={look} busy={busy} />
-        </section>
-      )}
 
       {fam && fam.takes.length > 1 && !footage && (
         <section className="ps-sec" aria-labelledby={`${headingId}-take`}>

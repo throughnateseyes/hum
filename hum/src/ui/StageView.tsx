@@ -11,6 +11,8 @@ import { togglePerform } from './Perform';
 import { Expand, Shrink } from './Icons';
 import { lastTouchTap, useStageGestures } from './stageGestures';
 import { useStageUi } from './layout';
+import { giveMedia, MEDIA_MIME, playingTarget } from './footageMedia';
+import { partNames } from '../state/plan';
 
 const RATIOS: Record<Exclude<Aspect, 'fill'>, number> = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 
@@ -26,6 +28,7 @@ export function StageView() {
   const scrub = useRenderMode((s) => s.scrub);
   const controls = useStageUi((s) => s.controls);
   const [size, setSize] = useState({ w: 800, h: 450 });
+  const [dropOver, setDropOver] = useState(false);
   // touch: swipe for looks, swipe up for the panels, tap for the controls, double-tap for full screen
   useStageGestures(frame);
 
@@ -68,7 +71,28 @@ export function StageView() {
 
   return (
     <div className="stage-wrap" ref={wrap}>
-      <div className={`stage-frame ${controls ? 'ctl' : ''}`} ref={frame} style={{ width: size.w, height: size.h }}>
+      <div
+        className={`stage-frame ${controls ? 'ctl' : ''}`}
+        ref={frame}
+        style={{ width: size.w, height: size.h }}
+        // a clip or photo dragged from the Library: the picture of the part playing (or of the look)
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(MEDIA_MIME)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          if (!dropOver) setDropOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setDropOver(false);
+        }}
+        onDrop={(e) => {
+          const id = e.dataTransfer.getData(MEDIA_MIME);
+          setDropOver(false);
+          if (!id) return;
+          e.preventDefault();
+          giveMedia(id, playingTarget(), e.metaKey || e.ctrlKey);
+        }}
+      >
         <canvas ref={canvas} />
         <LoadingStage />
         <TapToPlay />
@@ -97,7 +121,20 @@ export function StageView() {
         </div>
         <LookToast />
         <WelcomeLayer />
+        {dropOver && <StageDrop />}
       </div>
+    </div>
+  );
+}
+
+/** over the stage while a clip or photo is dragged onto it: where it will go */
+function StageDrop() {
+  const t = playingTarget();
+  const a = useStudio.getState().analysis;
+  const where = t === 'solo' || !a ? 'this look' : partNames(a)[t.parts[0]];
+  return (
+    <div className="stage-drop" aria-hidden>
+      <span>Make it the picture of {where}</span>
     </div>
   );
 }

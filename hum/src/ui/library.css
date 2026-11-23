@@ -392,3 +392,61 @@
 .lib-blocks > .lib-note {
   margin-top: var(--s-2);
 }
+
+/* a clip or photo tile: dragged onto a part, or "Use for this shot" on hover and focus (Library.tsx UseHere) */
+.lib-tile[draggable='true'] {
+  cursor: grab;
+}
+.lib-tile-use {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: var(--fs-1);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.lib-tile:hover .lib-tile-use,
+.lib-tile:focus-within .lib-tile-use,
+.lib-tile-use:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .lib-tile-use {
+    opacity: 1;
+  }
+}
+
+/* the stage while a clip or photo from the Library is dragged over it (StageView.tsx StageDrop) */
+.stage-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--accent);
+  border-radius: inherit;
+  background: rgba(20, 24, 60, 0.28);
+  pointer-events: none;
+}
+.stage-drop span {
+  padding: 8px 14px;
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 500;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}

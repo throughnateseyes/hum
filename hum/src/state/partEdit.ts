@@ -19,14 +19,15 @@
  * plan cache and a reload all find them again.
  */
 import { audioEngine } from '../audio/engine';
-import type { PartShot, TrackAnalysis } from '../core/types';
+import type { PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
 import { localLyricPlan, type LyricMedium } from './lyricPlan';
 import { assignLook, ensureDropCuts, findLook, listNames, partEdits, partNames, recutParts, releaseHold, sectionIndexAt, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
 import { replacementFor, shotEdits } from './flatPlan';
 import { boundsOf, duringRecut, keepPlan } from './planCache';
 import { isScrubbing } from './scrub';
-import { useStudio } from './store';
+import { recallSoloShot, rememberSoloShot } from './saved';
+import { isSoloQuiet, setSoloShotQuietly, useStudio, type StudioState } from './store';
 import { noteHandPick, record } from './taste';
 
 /** the playing plan for this song, with a base to tell changes by (null without one) */
@@ -189,7 +190,7 @@ export function setPartsWords(is: number[], text: string | null) {
 
 /* ───────── a footage part's own picture (store.partShot) ───────── */
 
-const SHOT_KEYS = ['style', 'seed', 'treatment', 'media', 'focusX', 'focusY', 'zoom'] as const satisfies readonly (keyof PartShot)[];
+const SHOT_KEYS = ['style', 'seed', 'treatment', 'motion', 'media', 'focusX', 'focusY', 'zoom'] as const satisfies readonly (keyof PartShot)[];
 
 /** a record with only the fields that say something, in one order, or null when none is left */
 function tidyShot(r: PartShot): PartShot | null {
@@ -236,6 +237,68 @@ export function partShotOf(i: number, s = useStudio.getState()): PartShot | null
   return s.partShot?.length === n ? (s.partShot[i] ?? null) : null;
 }
 
+/* ───────── the picture of a look playing on its own (store.soloShot) ───────── */
+
+/** a video plan is what plays (not one look on its own) */
+export function planPlaying(s = useStudio.getState()): boolean {
+  return s.planOn && !!s.analysis && validPlan(s.plan, s.analysis);
+}
+
+/** the scene the look's own picture was chosen for: another scene on screen clears it */
+let soloScene = '';
+
+/**
+ * Change the picture of the look playing on its own (no video plan): the same fields as a part's,
+ * kept for that look's scene. One Undo step (history.ts), saved for the next load (saved.ts).
+ */
+export function setSoloShot(patch: Partial<PartShot> | null) {
+  const s = useStudio.getState();
+  const v = patch === null ? null : tidyShot({ ...(s.soloShot ?? {}), ...patch });
+  if (JSON.stringify(s.soloShot ?? null) === JSON.stringify(v)) return;
+  soloScene = s.sceneId;
+  s.set({ soloShot: v });
+  rememberSoloShot(s.sceneId, v);
+}
+
+// the look's own picture belongs to its scene: a look of another scene coming on screen (while no plan
+// plays) clears it. Bookkeeping, not an edit, so it makes no Undo step. Brought back on a reload.
+{
+  const saved = recallSoloShot();
+  if (saved) {
+    soloScene = saved.sceneId;
+    setSoloShotQuietly(saved.shot);
+  }
+  useStudio.subscribe((s, prev) => {
+    if (s.soloShot !== prev.soloShot && s.soloShot && !isSoloQuiet()) {
+      // an undo bringing a record back: it belongs to what's on screen now
+      soloScene = s.sceneId;
+      rememberSoloShot(s.sceneId, s.soloShot);
+    } else if (s.soloShot !== prev.soloShot && !s.soloShot) rememberSoloShot('', null);
+    if (!s.soloShot || !s.sceneId || s.sceneId === soloScene) return;
+    if (s.sceneId === prev.sceneId && s.planOn === prev.planOn && s.plan === prev.plan) return;
+    if (planPlaying(s)) return;
+    setSoloShotQuietly(null);
+    rememberSoloShot('', null);
+  });
+}
+
+/**
+ * The photos a photo look should show at song time `t`, when the person chose some: the playing part's
+ * own (store.partShot) while a plan plays, else the look's own (store.soloShot); in the order chosen.
+ * Null when nothing is chosen (or none of the chosen ones is a photo still in the library), so the
+ * stage gives the look every photo as before.
+ */
+export function chosenPhotosAt(s: StudioState, t: number): PhotoAsset[] | null {
+  let ids: string[] | undefined;
+  if (planPlaying(s)) {
+    const i = sectionIndexAt(s.analysis!.sections, t);
+    ids = s.partShot?.length === s.analysis!.sections.length ? s.partShot[i]?.media : undefined;
+  } else ids = s.soloShot?.media;
+  if (!ids?.length) return null;
+  const out = ids.map((id) => s.photos.find((p) => p.id === id)).filter((p) => !!p);
+  return out.length ? out : null;
+}
+
 /** a per-part setting re-indexed by a re-cut: each new part takes the old part it came from */
 function carryFrom<T>(arr: (T | null)[] | null, from: number[], n0: number): (T | null)[] | null {
   if (!arr || arr.length !== n0) return null;
@@ -278,7 +341,7 @@ export function resetParts(is: number[]) {
   const partWords = withValue(s.partWords, n, parts, null);
   const partShot = withValue(s.partShot, n, parts, null);
   // the plan's "kept your changes" line goes once nothing is changed any more
-  if (partEdits(next, a, partPops, partHand, partWords).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
+  if (partEdits(next, a, partPops, partHand, partWords, partShot).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
   const name = partsName(parts, a);
   commit(next);
   s.set({ partPops, partHand, partWords, partShot });

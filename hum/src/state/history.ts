@@ -1,7 +1,7 @@
 /**
  * Undo and redo for everything a person edits about the video: the looks' tweaks (state/tweaks.ts),
  * the plan (swapped looks, splits and combines, lyrics), the per-part settings (hand-drawn, pop-ups,
- * words, a footage part's picture) and the Video tab's settings (finish and its hand-drawn settings, pace, pop-ups, transition,
+ * words, a footage part's picture), the picture of a look playing on its own (soloShot) and the Video tab's settings (finish and its hand-drawn settings, pace, pop-ups, transition,
  * song colours, impact, lyrics style).
  *
  * Nothing else has to call this: it follows the store. When an edited field changes, a checkpoint is
@@ -31,7 +31,7 @@ import type { PartShot, TrackAnalysis } from '../core/types';
 import { STYLE_NAMES } from '../shot/styles';
 import { findLook, partNames, sectionNames } from './plan';
 import { duringRecut, keepPlan, originalOf } from './planCache';
-import { isApplyingLook, useStudio, type StudioState } from './store';
+import { isApplyingLook, isSoloQuiet, useStudio, type StudioState } from './store';
 import { tweakParts, type LookTweak } from './tweaks';
 
 /** changes closer together than this are one step */
@@ -51,6 +51,7 @@ const FIELDS = [
   'partPops',
   'partWords',
   'partShot',
+  'soloShot',
   'finish',
   'finishPicked',
   'hand',
@@ -144,6 +145,8 @@ function follow() {
     const folded =
       // a take's own hand-drawn settings coming on with it (playback)
       (f === 'hand' && isApplyingLook()) ||
+      // the look's own picture cleared because another scene came on, or brought back after a reload
+      (f === 'soloShot' && isSoloQuiet()) ||
       // a song's first video (or one brought back), and the plan changing on its own
       (PLAN_FIELDS.has(f) && (!seen.plan || !intent(s)));
     if (folded) (present as Record<Field, unknown>)[f] = cur[f];
@@ -286,7 +289,7 @@ function diffShots(a: (PartShot | null)[] | null, b: (PartShot | null)[] | null,
   return out;
 }
 
-const TREATMENTS: Record<string, string> = { none: 'None', mosh: 'Mosh', sort: 'Sort', cells: 'Cells', readout: 'Readout', collage: 'Collage' };
+const TREATMENTS: Record<string, string> = { none: 'None', mosh: 'Mosh', sort: 'Sort', cells: 'Cells', readout: 'Readout', collage: 'Collage', trace: 'Trace' };
 
 /** what changed in one part's picture: "style Poster", "shuffled", "picture changed", "framing" */
 function shotLabel(was: PartShot | null, is: PartShot | null): string {
@@ -296,6 +299,7 @@ function shotLabel(was: PartShot | null, is: PartShot | null): string {
   if (w.style !== is.style) what.push(`style ${is.style ? (STYLE_NAMES[is.style as keyof typeof STYLE_NAMES] ?? is.style) : 'Auto'}`);
   if (w.seed !== is.seed) what.push(is.seed ? `arrangement ${is.seed}` : 'arrangement as the look');
   if (w.treatment !== is.treatment) what.push(`treatment ${is.treatment ? (TREATMENTS[is.treatment] ?? is.treatment) : 'as the look'}`);
+  if (w.motion !== is.motion) what.push(`motion ${is.motion ?? 'as the look'}`);
   if (JSON.stringify(w.media ?? null) !== JSON.stringify(is.media ?? null)) what.push(is.media?.length ? 'picture changed' : 'picture automatic');
   if (w.focusX !== is.focusX || w.focusY !== is.focusY || w.zoom !== is.zoom) what.push('framing');
   return what.length ? what.join(', ') : 'picture changed';
@@ -372,6 +376,7 @@ function describe(a: Values, b: Values): string {
     // by shot ("Drop, shot 2"): a picture is chosen per shot, so the section's name alone is not enough
     if (is.length) out.push(`${partList(is, partNames(bn!))}: ${shotLabel(a.partShot?.[is[0]] ?? null, b.partShot?.[is[0]] ?? null)}`);
   }
+  if (a.soloShot !== b.soloShot) out.push(`the look's ${shotLabel(a.soloShot, b.soloShot).replace('picture back to the look', 'picture back to automatic')}`);
   if (a.tweaks !== b.tweaks) {
     const ids = [...new Set([...Object.keys(a.tweaks), ...Object.keys(b.tweaks)])].filter((id) => JSON.stringify(a.tweaks[id] ?? null) !== JSON.stringify(b.tweaks[id] ?? null));
     if (ids.length) out.push(tweakLabel(ids[0], a.tweaks[ids[0]], b.tweaks[ids[0]]));

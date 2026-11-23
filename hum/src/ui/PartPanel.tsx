@@ -3,11 +3,12 @@
  * the part that is playing when nothing is picked; with no video plan, a line about the look on screen.
  *
  *   name, time, length     which section and shot it is
+ *   Picture                first, for a part whose look shows the person's clips or photos (footage and
+ *                          photo looks): which one plays, as large thumbnails, then (footage) its style,
+ *                          Shuffle, motion, treatment and framing, for this shot alone (FootagePicture.tsx)
  *   Quick picks            the five looks that fit this part best, as pictures: one click (or 1–5) swaps
  *   actions                Play this part, Like, Reset, Undo (the app's one history, state/history.ts)
  *   Look                   its picture and name, and its other takes (versions)
- *   Picture                a footage part only: its style, Shuffle, which clip or photo plays, the
- *                          treatment and the framing, for this shot alone (FootagePicture.tsx)
  *   More looks             the full Swap the look list, with moods and a search (PartSheet.tsx), folded away
  *   Hand-drawn             As the video / On / Off, for these parts only
  *   Pop-ups                Auto / Off / Few / Lots, and Shuffle for a different deal of them (popSeed.ts)
@@ -39,8 +40,8 @@ import type { LookTweak } from '../state/tweaks';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { Play } from './Icons';
-import { FootagePicture, ShotStyle, ShuffleIcon } from './FootagePicture';
-import { lookParam } from './footageMedia';
+import { FootagePicture, ShuffleIcon } from './FootagePicture';
+import { lookParam, pictureKind, scrollToPicture, usePartsTarget, useSoloTarget } from './footageMedia';
 import { Thumb } from './Library';
 import { SwapList, useRankedLooks } from './PartSheet';
 import { fmtTime, lookBg } from './song';
@@ -92,7 +93,9 @@ function NoPlan({ a }: { a: TrackAnalysis | null }) {
   const presetId = useStudio((s) => s.presetId);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
+  const sceneId = useStudio((s) => s.sceneId);
   const look = findLook(presetId);
+  const kind = pictureKind(sceneId);
   return (
     <div className="pp pp-noplan">
       {look && (
@@ -104,6 +107,7 @@ function NoPlan({ a }: { a: TrackAnalysis | null }) {
           </div>
         </div>
       )}
+      {kind && <SoloPicture busy={busy} />}
       <p className="pp-note">
         {a?.sections.length
           ? 'Make a video to give every part of the song its own look. Then pick a part on the timeline to change it here.'
@@ -116,6 +120,21 @@ function NoPlan({ a }: { a: TrackAnalysis | null }) {
       )}
     </div>
   );
+}
+
+/** the Picture group for the look playing on its own (store.soloShot) */
+function SoloPicture({ busy }: { busy: boolean }) {
+  const t = useSoloTarget();
+  return <FootagePicture t={t} busy={busy} headingId="pp-solo" />;
+}
+
+/** the Picture group for parts of the plan */
+function PartsPicture({ parts, look, busy, headingId }: { parts: number[]; look: Preset; busy: boolean; headingId: string }) {
+  const t = usePartsTarget(parts, look);
+  useEffect(() => {
+    requestAnimationFrame(scrollToPicture);
+  }, []);
+  return <FootagePicture t={t} busy={busy} headingId={headingId} />;
 }
 
 function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; picked: boolean }) {
@@ -152,10 +171,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
     return () => setQuickPicks(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickKey, parts.join(',')]);
-  const edits = partEdits(plan, a, partPops, partHand, partWords);
-  // a footage part's own picture (store.partShot) counts as a change too
-  const shotSet = (j: number) => partShot?.length === n && !!partShot[j];
-  const anyEdit = parts.some((j) => edits[j] || shotSet(j));
+  const edits = partEdits(plan, a, partPops, partHand, partWords, partShot);
+  const anyEdit = parts.some((j) => edits[j]);
   const len = parts.reduce((t, j) => t + a.sections[j].end - a.sections[j].start, 0);
 
   // looks
@@ -182,9 +199,13 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   // the Words field: every part's look writes text of its own
   const wordy = parts.every((j) => sceneShowsWords(findLook(plan.looks[j])?.sceneId));
 
-  const changedWhat = one ? [edits[i]?.look && 'look', edits[i]?.lyric && 'lyrics', shotSet(i) && 'picture', edits[i]?.pops && 'pop-ups', edits[i]?.hand && 'hand-drawn', edits[i]?.words && 'words'].filter(Boolean).join(', ') : '';
-  // the Picture group: every picked part plays a footage look (its defaults come from the first one)
-  const footLook = parts.map((j) => findLook(plan.looks[j])).every((p) => !!p && isFootage(p)) ? findLook(plan.looks[i]) : undefined;
+  const changedWhat = one ? [edits[i]?.look && 'look', edits[i]?.lyric && 'lyrics', edits[i]?.shot && 'picture', edits[i]?.pops && 'pop-ups', edits[i]?.hand && 'hand-drawn', edits[i]?.words && 'words'].filter(Boolean).join(', ') : '';
+  // the Picture group: every picked part plays a look that shows the person's clips or photos. Its
+  // defaults come from the first one; with footage and photo looks picked together, a photo look's,
+  // so only what every one of them can show is offered.
+  const partLooks = parts.map((j) => findLook(plan.looks[j]));
+  const kinds = partLooks.map((p) => pictureKind(p?.sceneId));
+  const picLook = kinds.every((k) => !!k) ? (partLooks[kinds.indexOf('photos')] ?? partLooks[0]) : undefined;
   const headingId = `pp-${parts.join('-')}`;
 
   return (
@@ -201,6 +222,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
           </span>
         </div>
       </div>
+
+      {picLook && <PartsPicture parts={parts} look={picLook} busy={busy} headingId={headingId} />}
 
       {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
 
@@ -269,8 +292,6 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
           </div>
         )}
       </section>
-
-      {footLook && <FootagePicture parts={parts} look={footLook} busy={busy} headingId={headingId} />}
 
       <div className="pp-sec pp-morewrap">
         <button className="pp-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
@@ -390,15 +411,14 @@ const seedsBefore = new Map<string, number[]>();
  * sheet still calls it, they are the look's, like any fine-tuning, so every part playing it changes.
  */
 export function FootageControls({ look, busy, parts }: { look: Preset; busy: boolean; parts?: number[] }) {
-  if (parts?.length) {
-    return (
-      <div className="pp-foot">
-        <ShotStyle parts={parts} look={look} busy={busy} />
-        <p className="pp-note">For this shot only. Shots without their own choice follow the look.</p>
-      </div>
-    );
-  }
+  if (parts?.length) return <PartsFootage parts={parts} look={look} busy={busy} />;
   return <LookFootageControls look={look} busy={busy} />;
+}
+
+/** a footage part's own picture and style, as the phone's part sheet shows them */
+function PartsFootage({ look, busy, parts }: { look: Preset; busy: boolean; parts: number[] }) {
+  const t = usePartsTarget(parts, look);
+  return <FootagePicture t={t} busy={busy} headingId={`ps-${parts.join('-')}`} />;
 }
 
 function LookFootageControls({ look, busy }: { look: Preset; busy: boolean }) {

@@ -9,8 +9,9 @@
  *   recallClips, keepClipsSaved              the clips; once started, the saved set follows the store
  *   recallPhotos, keepPhotosSaved            the photos, the same way (each kept as a JPEG of the picture as loaded)
  *   recallPlan, keepPlanSaved                the video on screen, hand changes included (small: localStorage)
+ *   rememberSoloShot, recallSoloShot         the picture chosen for a look playing on its own (small: localStorage)
  */
-import type { ClipAsset, PhotoAsset, TrackAnalysis } from '../core/types';
+import type { ClipAsset, PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import type { VideoPlan } from './plan';
 import { cutAnalysis } from './planCache';
 import { useStudio } from './store';
@@ -183,6 +184,33 @@ export function recallPlan(name: string, a: TrackAnalysis, lookExists: (id: stri
       (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&
       (p.interludes ?? []).every((id) => !id || lookExists(id));
     return ok ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/* ───────── the picture of a look playing on its own (store.soloShot) ───────── */
+
+const SOLO_KEY = 'hum.session.soloShot';
+
+/** keep the look's own picture for the next load, with the scene it belongs to (null forgets it) */
+export function rememberSoloShot(sceneId: string, shot: PartShot | null) {
+  try {
+    if (!shot || !sceneId) localStorage.removeItem(SOLO_KEY);
+    else localStorage.setItem(SOLO_KEY, JSON.stringify({ sceneId, shot }));
+  } catch {
+    /* storage blocked: the choice lasts until the page closes */
+  }
+}
+
+/** the look's own picture from last time, and the scene it was chosen for */
+export function recallSoloShot(): { sceneId: string; shot: PartShot } | null {
+  try {
+    const j = JSON.parse(localStorage.getItem(SOLO_KEY) ?? 'null') as { sceneId?: unknown; shot?: unknown } | null;
+    if (!j || typeof j.sceneId !== 'string' || !j.shot || typeof j.shot !== 'object' || Array.isArray(j.shot)) return null;
+    const r = j.shot as Record<string, unknown>;
+    if (r.media !== undefined && !(Array.isArray(r.media) && r.media.every((x) => typeof x === 'string'))) return null;
+    return { sceneId: j.sceneId, shot: j.shot as PartShot };
   } catch {
     return null;
   }

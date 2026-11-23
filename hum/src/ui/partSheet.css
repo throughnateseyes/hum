@@ -781,37 +781,132 @@ html.phone.land .ps-phone {
   opacity: 0.5;
   cursor: default;
 }
-.mp > .pp-link {
-  margin-top: 6px;
+.pp-gap {
+  margin-top: 14px;
 }
 
-/* the media row: Automatic, then a square tile per clip or photo; at most two rows until Show all */
-.mp-row {
+/* what plays now: the chosen pictures large, then "Add another" (MediaPicker.tsx) */
+.mp-now {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
-.mp-auto {
-  grid-column: span 2;
-  min-height: 38px;
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-2);
+.mp-big {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--panel-2);
   font: inherit;
+}
+.mp-big img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mp-big.on {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.mp-big.auto img {
+  opacity: 0.45;
+  filter: saturate(0.6);
+}
+.mp-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 8px 5px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+  color: #fff;
   font-size: var(--fs-2);
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.mp-big.auto .mp-name {
+  top: 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-3);
+  text-align: center;
+}
+.mp-x {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  opacity: 0;
+}
+.mp-big:hover .mp-x,
+.mp-x:focus-visible {
+  opacity: 1;
+}
+.mp-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px dashed var(--line-2);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
   cursor: pointer;
 }
-.mp-auto:hover {
+.mp-add > span {
+  font-size: 18px;
+  line-height: 1;
+}
+.mp-add:hover {
   color: var(--ink);
   background: var(--panel-2);
 }
-.mp-auto.on {
-  border-color: transparent;
-  background: var(--accent-soft);
+.mp-add.on {
+  border-style: solid;
+  border-color: var(--accent);
   color: var(--accent);
+  background: var(--accent-soft);
+}
+.mp-add[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.mp-line {
+  margin: 6px 0 8px;
+}
+.mp-foot {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+.mp-foot:empty {
+  display: none;
+}
+
+/* every clip and photo: four across, two rows until Show all */
+.mp-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
 }
 .mp-tile {
   position: relative;
@@ -833,10 +928,16 @@ html.phone.land .ps-phone {
 .mp-tile:hover img {
   filter: brightness(1.06);
 }
+.mp-tile:hover {
+  box-shadow: 0 0 0 1px var(--line-2);
+}
 .mp-tile.on {
   box-shadow: 0 0 0 2px var(--accent);
 }
-.mp-auto[disabled],
+.mp-tile.adding:hover {
+  box-shadow: 0 0 0 2px var(--accent);
+  opacity: 0.85;
+}
 .mp-tile[disabled] {
   opacity: 0.5;
   cursor: default;
@@ -855,8 +956,8 @@ html.phone.land .ps-phone {
 }
 .mp-tick {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 4px;
+  right: 4px;
   display: grid;
   place-items: center;
   min-width: 14px;
@@ -917,4 +1018,37 @@ html.phone.land .ps-phone {
 }
 .fr .field {
   margin-top: 10px;
+}
+
+/* the note a dropped or used picture leaves (MediaPicker.tsx MediaNote), above the timeline */
+.media-note {
+  position: fixed;
+  left: 50%;
+  bottom: 150px;
+  z-index: 60;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  color: var(--ink);
+  font-size: var(--fs-3);
+  animation: media-note-in 160ms ease-out;
+}
+.media-note > span {
+  min-width: 0;
+}
+.media-note .btn {
+  flex: none;
+}
+@keyframes media-note-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
 }
