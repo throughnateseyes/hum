@@ -3829,28 +3829,169 @@ html.perform-idle * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.wl-other {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 2px 14px;
-  margin-top: 14px;
-}
-.wl-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--h);
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
+/* the bottom section: the AI access code (ui/AccessSection.tsx), shared with the access overlay */
+.wl-access {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
   font-size: var(--fs-3);
   color: var(--ink-2);
 }
-.wl-link:hover {
+.acc-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.acc-label {
+  margin: 0;
+  font-size: var(--fs-3);
+  color: var(--ink-2);
+}
+.acc-off .acc-label {
+  margin-bottom: 4px;
+}
+.acc-info-btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.acc-info-btn:hover,
+.acc-info-btn[aria-expanded='true'] {
   background: var(--panel-2);
   color: var(--ink);
+}
+.acc-info-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* what a code is for: a small card floating by the "i" (placed by AccessSection, in a portal) */
+.acc-pop {
+  position: fixed;
+  z-index: 130;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--fs-3);
+  line-height: 1.5;
+  color: var(--ink-2);
+  animation: wl-fade 0.15s ease-out both;
+}
+.acc-form {
+  display: flex;
+  gap: 8px;
+}
+.acc-form .txt {
+  flex: 1;
+  min-width: 0;
+  height: var(--h-lg);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-4);
+}
+/* 16px keeps phones from zooming into the field */
+@media (pointer: coarse) {
+  .acc-form .txt {
+    font-size: 16px;
+  }
+}
+.acc-form .txt::placeholder {
+  color: var(--ink-3);
+}
+.acc-form .txt[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.acc-form .btn {
+  height: var(--h-lg);
+  padding: 0 16px;
+}
+.acc-err {
+  margin: 6px 0 0;
+  font-size: var(--fs-2);
+  line-height: 1.4;
+  color: var(--danger);
+}
+.acc-ask {
+  margin: 8px 0 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.acc-note:last-child {
+  margin-bottom: 0;
+}
+.acc-ask a,
+.acc-note a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.acc-ask a:hover,
+.acc-note a:hover {
+  color: var(--ink);
+}
+/* "Change code", "Keep the saved code": a quiet text action, not a button shape */
+.acc-quiet {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 2px;
+}
+.acc-quiet:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+/* a saved code, or no code needed: one calm line */
+.acc-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.acc-line > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.acc-line .acc-quiet {
+  margin-left: auto;
+}
+.acc-note {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.acc-steps {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+}
+.acc-steps code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.92em;
+  color: var(--ink);
+}
+.acc-gh {
+  text-decoration: none;
 }
 /* after a reload, while the saved song comes back: one quiet line instead of the start screen */
 .wl-back {
@@ -3899,8 +4040,9 @@ html.perform-idle * {
     margin-top: 16px;
     padding-top: 14px;
   }
-  .wl-other {
-    margin-top: 10px;
+  .wl-access {
+    margin-top: 14px;
+    padding-top: 12px;
   }
 }
 @container (max-height: 430px) {
@@ -3944,7 +4086,7 @@ html.perform-idle * {
   content: '';
 }
 
-/* ───────── access gate (AI code / run it yourself) ───────── */
+/* ───────── access gate: the start screen's island again, over the same veil ───────── */
 .gate-scrim {
   position: fixed;
   inset: 0;
@@ -3952,137 +4094,61 @@ html.perform-idle * {
   display: grid;
   place-items: center;
   padding: var(--s-4);
-  background: rgba(27, 27, 26, 0.32);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  animation: gateFade 0.14s ease-out;
+  container-type: size; /* so the island's short and narrow rules apply here too */
+  background: color-mix(in srgb, var(--canvas) 66%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(0.55);
+  backdrop-filter: blur(28px) saturate(0.55);
+  animation: wl-fade 0.2s ease-out both;
 }
-.gate {
-  position: relative;
-  width: min(380px, 100%);
-  max-height: calc(100dvh - 2 * var(--s-4));
-  overflow-y: auto;
-  padding: var(--s-5) var(--s-5) var(--s-4);
-  border-radius: var(--r-lg);
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  box-shadow: var(--shadow-lg);
-  font-size: var(--fs-3);
-  animation: gateIn 0.18s ease-out;
+.welcome.wl-gate {
+  width: min(460px, 100%);
+  padding: 28px 28px 20px;
 }
-.gate:focus {
+.wl-gate:focus {
   outline: none;
+}
+.wl-gate .wl-title {
+  margin-right: 28px;
+  font-size: 22px;
+}
+.wl-gate .wl-lede {
+  margin-bottom: 18px;
+}
+/* in the overlay the section is the main content, so it needs no rule above it */
+.wl-gate .wl-access {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 .gate-x {
   position: absolute;
-  top: var(--s-2);
-  right: var(--s-2);
-}
-.gate h2 {
-  margin: 0 var(--s-5) var(--s-2) 0;
-  font-size: var(--fs-5);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.gate-lede {
-  margin: 0 0 var(--s-4);
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-.gate-form {
-  display: flex;
-  gap: var(--s-2);
-}
-.gate-form .txt {
-  flex: 1;
-  min-width: 0;
-  height: var(--h-lg);
-  font-size: 16px; /* 16px keeps phones from zooming into the field */
-}
-.gate-form .btn {
-  height: var(--h-lg);
-  padding: 0 var(--s-3);
-}
-.gate-form .txt[aria-invalid='true'] {
-  border-color: var(--danger);
-}
-.gate-err {
-  margin: var(--s-2) 0 0;
-  color: var(--danger);
-  font-size: var(--fs-2);
-  line-height: 1.4;
+  top: 12px;
+  right: 12px;
 }
 .gate-skip {
   display: block;
-  margin: var(--s-3) 0 0;
+  margin: 16px 0 0;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--ink-3);
   font-size: var(--fs-2);
+  color: var(--ink-3);
 }
 .gate-skip:hover {
   color: var(--ink);
   text-decoration: underline;
 }
-.gate-diy {
-  margin-top: var(--s-4);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
-  color: var(--ink-2);
-}
-.gate-diy.solo {
-  margin-top: 0;
-}
-.gate-diy h3 {
-  margin: 0 0 var(--s-2);
-  font-size: var(--fs-4);
-  font-weight: 600;
-  color: var(--ink);
-}
-.gate-diy ol {
-  margin: 0 0 var(--s-3);
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  font-size: var(--fs-2);
-  line-height: 1.45;
-}
-.gate-diy code {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 0.92em;
-  color: var(--ink);
-}
-.gate-gh {
-  text-decoration: none;
-}
-@keyframes gateFade {
-  from {
-    opacity: 0;
+@container (max-width: 520px) {
+  .welcome.wl-gate {
+    padding: 22px 18px 16px;
   }
-}
-@keyframes gateIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.985);
-  }
-}
-@media (max-width: 520px) {
-  .gate-scrim {
-    place-items: end center;
-  }
-  .gate {
-    padding: var(--s-4);
+  .wl-gate .wl-title {
+    font-size: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .gate-scrim,
-  .gate {
+  .acc-pop {
     animation: none;
   }
 }
