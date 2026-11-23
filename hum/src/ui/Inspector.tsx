@@ -28,10 +28,12 @@ export function Inspector() {
   const set = useStudio((s) => s.set);
   const hasPlan = useStudio((s) => validPlan(s.plan, s.analysis));
   const picked = useStudio((s) => s.selectedParts.length > 0);
+  // the plan switched off: the tab is about the look on screen until a part is picked (PartPanel.tsx)
+  const lookTab = useStudio((s) => !s.planOn && !s.selectedParts.length);
   const shown = tabShown(tab);
   const tabs: [InspectorTab, string][] = [
     ['video', 'Video'],
-    ['part', hasPlan ? 'Part' : 'Look'],
+    ['part', hasPlan && !lookTab ? 'Part' : 'Look'],
     ['render', 'Render'],
   ];
 

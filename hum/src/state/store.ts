@@ -354,6 +354,24 @@ export function isApplyingLook(): boolean {
 }
 
 /**
+ * true while the app itself changes store.soloShot (cleared because another scene came on screen,
+ * brought back after a reload): bookkeeping, not an edit, so history.ts folds it in without a step.
+ */
+let soloQuiet = false;
+export function isSoloQuiet(): boolean {
+  return soloQuiet;
+}
+/** set store.soloShot without making an Undo step (see isSoloQuiet) */
+export function setSoloShotQuietly(v: PartShot | null) {
+  soloQuiet = true;
+  try {
+    useStudio.setState({ soloShot: v });
+  } finally {
+    soloQuiet = false;
+  }
+}
+
+/**
  * A fine-tuning change `next` to the look on screen, with the look's tweak for this song brought up to
  * date in the same store change (so the change is there again the next time the look comes back).
  */

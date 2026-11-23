@@ -15,6 +15,7 @@ import { noteHandPick } from '../state/taste';
 import { playsClips } from '../director/footage';
 import { Chevron, Cube, Film, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
+import { canShow, giveMedia, hereTarget, MEDIA_MIME, pictureKind, targetWords } from './footageMedia';
 
 type Tab = 'looks' | 'photos' | 'footage';
 
@@ -566,7 +567,7 @@ function Photos() {
   const mine = photos.filter((p) => !p.builtin);
   return (
     <>
-      <TabHead note="Photo looks break up and rebuild your photos to the music.">
+      <TabHead note="Photo looks break up and rebuild your photos to the music. Drag one onto a part to put it there.">
         <button className="btn lib-add" onClick={() => input.current?.click()}>
           <Plus width={14} height={14} aria-hidden /> Add photos
         </button>
@@ -574,9 +575,10 @@ function Photos() {
       {mine.length ? (
         <div className="lib-grid">
           {mine.map((p) => (
-            <div className="lib-tile" key={p.id}>
+            <div className="lib-tile" key={p.id} {...mediaDrag(p.id)}>
               <div className="lib-tile-img">
                 <PhotoImg src={p.image} />
+                <UseHere id={p.id} kind="photo" name={p.name} />
                 <button className="lib-tile-del" onClick={() => removePhoto(p.id)} aria-label={`Remove photo ${p.name}`} title="Remove">
                   <X width={11} height={11} aria-hidden />
                 </button>
@@ -616,7 +618,7 @@ function Footage() {
   const clipScenes = allScenes().filter((s) => s.usesClips);
   return (
     <>
-      <TabHead note="Your clips become the picture in the Footage look, cut to the song.">
+      <TabHead note="Your clips become the picture in the Footage look, cut to the song. Drag one onto a part to put it there.">
         <button className="btn lib-add" onClick={() => input.current?.click()}>
           <Plus width={14} height={14} aria-hidden /> Add clips
         </button>
@@ -624,9 +626,10 @@ function Footage() {
       {clips.length ? (
         <div className="lib-grid">
           {clips.map((c) => (
-            <div className="lib-tile" key={c.id}>
+            <div className="lib-tile" key={c.id} {...mediaDrag(c.id)}>
               <div className="lib-tile-img clip">
-                <img src={c.thumb} alt="" loading="lazy" decoding="async" />
+                <img src={c.thumb} alt="" loading="lazy" decoding="async" draggable={false} />
+                <UseHere id={c.id} kind="clip" name={c.name} />
                 <span className="lib-tile-len" aria-label={`${Math.round(c.duration)} seconds`}>
                   {fmtClipLen(c.duration)}
                 </span>
@@ -656,6 +659,42 @@ function Footage() {
       />
       {clips.length > 0 && <SceneRows label="Looks that use your clips" scenes={clipScenes} />}
     </>
+  );
+}
+
+/** a clip or photo tile can be dragged onto a part on the timeline, or onto the stage */
+function mediaDrag(id: string) {
+  return {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      hidePeek();
+      e.dataTransfer.setData(MEDIA_MIME, id);
+      e.dataTransfer.effectAllowed = 'copy';
+    },
+  };
+}
+
+/**
+ * "Use for this shot" on a clip or photo tile, on hover or focus: shown while parts are picked (or a look
+ * that shows pictures plays on its own), it makes this the picture there (footageMedia.ts giveMedia).
+ */
+function UseHere({ id, kind, name }: { id: string; kind: 'clip' | 'photo'; name: string }) {
+  const picked = useStudio((s) => s.selectedParts.length);
+  const solo = useStudio((s) => !s.planOn || !s.plan);
+  const soloKind = useStudio((s) => pictureKind(s.sceneId));
+  const busy = useStudio((s) => !!s.clip);
+  if (!picked && !(solo && canShow(soloKind, { kind }))) return null;
+  const words = targetWords(hereTarget());
+  return (
+    <button
+      type="button"
+      className="lib-tile-use"
+      disabled={busy}
+      title={`Make ${name} the picture of ${words}. ⌘-click adds it to the ones there.`}
+      onClick={(e) => giveMedia(id, hereTarget(), e.metaKey || e.ctrlKey)}
+    >
+      Use for {words}
+    </button>
   );
 }
 

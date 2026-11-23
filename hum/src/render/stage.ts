@@ -22,6 +22,7 @@ import { NO_KEEP_OUT } from './legibility';
 import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
 import { activeFinish, partWordsAt } from '../state/direction';
+import { chosenPhotosAt } from '../state/partEdit';
 import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
@@ -788,7 +789,8 @@ export class Stage {
     const frame = {
       params: live === this.current ? st0.sceneParams : (this.out?.look.sceneParams ?? live.params),
       analysis: st0.analysis,
-      photos: st0.photos.length ? st0.photos : [this.placeholder],
+      // the photos the person chose for the part playing (or the look on its own), else all of them
+      photos: chosenPhotosAt(st0, songTime) ?? (st0.photos.length ? st0.photos : [this.placeholder]),
     };
     const run = new Promise<void>((res) => res(inst.prepare!(songTime, frame))).then(
       () => {
@@ -879,7 +881,9 @@ export class Stage {
     if (!handOn && s.hand.fps >= 60) this.holdReady = false;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
-    const photos = s.photos.length ? s.photos : [this.placeholder];
+    // the photos the person chose for the part playing (or the look on its own), in their order: one
+    // keeps the look on it, several rotate among just those; nothing chosen, every photo as before
+    const photos = chosenPhotosAt(s, audio.time) ?? (s.photos.length ? s.photos : [this.placeholder]);
     const base: Omit<FrameContext, 'params'> = {
       renderer: this.renderer,
       time,

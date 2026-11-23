@@ -365,6 +365,18 @@
   box-shadow: 0 0 0 2.5px var(--accent);
   transform: translateY(-2px);
 }
+/* dragging a clip or photo: the parts it would go to lift with the accent ring; a part whose look
+   can't show it gets a dashed ring (dropping offers to switch it to Footage) */
+.tln-part.m-over .tln-shots {
+  box-shadow: 0 0 0 2.5px var(--accent);
+  transform: translateY(-2px);
+}
+.tln-part.m-no .tln-shots {
+  box-shadow: 0 0 0 2px var(--ink-3);
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  transform: translateY(-2px);
+}
 /* what a dragged look will do: fixed over the block, so the scrolling view doesn't clip it */
 .tl-droptip.tln-droptip {
   position: fixed;
