@@ -7,7 +7,7 @@
  *               the bottom (Reels and TikTok captions and buttons). Named exceptions only: Knockout's
  *               cropped giant word and Film's stripes, which run off the frame on purpose.
  *   plates      any plate, band or panel behind words pads them by at least 0.35 cap heights above
- *               and below the ink (from the accented capitals and the descenders, not the baseline)
+ *               and below the ink (from the ascenders, the accents when a line has them, and the descenders, not the baseline)
  *               and 0.5 cap heights at each end. When the plate and the safe area can't both fit,
  *               the type gets smaller, never the padding.
  *
