@@ -26,7 +26,7 @@ import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
 import { DIRECTION_RULE, FINISH_IDS, TRANSITION_SET_IDS } from '../src/core/direction.js';
 import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
 import { DEFAULT_MODEL, modelFor, tierOf, type Task, type Tier } from './models.js';
-import { compactEditLooks, compactLooks, cleanPlanEdit, describePlanForEdit, EDIT_PLAN_TOOL, FAMILIES_FORMAT, FAMILIES_HEADER, LOOKS_HEADER, PLAN_EDIT_SYSTEM } from './planPrompt.js';
+import { compactEditLooks, compactLooks, cleanPlanEdit, describePlanForEdit, EDIT_PLAN_TOOL, FAMILIES_FORMAT, FAMILIES_HEADER, LOOKS_HEADER, LYRIC_MEDIUM_IDS, PLAN_EDIT_SYSTEM } from './planPrompt.js';
 
 export type DirectorEnv = Record<string, string | undefined>;
 
@@ -342,7 +342,7 @@ const PLAN_TOOL = {
 
 /* ───────────────────────── lyric video (plan mode) ───────────────────────── */
 
-const LYRIC_MEDIUMS = ['subtitle', 'big', 'cutout', 'sparse', 'own'] as const;
+const LYRIC_MEDIUMS = LYRIC_MEDIUM_IDS;
 const LYRIC_MOMENTS = ['giant', 'burst'] as const;
 const LYRIC_TYPES = ['grotesk', 'serif', 'condensed', 'mono', 'rounded', 'typewriter'] as const;
 
@@ -666,6 +666,8 @@ ${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
     if (!hasWords) parts.push('This song has no lyrics to show: leave lyric and lyricType out.');
     if (hasWords) {
       if (wps) parts.push(`Words sung per second, per section: ${wps}`);
+      // newer mediums, told per request so the cached rules above stay as they are
+      parts.push('Two more lyric mediums: knockout sets one word at a time huge, filling the frame, each knocking the last out on its sung time; use it for loud choruses and drops with few words per second (under ~1.8), never on wordy verses, at most for a couple of parts. none leaves a section without words on screen (rarely; only when asked or for a repeated hook).');
       // a seeded suggestion per render, so two videos of one song don't read the same
       const take = typeof body.lyricTake === 'string' && (LYRIC_TYPES as readonly string[]).includes(body.lyricTake) ? body.lyricTake : '';
       if (take) parts.push(`For this take, the suggested lyricType is ${take}: use it unless it clearly fights the song, and vary the mediums from the most obvious choice where another still fits.`);

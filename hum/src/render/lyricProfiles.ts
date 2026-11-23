@@ -13,7 +13,7 @@ import type { Backing } from './legibility';
  *           how much): 'shadow' (halo only), 'soft' (feathered plate), 'band' (solid strip),
  *           'paper' (torn paper strip, for print and board looks)
  */
-export type Medium = 'subtitle' | 'big' | 'cutout' | 'sparse';
+export type Medium = 'subtitle' | 'big' | 'cutout' | 'sparse' | 'knockout';
 export type Zone = 'top' | 'middle' | 'bottom' | 'left' | 'right';
 export type Own = 'none' | 'carries' | 'echoes';
 
@@ -25,8 +25,13 @@ export interface LyricProfile {
   plate: Exclude<Backing, 'none'>;
 }
 
+/**
+ * Knockout (one huge word at a time, knockout.ts) brings its own answer to a busy picture (the words
+ * are cut out of a flat field), so it suits nearly every look: at least moderately, more where big
+ * type already sits well. Looks that show the words themselves stand it down like any overlay.
+ */
 const P = (subtitle: number, big: number, cutout: number, sparse: number, zones: Zone[], own: Own, ink: LyricProfile['ink'], plate: LyricProfile['plate']): LyricProfile => ({
-  suits: { subtitle, big, cutout, sparse },
+  suits: { subtitle, big, cutout, sparse, knockout: own === 'carries' ? 0.2 : Math.max(0.55, big) },
   zones,
   own,
   ink,
