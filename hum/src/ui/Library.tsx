@@ -9,6 +9,7 @@ import { live } from '../state/live';
 import { findLook, partEnergy, pickLook, pickScene, sectionIndexAt, sectionNames } from '../state/plan';
 import './library.css';
 import { sceneLook, useStudio } from '../state/store';
+import { withTweak, type LookTweak } from '../state/tweaks';
 import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
 import { playsClips } from '../director/footage';
@@ -449,12 +450,16 @@ function sceneRowProps(id: string, name: string, pick: () => void) {
   };
 }
 
-/* preset looks keep stable effect ids so the preview doesn't recompile shaders on every hover */
-const peekLooks = new Map<string, ReturnType<typeof presetToLook>>();
+/*
+ * preset looks keep stable effect ids so the preview doesn't recompile shaders on every hover; a look
+ * fine-tuned for this video previews with its tweak on (state/tweaks.ts), so what you see is what plays
+ */
+const peekLooks = new Map<string, { t: LookTweak | undefined; look: ReturnType<typeof presetToLook> }>();
 function presetPeekLook(p: Preset) {
+  const t = useStudio.getState().tweaks[p.id];
   let l = peekLooks.get(p.id);
-  if (!l) peekLooks.set(p.id, (l = presetToLook(p)));
-  return l;
+  if (!l || l.t !== t) peekLooks.set(p.id, (l = { t, look: presetToLook(withTweak(p, t)) }));
+  return l.look;
 }
 
 function PresetCard({ p, on, suggested, sub, onClick }: { p: Preset; on: boolean; suggested?: boolean; sub?: string; onClick: () => void }) {

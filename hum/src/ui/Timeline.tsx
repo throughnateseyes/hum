@@ -32,6 +32,7 @@ import { combineParts, combineRun, likePart, playFrom, playPart, resetParts, set
 import { assignLook, findLook, partEdits, partNames, planShots, sectionIndexAt, sectionNames, shotIndexAt, validPlan, type Shot } from '../state/plan';
 import { originalOf, parentsOf } from '../state/planCache';
 import { useStudio } from '../state/store';
+import { withTweak } from '../state/tweaks';
 import { noteHandPick } from '../state/taste';
 import { ContextMenu, MOD, type MenuItem } from './ContextMenu';
 import { Plus } from './Icons';
@@ -500,6 +501,9 @@ function PartsRow({
   const partPops = useStudio((s) => s.partPops);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
+  // looks fine-tuned for this video show as they play (state/tweaks.ts): their colours on the blocks
+  const tweaks = useStudio((s) => s.tweaks);
+  const tuned = (p: Preset | undefined) => (p ? withTweak(p, tweaks[p.id]) : undefined);
   const phone = useLayout((s) => s.phone);
   useStudio((s) => s.customPresets.length);
   const dragId = useDraggedLook();
@@ -592,7 +596,7 @@ function PartsRow({
       }}
     >
       {secs.map((sec, i) => {
-        const look = findLook(looks[i]);
+        const look = tuned(findLook(looks[i]));
         const len = sec.end - sec.start;
         const px = (len / a.duration) * laneW;
         const size = px < PIC_PX ? 'tiny' : px < FULL_PX ? 'small' : '';
@@ -671,7 +675,7 @@ function PartsRow({
                 // a plan that isn't one look per part: its shots inside the part
                 mine.map(({ sh, k }, m) => {
                   const end = mine[m + 1]?.sh.t ?? sec.end;
-                  const p = findLook(sh.lookId);
+                  const p = tuned(findLook(sh.lookId));
                   const w = ((end - sh.t) / a.duration) * laneW;
                   const mode = w >= FULL_PX ? 'full' : w >= PIC_PX ? 'pic' : 'tick';
                   const stip = `${p?.name ?? 'A look'} · ${fmtTime(sh.t)}–${fmtTime(end)} · ${CUT_ON[sh.on]}`;
@@ -735,7 +739,7 @@ function DropTip({ x, y, at, look, names, multi, alike, fills, alt }: { x: numbe
   );
 }
 
-/** hover a block: a live preview of its look over the timeline */
+/** hover a block: a live preview of its look over the timeline, with this video's fine-tuning on it */
 function shotPeek(p: Preset, part: string, tip: string) {
   return peekHandlers({
     key: `shot:${part}:${p.id}`,
@@ -743,7 +747,7 @@ function shotPeek(p: Preset, part: string, tip: string) {
     hint: `${tip.split(' · ').slice(1).join(' · ')}. Click to pick the part, double-click to play it, right-click for more.`,
     poster: STATIC_THUMBS[p.id],
     place: 'above',
-    getLook: () => (useStudio.getState().presetId === p.id ? null : presetToLook(p)),
+    getLook: () => (useStudio.getState().presetId === p.id ? null : presetToLook(withTweak(p, useStudio.getState().tweaks[p.id]))),
   });
 }
 
