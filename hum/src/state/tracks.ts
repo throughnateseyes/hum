@@ -299,7 +299,7 @@ async function autoSync(token = loadToken) {
   const l = st.lyrics;
   if (!st.lyricsAutoSync || !l || !lastBuf || autoTried.has(l) || !canAutoSync() || !worthSyncing(l)) return;
   autoTried.add(l);
-  await until(token, (s) => !!s.analysis && !s.clip && !s.recording && !s.lyricsSync);
+  await until(token, (s) => !!s.analysis && !s.clip && !s.lyricsSync);
   if (token !== loadToken) return;
   const now = useStudio.getState();
   if (!now.lyricsAutoSync || now.lyrics !== l) return;

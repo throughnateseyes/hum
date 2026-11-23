@@ -7,9 +7,8 @@ import { useStudio } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, restoreSession, useMic, useTab } from './state/tracks';
 import { clipBlocker } from './render/clipExport';
 import { clipForTikTok, renderBlocker } from './render/timeline';
-import { openRenderBar, useRenderMode } from './ui/RenderBar';
 import { Bottom, toggleHand } from './ui/Bottom';
-import { BrowserTab, Camera, Chevron, Expand, Film, Mic, Rec, Shuffle, Upload } from './ui/Icons';
+import { BrowserTab, Camera, Chevron, Expand, Film, Mic, Shuffle, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { AccessGate } from './ui/AccessGate';
 import { Inspector } from './ui/Inspector';
@@ -25,7 +24,7 @@ import { Breakdown } from './ui/Breakdown';
 import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
 import { jumpPart, seekBy, SEEK_STEP } from './ui/SeekBar';
 import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, togglePerform, usePerformSync } from './ui/Perform';
-import { saveStill, toggleRecording } from './ui/capture';
+import { saveStill } from './ui/capture';
 import { useLayout, useLayoutWatch } from './ui/layout';
 import { PhoneDock } from './ui/Phone';
 
@@ -164,7 +163,6 @@ function shuffle() {
 }
 
 function Topbar() {
-  const recording = useStudio((s) => s.recording);
   const input = useRef<HTMLInputElement>(null);
 
   // the tap that opens the picker is the gesture that lets the song start once it's planned
@@ -204,19 +202,10 @@ function Topbar() {
         <span className="tb-div" />
         <FramePicker />
         <span className="tb-div" />
-        {/* everything that saves what you see, as one group: a still, a live recording, a rendered video */}
+        {/* everything that saves what you see, as one group: a still and a rendered video */}
         <div className="tb-export" role="group" aria-label="Save a picture or video">
           <button className="btn icon has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void saveStill()}>
             <Camera width={15} height={15} />
-          </button>
-          <button
-            className={`btn rec has-tip tip-below ${recording ? 'on' : ''}`}
-            onClick={() => void toggleRecording()}
-            data-tip={recording ? 'Stop and save the clip' : 'Record what plays, live, with sound'}
-            aria-label={recording ? 'Stop recording' : 'Record'}
-          >
-            <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
-            <span className="lbl-wide">{recording ? 'Stop' : 'Record'}</span>
           </button>
           <RenderButton />
           <ClipButton />
@@ -265,14 +254,14 @@ function PhoneTopbar() {
  * open; when the row is off screen (a phone) a click brings it into view instead of closing it.
  */
 function RenderButton() {
-  const on = useRenderMode((s) => s.on);
-  const blocked = useStudio((s) => renderBlocker({ ...s, clip: null, recording: false }));
+  const on = useStudio((s) => s.inspectorTab === 'render');
+  const blocked = useStudio((s) => renderBlocker({ ...s, clip: null }));
   const flash = useStudio((s) => s.flash);
   return (
     <button
       className={`btn tb-render has-tip tip-below ${on ? 'on' : ''} ${blocked && !on ? 'off' : ''}`}
-      onClick={() => (blocked && !on ? flash(blocked) : openRenderBar())}
-      data-tip={blocked && !on ? blocked : on ? 'Close the render row' : 'Pick a stretch of the song and make it into videos, at any size'}
+      onClick={() => (blocked && !on ? flash(blocked) : useStudio.getState().set({ inspectorTab: on ? 'scene' : 'render' }))}
+      data-tip={blocked && !on ? blocked : on ? 'Close the Render tab' : 'Pick a stretch of the song and make it into videos, at any size'}
       aria-label="Render a video"
       aria-pressed={on}
       aria-disabled={!!blocked && !on}
@@ -289,7 +278,6 @@ function RenderButton() {
  */
 function ClipButton() {
   const clip = useStudio((s) => s.clip);
-  const recording = useStudio((s) => s.recording);
   const blocked = useStudio((s) => clipBlocker(s));
   const flash = useStudio((s) => s.flash);
   const len = clip ? clip.end - clip.start : 0;
@@ -309,7 +297,6 @@ function ClipButton() {
       style={clip ? ({ '--p': clip.phase === 'prep' ? 0 : clip.frac } as CSSProperties) : undefined}
       onClick={() => {
         if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        else if (recording) flash('Stop the recording first');
         else if (blocked) flash(blocked);
         else void clipForTikTok();
       }}

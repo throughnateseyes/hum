@@ -53,8 +53,7 @@ export function showMoment(t: number) {
 
 /** a drag starts: pause, remembering whether the song was playing */
 export function beginScrub() {
-  // a live recording keeps playing: the range still moves, the song doesn't
-  if (session || audioEngine.kind !== 'file' || useStudio.getState().recording) return;
+  if (session || audioEngine.kind !== 'file') return;
   session = { wasPlaying: audioEngine.playing };
   audioEngine.pause();
 }

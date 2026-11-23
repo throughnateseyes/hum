@@ -8,33 +8,31 @@ import { assignLook, findLook, interludeLength, makeVideo, partEdits, sectionInd
 import { presetToLook } from '../presets/apply';
 import { useStudio, type PopupMode } from '../state/store';
 import { LAYER_MIME, Slider, Toggle } from './controls';
-import { Film, Pause, Play, Plus, Sparkle, Wave } from './Icons';
+import { Pause, Play, Plus, Sparkle, Wave } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { peekHandlers } from './Peek';
 import { noteHandPick } from '../state/taste';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
 import { Volume } from './Volume';
-import { RangeOverlay, RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
+import { RangeOverlay, useRenderMode } from './RenderBar';
 import { MoodRow } from './Moods';
 import { PartSheet, togglePartSheet, usePartSheet } from './PartSheet';
-import { openPanel, useLayout } from './layout';
+import { useLayout } from './layout';
 
 /**
  * Three rows: the transport and the feel controls, one timeline (the song's parts with their looks
  * on top, the waveform under them, one playhead through both), and the live layer meters.
  */
 export function Bottom() {
-  // render mode: the song map picks a stretch and the meter row becomes the render row
-  const rendering = useRenderMode((s) => s.on);
   // a phone keeps the render row in its Export panel (the meters are for dragging, which touch can't do)
   const phone = useLayout((s) => s.phone);
   return (
     <div className="bottom">
       <TopRow />
       <Timeline />
-      {!rendering && <MoodRow />}
-      {phone ? null : rendering ? <RenderBar /> : <LayerStrip />}
+      <MoodRow />
+      {phone ? null : <LayerStrip />}
       <PartSheet />
     </div>
   );
@@ -252,21 +250,6 @@ function Timeline() {
         >
           <Wave width={14} height={14} />
           Breakdown
-        </button>
-        <button
-          className={`btn tl-render has-tip tip-left ${renderOn ? 'on' : ''}`}
-          disabled={!analysis || !secs.length}
-          onClick={() => {
-            // a phone: the render row lives in the Export panel (the song map still shows the stretch)
-            if (useLayout.getState().phone) {
-              if (!useRenderMode.getState().on) toggleRenderMode();
-              openPanel('export', 'peek');
-            } else toggleRenderMode();
-          }}
-          data-tip="Pick a stretch of the song and make it into videos: the same moments at 9:16, 4:5, 1:1 or 16:9"
-        >
-          <Film width={14} height={14} />
-          Render
         </button>
       </div>
     </div>

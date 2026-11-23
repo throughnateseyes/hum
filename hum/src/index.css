@@ -374,11 +374,6 @@ textarea:focus-visible {
   width: var(--h-sm);
   padding: 0;
 }
-.btn.rec.on {
-  background: var(--rec);
-  border-color: var(--rec);
-  color: white;
-}
 /* clip export: fills left to right while it records */
 .btn.clip {
   position: relative;
@@ -434,9 +429,6 @@ textarea:focus-visible {
 }
 .tb-export > .btn:hover {
   background: var(--panel-2);
-}
-.tb-export > .btn.rec.on {
-  background: var(--rec);
 }
 .tb-export > .btn.clip.on {
   background: var(--ink-2);
@@ -2824,7 +2816,6 @@ html.perform-idle * {
   .tb-right .lbl-wide {
     display: none;
   }
-  .tb-right .btn.rec,
   .tb-right .btn.tb-render,
   .tb-right .btn.clip:not(.on) {
     width: var(--h);

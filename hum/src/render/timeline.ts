@@ -91,11 +91,10 @@ export function setRenderPreview(c: HTMLCanvasElement | null) {
 }
 
 /** Why a render can't start right now, or null when it can. */
-export function renderBlocker(s: Pick<StudioState, 'track' | 'analysis' | 'analyzing' | 'recording' | 'clip'>): string | null {
+export function renderBlocker(s: Pick<StudioState, 'track' | 'analysis' | 'analyzing' | 'clip'>): string | null {
   if (!s.track) return 'Load a song first.';
   if (s.track.source === 'mic' || audioEngine.kind !== 'file') return "Rendering needs a song file. Live sound (microphone, a tab) can't be rendered.";
   if (s.analyzing || !s.analysis) return 'Still listening to the song. Try again in a moment.';
-  if (s.recording) return 'Stop the recording first.';
   if (s.clip) return 'A video is already being made.';
   return null;
 }

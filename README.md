@@ -8,7 +8,7 @@ Then it turns all of that from audio into a space you can see. Concrete facades 
 
 ![A grid of Hum looks: tumbling cubes, a neon branching organism and its botanical twin, a woodblock willow lake, butterfly wings, halftone flows, a heart of beads, a tower of lit rooms, scattered lyric words, a glass room, jellyfish, a shoal of fish, an orrery above the clouds and a night train](hum/docs/new-looks.jpg)
 
-It's a studio for experimenting rather than a video template. You can make music videos with it, and record or render what you see, but the real question it asks is: what does this song feel like, and what is that feeling made of?
+It's a studio for experimenting rather than a video template. You can make music videos with it, and render what you see, but the real question it asks is: what does this song feel like, and what is that feeling made of?
 
 ## What it does
 
@@ -18,7 +18,7 @@ It's a studio for experimenting rather than a video template. You can make music
 - **Lyrics, found and timed.** Lyrics come from the file's tags or from [LRCLIB](https://lrclib.net), a free lyrics library. You can also search LRCLIB or paste lyrics yourself; Hum then times each line by listening to the song on your computer. The lyric style follows the song's mood: soft fades, blur-ins, words that slam in, or a newspaper-cutout ransom note.
 - **Make a video.** Hum plans a look for every part of the song (with Claude, or offline) and cuts between them on musical phrases. The **Pace** setting makes it cut slower or faster.
 - **Finishes.** A hand-drawn mode, an effect stack (dither, halftone, ASCII, grain…), an Impact knob, pop-up instrument windows, and 9:16 / 4:5 / 1:1 frames for reels.
-- **Record.** Save video with sound (MP4 or WebM) or a still PNG.
+- **Save it.** Render any stretch to MP4 with sound, at any size, or save a still PNG.
 - **An AI director.** Describe a feeling and get a look, or a brand-new GLSL scene written and compiled live.
 
 ## Run it

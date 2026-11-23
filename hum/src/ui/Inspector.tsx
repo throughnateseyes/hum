@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { LADDER, quality as governor } from '../render/quality';
 import { LAYERS, PALETTES } from '../core/palettes';
 import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types';
@@ -12,6 +12,9 @@ import { Down, Plus, Up, X } from './Icons';
 import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
 import { TasteGroup } from './Taste';
 import { TakesStrip } from './Takes';
+import { RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
+import { saveStill } from './capture';
+import { Camera } from './Icons';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 
@@ -27,7 +30,13 @@ export function Inspector() {
     ['fx', 'Effects', fxCount],
     ['layers', 'Routing', modCount],
     ['look', 'Look', 0],
+    ['render', 'Render', 0],
   ];
+  // the Render tab is render mode: the song map shows the stretch for as long as the tab is open
+  useEffect(() => {
+    const on = useRenderMode.getState().on;
+    if ((tab === 'render') !== on) toggleRenderMode();
+  }, [tab]);
   return (
     <aside className="inspector">
       <div className="panel-tabs" role="tablist">
@@ -38,14 +47,30 @@ export function Inspector() {
           </button>
         ))}
       </div>
-      <TakesStrip />
+      {tab !== 'render' && <TakesStrip />}
       <div className="panel-body">
         {tab === 'scene' && <ScenePanel />}
         {tab === 'fx' && <FxPanel />}
         {tab === 'layers' && <RoutingPanel />}
         {tab === 'look' && <LookPanel />}
+        {tab === 'render' && <RenderPanel />}
       </div>
     </aside>
+  );
+}
+
+/** Render: pick a stretch on the song map, choose sizes, make the files */
+function RenderPanel() {
+  return (
+    <div className="render-panel">
+      <p className="hint">Pick a stretch of the song and make it into video files. Drag across the song map to choose it, or double-click a part.</p>
+      <RenderBar />
+      <div className="render-extra">
+        <button className="btn sm" onClick={() => void saveStill()}>
+          <Camera width={14} height={14} /> Save a still image
+        </button>
+      </div>
+    </div>
   );
 }
 

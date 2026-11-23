@@ -97,7 +97,7 @@ export function AccessGate() {
           <>
             <h2 id="gate-title">AI is off on this site</h2>
             <p id="gate-desc" className="gate-lede">
-              Everything else still works here: the looks, the offline video planner, recording. To have Claude plan videos and write looks, run Hum on your own computer.
+              Everything else still works here: the looks, the offline video planner, rendering. To have Claude plan videos and write looks, run Hum on your own computer.
             </p>
           </>
         ) : (

@@ -18,9 +18,9 @@ import { FeelControls } from './Bottom';
 import { FramePicker } from './Perform';
 import { RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 import { ShareClip } from './ShareClip';
-import { saveStill, toggleRecording } from './capture';
+import { saveStill } from './capture';
 import { closePanel, openPanel, PANEL_NAME, useLayout, usePhoneUi, type PanelId } from './layout';
-import { Camera, Looks, Quote, Rec, Share, Shuffle, Sliders, X } from './Icons';
+import { Camera, Looks, Quote, Share, Shuffle, Sliders, X } from './Icons';
 import './phone.css';
 
 const TABS: { id: PanelId; icon: (p: { width: number; height: number }) => ReactNode }[] = [
@@ -110,9 +110,8 @@ function SettingsPanel() {
   );
 }
 
-/** Export: the share clip first, then a live recording, a still, and the full render row */
+/** Export: the share clip first, then a still, and the full render row */
 function ExportPanel() {
-  const recording = useStudio((s) => s.recording);
   const clip = useStudio((s) => !!s.clip);
   const rendering = useRenderMode((s) => s.on);
   return (
@@ -120,10 +119,6 @@ function ExportPanel() {
       <ShareClip />
       <div className="ph-sep" />
       <div className="ph-row ph-capture">
-        <button className={`btn rec ${recording ? 'on' : ''}`} disabled={clip} onClick={() => void toggleRecording()}>
-          <Rec width={10} height={10} style={{ color: recording ? '#fff' : 'var(--rec)' }} />
-          {recording ? 'Stop and save' : 'Record live'}
-        </button>
         <button className="btn" disabled={clip} onClick={() => void saveStill()}>
           <Camera width={15} height={15} /> Save a still
         </button>

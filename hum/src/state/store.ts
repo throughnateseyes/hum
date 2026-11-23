@@ -25,7 +25,8 @@ import { isTransitionId, type TransitionId } from '../core/transitionList';
 import { isFinishId, type FinishId } from '../core/direction';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
-export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look';
+/** the right panel's tabs. 'video', 'part' and 'render' are the new layout; the first four are the old one, on their way out */
+export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look' | 'video' | 'part' | 'render';
 export type LyricStyle = 'off' | 'subtitle' | 'big' | 'cutout' | 'auto';
 /** big / cutout lyrics on looks that already show the words themselves (typewriter, word cloud…) */
 export type LyricsOnBoards = 'hide' | 'show';
@@ -94,6 +95,12 @@ export interface StudioState extends LookState {
   text: string;
   aspect: Aspect;
   inspectorTab: InspectorTab;
+  /** parts of the song picked on the timeline (section indices, in the order picked); the Part tab edits them all */
+  selectedParts: number[];
+  /** the row of live meters under the timeline shows (it is only for dragging onto a slider) */
+  metersOpen: boolean;
+  /** hand-drawn for one part: true on, false off, null as the video is set (missing: all as the video) */
+  partHand: (boolean | null)[] | null;
   perform: boolean;
   autoPilot: boolean;
   sensitivity: number;
@@ -107,7 +114,6 @@ export interface StudioState extends LookState {
   customShaders: CustomShaderSpec[];
   shaderError: string | null;
   toast: string | null;
-  recording: boolean;
   /** a TikTok / Reels clip export in progress: getting ready, then recording (frac 0..1 of the clip) */
   clip: ClipProgress | null;
   chat: ChatMsg[];
@@ -343,6 +349,9 @@ export const useStudio = create<StudioState>((set, get) => ({
   text: '',
   aspect: (persisted.aspect as Aspect) ?? 'fill',
   inspectorTab: 'scene',
+  selectedParts: [],
+  metersOpen: false,
+  partHand: null,
   perform: false,
   autoPilot: false,
   sensitivity: persisted.sensitivity ?? 1,
@@ -354,7 +363,6 @@ export const useStudio = create<StudioState>((set, get) => ({
   customShaders: persisted.customShaders ?? [],
   shaderError: null,
   toast: null,
-  recording: false,
   clip: null,
   chat: persisted.chat ?? [],
   directorOpen: persisted.directorOpen ?? true,

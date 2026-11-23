@@ -21,7 +21,6 @@ export function StageView() {
   const aspect = useStudio((s) => s.aspect);
   const perform = useStudio((s) => s.perform);
   const quality = useStudio((s) => s.quality);
-  const recording = useStudio((s) => s.recording);
   const clip = useStudio((s) => s.clip);
   const hasTrack = useStudio((s) => !!s.track);
   const scrub = useRenderMode((s) => s.scrub);
@@ -93,11 +92,6 @@ export function StageView() {
             <span className="hud-pill rec">
               <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
               {clip.count !== undefined && clip.count > 1 ? ` (${(clip.index ?? 0) + 1} of ${clip.count})` : ''} · Esc cancels
-            </span>
-          )}
-          {recording && (
-            <span className="hud-pill rec">
-              <i /> Recording
             </span>
           )}
         </div>

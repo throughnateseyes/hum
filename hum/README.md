@@ -337,9 +337,8 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   look, the playhead and the stage are back as they were. **Clip for TikTok** (top right) does this
   in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
   fall back to recording the stretch live while it plays, and say so.
-- **Record** captures what's on screen live, video + audio (MP4 where supported, else WebM). The
-  camera icon saves a PNG. Still, Record, Render and Clip for TikTok sit together as one group in the
-  top bar.
+- The camera icon saves a PNG of the stage. Still, Render and Clip for TikTok sit together as one
+  group in the top bar.
 - **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
   and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
   Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
