@@ -21,7 +21,7 @@ import { LyricLayer } from './lyricLayer';
 import { NO_KEEP_OUT } from './legibility';
 import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
-import { activeFinish } from '../state/direction';
+import { activeFinish, partWordsAt } from '../state/direction';
 import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
@@ -770,7 +770,8 @@ export class Stage {
     planTick(raw);
     // read the state after the sequencers, so a look they switch to (and its transition) lands this frame
     const s = useStudio.getState();
-    const finish = activeFinish(s);
+    // the finish follows the part being drawn (a part can be set hand-drawn or not on its own)
+    const finish = activeFinish(s, raw.time);
     const handOn = finish === 'hand';
     const audio = this.shape(raw, s.impact);
     const feel = this.feel.update(raw, s.analysis, dt);
@@ -826,8 +827,8 @@ export class Stage {
       photos,
       shared: this.shared,
       analysis: s.analysis,
-      // scenes that show text (the boards) get the line being sung when no text is typed in
-      text: s.text || (s.lyrics?.synced ? (lineAt(s.lyrics.lines, audio.time)?.line.text ?? '') : ''),
+      // scenes that show text (the boards) get the part's own words, else the typed text, else the line being sung
+      text: partWordsAt(s, audio.time) || s.text || (s.lyrics?.synced ? (lineAt(s.lyrics.lines, audio.time)?.line.text ?? '') : ''),
     };
 
     const r = this.renderer;

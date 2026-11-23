@@ -101,6 +101,8 @@ export interface StudioState extends LookState {
   metersOpen: boolean;
   /** hand-drawn for one part: true on, false off, null as the video is set (missing: all as the video) */
   partHand: (boolean | null)[] | null;
+  /** the words a look that writes text shows in one part (null: its own words, from the lyrics or the title text) */
+  partWords: (string | null)[] | null;
   perform: boolean;
   autoPilot: boolean;
   sensitivity: number;
@@ -352,6 +354,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   selectedParts: [],
   metersOpen: false,
   partHand: null,
+  partWords: null,
   perform: false,
   autoPilot: false,
   sensitivity: persisted.sensitivity ?? 1,

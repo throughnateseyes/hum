@@ -17,7 +17,7 @@ import type { AudioFrame, Lyrics, Preset, TrackAnalysis, TrackDrop, TrackSection
 import { PRESETS } from '../presets';
 import { familyIdOf, familyOf, fitScore, neighbourScore, rememberTake, takeFit, takeName } from '../presets/fit';
 import { live } from './live';
-import { useStudio, type Pace } from './store';
+import { useStudio, type Pace, type StudioState } from './store';
 import type { PlanTransition, TransitionId } from '../core/transitionList';
 import { moodOf, pickTransition, resolveTransition, type PickContext, type TransitionSpec } from './transitionPick';
 import { affinityIn, contextFor, EXPLORE, planSignature, recentPlans, rememberPlan, record, rng, setTransitionProbe, tasteSummary } from './taste';
@@ -25,7 +25,8 @@ import { describeLyricPlan, localLyricPlan, mergeLyricPlan, vocalDensity, type L
 import { profileFor } from '../render/lyricProfiles';
 import type { Direction } from '../core/direction';
 import { localDirection, moodDirection, preferredTransitions } from './direction';
-import { planKey, savedPlan, savePlan, watchPlan } from './planCache';
+import { boundsOf, cutAnalysis, originalOf, planKey, savedPlan, savePlan, watchPlan } from './planCache';
+import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, playsClips } from '../director/footage';
 import type { LyricMedium } from './lyricPlan';
@@ -63,6 +64,12 @@ export interface VideoPlan {
    * changes survive a re-plan, show on the song map, and "Reset this part" puts the planner's pick back.
    */
   base?: PlanBase;
+  /**
+   * Where each part starts, when the person split or combined parts on the timeline (missing: the
+   * parts as Hum heard them). Kept with the plan so the plan cache and a reload can cut a fresh
+   * analysis the same way before checking the part count (planCache.cutAnalysis).
+   */
+  bounds?: number[];
 }
 
 export interface PlanBase {
@@ -158,8 +165,9 @@ export function strongDropAt(a: TrackAnalysis, i: number): boolean {
  * interludes never sit on a drop, and bigger drops get busier pop-ups. `keep` is a section the
  * person just set by hand, which is left alone.
  */
-export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep = -1): VideoPlan {
+export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep: number | number[] = -1): VideoPlan {
   if (plan.looks.length !== a.sections.length) return plan;
+  const kept = new Set(Array.isArray(keep) ? keep : [keep]);
   const looks = [...plan.looks];
   const pops = plan.pops ? [...plan.pops] : a.sections.map((x) => POPS_BY_LABEL[x.label]);
   const interludes = plan.interludes ? [...plan.interludes] : a.sections.map(() => null);
@@ -176,7 +184,7 @@ export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep = -1): Vi
     }
     // (pop-ups the person set by hand live in store.partPops and win over this)
     pops[i] = Math.max(pops[i] ?? 0, d.strength >= 0.75 ? 3 : 2);
-    if (i === keep || !looks[i] || looks[i] !== looks[i - 1]) continue;
+    if (kept.has(i) || !looks[i] || looks[i] !== looks[i - 1]) continue;
     const pick = dropLook(looks, a, i, looks[i - 1], plannerWorld(plan.mood));
     if (!pick) continue;
     looks[i] = pick.id;
@@ -1220,6 +1228,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
  */
 export function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string, opts: { play?: boolean } = {}): Promise<boolean> {
   const now = useStudio.getState();
+  a = adoptCut(plan, a);
   plan = withBase(plan, a);
   rememberPlan(a, planSignature(plan));
   now.set({ plan, planOn: true, autoPilot: false });
@@ -1230,6 +1239,23 @@ export function startPlan(plan: VideoPlan, a: TrackAnalysis, text: string, opts:
     useStudio.getState().set({ needsTap: !ok });
     return ok;
   });
+}
+
+/**
+ * The parts a plan plays on: a plan with the person's own part lines (`bounds`) puts the song cut at
+ * those lines on (the store's analysis and the audio engine's), so everything that reads the parts
+ * (the planner, the timeline, the footage scene, lyrics, renders, Breakdown) sees the same list. A plan
+ * without them puts the song's own parts back. Returns the analysis to use with the plan.
+ */
+export function adoptCut(plan: VideoPlan, a: TrackAnalysis): TrackAnalysis {
+  const s = useStudio.getState();
+  const target = cutAnalysis(a, plan.bounds);
+  if (!target || target.sections.length !== plan.looks.length) return a;
+  if (s.analysis && s.analysis !== target && originalOf(s.analysis) === originalOf(target)) {
+    audioEngine.setAnalysis(target);
+    s.set({ analysis: target });
+  }
+  return target;
 }
 
 /** the lyrics arrived (or changed) after this plan was made: give it a lyric plan for them */
@@ -1263,13 +1289,21 @@ export function planBase(plan: VideoPlan, a: TrackAnalysis): PlanBase {
 
 /** the plan with a base (a plan made before bases existed takes what it has now) */
 export function withBase(plan: VideoPlan, a: TrackAnalysis): VideoPlan {
-  return plan.base && plan.base.looks.length === plan.looks.length ? plan : { ...plan, base: planBase(plan, a) };
+  const out = plan.base && plan.base.looks.length === plan.looks.length ? plan : { ...plan, base: planBase(plan, a) };
+  // a plan for parts the person split or combined carries their lines, so it can find them again
+  if (originalOf(a) === a || out.looks.length !== a.sections.length) return out;
+  const b = boundsOf(a);
+  return out.bounds && out.bounds.join(',') === b.join(',') ? out : { ...out, bounds: b };
 }
 
 export interface PartEdit {
   look: boolean;
   pops: boolean;
   lyric: boolean;
+  /** hand-drawn set for this part (store.partHand) */
+  hand: boolean;
+  /** its own words (store.partWords) */
+  words: boolean;
 }
 
 /**
@@ -1277,17 +1311,109 @@ export interface PartEdit {
  * against the plan's base, pop-ups from the overrides in store.partPops (pass them in from a
  * component that subscribes to them, so it redraws when they change).
  */
-export function partEdits(plan: VideoPlan | null, a: TrackAnalysis | null, partPops: (number | null)[] | null = useStudio.getState().partPops): (PartEdit | null)[] {
+export function partEdits(
+  plan: VideoPlan | null,
+  a: TrackAnalysis | null,
+  partPops: (number | null)[] | null = useStudio.getState().partPops,
+  partHand: (boolean | null)[] | null = useStudio.getState().partHand,
+  partWords: (string | null)[] | null = useStudio.getState().partWords,
+): (PartEdit | null)[] {
   if (!plan || !a || !validPlan(plan, a)) return [];
   const b = plan.base && plan.base.looks.length === plan.looks.length ? plan.base : null;
+  const n = a.sections.length;
   return a.sections.map((_, i) => {
     const e = {
       look: !!b && plan.looks[i] !== b.looks[i],
-      pops: typeof partPops?.[i] === 'number',
+      pops: partPops?.length === n && typeof partPops[i] === 'number',
       lyric: !!b && !!plan.lyricPlan?.parts[i] && plan.lyricPlan.parts[i]!.medium !== b.lyric[i],
+      hand: partHand?.length === n && typeof partHand[i] === 'boolean',
+      words: partWords?.length === n && !!partWords[i],
     };
-    return e.look || e.pops || e.lyric ? e : null;
+    return e.look || e.pops || e.lyric || e.hand || e.words ? e : null;
   });
+}
+
+/* ───────────────────────── splitting and combining parts ───────────────────────── */
+
+/** the beat nearest to t (on the song's own beat grid), kept inside the song */
+export function snapToBeat(a: TrackAnalysis, t: number): number {
+  const bpm = Math.max(50, Math.min(200, a.bpm || 120));
+  const beat = 60 / bpm;
+  const off = beatOffset(a, bpm);
+  const g = off + Math.round((t - off) / beat) * beat;
+  return Math.max(0, Math.min(a.duration, Math.round(g * 1000) / 1000));
+}
+
+/** what a re-cut changes in one go: the song's parts, the plan and every per-part setting */
+export interface Recut {
+  analysis: TrackAnalysis;
+  plan: VideoPlan | null;
+  partPops: (number | null)[] | null;
+  partHand: (boolean | null)[] | null;
+  partWords: (string | null)[] | null;
+  /** for each new part, the old part it came from (where it starts) */
+  from: number[];
+}
+
+/**
+ * Cut the song into parts at new part lines (`bounds`: where every part starts) and carry every
+ * per-part setting across in the same step. This is the one place split and combine happen: the plan's
+ * looks, reasons, pop-up marks, interludes, rotations, shot lengths, transitions, lyric styles and the
+ * planner's base, and the store's pop-ups, hand-drawn and words, all re-indexed together.
+ *
+ * Each new part takes everything from the old part it starts in: a split gives both halves the
+ * original's settings, a combine keeps the first part's (lyrics: the first part that has words, so a
+ * combined part with singing in it still shows them). An interlude only stays on a part that still
+ * starts where it did. Null when the lines don't fit the song.
+ */
+export function recutParts(s: Pick<StudioState, 'analysis' | 'plan' | 'partPops' | 'partHand' | 'partWords'>, bounds: number[]): Recut | null {
+  const a = s.analysis;
+  if (!a) return null;
+  const cut = cutAnalysis(a, bounds);
+  if (!cut) return null;
+  const old = a.sections;
+  const now = cut.sections;
+  const n0 = old.length;
+  const from = now.map((sec) => sectionIndexAt(old, sec.start + 0.001));
+  const sameStart = now.map((sec, k) => Math.abs(sec.start - old[from[k]].start) < 0.01);
+  // every old part a new one covers (more than one after a combine)
+  const covers = now.map((sec, k) => old.map((_, j) => j).filter((j) => j === from[k] || (old[j].start >= sec.start - 0.001 && old[j].start < sec.end - 0.001)));
+  const pick = <T,>(arr: readonly T[] | null | undefined, fill: T): T[] | undefined => (arr ? from.map((j) => arr[j] ?? fill) : undefined);
+  const mine = <T,>(arr: (T | null)[] | null): (T | null)[] | null => {
+    if (!arr || arr.length !== n0) return null;
+    const out = from.map((j) => arr[j] ?? null);
+    return out.some((v) => v !== null) ? out : null;
+  };
+  let plan: VideoPlan | null = null;
+  const p = s.plan;
+  if (p && validPlan(p, a)) {
+    const lp = p.lyricPlan;
+    const firstSung = (k: number) => covers[k].find((j) => !!lp?.parts[j]) ?? from[k];
+    const base = p.base && p.base.looks.length === n0 ? p.base : null;
+    plan = {
+      ...p,
+      looks: from.map((j) => p.looks[j] ?? null),
+      why: from.map((j) => p.why[j] ?? ''),
+      ...(p.pops ? { pops: pick(p.pops, 1) } : {}),
+      ...(p.interludes ? { interludes: from.map((j, k) => (sameStart[k] ? (p.interludes![j] ?? null) : null)) } : {}),
+      ...(p.rotate ? { rotate: from.map((j) => (p.rotate![j] ? [...p.rotate![j]!] : null)) } : {}),
+      ...(p.shotBars ? { shotBars: pick(p.shotBars, null) } : {}),
+      ...(p.transitions ? { transitions: pick(p.transitions, null) } : {}),
+      ...(lp ? { lyricPlan: { ...lp, parts: now.map((_, k) => lp.parts[firstSung(k)] ?? null) } } : {}),
+      ...(base
+        ? {
+            base: {
+              looks: from.map((j) => base.looks[j] ?? null),
+              rotate: from.map((j) => (base.rotate[j] ? [...base.rotate[j]!] : null)),
+              lyric: now.map((_, k) => base.lyric[firstSung(k)] ?? null),
+            },
+          }
+        : {}),
+    };
+    if (originalOf(cut) === cut) delete plan.bounds;
+    else plan.bounds = boundsOf(cut);
+  }
+  return { analysis: cut, plan, partPops: mine(s.partPops), partHand: mine(s.partHand), partWords: mine(s.partWords), from };
 }
 
 /**

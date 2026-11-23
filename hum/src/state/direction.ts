@@ -24,9 +24,47 @@ export function playingDirection(s: Pick<StudioState, 'planOn' | 'plan' | 'analy
   return p.direction;
 }
 
-/** the finish to draw now */
-export function activeFinish(s: Pick<StudioState, 'finish' | 'finishPicked' | 'hand' | 'planOn' | 'plan' | 'analysis' | 'sceneId'>): FinishId {
+type FinishState = Pick<StudioState, 'finish' | 'finishPicked' | 'hand' | 'planOn' | 'plan' | 'analysis' | 'sceneId' | 'partHand'>;
+
+/**
+ * Hand-drawn as the person set it for the part playing at song time t (Part tab, timeline menu):
+ * true on, false off, null as the video is set. Only while the video plan plays, since parts are the plan's.
+ */
+export function partHandAt(s: Pick<StudioState, 'planOn' | 'plan' | 'analysis' | 'partHand'>, t: number): boolean | null {
+  return partValueAt(s, s.partHand, t);
+}
+
+/** the words the person gave the part playing at song time t, for looks that write text ('' when none) */
+export function partWordsAt(s: Pick<StudioState, 'planOn' | 'plan' | 'analysis' | 'partWords'>, t: number): string {
+  return partValueAt(s, s.partWords, t)?.trim() ?? '';
+}
+
+function partValueAt<T>(s: Pick<StudioState, 'planOn' | 'plan' | 'analysis'>, values: (T | null)[] | null, t: number): T | null {
+  const secs = s.analysis?.sections;
+  if (!values || !secs || values.length !== secs.length || !playingDirectionOk(s)) return null;
+  let i = 0;
+  for (let k = secs.length - 1; k >= 0; k--) {
+    if (t >= secs[k].start) {
+      i = k;
+      break;
+    }
+  }
+  return values[i] ?? null;
+}
+
+const playingDirectionOk = (s: Pick<StudioState, 'planOn' | 'plan' | 'analysis'>) =>
+  s.planOn && !!s.plan && !!s.analysis && s.plan.looks.length === s.analysis.sections.length && Math.abs(s.plan.duration - s.analysis.duration) < 0.5;
+
+/**
+ * The finish to draw now. `t` (the song time of the frame being drawn, live or in a render) lets a part's
+ * own Hand-drawn setting win: On draws it hand-drawn, Off draws the video's finish, or Clean when that
+ * finish is Hand-drawn. Without `t` it is the finish of the whole video.
+ */
+export function activeFinish(s: FinishState, t?: number): FinishId {
   const f = s.finish !== 'auto' ? s.finish : (playingDirection(s)?.finish ?? (s.hand.on ? 'hand' : 'clean'));
+  const own = t === undefined ? null : partHandAt(s, t);
+  if (own === true) return 'hand';
+  if (own === false) return f === 'hand' ? 'clean' : f;
   // a look that falls apart under hand-drawn (fine snow, soft glows) shows clean until the person picks a finish
   if (f === 'hand' && !s.finishPicked && getScene(s.sceneId)?.prefersClean) return 'clean';
   return f;
