@@ -1,12 +1,13 @@
 /**
- * The takes strip at the top of the Inspector: the family the look on screen belongs to, what it's for
+ * The takes strip in the Part tab: the family the look on screen belongs to, what it's for
  * (its fit), and every take of it (built-in and the person's own) to switch between in one click. Save
  * take keeps what's on screen (colours, sliders, effects) as a new take of the same family.
  */
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { LookFamily } from '../presets/fit';
-import { familyIdOf, familyOf, ROLES, takeName, withCustom } from '../presets/fit';
-import { findLook, pickLook } from '../state/plan';
+import { ROLES, takeName } from '../presets/fit';
+import { pickLook } from '../state/plan';
+import { useLookFamily } from './lookFamily';
 import { useStudio } from '../state/store';
 import { noteHandPick } from '../state/taste';
 import { Plus, X } from './Icons';
@@ -23,25 +24,16 @@ function fitLine(f: LookFamily): string {
   return `Best for ${roles.join(', ')} · ${motion} · ${range}`;
 }
 
-export function TakesStrip() {
+/**
+ * `compact` (the Part tab): just the name and the takes to switch between; saving a take has its own
+ * row under Fine-tune there.
+ */
+export function TakesStrip({ compact = false }: { compact?: boolean }) {
   const presetId = useStudio((s) => s.presetId);
-  const sceneId = useStudio((s) => s.sceneId);
-  const custom = useStudio((s) => s.customPresets);
+  const fam = useLookFamily();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
-
-  const fam = useMemo((): LookFamily | null => {
-    const { families } = withCustom(custom);
-    const p = presetId ? findLook(presetId) : undefined;
-    if (p) {
-      const id = familyIdOf(p);
-      return families.find((f) => f.id === id) ?? familyOf(p);
-    }
-    // a scene picked on its own: the family built on it, so its takes are one click away
-    return families.find((f) => f.takes.some((t) => t.sceneId === sceneId)) ?? null;
-  }, [presetId, sceneId, custom]);
-  // a look of the person's own that isn't a take of anything has no family to show
-  if (!fam || (fam.takes.length === 1 && fam.takes[0].custom && !fam.takes[0].family)) return null;
+  if (!fam) return null;
 
   const save = () => {
     const st = useStudio.getState();
@@ -53,12 +45,12 @@ export function TakesStrip() {
   };
 
   return (
-    <div className="takes-strip">
+    <div className={`takes-strip ${compact ? 'compact' : ''}`}>
       <div className="takes-head">
         <h3 title={fam.blurb}>{fam.name}</h3>
         <span className="label">{fam.takes.length === 1 ? '1 take' : `${fam.takes.length} takes`}</span>
       </div>
-      <p className="takes-fit">{fitLine(fam)}</p>
+      {!compact && <p className="takes-fit">{fitLine(fam)}</p>}
       <div className="takes-row" role="group" aria-label={`${fam.name} takes`}>
         {fam.takes.map((p) => (
           <div key={p.id} className={`take-tile ${p.id === presetId ? 'on' : ''}`}>
@@ -89,6 +81,7 @@ export function TakesStrip() {
             )}
           </div>
         ))}
+        {!compact && (
         <div className="take-tile add">
           <button className="take-pick" title={`Save what's on screen as a new take of ${fam.name}`} onClick={() => setSaving(!saving)}>
             <div className="tt-img">
@@ -97,6 +90,7 @@ export function TakesStrip() {
             <div className="tt-name">Save take</div>
           </button>
         </div>
+        )}
       </div>
       {saving && (
         <form

@@ -267,6 +267,65 @@ export function Field({ label, value, tip, children }: { label: React.ReactNode;
   );
 }
 
+/**
+ * A segmented control that fills its row: a white pill on the choice that's on. `cols` lays a longer
+ * set out as an even grid (seven finishes as two rows of four) instead of squeezing it into one row.
+ */
+export function Seg<T extends string | number>({
+  value,
+  options,
+  onChange,
+  disabled,
+  cols,
+  label,
+}: {
+  value: T;
+  /** span: how many of the grid's columns a choice takes (with cols) */
+  options: { v: T; label: string; tip?: string; span?: number }[];
+  onChange: (v: T) => void;
+  disabled?: boolean;
+  cols?: number;
+  label?: string;
+}) {
+  return (
+    <div
+      className={`seg ${cols ? 'grid' : 'full'} ${disabled ? 'is-off' : ''}`}
+      style={cols ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
+      role="radiogroup"
+      aria-label={label}
+    >
+      {options.map((o) => (
+        <button
+          key={String(o.v)}
+          type="button"
+          role="radio"
+          aria-checked={value === o.v}
+          className={value === o.v ? 'on' : ''}
+          disabled={disabled}
+          title={o.tip}
+          style={o.span ? { gridColumn: `span ${o.span}` } : undefined}
+          onClick={() => onChange(o.v)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** a labelled switch on its own row, with an optional line under the name */
+export function SwitchRow({ label, note, on, onChange, tip }: { label: string; note?: string; on: boolean; onChange: (v: boolean) => void; tip?: string }) {
+  return (
+    <div className={`row-switch ${tip ? 'has-tip' : ''}`} data-tip={tip}>
+      <span>
+        <b>{label}</b>
+        {note && <small>{note}</small>}
+      </span>
+      <Toggle on={on} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
 /** a long description cut to three lines, with a quiet More / Less */
 export function Clamp({ text, lines = 3 }: { text: string; lines?: number }) {
   const [open, setOpen] = useState(false);

@@ -26,7 +26,7 @@ import { isFinishId, type FinishId } from '../core/direction';
 
 export type Aspect = 'fill' | '16:9' | '9:16' | '1:1' | '4:5';
 /** the right panel's tabs. 'video', 'part' and 'render' are the new layout; the first four are the old one, on their way out */
-export type InspectorTab = 'scene' | 'fx' | 'layers' | 'look' | 'video' | 'part' | 'render';
+export type InspectorTab = 'video' | 'part' | 'render';
 export type LyricStyle = 'off' | 'subtitle' | 'big' | 'cutout' | 'auto';
 /** big / cutout lyrics on looks that already show the words themselves (typewriter, word cloud…) */
 export type LyricsOnBoards = 'hide' | 'show';
@@ -348,7 +348,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   clips: [],
   text: '',
   aspect: (persisted.aspect as Aspect) ?? 'fill',
-  inspectorTab: 'scene',
+  inspectorTab: 'video',
   selectedParts: [],
   metersOpen: false,
   partHand: null,

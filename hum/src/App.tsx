@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState, type CSSProperties, type SVGProps } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { audioEngine } from './audio/engine';
 import { DEMO_TRACKS } from './audio/demoTracks';
 import { PRESETS } from './presets';
 import { allScenes, getScene } from './scenes';
-import { useStudio } from './state/store';
+import { useStudio, type InspectorTab } from './state/store';
 import { canListenToTab, handleFiles, loadDemo, restoreSession, useMic, useTab } from './state/tracks';
-import { clipBlocker } from './render/clipExport';
-import { clipForTikTok, renderBlocker } from './render/timeline';
-import { Bottom, toggleHand } from './ui/Bottom';
-import { BrowserTab, Camera, Chevron, Expand, Film, Mic, Shuffle, Upload } from './ui/Icons';
+import { renderBlocker } from './render/timeline';
+import { Bottom } from './ui/Bottom';
+import { toggleHand } from './ui/hand';
+import { validPlan } from './state/plan';
+import { BrowserTab, Camera, Chevron, Expand, Film, Mic, Upload } from './ui/Icons';
 import { DirectorPanel, focusDirector } from './ui/Director';
 import { AccessGate } from './ui/AccessGate';
 import { Inspector } from './ui/Inspector';
@@ -94,6 +95,7 @@ export default function App() {
         s.set({ directorOpen: true });
         requestAnimationFrame(focusDirector);
       } else if (e.key === 'r' && !e.metaKey) {
+        // R picks a look at random (there's no button for it any more)
         shuffle();
       } else if (e.key === 'h' && !e.metaKey) {
         toggleHand();
@@ -196,21 +198,13 @@ function Topbar() {
         />
       </div>
       <div className="tb-right">
-        <button className="btn icon ghost has-tip tip-below" data-tip="Shuffle look  R" aria-label="Shuffle look" onClick={shuffle}>
-          <Shuffle width={15} height={15} />
-        </button>
-        <span className="tb-div" />
         <FramePicker />
         <span className="tb-div" />
-        {/* everything that saves what you see, as one group: a still and a rendered video */}
-        <div className="tb-export" role="group" aria-label="Save a picture or video">
-          <button className="btn icon has-tip tip-below" data-tip="Save a still image" aria-label="Save a still image" onClick={() => void saveStill()}>
-            <Camera width={15} height={15} />
-          </button>
-          <RenderButton />
-          <ClipButton />
-        </div>
-        <button className="btn primary has-tip tip-below tip-end" onClick={enterPerform} data-tip="Full screen, controls hide  F">
+        <button className="btn icon ghost has-tip tip-below" data-tip="Save a still image of the picture" aria-label="Save a still image" onClick={() => void saveStill()}>
+          <Camera width={15} height={15} />
+        </button>
+        <RenderButton />
+        <button className="btn ghost tb-perform has-tip tip-below tip-end" onClick={enterPerform} data-tip="Full screen, the controls hide (F)">
           <Expand width={13} height={13} /> Perform
         </button>
       </div>
@@ -250,18 +244,24 @@ function PhoneTopbar() {
 }
 
 /**
- * Opens the render row by the song map: pick any stretch, any sizes. It lights up while the row is
- * open; when the row is off screen (a phone) a click brings it into view instead of closing it.
+ * The top bar's one primary button: opens the Render tab (pick any stretch, any sizes, or a quick
+ * clip for socials). A second click goes back to the tab you came from.
  */
+let lastTab: InspectorTab = 'video';
 function RenderButton() {
   const on = useStudio((s) => s.inspectorTab === 'render');
   const blocked = useStudio((s) => renderBlocker({ ...s, clip: null }));
   const flash = useStudio((s) => s.flash);
   return (
     <button
-      className={`btn tb-render has-tip tip-below ${on ? 'on' : ''} ${blocked && !on ? 'off' : ''}`}
-      onClick={() => (blocked && !on ? flash(blocked) : useStudio.getState().set({ inspectorTab: on ? 'scene' : 'render' }))}
-      data-tip={blocked && !on ? blocked : on ? 'Close the Render tab' : 'Pick a stretch of the song and make it into videos, at any size'}
+      className={`btn primary tb-render has-tip tip-below ${on ? 'on' : ''} ${blocked && !on ? 'off' : ''}`}
+      onClick={() => {
+        if (blocked && !on) return flash(blocked);
+        const s = useStudio.getState();
+        if (!on) lastTab = s.inspectorTab === 'render' ? lastTab : s.inspectorTab;
+        s.set({ inspectorTab: on ? (lastTab === 'render' ? (validPlan(s.plan, s.analysis) ? 'video' : 'part') : lastTab) : 'render' });
+      }}
+      data-tip={blocked && !on ? blocked : on ? 'Close the Render tab' : 'Make the song into a video file, or a quick clip for socials'}
       aria-label="Render a video"
       aria-pressed={on}
       aria-disabled={!!blocked && !on}
@@ -269,53 +269,6 @@ function RenderButton() {
       <Film width={14} height={14} />
       <span className="lbl-wide">Render</span>
     </button>
-  );
-}
-
-/**
- * One click: a vertical 1080×1920 clip of the song's best 15–30 s, with sound, in the current look.
- * While it records the button fills up left to right; clicking it again (or Esc) cancels.
- */
-function ClipButton() {
-  const clip = useStudio((s) => s.clip);
-  const blocked = useStudio((s) => clipBlocker(s));
-  const flash = useStudio((s) => s.flash);
-  const len = clip ? clip.end - clip.start : 0;
-  const tip = clip
-    ? 'Making the clip. Esc or click to cancel'
-    : blocked ?? 'A vertical 1080×1920 clip of the best 15–30 s, ready for TikTok or Reels';
-  const label = !clip
-    ? 'Clip for TikTok'
-    : clip.phase === 'prep'
-      ? 'Finding the drop…'
-      : clip.phase === 'save'
-        ? 'Saving…'
-        : `${Math.floor(clip.frac * len)} / ${Math.round(len)} s`;
-  return (
-    <button
-      className={`btn clip has-tip tip-below ${clip ? 'on' : ''} ${blocked && !clip ? 'off' : ''}`}
-      style={clip ? ({ '--p': clip.phase === 'prep' ? 0 : clip.frac } as CSSProperties) : undefined}
-      onClick={() => {
-        if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-        else if (blocked) flash(blocked);
-        else void clipForTikTok();
-      }}
-      data-tip={tip}
-      aria-label={clip ? `Making clip, ${label}. Click to cancel` : 'Clip for TikTok or Reels'}
-      aria-disabled={!!blocked && !clip}
-    >
-      <ClipIcon width={13} height={13} />
-      <span className="lbl-wide">{label}</span>
-    </button>
-  );
-}
-
-function ClipIcon(p: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
-      <path d="M10.5 9.5v5l4-2.5z" fill="currentColor" stroke="none" />
-    </svg>
   );
 }
 
