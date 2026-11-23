@@ -4,9 +4,10 @@
  * Each part of the song becomes a short run of shots (src/shot/sequence.ts, partSequence): the part
  * is cut on the beat, every cut moves to the next clip, a part that lands on a drop arrives with a
  * flash and a few frozen frames, loud parts speed up into their cuts, and the footage ramps into the
- * next part when that one hits. Bands of each clip's brightness can swap for flat colours taken from
- * the clip itself, or open onto another of Hum's looks, and bare shapes sit on top in a 3D space the
- * shot flies through (src/shot/stage.ts and src/shot/motifs).
+ * next part when that one hits. The graphics on top are drawn in one of a few styles (src/shot/styles:
+ * Caption, Poster, Window, Slab, Grid, Split), placed on the frame's grid; "Auto" picks one per part,
+ * and the Arrangement number lays the same style out another way. Colour sets how far the clips are
+ * printed in the paper, ink and accent taken from them (src/shot/palette.ts).
  *
  * Clips come from the store (drop videos on the page, or Library → Footage). With none, the look
  * runs on the photos instead, as stills.
@@ -20,31 +21,32 @@ import type { ClipAsset, FrameContext, ParamDef, ParamValues, PhotoAsset, Prepar
 import { bool, num, str } from '../../core/uniforms';
 import { Footage } from '../../shot/footage';
 import { paletteFromPixels } from '../../shot/palette';
+import type { Colour } from '../../shot/kit';
 import { partSequence, type PartOptions } from '../../shot/sequence';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
+import { STYLE_IDS, STYLE_NAMES } from '../../shot/styles';
 import { useStudio } from '../../state/store';
 
 const params: ParamDef[] = [
   {
-    id: 'treat',
+    id: 'style',
+    label: 'Style',
+    type: 'select',
+    default: 'auto',
+    hint: 'How the graphics sit on your clips. Auto picks one for each part of the song.',
+    options: [{ value: 'auto', label: 'Auto' }, ...STYLE_IDS.map((id) => ({ value: id, label: STYLE_NAMES[id] }))],
+  },
+  { id: 'seed', label: 'Arrangement', type: 'number', min: 1, max: 999, step: 1, default: 1, hint: 'The same style laid out another way. Every number is a different arrangement.' },
+  {
+    id: 'colour',
     label: 'Colour',
     type: 'select',
-    default: 'bands',
+    default: 'tinted',
+    hint: 'How far your clips take on the colours of the graphics.',
     options: [
-      { value: 'clean', label: 'Clean footage' },
-      { value: 'bands', label: 'Flat colour bands' },
-      { value: 'look', label: 'A look shows through' },
-    ],
-  },
-  {
-    id: 'kit',
-    label: 'Shapes',
-    type: 'select',
-    default: 'graphic',
-    options: [
-      { value: 'quiet', label: 'Quiet lines' },
-      { value: 'graphic', label: 'Arcs, bars and bursts' },
-      { value: 'depth', label: 'Ribbons and slabs in depth' },
+      { value: 'clean', label: 'Clean' },
+      { value: 'tinted', label: 'Tinted' },
+      { value: 'flat', label: 'Flat' },
     ],
   },
   {
@@ -63,18 +65,27 @@ const params: ParamDef[] = [
   { id: 'focusY', label: 'Focus up', type: 'number', min: 0, max: 1, step: 0.01, default: 0.55 },
 ];
 
-/** the look that shows through the footage and the slabs when Colour is "A look shows through" */
-const FILL_LOOK = 'contours';
+/** looks saved before the styles carried the old settings: read them the nearest new way */
+function colourOf(p: ParamValues): Colour {
+  const c = str(p, 'colour', '');
+  if (c === 'clean' || c === 'tinted' || c === 'flat') return c;
+  const old = str(p, 'treat', '');
+  return old === 'clean' ? 'clean' : old ? 'flat' : 'tinted';
+}
+
 /** how many clips one picture opens players for */
 const MAX_OPEN = 6;
 
+/** the song's title, without the artist */
+function songTitle(): string {
+  const name = useStudio.getState().track?.name ?? '';
+  return (name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name).replace(/\.[a-z0-9]{2,4}$/i, '').trim();
+}
+
 /** the song's title as words for the type, when no lyrics are being shown (the lyric layer owns those) */
 function titleWords(): string[] {
-  const s = useStudio.getState();
-  if (s.lyrics?.lines.length) return [];
-  const name = s.track?.name ?? '';
-  const title = name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name;
-  return title
+  if (useStudio.getState().lyrics?.lines.length) return [];
+  return songTitle()
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
     .split(/[\s_\-–—]+/)
     .map((w) => w.replace(/[^\p{L}\p{N}'’!?&]/gu, '').toUpperCase())
@@ -157,18 +168,20 @@ class FootageLook implements SceneInstance {
     const index = this.partIndex(a, t);
     const words = bool(p, 'words', true) ? titleWords() : [];
     const o: PartOptions = {
-      treat: str(p, 'treat', 'bands') as PartOptions['treat'],
-      kit: str(p, 'kit', 'graphic') as PartOptions['kit'],
+      style: str(p, 'style', 'auto'),
+      seed: Math.max(1, Math.round(num(p, 'seed', 1))),
+      colour: colourOf(p),
       shotBeats: Number(str(p, 'pace', '8')) || 8,
       words,
       card: words.length > 0,
     };
-    const key = `${a.duration}|${a.sections.length}|${index}|${o.treat}|${o.kit}|${o.shotBeats}|${words.join(' ')}|${this.deckKey}|${this.width}x${this.height}`;
+    const title = songTitle().toUpperCase();
+    const key = `${a.duration}|${a.sections.length}|${index}|${o.style}|${o.seed}|${o.colour}|${o.shotBeats}|${words.join(' ')}|${title}|${this.deckKey}|${this.width}x${this.height}`;
     // the first footage look on this renderer compiles every shader the shots use, once
-    warmShots(this.renderer, a, this.deck[0], FILL_LOOK);
+    warmShots(this.renderer, a, this.deck[0]);
     if (key !== this.builtKey) {
       this.builtKey = key;
-      this.stage.build({ seq: partSequence(a, index, o), analysis: a, clips: this.deck, caption: '', lookId: FILL_LOOK, fillId: FILL_LOOK, tellStore: false, live: true });
+      this.stage.build({ seq: partSequence(a, index, o), analysis: a, clips: this.deck, title, lookId: '', tellStore: false, live: true });
     }
     this.focus.x = num(p, 'focusX', 0.5);
     this.focus.y = num(p, 'focusY', 0.55);
@@ -214,7 +227,7 @@ class FootageLook implements SceneInstance {
 export const footage: SceneDef = {
   id: 'footage',
   name: 'Footage',
-  description: 'Your own video clips as the picture: cut on the beat, sped up into every cut, coloured from the clips themselves, with shapes in depth on top.',
+  description: 'Your own video clips as the picture: cut on the beat, sped up into every cut, with bold shapes and type set on a grid over them.',
   category: 'photo',
   style: 'photo',
   tags: ['footage', 'video', 'photo', 'cinematic', 'personal', 'graphic', 'editorial'],

@@ -596,32 +596,23 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
   },
 
   /* ───────── footage: the person's own clips ───────── */
+  footage: {
+    name: 'Footage',
+    blurb: 'Your own clips cut on the beat, with one bold graphic idea for each part set on a grid: huge type, a big accent shape, cells on the beat, or split panels.',
+    takes: { 'footage-bands': 'Tinted', 'footage-depth': 'Flat' },
+    roles: ['peak', 'build', 'verse', 'bridge'],
+    energy: [0.4, 1],
+    motion: 'pulsing',
+    themes: ['photo', 'graphic'],
+    pairs: ['footage-clean'],
+  },
   'footage-clean': {
     name: 'Footage · Clean',
-    blurb: 'Your own clips, untouched and slow, with thin lines running into the distance; they speed up into the next part when it hits.',
+    blurb: 'Your own clips as they are, in long shots, with a small slate naming the song in one corner; they speed up into the next part when it hits.',
     roles: ['intro', 'verse', 'break', 'outro'],
     energy: [0, 0.5],
     motion: 'drifting',
     themes: ['photo'],
-    pairs: ['footage-bands', 'footage-depth'],
-  },
-  'footage-bands': {
-    name: 'Footage · Bands',
-    blurb: 'Your own clips cut on the beat, bands of them swapped for flat colour, with arcs, bars and a burst of shapes on every hit.',
-    roles: ['peak', 'build', 'verse'],
-    energy: [0.45, 1],
-    motion: 'explosive',
-    themes: ['photo', 'graphic'],
-    pairs: ['footage-clean', 'footage-depth'],
-  },
-  'footage-depth': {
-    name: 'Footage · Depth',
-    blurb: 'Your own clips with a contour map showing through them, flown through ribbons, slabs and a floor of lines.',
-    roles: ['peak', 'bridge', 'build'],
-    energy: [0.4, 1],
-    motion: 'pulsing',
-    themes: ['photo', 'graphic'],
-    pairs: ['footage-clean', 'footage-bands'],
   },
 
   /* ───────── water, gardens and graphic posters (second wave) ───────── */

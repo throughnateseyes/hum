@@ -1,9 +1,9 @@
 /**
- * A shot's colours, taken from its footage (prototype, see src/dev/shot.ts).
+ * A shot's colours, taken from its footage.
  *
- * Five flat pastels that replace bands of the picture, a dark ink for type and lines, and a paper
- * white. The hues come from the clip itself (its two strongest colours and their neighbours), so every
- * clip gets a palette of its own that still sits in the picture.
+ * A clip carries a palette read from three of its frames (ClipPalette in core/types.ts: colours from
+ * its two strongest hues, and the brightness levels that split it into bands). schemeFor() turns that
+ * into what the footage looks actually draw with: paper, ink and one accent.
  */
 import { hexToLch, lchToHex } from '../core/songPalette';
 import type { ClipPalette } from '../core/types';
@@ -25,6 +25,66 @@ export function paletteFromHues(h1: number, h2: number): ShotPalette {
 }
 
 export const DEFAULT_PALETTE: ShotPalette = paletteFromHues(250, 30);
+
+/**
+ * A shot's colours as a designer would set them: a paper, an ink and one accent (plus a second accent
+ * that is used for at most one small thing). The footage is printed in ink and paper; the accent is kept
+ * for the graphics, so it always reads.
+ *
+ * Picked, not generated: six hand-set schemes, and a clip gets the one whose accent sits nearest its own
+ * strongest colour, so the graphics belong to the picture without turning muddy.
+ */
+export interface Scheme {
+  name: string;
+  paper: string;
+  ink: string;
+  accent: string;
+  second: string;
+  /** what type on the accent is set in: ink, or paper when the accent is dark */
+  onAccent: string;
+  /** the mid band of the flat print: between ink and paper, leaning to the accent's hue */
+  mid: string;
+  /** two brightness levels (0..1) that split this clip into three equal bands */
+  cuts: [number, number];
+}
+
+const SCHEMES: Omit<Scheme, 'cuts' | 'onAccent' | 'mid'>[] = [
+  { name: 'signal', paper: '#f3efe6', ink: '#17130f', accent: '#ff4d1f', second: '#2f4bff' },
+  { name: 'sun', paper: '#f7f1e1', ink: '#1c1813', accent: '#ffc21f', second: '#e8402a' },
+  { name: 'acid', paper: '#f1f2ea', ink: '#121410', accent: '#c4ef3b', second: '#5a3cff' },
+  { name: 'mint', paper: '#edf3ef', ink: '#0d1f1b', accent: '#22c495', second: '#ff6a3d' },
+  { name: 'cobalt', paper: '#eef0f3', ink: '#0e1330', accent: '#3350ff', second: '#ffb21f' },
+  { name: 'rose', paper: '#fbf0ee', ink: '#24100f', accent: '#ff5d88', second: '#ffcf3a' },
+];
+
+const mixHex = (a: string, b: string, k: number) => {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (s: number) => Math.round(((pa >> s) & 255) * (1 - k) + ((pb >> s) & 255) * k);
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
+};
+
+/** the scheme for a clip, from the palette taken from its frames */
+export function schemeFor(p: ShotPalette): Scheme {
+  const hue = hexToLch(p.flats[0]).h;
+  let best = SCHEMES[0];
+  let gap = 999;
+  for (const s of SCHEMES) {
+    const d = apart(hexToLch(s.accent).h, hue);
+    if (d < gap) {
+      gap = d;
+      best = s;
+    }
+  }
+  const dark = hexToLch(best.accent).l < 0.62;
+  const c = p.cuts;
+  return {
+    ...best,
+    onAccent: dark ? best.paper : best.ink,
+    mid: mixHex(mixHex(best.ink, best.paper, 0.55), best.accent, 0.12),
+    cuts: [(c[0] + c[1]) / 2, (c[2] + c[3]) / 2],
+  };
+}
 
 /** `data` is RGBA pixels of a small copy of one frame */
 export function paletteFromPixels(data: Uint8ClampedArray): ShotPalette {

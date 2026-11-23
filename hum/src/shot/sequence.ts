@@ -1,17 +1,22 @@
 /**
- * A short run of shots round one hit (prototype, see src/dev/shot.ts).
+ * How a stretch of the song is cut into shots, and how fast each shot's footage runs.
  *
- *   beats  -12 … -2   footage, clean and slow, speeding up into the cut          (the wait)
- *           -2 …  0   a card: the phrase in type on a dark field, dead still      (the held breath)
- *            0 …  8   footage on the hit: freeze, burst, bands of flat colour     (the drop)
- *            8 … 14   one of Hum's looks, full frame, in the shot's colours       (the cutaway)
- *           14 … 24   footage again on a second, smaller hit: a look shows through
- *                     its bands and the camera flies through shapes, then settles (the ride out)
+ *   partSequence()          one part (section) of the song, for the footage looks in the app: cut on
+ *                           the beat grid, landing on a hit when the song does, speeding up into its
+ *                           cuts when loud, every footage shot drawn in one style (src/shot/styles)
+ *   sequenceFromAnalysis()  a short run round the song's biggest drop, for the dev page (src/dev/shot.ts):
+ *       beats  -12 … -2   footage, speeding up into the cut          (the wait)
+ *               -2 …  0   a card: the phrase in type on ink          (the held breath)
+ *                0 …  8   footage on the hit                         (the drop)
+ *                8 … 14   one of Hum's looks, full frame             (the cutaway)
+ *               14 … 24   footage again on a second hit, settling    (the ride out)
+ *   planFootage()           every footage shot's speed curve and its stretch of a clip
  *
- * sequenceFromAnalysis() lays that out on the song; planFootage() gives every footage shot its speed
- * curve and its stretch of a clip. All of it is a pure function of song time.
+ * All of it is a pure function of song time.
  */
 import type { TrackAnalysis } from '../core/types';
+import type { Colour } from './kit';
+import { styleForPart, type StyleId } from './styles';
 import { clamp01, easeInCubic, feltBeat, scoreFromAnalysis, since, smooth } from './time';
 
 export type ShotKind = 'footage' | 'look' | 'card';
@@ -24,16 +29,18 @@ export interface Shot {
   end: number;
   /** footage shots count up from 0; the stage deals clips to them in turn */
   footageIndex: number;
-  /** 'hit': lands with a flash, a few frozen frames and a burst. 'cold': just starts. */
+  /** 'hit': lands with a flash and a few frozen frames. 'cold': just starts. */
   arrive: 'hit' | 'cold';
   /** 'ramp': speeds up into the cut. 'settle': slows to a stop. 'cut': just ends. */
   leave: 'ramp' | 'settle' | 'cut';
   /** beats spent speeding up when it leaves on a ramp */
   rampBeats: number;
-  /** footage only. clean: untouched. bands: shadows and highlights go flat. look: those bands show a look. */
-  treat: 'clean' | 'bands' | 'look';
-  /** the motifs drawn over it, by id (see src/shot/motifs) */
-  motifs: string[];
+  /** footage only: how strongly the clip is printed in the shot's colours */
+  colour: Colour;
+  /** footage only: the style its graphics are drawn in ('' for none) */
+  style: StyleId | '';
+  /** a whole number for this shot's arrangement within its style (from the seed) */
+  layout: number;
   word: string;
 }
 
@@ -45,6 +52,12 @@ export interface Sequence {
   kicks: number[];
   snares: number[];
   shots: Shot[];
+  /** the part's name for small type (e.g. CHORUS), its start, and how loud it is */
+  part: string;
+  partStart: number;
+  energy: number;
+  /** the words the shots set, in order */
+  words: string[];
 }
 
 /** beats before the hit, and after it */
@@ -62,8 +75,17 @@ const inRange = (times: number[] | undefined, from: number, to: number, gap: num
   return out;
 };
 
+/** a shot's arrangement number: the same seed, part and shot always give the same one */
+export function layoutOf(seed: number, part: number, shot: number): number {
+  let h = (Math.floor(seed) * 374761393 + part * 668265263 + shot * 2246822519) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return (h ^ (h >>> 16)) & 0x7fffffff;
+}
+
+const blank = (kind: ShotKind, start: number, end: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start, end, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, colour: 'clean', style: '', layout: 0, word: '', ...rest });
+
 /** `phrase` is the words to set in type: the card shows all of it, the shots one word each */
-export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number): Sequence {
+export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number, o: { style?: string; seed?: number; colour?: Colour } = {}): Sequence {
   const base = scoreFromAnalysis(a, at);
   const beat = base.beat;
   const lead = SEQ_LEAD * beat;
@@ -82,48 +104,41 @@ export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: numb
   const words = phrase.trim().split(/\s+/).filter(Boolean);
   const first = words[0] ?? '';
   const last = words[words.length - 1] ?? first;
-  const shot = (kind: ShotKind, s: number, e: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start: s, end: e, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, treat: 'clean', motifs: [], word: '', ...rest });
+  const seed = o.seed ?? 1;
+  const colour = o.colour ?? 'tinted';
+  // with Auto, each footage shot plays the style a part of its kind would get
+  const pick = (label: 'build' | 'drop' | 'chorus', energy: number, i: number) => styleForPart([{ start: 0, end: 1, energy, label, group: i }], 0, o.style ?? 'auto', seed + i);
   const shots = [
-    shot('footage', start, hit - 2 * beat, { leave: 'ramp', motifs: ['threads', 'guides', 'ruler'] }),
-    shot('card', hit - 2 * beat, hit, { motifs: ['cardType'], word: phrase.trim() }),
-    shot('footage', hit, at8, { arrive: 'hit', treat: 'bands', motifs: ['bars', 'arcs', 'burst', 'word', 'ruler'], word: first }),
-    shot('look', at8, at14, { motifs: ['ruler'] }),
-    shot('footage', at14, end, { arrive: 'hit', leave: 'settle', treat: 'look', motifs: ['floor', 'ribbons', 'blocks', 'typeStack', 'ruler'], word: last }),
+    blank('footage', start, hit - 2 * beat, { leave: 'ramp', colour, style: pick('build', 0.5, 0), layout: layoutOf(seed, 0, 0) }),
+    blank('card', hit - 2 * beat, hit, { word: phrase.trim() }),
+    blank('footage', hit, at8, { arrive: 'hit', colour, style: pick('drop', 0.9, 1), layout: layoutOf(seed, 0, 2), word: first }),
+    blank('look', at8, at14, {}),
+    blank('footage', at14, end, { arrive: 'hit', leave: 'settle', colour, style: pick('chorus', 0.7, 2), layout: layoutOf(seed, 0, 4), word: last }),
   ];
   let n = 0;
   shots.forEach((s, i) => {
     s.index = i;
     if (s.kind === 'footage') s.footageIndex = n++;
   });
-  return { start, hit, end, beat, kicks, snares, shots };
+  return { start, hit, end, beat, kicks, snares, shots, part: 'DROP', partStart: start, energy: 0.8, words };
 }
 
 /* ───────── one part of a song, in the app ───────── */
 
 export interface PartOptions {
-  /** how the footage is treated, and which family of motifs sits on it */
-  treat: 'clean' | 'bands' | 'look';
-  kit: 'quiet' | 'graphic' | 'depth';
+  /** a style id, or 'auto' to pick one for the part */
+  style: string;
+  /** the arrangement: the same style laid out differently for every seed */
+  seed: number;
+  /** how strongly the footage is printed in the shot's colours */
+  colour: Colour;
   /** beats per shot */
   shotBeats: number;
-  /** words to set in type, dealt to the shots in turn (none: no type) */
+  /** words to set in type, dealt to the shots in turn (none: the part's name stands in) */
   words: string[];
   /** hold a card of type for the two beats before a hit */
   card: boolean;
 }
-
-const KITS: Record<PartOptions['kit'], string[][]> = {
-  quiet: [['threads']],
-  graphic: [
-    ['bars', 'arcs', 'burst', 'word'],
-    ['threads', 'bars', 'burst', 'word'],
-  ],
-  depth: [
-    ['floor', 'ribbons', 'blocks', 'typeStack'],
-    ['threads', 'ribbons', 'blocks'],
-    ['floor', 'bars', 'typeStack'],
-  ],
-};
 
 /**
  * The run of shots for one part (section) of the song, for the footage looks in the app: the part is
@@ -141,7 +156,9 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
   const lands = (s: typeof sec, before: typeof sec | undefined) => dropNear(s.start) || s.label === 'drop' || (!!before && s.energy - before.energy > 0.25);
   const hitIn = lands(sec, prev);
   const hitOut = !!next && lands(next, sec);
-  const loud = sec.energy > 0.55 && o.treat !== 'clean';
+  const style = styleForPart(a.sections, index, o.style, o.seed);
+  // the calm style keeps its long shots even when the part is loud
+  const loud = sec.energy > 0.55 && style !== 'caption';
 
   let kicks = inRange(a.layers?.kick, start, end, beat * 0.45);
   if (kicks.length < 4) kicks = Array.from({ length: Math.floor((end - start) / beat) }, (_, i) => start + i * beat);
@@ -156,15 +173,11 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
   for (let t = start + len; t < cardFrom - len * 0.5; t += len) cuts.push(t);
   cuts.push(cardFrom);
 
-  const kits = KITS[o.kit];
   const shots: Shot[] = [];
   for (let j = 0; j < cuts.length - 1; j++) {
     const last = j === cuts.length - 2;
     const leave: Shot['leave'] = last ? (hitOut ? 'ramp' : !next ? 'settle' : 'cut') : loud ? 'ramp' : 'cut';
     const beats = (cuts[j + 1] - cuts[j]) / beat;
-    const motifs = [...kits[(index + j) % kits.length]];
-    // the ring that closes in belongs to a shot that speeds up into its cut
-    if (o.kit === 'quiet' && leave === 'ramp') motifs.push('guides');
     shots.push({
       index: shots.length,
       kind: 'footage',
@@ -175,13 +188,26 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
       arrive: j === 0 ? (hitIn ? 'hit' : 'cold') : loud ? 'hit' : 'cold',
       leave,
       rampBeats: Math.min(RAMP, Math.max(1, beats / 2)),
-      treat: o.treat,
-      motifs,
+      colour: o.colour,
+      style,
+      layout: layoutOf(o.seed, index, j),
       word: o.words.length ? o.words[(index + j) % o.words.length] : '',
     });
   }
-  if (cardFrom < end) shots.push({ index: shots.length, kind: 'card', start: cardFrom, end, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, treat: 'clean', motifs: ['cardType'], word: o.words.slice(0, 4).join(' ') });
-  return { start, hit: hitIn ? start : (shots.find((s) => s.arrive === 'hit')?.start ?? start), end, beat, kicks, snares, shots };
+  if (cardFrom < end) shots.push(blank('card', cardFrom, end, { index: shots.length, word: o.words.slice(0, 4).join(' ') }));
+  return {
+    start,
+    hit: hitIn ? start : (shots.find((s) => s.arrive === 'hit')?.start ?? start),
+    end,
+    beat,
+    kicks,
+    snares,
+    shots,
+    part: sec.label.toUpperCase(),
+    partStart: start,
+    energy: sec.energy,
+    words: o.words,
+  };
 }
 
 export const shotAt = (seq: Sequence, t: number): Shot => seq.shots.find((s) => t < s.end) ?? seq.shots[seq.shots.length - 1];
@@ -191,8 +217,6 @@ export const shotAt = (seq: Sequence, t: number): Shot => seq.shots.find((s) => 
 const HOLD = 0.3;
 const PEAK = 3.4;
 const STEP = 1 / 240;
-/** world units the shapes slide toward the camera for every second of footage run */
-const TRAVEL = 1.15;
 
 export interface ShotCurve {
   /** how fast the picture runs at song time t (1 = real time) */
@@ -201,10 +225,6 @@ export interface ShotCurve {
   rate(t: number): number;
   /** which second of the clip is on screen */
   footage(t: number): number;
-  /** how far the 3D space has slid toward the camera since the shot began */
-  travel(t: number): number;
-  /** the same at the shot's end */
-  depth: number;
   /** frames held still on arrival (s); 0 for a shot that starts cold */
   freeze: number;
   /** the clip is shown mirrored (it was needed twice and is too short to cut somewhere new) */
@@ -277,8 +297,6 @@ export function planFootage(seq: Sequence, clips: number[]): ShotCurve[] {
       speed: tab.speed,
       rate: (t) => tab.speed(t) * p.k,
       footage: (t) => p.from + read(tab, t) * p.k,
-      travel: (t) => read(tab, t) * TRAVEL,
-      depth: tab.sum[tab.n] * TRAVEL,
       freeze: tab.freeze,
       flip: p.flip,
     };
