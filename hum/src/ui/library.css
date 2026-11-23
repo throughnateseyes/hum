@@ -1,10 +1,27 @@
 /* Looks library (left) and the takes strip (right): look families, filters, takes. */
 
-.lib-search {
-  margin: var(--s-3) 0 0;
+/* every tab opens the same way: one short line on what it's for, then its one control */
+.lib-head {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-3) 0 var(--s-1);
 }
-.lib-search input.txt {
-  height: 28px;
+.lib-note {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.lib-head input.lib-search,
+.lib-head .lib-add {
+  width: 100%;
+  height: var(--h);
+}
+.lib-empty {
+  margin: var(--s-3) 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-3);
 }
 /* Part and Theme: one line each that scrolls sideways (eighteen chips wrapped to five rows), the
    label pinned at the start and the far edge fading out so it reads as "more this way" */
@@ -239,63 +256,139 @@
   min-width: 0;
 }
 
-/* footage tab */
-.clip-grid {
+/* photos and footage: a grid of uniform tiles that always fits the panel (two across in the side
+   panel, three when there's room), never wider than it, whatever shape the pictures are */
+.lib-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px 8px;
+  margin-top: var(--s-3);
 }
-.clip-img {
+.lib-tile {
   position: relative;
-  aspect-ratio: 16 / 9;
+  min-width: 0;
+}
+.lib-tile-img {
+  position: relative;
+  aspect-ratio: 1;
   border-radius: var(--r-sm);
   overflow: hidden;
   background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
-.clip-img img {
+/* a clip keeps its own shape inside the tile: a tall phone video stands up, a wide one lies down */
+.lib-tile-img.clip img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
-.clip-len {
+.lib-tile-len {
   position: absolute;
   left: 4px;
   bottom: 4px;
-  padding: 1px 5px;
-  border-radius: var(--r-sm);
-  background: rgba(0, 0, 0, 0.6);
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(20, 20, 20, 0.62);
   color: #fff;
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
+  line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
-.clip-del {
+.lib-tile-del {
   position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 0;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
   padding: 0;
-  background: rgba(0, 0, 0, 0.6);
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 20, 20, 0.62);
   color: #fff;
-  font-size: var(--fs-2);
-  line-height: 18px;
   opacity: 0;
+  transition: opacity 0.12s;
 }
-.clip:hover .clip-del,
-.clip-del:focus-visible {
+.lib-tile:hover .lib-tile-del,
+.lib-tile:focus-within .lib-tile-del {
   opacity: 1;
 }
-.clip-name {
-  margin-top: 3px;
+.lib-tile-del:hover {
+  background: var(--danger);
+}
+/* touch screens have no hover: the remove button always shows */
+@media (hover: none) {
+  .lib-tile-del {
+    opacity: 1;
+  }
+}
+.lib-tile-name {
+  margin-top: 4px;
   font-size: var(--fs-2);
   color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.clip-add {
-  aspect-ratio: 16 / 9;
+
+/* Looks without clips: one quiet line in place of the footage looks, opening the Footage tab */
+.lib-footage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: var(--s-3) 0 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  text-align: left;
+}
+.lib-footage-row svg {
+  flex: none;
+  color: var(--ink-2);
+}
+.lib-footage-row b {
+  font-weight: 500;
+  color: var(--ink);
+}
+.lib-footage-row:hover {
+  border-color: var(--ink-3);
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+
+/* the building blocks: the raw scenes, folded away at the bottom of Looks */
+.lib-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: var(--s-4);
+  padding: 10px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  text-align: left;
+}
+.lib-more:hover {
+  color: var(--ink);
+}
+.lib-more svg {
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+.lib-more.open svg {
+  transform: none;
+}
+.lib-blocks > .lib-note {
+  margin-top: var(--s-2);
 }

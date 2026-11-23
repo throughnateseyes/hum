@@ -43,6 +43,7 @@ export function Welcome() {
           audioEngine.unlock();
           input.current?.click();
         }}
+        aria-label="Choose a song"
         aria-describedby="wl-drop-hint"
       >
         <span className="wl-drop-icon" aria-hidden>
@@ -51,7 +52,9 @@ export function Welcome() {
         <span className="wl-drop-btn">Choose a song</span>
         <span className="wl-drop-hint" id="wl-drop-hint">
           <span className="wl-idle">or drop one anywhere on this page</span>
-          <span className="wl-over">Let go to use it</span>
+          <span className="wl-over" aria-hidden>
+            Let go to use it
+          </span>
         </span>
       </button>
       <p className="wl-also">MP3, WAV, M4A, FLAC or a music video. Video clips and photos can be dropped in too.</p>

@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { STYLES, sceneStyle } from '../core/styles';
 import type { LookRole, LookTheme, Preset, SceneCategory, TrackAnalysis } from '../core/types';
 import { allScenes, getScene } from '../scenes';
@@ -11,10 +11,11 @@ import './library.css';
 import { sceneLook, useStudio } from '../state/store';
 import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
-import { Cube, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
+import { playsClips } from '../director/footage';
+import { Chevron, Cube, Film, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 
-type Tab = 'looks' | 'scenes' | 'photos' | 'footage';
+type Tab = 'looks' | 'photos' | 'footage';
 
 /* real thumbnails are captured from the stage the first time a look is shown */
 const thumbs = new Map<string, string>();
@@ -92,33 +93,46 @@ export function Thumb({ p }: { p: Preset }) {
   );
 }
 
+/**
+ * The Library: three tabs that all work the same way. Each opens with one short line saying what
+ * it's for and one control (search, or add), then the list or grid. The raw scenes looks are built
+ * from live at the bottom of Looks, folded away, since few people need them.
+ */
 export function Library() {
   const [tab, setTab] = useState<Tab>('looks');
-  const photos = useStudio((s) => s.photos);
-  const clips = useStudio((s) => s.clips);
+  const photos = useStudio((s) => s.photos.filter((p) => !p.builtin).length);
+  const clips = useStudio((s) => s.clips.length);
+  const tabs: { id: Tab; label: string; n: number }[] = [
+    { id: 'looks', label: 'Looks', n: 0 },
+    { id: 'photos', label: 'Photos', n: photos },
+    { id: 'footage', label: 'Footage', n: clips },
+  ];
   return (
     <aside className="library">
-      <div className="panel-tabs">
-        <button className={tab === 'looks' ? 'on' : ''} onClick={() => setTab('looks')}>
-          Looks
-        </button>
-        <button className={tab === 'scenes' ? 'on' : ''} onClick={() => setTab('scenes')}>
-          Scenes
-        </button>
-        <button className={tab === 'photos' ? 'on' : ''} onClick={() => setTab('photos')}>
-          Photos{photos.length ? ` ${photos.length}` : ''}
-        </button>
-        <button className={tab === 'footage' ? 'on' : ''} onClick={() => setTab('footage')}>
-          Footage{clips.length ? ` ${clips.length}` : ''}
-        </button>
+      <div className="panel-tabs" role="tablist" aria-label="Library">
+        {tabs.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+            {t.label}
+            {t.n > 0 && <span className="tab-n">{t.n}</span>}
+          </button>
+        ))}
       </div>
-      <div className="panel-body">
-        {tab === 'looks' && <Looks />}
-        {tab === 'scenes' && <Scenes />}
+      <div className="panel-body" role="tabpanel">
+        {tab === 'looks' && <Looks onAddFootage={() => setTab('footage')} />}
         {tab === 'photos' && <Photos />}
         {tab === 'footage' && <Footage />}
       </div>
     </aside>
+  );
+}
+
+/** the top of every Library tab: one line on what it's for, then its one control */
+function TabHead({ note, children }: { note: string; children: ReactNode }) {
+  return (
+    <div className="lib-head">
+      <p className="lib-note">{note}</p>
+      {children}
+    </div>
   );
 }
 
@@ -156,8 +170,10 @@ function haystack(f: LookFamily): string {
   return s;
 }
 
-function Looks() {
+function Looks({ onAddFootage }: { onAddFootage: () => void }) {
   const presetId = useStudio((s) => s.presetId);
+  const hasClips = useStudio((s) => s.clips.length > 0);
+  const [blocks, setBlocks] = useState(false);
   const custom = useStudio((s) => s.customPresets);
   const analysis = useStudio((s) => s.analysis);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
@@ -175,7 +191,13 @@ function Looks() {
   }, [presetId]);
 
   const { families, loose } = useMemo(() => withCustom(custom), [custom]);
-  const usable = useMemo(() => families.filter((f) => f.takes.some((p) => getScene(p.sceneId))), [families]);
+  // footage looks play the person's own clips: with none added they'd show nothing, so they stay out
+  // of the list (one quiet row below says how to bring them in)
+  const usable = useMemo(
+    () => families.filter((f) => f.takes.some((p) => getScene(p.sceneId)) && (hasClips || !f.takes.every((p) => playsClips(p)))),
+    [families, hasClips],
+  );
+  const footageHidden = !hasClips && families.some((f) => f.takes.length > 0 && f.takes.every((p) => playsClips(p)));
   const filtering = part !== 'all' || theme !== 'all' || !!q;
   const ranked = suggested.length > 0 && !filtering;
 
@@ -244,11 +266,14 @@ function Looks() {
           ? 'Ranked for this track'
           : 'Looks';
 
+  // the footage row shows with no filter, or when a search is after video
+  const showFootageRow = footageHidden && part === 'all' && theme === 'all' && (!q || /foot|video|clip|film/.test(q));
+
   return (
     <>
-      <div className="lib-search">
-        <input className="txt" type="search" placeholder={`Search ${usable.length} looks…`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search looks" />
-      </div>
+      <TabHead note="Click a look to play it, or drag it onto a part of the song.">
+        <input className="txt lib-search" type="search" placeholder={`Search ${usable.length} looks`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search looks" />
+      </TabHead>
       <div className="filter-row slide" role="group" aria-label="Part of the song">
         <span className="filter-name" title="The job a look does in a song">Part</span>
         <button className={`chip ${part === 'all' ? 'on' : ''}`} onClick={() => setPart('all')}>
@@ -276,6 +301,14 @@ function Looks() {
           </button>
         ))}
       </div>
+      {showFootageRow && (
+        <button className="lib-footage-row" onClick={onAddFootage} title="Opens the Footage tab">
+          <Film width={14} height={14} aria-hidden />
+          <span>
+            <b>Footage</b>: add clips to use your own video
+          </span>
+        </button>
+      )}
       {custom.length > 0 && !filtering && (
         <>
           <div className="section-h">
@@ -307,7 +340,21 @@ function Looks() {
           </div>
         </div>
       ))}
-      {list.length === 0 && <p className="panel-intro">{part === 'now' && !nowName ? 'Play the song and the looks that fit the part playing will show here.' : 'No looks match. Try another part or theme.'}</p>}
+      {list.length === 0 && <p className="lib-empty">{part === 'now' && !nowName ? 'Play the song and the looks that fit the part playing will show here.' : 'No looks match. Try another part or theme.'}</p>}
+      {!filtering && (
+        <>
+          <button className={`lib-more ${blocks ? 'open' : ''}`} aria-expanded={blocks} onClick={() => setBlocks(!blocks)}>
+            <Chevron width={12} height={12} aria-hidden />
+            {blocks ? 'Hide the building blocks' : 'Show the building blocks'}
+          </button>
+          {blocks && (
+            <div className="lib-blocks">
+              <p className="lib-note">The plain scenes every look is made from. Click one to switch to it and keep your colours and effects.</p>
+              <Scenes />
+            </div>
+          )}
+        </>
+      )}
     </>
   );
 }
@@ -481,25 +528,57 @@ function Scenes() {
   );
 }
 
+/** a scene row in the Photos and Footage tabs: the looks that use what you added */
+function SceneRows({ label, scenes }: { label: string; scenes: { id: string; name: string; description: string; category: SceneCategory }[] }) {
+  if (!scenes.length) return null;
+  return (
+    <>
+      <div className="section-h">
+        <span className="label">{label}</span>
+      </div>
+      {scenes.map((s) => (
+        <button key={s.id} className="scene-row" {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
+          <Glyph c={s.category} />
+          <span style={{ minWidth: 0 }}>
+            <div className="t">{s.name}</div>
+            <div className="d">{s.description}</div>
+          </span>
+        </button>
+      ))}
+    </>
+  );
+}
+
 function Photos() {
   const photos = useStudio((s) => s.photos);
   const removePhoto = useStudio((s) => s.removePhoto);
   const input = useRef<HTMLInputElement>(null);
   const photoScenes = allScenes().filter((s) => s.usesPhotos);
+  // the built-in stand-in photo isn't one of yours: it isn't listed and can't be removed
+  const mine = photos.filter((p) => !p.builtin);
   return (
     <>
-      <p className="panel-intro">Add photos and the music will dissolve, mosh and rebuild them. A new photo comes in every 4 bars.</p>
-      <div className="photo-grid">
-        {photos.map((p) => (
-          <div className="ph" key={p.id}>
-            <PhotoImg src={p.image} />
-            <button onClick={() => removePhoto(p.id)} aria-label="Remove photo">×</button>
-          </div>
-        ))}
-        <button className="drop-tile" onClick={() => input.current?.click()} title="Add photos">
-          <Plus />
+      <TabHead note="Photo looks break up and rebuild your photos to the music.">
+        <button className="btn lib-add" onClick={() => input.current?.click()}>
+          <Plus width={14} height={14} aria-hidden /> Add photos
         </button>
-      </div>
+      </TabHead>
+      {mine.length ? (
+        <div className="lib-grid">
+          {mine.map((p) => (
+            <div className="lib-tile" key={p.id}>
+              <div className="lib-tile-img">
+                <PhotoImg src={p.image} />
+                <button className="lib-tile-del" onClick={() => removePhoto(p.id)} aria-label={`Remove photo ${p.name}`} title="Remove">
+                  <X width={11} height={11} aria-hidden />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="lib-empty">No photos yet. You can also drop them anywhere on the page.</p>
+      )}
       <input
         ref={input}
         type="file"
@@ -511,24 +590,17 @@ function Photos() {
           e.target.value = '';
         }}
       />
-      <div className="section-h">
-        <span className="label">Photo scenes</span>
-      </div>
-      {photoScenes.map((s) => (
-        <button key={s.id} className="scene-row" {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
-          <Glyph c="photo" />
-          <span style={{ minWidth: 0 }}>
-            <div className="t">{s.name}</div>
-            <div className="d">{s.description}</div>
-          </span>
-        </button>
-      ))}
+      <SceneRows label="Looks that use photos" scenes={photoScenes} />
     </>
   );
 }
 
 const fmtClipLen = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+/**
+ * Your video clips: a tidy grid of uniform tiles that always fits the panel, each tile showing the
+ * clip at its own shape (tall, wide or square), its length, and a remove button on hover or focus.
+ */
 function Footage() {
   const clips = useStudio((s) => s.clips);
   const removeClip = useStudio((s) => s.removeClip);
@@ -536,33 +608,33 @@ function Footage() {
   const clipScenes = allScenes().filter((s) => s.usesClips);
   return (
     <>
-      <p className="panel-intro">
-        {clips.length
-          ? 'Clips become the picture in Footage looks, cut and coloured to the song. Drop more on the page any time.'
-          : 'Add video clips and Footage looks use them as the picture, cut and coloured to the song. You can also just drop them on the page.'}
-      </p>
-      <div className="clip-grid">
-        {clips.map((c) => (
-          <div className="clip" key={c.id}>
-            <div className="clip-img">
-              <img src={c.thumb} alt={`Thumbnail of ${c.name}`} loading="lazy" decoding="async" />
-              <span className="clip-len">{fmtClipLen(c.duration)}</span>
-              <button className="clip-del" onClick={() => removeClip(c.id)} aria-label={`Remove clip ${c.name}`}>
-                ×
-              </button>
-            </div>
-            <div className="clip-name" title={c.name}>
-              {c.name}
-            </div>
-          </div>
-        ))}
-        <button className="drop-tile clip-add" onClick={() => input.current?.click()} title="Add clips" aria-label="Add clips">
-          <Plus />
+      <TabHead note="Your clips become the picture in the Footage look, cut to the song.">
+        <button className="btn lib-add" onClick={() => input.current?.click()}>
+          <Plus width={14} height={14} aria-hidden /> Add clips
         </button>
-      </div>
-      <button className="btn" style={{ marginTop: 8 }} onClick={() => input.current?.click()}>
-        Add clips
-      </button>
+      </TabHead>
+      {clips.length ? (
+        <div className="lib-grid">
+          {clips.map((c) => (
+            <div className="lib-tile" key={c.id}>
+              <div className="lib-tile-img clip">
+                <img src={c.thumb} alt="" loading="lazy" decoding="async" />
+                <span className="lib-tile-len" aria-label={`${Math.round(c.duration)} seconds`}>
+                  {fmtClipLen(c.duration)}
+                </span>
+                <button className="lib-tile-del" onClick={() => removeClip(c.id)} aria-label={`Remove clip ${c.name}`} title="Remove">
+                  <X width={11} height={11} aria-hidden />
+                </button>
+              </div>
+              <div className="lib-tile-name" title={c.name}>
+                {c.name}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="lib-empty">No clips yet. You can also drop videos anywhere on the page once a song is playing.</p>
+      )}
       <input
         ref={input}
         type="file"
@@ -574,22 +646,7 @@ function Footage() {
           e.target.value = '';
         }}
       />
-      {clipScenes.length > 0 && (
-        <>
-          <div className="section-h">
-            <span className="label">Footage looks</span>
-          </div>
-          {clipScenes.map((s) => (
-            <button key={s.id} className="scene-row" {...sceneRowProps(s.id, s.name, () => pickScene(s.id))}>
-              <Glyph c={s.category} />
-              <span style={{ minWidth: 0 }}>
-                <div className="t">{s.name}</div>
-                <div className="d">{s.description}</div>
-              </span>
-            </button>
-          ))}
-        </>
-      )}
+      {clips.length > 0 && <SceneRows label="Looks that use your clips" scenes={clipScenes} />}
     </>
   );
 }
