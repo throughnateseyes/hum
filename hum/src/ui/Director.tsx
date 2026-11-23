@@ -4,8 +4,8 @@ import { lookToPreset } from '../presets/apply';
 import { getScene } from '../scenes';
 import { familyForNew } from '../presets/fit';
 import { findLook, pickLook, pickScene } from '../state/plan';
-import { useStudio, type ChatMsg } from '../state/store';
-import { Arrow, Chevron, Redo, Sparkle, Trash } from './Icons';
+import { useStudio, type ChatMsg, type InspectorTab } from '../state/store';
+import { Arrow, Redo, Sparkle, Trash } from './Icons';
 
 /** the saved access code now lives with the access gate */
 export { readAccessCode } from '../director/access';
@@ -28,8 +28,6 @@ export const MODE_HELP: Record<Mode, { label: string; tip: string }> = {
   },
 };
 
-const SUGGESTIONS = ['Feel every blomp of the bass', 'Rain on a window at 3am', 'First love, overexposed film', 'A memory slowly dissolving'];
-
 const DIRECTOR_INPUT_ID = 'director-input';
 export const focusDirector = () => document.getElementById(DIRECTOR_INPUT_ID)?.focus();
 
@@ -39,14 +37,21 @@ function sourceLabel(m: ChatMsg) {
   return m.via === 'subscription' ? 'Claude · your plan' : 'Claude';
 }
 
+/**
+ * The Director, docked under the right panel: one calm input with the last few messages over it.
+ * Its mode follows the tab: on the Video tab (with a video) it changes the video, on the Part / Look
+ * tab it makes a look. New scene is there for drawing something from scratch.
+ */
 export function DirectorPanel() {
-  const open = useStudio((s) => s.directorOpen);
-  const height = useStudio((s) => s.directorHeight);
   const chat = useStudio((s) => s.chat);
-  const analysis = useStudio((s) => s.analysis);
+  const tab = useStudio((s) => s.inspectorTab);
   const hasPlan = useStudio((s) => !!s.plan && !!s.analysis && s.plan.looks.length === s.analysis.sections.length);
   const [prompt, setPrompt] = useState('');
-  const [picked, setMode] = useState<Mode>('preset');
+  // the mode follows the tab (the Video tab talks about the video, the others about the look); a
+  // mode picked by hand holds until the tab changes
+  const [pick, setPick] = useState<{ tab: InspectorTab; mode: Mode } | null>(null);
+  const picked: Mode = pick && pick.tab === tab ? pick.mode : tab === 'video' && hasPlan ? 'plan' : 'preset';
+  const setMode = (m: Mode) => setPick({ tab, mode: m });
   // "Video" only makes sense while there's a video plan to change
   const mode: Mode = picked === 'plan' && !hasPlan ? 'preset' : picked;
   const modes: Mode[] = hasPlan ? ['preset', 'shader', 'plan'] : ['preset', 'shader'];
@@ -58,7 +63,7 @@ export function DirectorPanel() {
   useEffect(() => {
     const el = log.current;
     if (el && (chat.length || busy)) el.scrollTop = el.scrollHeight;
-  }, [chat.length, busy, open]);
+  }, [chat.length, busy]);
 
   // grow the input with its text (1–5 lines)
   useEffect(() => {
@@ -72,7 +77,6 @@ export function DirectorPanel() {
     const p = text.trim();
     if (!p || busy) return;
     const s = useStudio.getState();
-    s.set({ directorOpen: true });
     s.pushChat({ role: 'user', text: p, mode });
     setPrompt('');
     setBusy(mode);
@@ -116,64 +120,14 @@ export function DirectorPanel() {
     setBusy(null);
   };
 
-  const startResize = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const y0 = e.clientY;
-    const h0 = useStudio.getState().directorHeight;
-    const move = (ev: PointerEvent) => {
-      const max = window.innerHeight - 240;
-      useStudio.setState({ directorHeight: Math.round(Math.max(170, Math.min(max, h0 + (y0 - ev.clientY)))) });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      useStudio.getState().set({ directorHeight: useStudio.getState().directorHeight });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-
-  const sugs = analysis?.tags.length ? [`Match the ${analysis.tags.slice(0, 2).join(', ')} mood`, ...SUGGESTIONS.slice(0, 3)] : SUGGESTIONS;
+  // a short history: the last few messages (the whole chat is kept, it just isn't all on screen)
+  const recent = chat.slice(-6);
 
   return (
-    <section className={`director ${open ? 'open' : ''}`} style={open ? { height } : undefined}>
-      {open && <div className="split-handle" onPointerDown={startResize} title="Drag to resize" />}
-      <header className="dir-head">
-        <button className="dir-toggle" onClick={() => useStudio.getState().set({ directorOpen: !open })} title={open ? 'Collapse' : 'Expand'}>
-          <Chevron width={14} height={14} style={{ transform: open ? 'none' : 'rotate(180deg)', transition: 'transform .15s' }} />
-          Director
-        </button>
-        <span className="spacer" />
-        {open && chat.length > 0 && (
-          <button className="btn icon sm ghost" title="Clear history" onClick={() => useStudio.getState().clearChat()}>
-            <Trash width={13} height={13} />
-          </button>
-        )}
-      </header>
-
-      {open && (
+    <section className="director">
+      {(recent.length > 0 || busy) && (
         <div className="dir-log" ref={log}>
-          {chat.length === 0 && !busy && (
-            <div className="dir-empty">
-              <p>Describe a feeling and the director turns it into visuals. Ask for changes too — “warmer”, “less busy”, “hit harder on the kick”.</p>
-              <div className="mode-explain">
-                {(['preset', 'shader'] as Mode[]).map((m) => (
-                  <div key={m}>
-                    <b>{MODE_HELP[m].label}</b>
-                    <span>{MODE_HELP[m].tip}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="dir-sugs">
-                {sugs.map((t) => (
-                  <button key={t} onClick={() => void run(t)}>
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {chat.map((m) => (m.role === 'user' ? <UserMsg key={m.id} m={m} /> : <BotMsg key={m.id} m={m} />))}
+          {recent.map((m) => (m.role === 'user' ? <UserMsg key={m.id} m={m} /> : <BotMsg key={m.id} m={m} />))}
           {busy && (
             <div className="msg bot">
               <div className="pending">
@@ -202,7 +156,7 @@ export function DirectorPanel() {
           rows={1}
           value={prompt}
           maxLength={600}
-          placeholder={mode === 'preset' ? 'Describe a feeling…' : mode === 'plan' ? 'What should change in the video?' : 'Describe something new to draw…'}
+          placeholder={mode === 'preset' ? 'Describe a feeling for this look…' : mode === 'plan' ? 'What should change in the video?' : 'Describe something new to draw…'}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -214,7 +168,7 @@ export function DirectorPanel() {
           }}
         />
         <div className="dir-row">
-          <div className="seg">
+          <div className="seg dir-modes" role="radiogroup" aria-label="What to change">
             {modes.map((m) => (
               <button key={m} type="button" className={`has-tip ${mode === m ? 'on' : ''}`} onClick={() => setMode(m)} data-tip={MODE_HELP[m].tip}>
                 {MODE_HELP[m].label}
@@ -222,6 +176,11 @@ export function DirectorPanel() {
             ))}
           </div>
           <span className="spacer" />
+          {chat.length > 0 && !busy && (
+            <button className="btn icon sm ghost" type="button" title="Clear the history" aria-label="Clear the history" onClick={() => useStudio.getState().clearChat()}>
+              <Trash width={13} height={13} />
+            </button>
+          )}
           <button className="send" type="submit" disabled={!!busy || !prompt.trim()} title="Send (Enter)">
             {busy ? <span className="spin" /> : <Arrow width={14} height={14} />}
           </button>

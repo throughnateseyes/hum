@@ -1,80 +1,129 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
-import { LADDER, quality as governor } from '../render/quality';
+import { useEffect, useRef, useState, type CSSProperties, type SVGProps } from 'react';
 import { LAYERS, PALETTES } from '../core/palettes';
-import type { EffectCategory, HandStyle, LayerId, Palette } from '../core/types';
+import type { EffectCategory, LayerId, Palette } from '../core/types';
 import { allEffects, getEffect } from '../fx';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
-import { useStudio, type InspectorTab, type Pace, type PopupMode, type SongColors, type WindowKind } from '../state/store';
-import { TRANSITIONS } from '../core/transitionList';
-import { Clamp, Field, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
-import { Down, Plus, Up, X } from './Icons';
-import { forgetAccessCode, openAccessGate, useAccessGate } from '../director/access';
-import { TasteGroup } from './Taste';
+import { findLook, validPlan } from '../state/plan';
+import { useStudio, type InspectorTab } from '../state/store';
+import { clipBlocker } from '../render/clipExport';
+import { clipForTikTok } from '../render/timeline';
+import { takeName } from '../presets/fit';
+import { Clamp, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
+import { Camera, Down, Plus, Up, X } from './Icons';
 import { TakesStrip } from './Takes';
+import { useLookFamily } from './lookFamily';
 import { RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 import { saveStill } from './capture';
-import { Camera } from './Icons';
-import { FINISHES, finishName, type FinishId } from '../core/direction';
-import { activeFinish, playingDirection, setFinish } from '../state/direction';
+import { PartPanel } from './PartPanel';
+import { VideoPanel } from './VideoPanel';
 
-const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director' };
-
+/**
+ * The right panel, by what you are changing: the whole Video, the Part picked on the timeline (or,
+ * with no video plan, the Look on screen), and Render. The Director chat docks under it (App.tsx).
+ */
 export function Inspector() {
   const tab = useStudio((s) => s.inspectorTab);
   const set = useStudio((s) => s.set);
-  const fxCount = useStudio((s) => s.effects.length);
-  const modCount = useStudio((s) => s.modulations.length);
-  const tabs: [InspectorTab, string, number][] = [
-    ['scene', 'Scene', 0],
-    ['fx', 'Effects', fxCount],
-    ['layers', 'Routing', modCount],
-    ['look', 'Look', 0],
-    ['render', 'Render', 0],
+  const hasPlan = useStudio((s) => validPlan(s.plan, s.analysis));
+  const picked = useStudio((s) => s.selectedParts.length > 0);
+  const shown = tabShown(tab);
+  const tabs: [InspectorTab, string][] = [
+    ['video', 'Video'],
+    ['part', hasPlan ? 'Part' : 'Look'],
+    ['render', 'Render'],
   ];
+
   // the Render tab is render mode: the song map shows the stretch for as long as the tab is open
   useEffect(() => {
     const on = useRenderMode.getState().on;
-    if ((tab === 'render') !== on) toggleRenderMode();
-  }, [tab]);
+    if ((shown === 'render') !== on) toggleRenderMode();
+  }, [shown]);
+
+  // Video is where you start when there's a video; without one, the look on screen. Only when a plan
+  // appears (or on first load), so it never pulls the tab away from someone who picked one.
+  const hadPlan = useRef<boolean | null>(null);
+  useEffect(() => {
+    const first = hadPlan.current === null;
+    const s = useStudio.getState();
+    if (first && !hasPlan && s.inspectorTab === 'video') set({ inspectorTab: 'part' });
+    if (!first && hasPlan && !hadPlan.current && tabShown(s.inspectorTab) === 'part' && !s.selectedParts.length) set({ inspectorTab: 'video' });
+    hadPlan.current = hasPlan;
+  }, [hasPlan, set]);
+
+  // picking parts on the timeline brings the Part tab forward
+  useEffect(() => {
+    if (picked) set({ inspectorTab: 'part' });
+  }, [picked, set]);
+
   return (
     <aside className="inspector">
-      <div className="panel-tabs" role="tablist">
-        {tabs.map(([id, label, n]) => (
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => set({ inspectorTab: id })}>
-            {label}
-            {n > 0 && <span className="tab-n">{n}</span>}
-          </button>
-        ))}
+      <div className="insp-tabs">
+        <div className="seg full" role="tablist" aria-label="Panel">
+          {tabs.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={shown === id} className={shown === id ? 'on' : ''} onClick={() => set({ inspectorTab: id })}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
-      {tab !== 'render' && <TakesStrip />}
       <div className="panel-body">
-        {tab === 'scene' && <ScenePanel />}
-        {tab === 'fx' && <FxPanel />}
-        {tab === 'layers' && <RoutingPanel />}
-        {tab === 'look' && <LookPanel />}
-        {tab === 'render' && <RenderPanel />}
+        {shown === 'video' && <VideoPanel />}
+        {shown === 'part' && <PartTab />}
+        {shown === 'render' && <RenderPanel />}
       </div>
     </aside>
   );
 }
 
-/** Render: pick a stretch on the song map, choose sizes, make the files */
-function RenderPanel() {
+/** the tab to draw for a stored tab id (ids from before the three tabs all mean the look: Part) */
+function tabShown(tab: InspectorTab): 'video' | 'part' | 'render' {
+  return tab === 'video' || tab === 'render' ? tab : 'part';
+}
+
+/* ───────────────────────── Part / Look ───────────────────────── */
+
+/** the part (from PartPanel), the look's takes, then the look's own settings tucked under Fine-tune */
+function PartTab() {
+  const many = useStudio((s) => s.selectedParts.length > 1);
+  const fxCount = useStudio((s) => s.effects.length);
+  const modCount = useStudio((s) => s.modulations.length);
   return (
-    <div className="render-panel">
-      <p className="hint">Pick a stretch of the song and make it into video files. Drag across the song map to choose it, or double-click a part.</p>
-      <RenderBar />
-      <div className="render-extra">
-        <button className="btn sm" onClick={() => void saveStill()}>
-          <Camera width={14} height={14} /> Save a still image
-        </button>
-      </div>
+    <div className="pt">
+      <PartPanel />
+      {/* several parts picked: their looks differ, so one look's takes and sliders don't apply to all */}
+      {!many && (
+        <>
+          <TakesStrip compact />
+          <Section id="part.tune" title="Fine-tune this look" sub="Sliders, effects, colours, sound" collapsible defaultOpen={false}>
+            <div className="tune">
+              <Section id="tune.params" title="Parameters" collapsible defaultOpen={false}>
+                <ParamsBody />
+              </Section>
+              <Section id="tune.fx" title="Effects" right={fxCount ? <span className="param-val">{fxCount}</span> : undefined} collapsible defaultOpen={false}>
+                <FxBody />
+              </Section>
+              <Section id="tune.colours" title="Colours" collapsible defaultOpen={false}>
+                <ColoursBody />
+              </Section>
+              <Section id="tune.sound" title="Reacts to sound" right={modCount ? <span className="param-val">{modCount}</span> : undefined} collapsible defaultOpen={false}>
+                <SoundBody />
+              </Section>
+              <Section id="tune.save" title="Save as a take" collapsible defaultOpen={false}>
+                <SaveTake />
+              </Section>
+            </div>
+          </Section>
+        </>
+      )}
     </div>
   );
 }
 
-function ScenePanel() {
+const CAT_NAME: Record<string, string> = { form: '3D form', field: 'Field', photo: 'Photo', board: 'Instrument board', code: 'Made by the director', footage: 'Your footage' };
+
+/** the scene's own sliders, in its groups */
+function ParamsBody() {
   const sceneId = useStudio((s) => s.sceneId);
   const params = useStudio((s) => s.sceneParams);
   const setParam = useStudio((s) => s.setSceneParam);
@@ -82,48 +131,32 @@ function ScenePanel() {
   const customShaders = useStudio((s) => s.customShaders);
   const def = getScene(sceneId);
   const [showCode, setShowCode] = useState(false);
-  if (!def) return <p className="label">No scene</p>;
+  if (!def) return <p className="empty-note">No scene on screen.</p>;
   const spec = customShaders.find((c) => c.id === def.id);
   return (
     <>
-      <div className="insp-head">
-        <div className="eyebrow">{CAT_NAME[def.category] ?? def.category}</div>
-        <h3>{def.name}</h3>
-        <Clamp key={def.id} text={def.description} />
+      <div className="tune-head">
+        <span className="eyebrow">{CAT_NAME[def.category] ?? def.category}</span>
+        <b>{def.name}</b>
+        <Clamp key={def.id} text={def.description} lines={2} />
       </div>
-      {shaderError && (
-        <Section id="scene.err" title={<span style={{ color: 'var(--danger)' }}>Shader error</span>}>
-          <div className="code">{shaderError}</div>
-        </Section>
-      )}
+      {shaderError && <div className="code">{shaderError}</div>}
       {groupParams(def.params).map(([g, defs]) => (
-        <Section id={`scene.${g}`} key={g} title={g}>
+        <div className="tune-group" key={g}>
+          <div className="sub-label">{g}</div>
           {defs.map((d) => (
-            <ParamControl
-              key={d.id}
-              def={d}
-              value={params[d.id]}
-              onChange={(v) => setParam(d.id, v)}
-              target={`scene.${d.id}`}
-              live={() => live.scene[d.id]}
-            />
+            <ParamControl key={d.id} def={d} value={params[d.id]} onChange={(v) => setParam(d.id, v)} target={`scene.${d.id}`} live={() => live.scene[d.id]} />
           ))}
-        </Section>
+        </div>
       ))}
       {spec && (
-        <Section
-          id="scene.glsl"
-          title="Generated GLSL"
-          right={
-            <button className="btn sm ghost" onClick={() => setShowCode(!showCode)}>
-              {showCode ? 'Hide' : 'Show'}
-            </button>
-          }
-        >
+        <div className="tune-group">
+          <button className="btn sm ghost" onClick={() => setShowCode(!showCode)}>
+            {showCode ? 'Hide the shader code' : 'Show the shader code'}
+          </button>
           {showCode && <pre className="code quiet">{spec.fragment}</pre>}
-        </Section>
+        </div>
       )}
-      <p className="hint">Drag a meter from the strip under the stage onto any slider to make it move with that part of the music.</p>
     </>
   );
 }
@@ -137,16 +170,17 @@ const FX_CATS: [EffectCategory, string][] = [
   ['optics', 'Optics'],
 ];
 
-function FxPanel() {
+/** the effect stack: applied top to bottom, each one opens to its sliders */
+function FxBody() {
   const effects = useStudio((s) => s.effects);
   const { addEffect, removeEffect, toggleEffect, moveEffect, setEffectParam } = useStudio.getState();
   const [open, setOpen] = useState<string | null>(null);
-  const [adding, setAdding] = useState(effects.length === 0);
+  const [adding, setAdding] = useState(false);
   const all = allEffects();
   return (
     <>
       <div className="section-h">
-        <span className="label">Applied top to bottom</span>
+        <span className="sub-label">{effects.length ? 'Applied top to bottom' : 'No effects. The look shows as it is.'}</span>
         <button className="btn sm" onClick={() => setAdding(!adding)}>
           {adding ? (
             'Done'
@@ -157,7 +191,6 @@ function FxPanel() {
           )}
         </button>
       </div>
-      {effects.length === 0 && !adding && <p className="empty-note">No effects. The raw scene is showing.</p>}
       {effects.map((e) => {
         const def = getEffect(e.effectId);
         if (!def) return null;
@@ -177,7 +210,7 @@ function FxPanel() {
               <button className="btn icon sm ghost" title="Move down" onClick={() => moveEffect(e.instanceId, 1)}>
                 <Down width={13} height={13} />
               </button>
-              <Toggle on={e.enabled} onChange={() => toggleEffect(e.instanceId)} />
+              <Toggle on={e.enabled} onChange={() => toggleEffect(e.instanceId)} label={`${def.name} on`} />
               <button className="btn icon sm ghost" title="Remove" onClick={() => removeEffect(e.instanceId)}>
                 <X width={13} height={13} />
               </button>
@@ -205,10 +238,8 @@ function FxPanel() {
           const list = all.filter((x) => x.category === cat);
           if (!list.length) return null;
           return (
-            <div key={cat}>
-              <div className="section-h">
-                <span className="label">{label}</span>
-              </div>
+            <div key={cat} className="tune-group">
+              <div className="sub-label">{label}</div>
               <div className="fx-add">
                 {list.map((d) => (
                   <button
@@ -231,6 +262,95 @@ function FxPanel() {
   );
 }
 
+const COLOR_KEYS: [keyof Omit<Palette, 'id' | 'name'>, string][] = [
+  ['bg', 'Background'],
+  ['fg', 'Ink'],
+  ['accent', 'Accent'],
+  ['accent2', 'Accent 2'],
+  ['muted', 'Muted'],
+];
+
+/**
+ * The look's colours: the five colours on screen, the palettes this video already uses, and every
+ * other palette behind More colours (there are a hundred of them; nobody should scroll past them).
+ */
+function ColoursBody() {
+  const palette = useStudio((s) => s.palette);
+  const plan = useStudio((s) => s.plan);
+  const analysis = useStudio((s) => s.analysis);
+  const { setPalette, setPaletteColor } = useStudio.getState();
+  const [more, setMore] = useState(false);
+  const inVideo: Palette[] = [];
+  if (validPlan(plan, analysis)) {
+    for (const id of plan.looks) {
+      const p = findLook(id)?.palette;
+      if (p && p.id !== palette.id && !inVideo.some((x) => x.id === p.id)) inVideo.push(p);
+    }
+  }
+  return (
+    <>
+      <div className="sub-label">On screen · {palette.name}</div>
+      <div className="color-grid">
+        {COLOR_KEYS.map(([k, label]) => (
+          <label key={k} className="color-in">
+            <input type="color" value={palette[k]} onChange={(e) => setPaletteColor(k, e.target.value)} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+      {inVideo.length > 0 && (
+        <div className="tune-group">
+          <div className="sub-label">In this video</div>
+          <PaletteGrid list={inVideo.slice(0, 8)} on={palette.id} pick={setPalette} />
+        </div>
+      )}
+      <button className="btn sm ghost more-btn" aria-expanded={more} onClick={() => setMore(!more)}>
+        {more ? 'Fewer colours' : `More colours (${PALETTES.length})`}
+      </button>
+      {more && <PaletteGrid list={PALETTES} on={palette.id} pick={setPalette} />}
+    </>
+  );
+}
+
+function PaletteGrid({ list, on, pick }: { list: Palette[]; on: string; pick: (p: Palette) => void }) {
+  return (
+    <div className="pal-grid">
+      {list.map((p) => (
+        <button key={p.id} className={`pal ${on === p.id ? 'on' : ''}`} onClick={() => pick(p)} title={p.name}>
+          <div className="pal-sw">
+            <i style={{ background: p.bg }} />
+            <i style={{ background: p.accent }} />
+            <i style={{ background: p.accent2 }} />
+            <i style={{ background: p.fg }} />
+          </div>
+          <div className="pn">{p.name}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** what each meter hears, in plain words (the meters under the timeline use the same names) */
+const HEARS: Record<LayerId, string> = {
+  level: 'How loud the song is overall',
+  sub: 'The deepest low end, more felt than heard',
+  bass: 'The bassline and the body of the kick',
+  lowMid: 'The warm lower middle of the mix',
+  mid: 'Vocals and lead instruments',
+  highMid: 'The bite at the start of each note',
+  air: 'Hi-hats, cymbals and shimmer up top',
+  kick: 'Each kick drum hit',
+  snare: 'Each snare or clap',
+  hat: 'Each hi-hat tick',
+  energy: 'How intense this part of the song is (changes slowly)',
+  brightness: 'How bright or dark the sound is',
+  flux: 'How quickly the sound is changing',
+  build: 'Rises through a build-up',
+  drop: 'Fires when the drop hits',
+  beatPhase: 'Counts up once every beat',
+  sway: 'A slow swing in time with the bars',
+};
+
 function targetLabel(target: string): string {
   const s = useStudio.getState();
   const parts = target.split('.');
@@ -243,7 +363,12 @@ function targetLabel(target: string): string {
   return `${def?.name ?? 'Effect'} · ${def?.params.find((p) => p.id === parts[2])?.label ?? parts[2]}`;
 }
 
-function RoutingPanel() {
+/**
+ * Reacts to sound (it used to be called Routing): each meter is something Hum hears in the song, and
+ * any slider can move with any of them. Open, it shows the meter row under the timeline (metersOpen),
+ * since that row is only there to drag from.
+ */
+function SoundBody() {
   const mods = useStudio((s) => s.modulations);
   const sceneId = useStudio((s) => s.sceneId);
   const effects = useStudio((s) => s.effects);
@@ -251,370 +376,187 @@ function RoutingPanel() {
   const { updateModulation, removeModulation, addModulation, set } = useStudio.getState();
   const [src, setSrc] = useState<LayerId>('bass');
   const [tgt, setTgt] = useState('');
+  const [legend, setLegend] = useState(false);
+
+  // shown means open: the meters appear under the timeline for as long as this is on screen
+  useEffect(() => {
+    useStudio.getState().set({ metersOpen: true });
+    return () => useStudio.getState().set({ metersOpen: false });
+  }, []);
+
   const scene = getScene(sceneId);
   const targets: { value: string; label: string }[] = [
-    ...(scene?.params.filter((p) => p.type === 'number').map((p) => ({ value: `scene.${p.id}`, label: `Scene · ${p.label}` })) ?? []),
+    ...(scene?.params.filter((p) => p.type === 'number').map((p) => ({ value: `scene.${p.id}`, label: p.label })) ?? []),
     ...effects.flatMap((e) => {
       const d = getEffect(e.effectId);
       return (d?.params ?? []).filter((p) => p.type === 'number').map((p) => ({ value: `fx.${e.instanceId}.${p.id}`, label: `${d!.name} · ${p.label}` }));
     }),
   ];
+  const layerName = (id: LayerId) => LAYERS.find((l) => l.id === id)?.label ?? id;
   return (
     <>
-      <p className="panel-intro">Each layer is a signal pulled out of the music. Route any of them to any slider, or drag a meter from under the stage onto one.</p>
-      <Section id="route.sens" title="Sensitivity" right={<span className="param-val">{sensitivity.toFixed(2)}×</span>}>
-        <Slider value={sensitivity} min={0.3} max={2.5} onChange={(v) => set({ sensitivity: v })} />
-      </Section>
-      <Section id="route.list" title="Routings" right={mods.length ? <span className="param-val">{mods.length}</span> : undefined}>
-        {mods.length === 0 && <p className="empty-note">None yet. Pick a layer and a slider below.</p>}
-        {mods.map((m) => (
-          <div className="mod-row" key={m.id} style={{ opacity: m.enabled ? 1 : 0.5 }}>
-            <select className="src-chip" value={m.source} onChange={(e) => updateModulation(m.id, { source: e.target.value as LayerId })} aria-label="Layer">
+      <p className="panel-intro">
+        Hum hears separate things in the song: the kick, the bass, the hi-hats, how loud it is. Each one is a meter under the timeline. Link one to a slider and the slider moves with it.
+      </p>
+      {mods.map((m) => (
+        <div className="link-row" key={m.id} style={{ opacity: m.enabled ? 1 : 0.5 }}>
+          <div className="link-top">
+            <select className="src-chip" value={m.source} onChange={(e) => updateModulation(m.id, { source: e.target.value as LayerId })} aria-label="Sound" title={HEARS[m.source]}>
               {LAYERS.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.label}
                 </option>
               ))}
             </select>
-            <div style={{ minWidth: 0 }}>
-              <div className="mod-target">→ {targetLabel(m.target)}</div>
-              <Slider value={m.amount} min={-1} max={1} onChange={(v) => updateModulation(m.id, { amount: v })} />
-            </div>
-            <div className="mod-end">
-              <span className="param-val">{Math.round(m.amount * 100)}%</span>
-              <button className="btn icon sm ghost" onClick={() => removeModulation(m.id)} aria-label="Remove routing">
-                <X width={12} height={12} />
-              </button>
-            </div>
+            <span className="link-to">moves {targetLabel(m.target)}</span>
+            <button className="btn icon sm ghost" onClick={() => removeModulation(m.id)} aria-label={`Stop ${layerName(m.source)} moving ${targetLabel(m.target)}`} title="Remove this link">
+              <X width={12} height={12} />
+            </button>
           </div>
-        ))}
-        <div className="mod-add">
-          <select className="sel" value={src} onChange={(e) => setSrc(e.target.value as LayerId)} aria-label="Layer">
+          <div className="link-amt has-tip" data-tip="How far the slider moves with the sound. Below 0 it moves the other way.">
+            <Slider value={m.amount} min={-1} max={1} onChange={(v) => updateModulation(m.id, { amount: v })} />
+            <span className="param-val">{Math.round(m.amount * 100)}%</span>
+          </div>
+        </div>
+      ))}
+      <div className="link-add">
+        <span className="sub-label">{mods.length ? 'Link another' : 'Make a slider move with the sound'}</span>
+        <div className="link-add-row">
+          <select className="sel" value={src} onChange={(e) => setSrc(e.target.value as LayerId)} aria-label="Sound to follow" title={HEARS[src]}>
             {LAYERS.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.label}
               </option>
             ))}
           </select>
-          <select className="sel" value={tgt} onChange={(e) => setTgt(e.target.value)} aria-label="Slider">
-            <option value="">Choose a slider…</option>
+          <span className="link-word">moves</span>
+          <select className="sel" value={tgt} onChange={(e) => setTgt(e.target.value)} aria-label="Slider to move">
+            <option value="">a slider…</option>
             {targets.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
             ))}
           </select>
-          <button className="btn icon" disabled={!tgt} onClick={() => tgt && addModulation(src, tgt, 0.4)} aria-label="Add routing">
+          <button className="btn icon" disabled={!tgt} onClick={() => tgt && addModulation(src, tgt, 0.4)} aria-label="Add this link" title="Add this link">
             <Plus width={13} height={13} />
           </button>
         </div>
-      </Section>
-      <Section id="route.legend" title="What the layers mean" collapsible defaultOpen={false}>
+        <p className="field-note">{HEARS[src]}. Or drag a meter from under the timeline onto any slider.</p>
+      </div>
+      <div className="field">
+        <div className="param-top has-tip" data-tip="How strongly Hum hears the song. Turn it up for a quiet song, down for a loud one.">
+          <span className="param-name">Listening strength</span>
+          <span className="param-val">{sensitivity.toFixed(2)}×</span>
+        </div>
+        <Slider value={sensitivity} min={0.3} max={2.5} onChange={(v) => set({ sensitivity: v })} />
+      </div>
+      <button className="btn sm ghost more-btn" aria-expanded={legend} onClick={() => setLegend(!legend)}>
+        {legend ? 'Hide what each meter hears' : 'What each meter hears'}
+      </button>
+      {legend && (
         <dl className="legend">
           {LAYERS.map((l) => (
             <div key={l.id}>
               <dt>{l.label}</dt>
-              <dd>{l.hint}</dd>
+              <dd>{HEARS[l.id]}</dd>
             </div>
           ))}
         </dl>
-      </Section>
+      )}
     </>
   );
 }
 
-const COLOR_KEYS: [keyof Omit<Palette, 'id' | 'name'>, string][] = [
-  ['bg', 'Background'],
-  ['fg', 'Ink'],
-  ['accent', 'Accent'],
-  ['accent2', 'Accent 2'],
-  ['muted', 'Muted'],
-];
-const HAND_FPS: { v: HandStyle['fps']; label: string }[] = [
-  { v: 60, label: 'Smooth' },
-  { v: 12, label: 'Drawn' },
-  { v: 8, label: 'Choppy' },
-];
-const HAND_INKS: { v: HandStyle['inks']; label: string }[] = [
-  { v: 0, label: 'Full colour' },
-  { v: 1, label: '1' },
-  { v: 2, label: '2' },
-  { v: 3, label: '3' },
-  { v: 4, label: '4' },
-];
-
-/** a segmented control that fills its row */
-function Seg<T extends string | number>({ value, options, onChange, disabled }: { value: T; options: { v: T; label: string }[]; onChange: (v: T) => void; disabled?: boolean }) {
-  return (
-    <div className={`seg full ${disabled ? 'is-off' : ''}`}>
-      {options.map((o) => (
-        <button key={String(o.v)} className={value === o.v ? 'on' : ''} disabled={disabled} onClick={() => onChange(o.v)}>
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** the hand-drawn finish: frame rate, inks from the palette, wobble, paper, misprint, pencil */
-function HandGroup() {
-  const hand = useStudio((s) => s.hand);
-  const on = useStudio((s) => activeFinish(s) === 'hand');
-  const set = useStudio((s) => s.set);
-  const put = (patch: Partial<HandStyle>) => set({ hand: { ...useStudio.getState().hand, ...patch } });
-  const slider = (key: 'wobble' | 'paper' | 'misprint' | 'lines', name: string, hint: string) => (
-    <Field key={key} label={name} value={`${Math.round(hand[key] * 100)}%`} tip={hint}>
-      <Slider value={hand[key]} min={0} max={1} step={0.01} onChange={(v) => put({ [key]: v })} />
-    </Field>
-  );
-  return (
-    <Section id="look.hand" title="Hand-drawn" sub="Choppy frames, wobbly lines, ink on paper (H)" right={<Toggle on={on} onChange={(v) => setFinish(v ? 'hand' : 'clean')} label="Hand-drawn" />}>
-      {on && (
-        <>
-          <Field
-            label="Frames"
-            tip="Smooth keeps motion fluid and only re-draws the lines. Drawn (12 a second) and Choppy (8) hold each picture like hand animation; kicks, snares and drops always get a fresh one."
-          >
-            <Seg value={hand.fps} options={HAND_FPS} onChange={(v) => put({ fps: v })} />
-          </Field>
-          <Field label="Inks" tip="Print with a few flat inks from the palette, or keep every colour.">
-            <Seg value={hand.inks} options={HAND_INKS} onChange={(v) => put({ inks: v })} />
-          </Field>
-          {slider('wobble', 'Wobble', 'How much each drawing strays from the last')}
-          {slider('lines', 'Pencil lines', 'An outline wherever the picture has an edge')}
-          {slider('paper', 'Paper', 'Paper fibre, grain and uneven ink')}
-          {hand.inks > 0 && slider('misprint', 'Misprint', 'Inks printed slightly out of line with each other')}
-        </>
-      )}
-    </Section>
-  );
-}
-
-const POPUP_MODES: { v: PopupMode; label: string }[] = [
-  { v: 'off', label: 'Off' },
-  { v: 'video', label: 'In videos' },
-  { v: 'always', label: 'Always' },
-];
-
-const WINDOW_KINDS: { v: WindowKind; label: string }[] = [
-  { v: 'instruments', label: 'Instruments' },
-  { v: 'looks', label: 'Looks' },
-  { v: 'both', label: 'Both' },
-];
-
-/**
- * The finish: one surface over every look (core/direction.ts). Auto follows the video's Direction;
- * outside a video it's Hand-drawn when that's switched on, else Clean.
- */
-function FinishField() {
-  const finish = useStudio((s) => s.finish);
-  const now = useStudio(activeFinish);
-  const dir = useStudio(playingDirection);
-  const info = FINISHES.find((f) => f.id === (finish === 'auto' ? now : finish));
-  const note = finish === 'auto' ? (dir ? `This video: ${finishName(dir.finish)}. ${info?.tip ?? ''}` : `No video playing, so ${finishName(now)}. Each video picks its own.`) : (info?.tip ?? '');
-  return (
-    <Field
-      label="Finish"
-      tip="One surface over every look in a video, like shooting it all on the same film stock. Auto lets each video choose (Claude or the offline planner picks one to fit the song). Pick one to use it everywhere."
-    >
-      <select className="sel" value={finish} onChange={(e) => setFinish(e.target.value as 'auto' | FinishId)}>
-        <option value="auto">Auto (from the video)</option>
-        {FINISHES.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.name}
-          </option>
-        ))}
-      </select>
-      <p className="field-note">{note}</p>
-    </Field>
-  );
-}
-
-const SONG_COLORS: { v: SongColors; label: string }[] = [
-  { v: 'off', label: 'Off' },
-  { v: 'blend', label: 'Blend' },
-  { v: 'match', label: 'Match' },
-];
-
-const PACES: { v: Pace; label: string }[] = [
-  { v: 'slow', label: 'Slow' },
-  { v: 'song', label: 'Song-driven' },
-  { v: 'fast', label: 'Fast' },
-];
-
-const LENGTHS: { v: number; label: string }[] = [
-  { v: 0, label: 'Auto' },
-  { v: 0.5, label: '½' },
-  { v: 1, label: '1' },
-  { v: 2, label: '2' },
-  { v: 4, label: '4' },
-  { v: 8, label: '8' },
-];
-
-/** how a made video moves: how often it cuts, how one look turns into the next, the pop-ups, auto-pilot */
-function VideoGroup() {
-  const pace = useStudio((s) => s.pace);
-  const transition = useStudio((s) => s.transition);
-  const beats = useStudio((s) => s.transitionBeats);
-  const popups = useStudio((s) => s.popups);
-  const windowKind = useStudio((s) => s.windowKind);
-  const songColors = useStudio((s) => s.songColors);
-  const autoPilot = useStudio((s) => s.autoPilot);
-  const oneTap = useStudio((s) => s.oneTap);
-  const set = useStudio((s) => s.set);
-  const info = TRANSITIONS.find((t) => t.id === transition);
-  return (
-    <Section id="look.video" title="Video" sub="How a made video moves from look to look" collapsible>
-      <div className="row-switch">
-        <span>
-          <b>Make a video when a song loads</b>
-          <small>Drop a song and it plans the video and plays it from the top. Off: it just plays, and Make a video is up to you.</small>
-        </span>
-        <Toggle on={oneTap} onChange={(v) => set({ oneTap: v })} label="Make a video when a song loads" />
-      </div>
-      <Field
-        label="Pace"
-        value={pace === 'song' ? 'Cuts with the music' : pace === 'slow' ? 'Holds longer' : 'Cuts twice as often'}
-        tip="Song-driven: cuts on the music's phrases and hits, faster when it's loud and busy, at least every ~10 s. Slow holds each picture longer; Fast cuts about twice as often. Big drops always cut."
-      >
-        <Seg value={pace} options={PACES} onChange={(v) => set({ pace: v })} />
-      </Field>
-      <Field
-        label="Transition"
-        tip="Auto: long dissolves and fades in calm parts, wipes and slit-scans on builds, quick pushes or hard cuts when it's loud. Pick one to use it for every change (videos, auto-pilot and your own picks). Big drops always cut."
-      >
-        <select className="sel" value={transition} onChange={(e) => set({ transition: e.target.value as typeof transition })}>
-          <option value="auto">Auto (fits the song)</option>
-          {TRANSITIONS.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <p className="field-note">{transition === 'auto' ? 'Picked to fit the song and the moment' : transition === 'cut' ? 'Hard cuts, no blending' : `Always ${info?.blurb ?? ''}`}</p>
-      </Field>
-      <Field label="Transition length" value="beats" tip="How long a transition takes, locked to the song's tempo. Auto: longer in calm parts, short and punchy in loud ones.">
-        <Seg value={beats} options={LENGTHS} onChange={(v) => set({ transitionBeats: v })} disabled={transition === 'cut'} />
-      </Field>
-      <FinishField />
-      <Field
-        label="Song colours"
-        value={songColors === 'off' ? 'Each look keeps its own' : songColors === 'blend' ? 'Leans toward the main look' : "Uses the main look's colours"}
-        tip="Makes a video made of many looks feel like one piece. Every look leans toward the colours of the look the song uses most, keeping its own light and dark so nothing gets hard to read. Blend meets halfway; Match puts every look on the main look's colours."
-      >
-        <Seg value={songColors} options={SONG_COLORS} onChange={(v) => set({ songColors: v })} />
-      </Field>
-      <Field
-        label="Pop-up windows"
-        tip="Busy little windows (radar, terminal, Pong…) pop in on drops and new parts. In videos: while a video plan plays, busier on choruses and drops. Always: a few keep coming whatever is playing."
-      >
-        <Seg value={popups} options={POPUP_MODES} onChange={(v) => set({ popups: v })} />
-      </Field>
-      <Field
-        label="Windows show"
-        tip="Instruments: the little radar, terminal and Pong windows. Looks: other looks play live in little windows over the picture, stacking up on snares and bursting open after a drop. Both: a mix of the two."
-      >
-        <Seg value={windowKind} options={WINDOW_KINDS} onChange={(v) => set({ windowKind: v })} disabled={popups === 'off'} />
-      </Field>
-      <div className="row-switch">
-        <span>
-          <b>Auto-pilot</b>
-          <small>Switch looks on drops and every 8 bars</small>
-        </span>
-        <Toggle on={autoPilot} onChange={(v) => set({ autoPilot: v })} label="Auto-pilot" />
-      </div>
-    </Section>
-  );
-}
-
-function LookPanel() {
-  const palette = useStudio((s) => s.palette);
-  const text = useStudio((s) => s.text);
-  const quality = useStudio((s) => s.quality);
-  // the quality governor (src/render/quality.ts) easing off right now; re-renders only when that changes
-  const easing = useSyncExternalStore(
-    (f) => governor.subscribe(f),
-    () => governor.current() !== LADDER[0],
-  );
-  const { setPalette, setPaletteColor, set, saveCurrentAsPreset, flash } = useStudio.getState();
+/** keep what's on screen (colours, sliders, effects) as a take of this look, or as a look of your own */
+function SaveTake() {
+  const fam = useLookFamily();
   const [name, setName] = useState('');
   const save = () => {
-    const p = saveCurrentAsPreset(name.trim() || 'Untitled look');
+    const st = useStudio.getState();
+    if (fam) {
+      const p = st.saveCurrentAsPreset(name.trim() || `Take ${fam.takes.length + 1}`, fam.id);
+      st.flash(`Saved “${takeName(p)}” as a take of ${fam.name}`);
+    } else {
+      const p = st.saveCurrentAsPreset(name.trim() || 'Untitled look');
+      st.flash(`Saved “${p.name}” to your looks`);
+    }
     setName('');
-    flash(`Saved “${p.name}” to your looks`);
   };
   return (
-    <>
-      <form
-        className="save-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save();
-        }}
-      >
-        <input className="txt" placeholder="Name this look…" value={name} onChange={(e) => setName(e.target.value)} aria-label="Look name" />
-        <button className="btn primary" type="submit">
-          Save look
-        </button>
-      </form>
-      <Section id="look.palette" title="Palette" sub={palette.name} collapsible>
-        <div className="pal-grid">
-          {PALETTES.map((p) => (
-            <button key={p.id} className={`pal ${palette.id === p.id ? 'on' : ''}`} onClick={() => setPalette(p)} title={p.name}>
-              <div className="pal-sw">
-                <i style={{ background: p.bg }} />
-                <i style={{ background: p.accent }} />
-                <i style={{ background: p.accent2 }} />
-                <i style={{ background: p.fg }} />
-              </div>
-              <div className="pn">{p.name}</div>
-            </button>
-          ))}
-        </div>
-        <div className="color-grid">
-          {COLOR_KEYS.map(([k, label]) => (
-            <label key={k} className="color-in">
-              <input type="color" value={palette[k]} onChange={(e) => setPaletteColor(k, e.target.value)} />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </Section>
-      <VideoGroup />
-      <HandGroup />
-      <TasteGroup />
-      <Section id="look.text" title="Title text" sub="Shown by scenes that use text (the boards, mostly)" collapsible defaultOpen={false}>
-        <textarea className="txt" placeholder="are you still there" value={text} onChange={(e) => set({ text: e.target.value })} aria-label="Title text" />
-      </Section>
-      <Section id="look.advanced" title="Advanced" collapsible defaultOpen={false}>
-        <Field
-          label="Render quality"
-          value={`${Math.round(quality * 100)}%${easing ? ' · easing off' : ''}`}
-          tip="The most detail Hum draws. When frames run late it eases off by itself (fewer pop-up windows first, then a softer main picture) and brings the detail back when there’s room. Lower this if it still stutters."
-        >
-          <Slider value={quality} min={0.4} max={1} step={0.05} onChange={(v) => set({ quality: v })} />
-        </Field>
-        <AccessCodeRow />
-      </Section>
-    </>
+    <form
+      className="save-row"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <input className="txt" placeholder={fam ? `Name this take of ${fam.name}…` : 'Name this look…'} value={name} onChange={(e) => setName(e.target.value)} aria-label="Take name" />
+      <button className="btn" type="submit">
+        Save
+      </button>
+    </form>
   );
 }
 
-/** the saved AI access code: quiet, just change or forget it (the gate asks for it when needed) */
-function AccessCodeRow() {
-  const saved = useAccessGate((s) => s.saved);
+/* ───────────────────────── Render ───────────────────────── */
+
+/** Render: one quick clip for socials, then pick a stretch of the song, choose sizes, make the files */
+function RenderPanel() {
   return (
-    <div className="code-row">
-      <span>AI access code: {saved ? 'saved' : 'none'}</span>
-      <span className="spacer" />
-      <button className="btn sm ghost" onClick={openAccessGate}>
-        {saved ? 'Change' : 'Enter'}
-      </button>
-      {saved && (
-        <button className="btn sm ghost" onClick={forgetAccessCode}>
-          Forget
+    <div className="render-panel">
+      <ClipQuick />
+      <div className="rp-sep">
+        <span className="sub-label">Or pick a stretch and sizes</span>
+      </div>
+      <p className="hint">Drag across the timeline to choose a stretch, or double-click a part.</p>
+      <RenderBar />
+      <div className="render-extra">
+        <button className="btn sm" onClick={() => void saveStill()}>
+          <Camera width={14} height={14} /> Save a still image
         </button>
-      )}
+      </div>
     </div>
+  );
+}
+
+/**
+ * One click: a vertical 1080×1920 clip of the song's best 15 to 30 seconds, with sound, in the current
+ * look. While it records the button fills up left to right; clicking it again (or Esc) cancels.
+ */
+function ClipQuick() {
+  const clip = useStudio((s) => s.clip);
+  const blocked = useStudio((s) => clipBlocker(s));
+  const flash = useStudio((s) => s.flash);
+  const len = clip ? clip.end - clip.start : 0;
+  const label = !clip ? 'Clip for socials' : clip.phase === 'prep' ? 'Finding the drop…' : clip.phase === 'save' ? 'Saving…' : `${Math.floor(clip.frac * len)} / ${Math.round(len)} s`;
+  return (
+    <div className="rp-clip">
+      <button
+        className={`btn clip rp-clip-btn ${clip ? 'on' : ''} ${blocked && !clip ? 'off' : ''}`}
+        style={clip ? ({ '--p': clip.phase === 'prep' ? 0 : clip.frac } as CSSProperties) : undefined}
+        onClick={() => {
+          if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+          else if (blocked) flash(blocked);
+          else void clipForTikTok();
+        }}
+        aria-label={clip ? `Making clip, ${label}. Click to cancel` : 'Clip for socials: TikTok or Reels'}
+        aria-disabled={!!blocked && !clip}
+      >
+        <ClipIcon width={14} height={14} />
+        <span className="lbl-wide">{label}</span>
+        {clip && <span className="rp-clip-x">Cancel</span>}
+      </button>
+      <p className="field-note">{clip ? 'Making the clip. Click or press Esc to stop.' : (blocked ?? 'A vertical clip of the best 15 to 30 seconds, ready for TikTok or Reels.')}</p>
+    </div>
+  );
+}
+
+function ClipIcon(p: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...p}>
+      <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+      <path d="M10.5 9.5v5l4-2.5z" fill="currentColor" stroke="none" />
+    </svg>
   );
 }

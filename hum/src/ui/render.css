@@ -366,3 +366,30 @@
   border-top: 1px solid var(--line);
   padding-top: var(--s-3);
 }
+
+/* the quick pick at the top of the Render tab: a clip for socials in one click */
+.rp-clip {
+  padding-top: var(--s-4);
+}
+.btn.rp-clip-btn {
+  width: 100%;
+  height: var(--h-lg);
+  justify-content: flex-start;
+  padding: 0 var(--s-3);
+}
+.btn.rp-clip-btn.on {
+  min-width: 0;
+}
+.rp-clip-x {
+  margin-left: auto;
+  font-size: var(--fs-2);
+  opacity: 0.85;
+}
+.rp-sep {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-2);
+}
+.render-panel .rp-sep + .hint {
+  margin: -6px 0 0;
+  text-align: left;
+}

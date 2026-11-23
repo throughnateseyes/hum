@@ -402,49 +402,21 @@ textarea:focus-visible {
 .btn.clip.on .lbl-wide {
   font-variant-numeric: tabular-nums;
 }
-/* the top bar's save group: still, record, render, clip, joined into one control */
-.tb-export {
-  display: inline-flex;
-  align-items: stretch;
-  height: var(--h);
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  background: var(--panel);
-  margin-right: var(--s-1);
+/* the top bar's Render: the one primary button up there, lit in the accent while its tab is open */
+.btn.primary.tb-render {
+  margin: 0 2px;
 }
-.tb-export > .btn {
-  height: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.tb-export > .btn + .btn {
-  box-shadow: inset 1px 0 0 var(--line);
-}
-.tb-export > .btn:first-child {
-  border-radius: calc(var(--r-ctl) - 1px) 0 0 calc(var(--r-ctl) - 1px);
-}
-.tb-export > .btn:last-child {
-  border-radius: 0 calc(var(--r-ctl) - 1px) calc(var(--r-ctl) - 1px) 0;
-}
-.tb-export > .btn:hover {
-  background: var(--panel-2);
-}
-.tb-export > .btn.clip.on {
-  background: var(--ink-2);
-}
-.tb-export > .btn.icon {
-  width: calc(var(--h) - 2px);
-}
-.btn.tb-render.on {
+.btn.primary.tb-render.on,
+.btn.primary.tb-render.on:hover {
   background: var(--accent);
-  color: #fff;
+  border-color: var(--accent);
 }
-.tb-export > .btn.tb-render.on:hover {
-  background: var(--accent);
+.btn.primary.tb-render.off {
+  opacity: 0.55;
 }
-.btn.tb-render.off {
-  color: var(--ink-3);
+/* Perform: quiet, since it hides everything else anyway */
+.btn.ghost.tb-perform {
+  color: var(--ink-2);
 }
 .btn[disabled] {
   opacity: 0.45;
@@ -493,6 +465,18 @@ textarea:focus-visible {
   width: 100%;
 }
 .seg.grid2 button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* a longer set as an even grid (Seg with cols): the columns come from the component */
+.seg.grid {
+  display: grid;
+  width: 100%;
+}
+.seg.grid button {
+  min-width: 0;
+  padding: 0 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -645,6 +629,22 @@ textarea:focus-visible {
 .panel-tabs button.on .tab-n {
   background: #fff;
   color: var(--ink-2);
+}
+/* the right panel's three tabs: one segmented control across the top */
+.insp-tabs {
+  flex: none;
+  padding: 8px var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.insp-tabs .seg button {
+  height: 26px;
+}
+.inspector .panel-body {
+  overflow-x: hidden;
+  padding: 0 var(--s-4) 24px;
+}
+.inspector .panel-intro {
+  margin: 0 0 var(--s-3);
 }
 .panel-intro {
   margin: var(--s-3) 0 var(--s-3);
@@ -1010,99 +1010,18 @@ div:hover > .card-del {
   flex-direction: column;
   border-top: 1px solid var(--line);
   background: var(--panel);
+  padding-top: 10px;
 }
-.director.open {
-  min-height: 170px;
-}
-.split-handle {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -4px;
-  height: 7px;
-  cursor: ns-resize;
-  z-index: 3;
-}
-.split-handle:hover,
-.split-handle:active {
-  background: linear-gradient(transparent 3px, var(--accent) 3px, var(--accent) 4px, transparent 4px);
-}
-.dir-head {
-  display: flex;
-  align-items: center;
-  height: 36px;
-  padding: 0 8px 0 6px;
-  flex: none;
-}
-.dir-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  font-weight: 600;
-  padding: 4px 6px;
-  border-radius: var(--r-sm);
-}
-.dir-toggle svg {
-  color: var(--ink-3);
-}
-.dir-toggle:hover {
-  background: var(--panel-2);
-}
+/* a short history over the input: the last few messages, scrolling if they run long */
 .dir-log {
-  flex: 1;
-  min-height: 0;
+  max-height: 112px;
   overflow-y: auto;
-  padding: 2px 14px 10px;
+  padding: 0 var(--s-4) 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--line-2) transparent;
-}
-.dir-empty p {
-  margin: 2px 0 10px;
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-.mode-explain {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.mode-explain div {
-  padding: 8px 10px;
-  border-radius: var(--r);
-  background: var(--panel-2);
-}
-.mode-explain b {
-  display: block;
-  font-weight: 600;
-  margin-bottom: 1px;
-}
-.mode-explain span {
-  color: var(--ink-2);
-  font-size: var(--fs-2);
-  line-height: 1.45;
-}
-.dir-sugs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.dir-sugs button {
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: var(--r-sm);
-  padding: 3px 8px;
-  font-size: var(--fs-2);
-  color: var(--ink-2);
-  text-align: left;
-}
-.dir-sugs button:hover {
-  color: var(--ink);
-  border-color: var(--line-2);
 }
 .msg {
   display: flex;
@@ -1198,8 +1117,11 @@ div:hover > .card-del {
     transform: translateY(-2px);
   }
 }
+.dir-modes button {
+  font-size: var(--fs-2);
+}
 .dir-input {
-  margin: 0 10px 10px;
+  margin: 0 var(--s-3) var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: #fff;
@@ -2009,24 +1931,139 @@ div:hover > .card-del {
 }
 
 /* ───────── inspector controls ───────── */
-.insp-head {
-  padding: 12px 0 12px;
-  border-bottom: 1px solid var(--line);
-}
 .eyebrow {
   font-size: var(--fs-2);
   color: var(--ink-3);
   margin-bottom: 2px;
 }
-.insp-head h3 {
+/* a quiet label inside a section (a group of sliders, "In this video") */
+.sub-label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.section-h .sub-label {
   margin: 0;
-  font-size: var(--fs-5);
+}
+/* a quiet text button that opens more of a list (More colours, What each meter hears) */
+.btn.more-btn {
+  margin: 6px 0 2px -8px;
+  color: var(--ink-2);
+}
+
+/* ── Video tab ── */
+.vp-make {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--s-4) 0 var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.btn.vp-go {
+  width: 100%;
+  height: var(--h-lg);
+}
+.vp-make > .field-note {
+  margin: -4px 0 0;
+}
+/* the moods wrap in the panel: no sideways scrolling here */
+.vp .moods {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.vp .moods-row {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.vp-make .row-switch {
+  padding: 0;
+}
+/* the hand-drawn settings, tucked right under Finish when that finish is on */
+.vp-hand {
+  margin: 10px 0 2px;
+  padding: 2px 0 2px var(--s-3);
+  border-left: 2px solid var(--line);
+}
+.vp textarea.txt {
+  min-height: 44px;
+}
+
+/* ── Part tab ── */
+.pt .takes-strip.compact {
+  padding: var(--s-3) 0;
+  background: transparent;
+}
+.pt .takes-strip.compact .takes-row {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+/* Fine-tune's own sections: plain rows inside it, a step quieter than the panel's sections */
+.tune {
+  margin-top: -4px;
+}
+.tune .sec-head {
+  min-height: 34px;
+  padding: 4px 0;
+}
+.tune .sec-t {
+  font-weight: 500;
+}
+.tune .sec-body {
+  padding-left: 15px;
+}
+.tune-head {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 4px;
+}
+.tune-head b {
   font-weight: 600;
 }
-.insp-head p {
-  margin: 4px 0 0;
+.tune-group {
+  margin-top: 4px;
+}
+/* Reacts to sound: one row per link, "Bass moves Zoom", with how much under it */
+.link-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.link-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.link-to {
+  flex: 1;
+  min-width: 0;
   color: var(--ink-2);
-  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-amt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: 6px;
+  text-align: right;
+}
+.link-add {
+  padding: 4px 0 8px;
+}
+.link-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.3fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.link-word {
+  font-size: var(--fs-2);
+  color: var(--ink-3);
 }
 /* a titled section in a panel; collapsible ones open from their title */
 .sec {
@@ -2114,8 +2151,8 @@ button.sec-toggle:hover .sec-caret {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--s-2);
-  padding: var(--s-2) 0 2px;
+  gap: var(--s-3);
+  padding: 6px 0;
 }
 .row-switch b {
   display: block;
@@ -2816,8 +2853,7 @@ html.perform-idle * {
   .tb-right .lbl-wide {
     display: none;
   }
-  .tb-right .btn.tb-render,
-  .tb-right .btn.clip:not(.on) {
+  .tb-right .btn.tb-render {
     width: var(--h);
     padding: 0;
   }
@@ -2908,9 +2944,6 @@ html.perform-idle * {
   }
   .app.perform .center {
     height: 100dvh;
-  }
-  .split-handle {
-    display: none;
   }
 }
 
@@ -4103,7 +4136,15 @@ html.perform-idle * {
   }
 }
 
-/* the quiet access-code row in Inspector → Advanced */
+/* the phone's Look settings sheet scrolls as one: keep the panel's tabs in view at its top */
+.ph-settings .inspector .insp-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
+/* the quiet access-code row in the Video tab's More */
 .code-row {
   display: flex;
   align-items: center;
