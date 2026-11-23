@@ -82,9 +82,11 @@ export class Footage {
 
   /**
    * Live: keep the clip on `target` (clip seconds) while the shot plays. The clip runs at the curve's
-   * speed and is nudged when it drifts; a real jump (the cut on the hit) seeks.
+   * speed and is nudged when it drifts; a real jump (the cut on the hit, or `snap`: the clip's motion
+   * jumped, however short the jump) seeks. A clip running backwards (rate below zero) can't play, so
+   * it is put on each frame's second in turn.
    */
-  follow(target: number, rate: number, playing: boolean, who = 0) {
+  follow(target: number, rate: number, playing: boolean, who = 0, snap = false) {
     const v = this.video;
     if (!this.duration || !this.mine(who)) return;
     const off = target - v.currentTime;
@@ -94,7 +96,7 @@ export class Footage {
       return;
     }
     // a real jump: seek, aiming a little ahead so the clip lands where the curve will be by then
-    if (Math.abs(off) > 0.45 && !v.seeking) v.currentTime = target + rate * 0.08;
+    if ((Math.abs(off) > 0.45 || (snap && Math.abs(off) > 1 / 30)) && !v.seeking) v.currentTime = target + rate * (snap ? 0.04 : 0.08);
     v.playbackRate = Math.min(8, Math.max(0.0625, rate * (1 + Math.max(-0.35, Math.min(0.35, off * 2)))));
     if (v.paused) void v.play().catch(() => {});
   }

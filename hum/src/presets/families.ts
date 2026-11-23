@@ -654,6 +654,14 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     motion: 'pulsing',
     themes: ['photo', 'graphic'],
   },
+  'footage-trace': {
+    name: 'Footage · Trace',
+    blurb: 'Your clips and photos pinned up like an evidence board: tiles that rearrange each bar, a line drawn between them on the beat.',
+    roles: ['verse', 'build', 'bridge'],
+    energy: [0.3, 0.8],
+    motion: 'pulsing',
+    themes: ['photo', 'data'],
+  },
 
   /* ───────── water, gardens and graphic posters (second wave) ───────── */
   laminar: {

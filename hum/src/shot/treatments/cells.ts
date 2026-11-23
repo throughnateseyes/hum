@@ -28,6 +28,11 @@ float pick3(float a, float b, float c, float v) { return v < 0.34 ? a : v < 0.67
 
 vec3 hue(float i) { return i < 0.5 ? uA : i < 1.5 ? uB : uC; }
 
+// a cell's brightness, four taps spread across it
+float cellLuma(vec2 at, vec2 d) {
+  return 0.25 * (luma(bed(at + d * vec2(-0.3, -0.3)).rgb) + luma(bed(at + d * vec2(0.3, -0.3)).rgb) + luma(bed(at + d * vec2(-0.3, 0.3)).rgb) + luma(bed(at + d * vec2(0.3, 0.3)).rgb));
+}
+
 void main() {
   vec2 px = vUv * uRes;
   vec2 count = floor(uRes / uCell);
@@ -47,16 +52,19 @@ void main() {
   float rollCells = floor(roll + 0.5);
   vec2 src = cell + vec2(0.0, rollCells);
 
-  // the picture under the cell: four taps, and its neighbours for the edge
+  // the picture under the cell, averaged over nine taps so fine texture (grass, fur, gravel) settles
+  // into one value instead of flipping each cell to a different kind of glyph
   vec2 cuv = (off + (src + 0.5) * uCell) / uRes;
   vec2 d = vec2(uCell) / uRes;
-  vec3 c0 = (bed(cuv + d * vec2(-0.25, -0.25)).rgb + bed(cuv + d * vec2(0.25, -0.25)).rgb + bed(cuv + d * vec2(-0.25, 0.25)).rgb + bed(cuv + d * vec2(0.25, 0.25)).rgb) * 0.25;
+  vec3 c0 = vec3(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) c0 += bed(cuv + d * vec2(float(i), float(j)) * 0.33).rgb;
+  c0 /= 9.0;
   // a vivid colour counts as bright as its strongest channel half way, so a red bird is a body, not a hole
   float l = mix(luma(c0), max(c0.r, max(c0.g, c0.b)), 0.45);
-  // the edge is read over two cells, so only the picture's real contours count, not its fine texture
-  vec2 e2 = d * 1.6;
-  float gx = luma(bed(cuv + vec2(e2.x, 0.0)).rgb) - luma(bed(cuv - vec2(e2.x, 0.0)).rgb);
-  float gy = luma(bed(cuv + vec2(0.0, e2.y)).rgb) - luma(bed(cuv - vec2(0.0, e2.y)).rgb);
+  // the edge is read between whole neighbouring cells (each averaged), so only the picture's real
+  // contours count, not its fine texture
+  float gx = cellLuma(cuv + vec2(d.x * 1.3, 0.0), d) - cellLuma(cuv - vec2(d.x * 1.3, 0.0), d);
+  float gy = cellLuma(cuv + vec2(0.0, d.y * 1.3), d) - cellLuma(cuv - vec2(0.0, d.y * 1.3), d);
   float edge = length(vec2(gx, gy));
 
   // brightness against the picture's own range, so a dark picture and a bright one both fill the scale

@@ -110,18 +110,23 @@ export const LINE_CHARS = 40;
  * (one row per line), and for each line its place, letter size, colour and an optional box behind it.
  */
 export class TextLines {
-  readonly data = new Uint8Array(LINE_CHARS * MAX_LINES * 4);
+  readonly data: Uint8Array;
   readonly texture: THREE.DataTexture;
   /** x, y of the bottom-left (px from the bottom-left of the frame), letter width and height (px) */
-  readonly place = Array.from({ length: MAX_LINES }, () => new THREE.Vector4(0, 0, 0, 0));
-  readonly color = Array.from({ length: MAX_LINES }, () => new THREE.Vector4(1, 1, 1, 1));
+  readonly place: THREE.Vector4[];
+  readonly color: THREE.Vector4[];
   /** the box behind a line: rgb, and alpha (0: none) */
-  readonly back = Array.from({ length: MAX_LINES }, () => new THREE.Vector4(0, 0, 0, 0));
+  readonly back: THREE.Vector4[];
   count = 0;
   private dirty = true;
 
-  constructor() {
-    this.texture = new THREE.DataTexture(this.data, LINE_CHARS, MAX_LINES, THREE.RGBAFormat);
+  /** `max` lines at most (the shader must be made with the same number: textGlsl(max)) */
+  constructor(readonly max = MAX_LINES) {
+    this.data = new Uint8Array(LINE_CHARS * max * 4);
+    this.place = Array.from({ length: max }, () => new THREE.Vector4(0, 0, 0, 0));
+    this.color = Array.from({ length: max }, () => new THREE.Vector4(1, 1, 1, 1));
+    this.back = Array.from({ length: max }, () => new THREE.Vector4(0, 0, 0, 0));
+    this.texture = new THREE.DataTexture(this.data, LINE_CHARS, max, THREE.RGBAFormat);
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.needsUpdate = true;
@@ -133,7 +138,7 @@ export class TextLines {
 
   /** add a line: `x`, `y` its bottom-left in px; `h` its letter height, `w` letter width (default mono, 0.62 h) */
   add(text: string, x: number, y: number, h: number, color: THREE.Color, back: THREE.Color | null = null, w = h * 0.62) {
-    if (this.count >= MAX_LINES) return;
+    if (this.count >= this.max) return;
     const i = this.count++;
     for (let c = 0; c < LINE_CHARS; c++) {
       const v = c < text.length ? glyphOf(text[c]) : 0;
@@ -165,21 +170,21 @@ export class TextLines {
   }
 }
 
-/** `textOver(px, col)` lays the lines over a colour; `glyphWidth` is how much of a slot one letter fills */
-export const TEXT_GLSL = /* glsl */ `
+/** `textOver(px, col)` lays the lines over a colour (`max` as the TextLines it reads was made with) */
+export const textGlsl = (max: number) => /* glsl */ `
 uniform sampler2D tText;
-uniform vec4 uLinePlace[${MAX_LINES}];
-uniform vec4 uLineColor[${MAX_LINES}];
-uniform vec4 uLineBack[${MAX_LINES}];
+uniform vec4 uLinePlace[${max}];
+uniform vec4 uLineColor[${max}];
+uniform vec4 uLineBack[${max}];
 uniform float uLines;
 vec3 textOver(vec2 px, vec3 col) {
-  for (int i = 0; i < ${MAX_LINES}; i++) {
+  for (int i = 0; i < ${max}; i++) {
     if (float(i) >= uLines) break;
     vec4 pl = uLinePlace[i];
     vec2 q = (px - pl.xy) / pl.zw;
     if (q.y < -0.25 || q.y > 1.25 || q.x < -0.3 || q.x > ${LINE_CHARS}.0) continue;
     float ci = floor(q.x);
-    float g = ci >= 0.0 ? texture2D(tText, vec2((ci + 0.5) / ${LINE_CHARS}.0, (float(i) + 0.5) / ${MAX_LINES}.0)).r * 255.0 : 0.0;
+    float g = ci >= 0.0 ? texture2D(tText, vec2((ci + 0.5) / ${LINE_CHARS}.0, (float(i) + 0.5) / ${max}.0)).r * 255.0 : 0.0;
     // the box behind the line runs under every letter that is set, with a little room round them
     float filled = g > 0.5 ? 1.0 : 0.0;
     if (uLineBack[i].a > 0.5 && (filled > 0.5 || (ci < 0.0 && q.x > -0.3))) col = uLineBack[i].rgb;
@@ -192,3 +197,5 @@ vec3 textOver(vec2 px, vec3 col) {
   return col;
 }
 `;
+
+export const TEXT_GLSL = textGlsl(MAX_LINES);

@@ -924,6 +924,17 @@ export const PRESETS: Preset[] = [
     modulations: [],
     palette: 'paper-blue',
   }),
+  P({
+    id: 'footage-trace',
+    name: 'Footage · Trace',
+    description: 'Your clips and photos pinned up like an evidence board: a few hard-edged tiles that slide into a new arrangement each bar, a line drawn from picture to picture on the beat, tracking boxes and small readouts in one accent colour.',
+    tags: ['footage', 'video', 'photo', 'tense', 'driving', 'minimal', 'data', 'graphic', 'editorial', 'electronic', 'techno', 'dark', 'personal'],
+    sceneId: 'footage',
+    sceneParams: { style: 'caption', colour: 'tinted', pace: '8', treatment: 'trace' },
+    effects: [],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
 ];
 
 /* ───────── snow (src/scenes/snow): four families, six looks ───────── */

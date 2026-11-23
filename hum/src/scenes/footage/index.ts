@@ -22,12 +22,14 @@
  * (drop them on the page, or Library → Footage and Photos). A photo is a still: the shot gives it
  * motion (a slow push and drift along the speed curve, the punch on a hit). With no media at all, the
  * built-in placeholder photo. A treatment breaks the picture itself down under the style (Mosh, Sort,
- * Cells, Readout, Collage; src/shot/treatments).
+ * Cells, Readout, Collage, Trace; src/shot/treatments). Motion says what a video clip does in time
+ * (Play, Stutter, Echo, Reverse, Slices; src/shot/motion.ts); a photo ignores it.
  *
  * Per part (store.partShot, one entry per part of the flattened plan) a part can have its own style,
- * arrangement, treatment, pictures (ids of clips and photos: the first is the picture, Split's second
- * panel and Collage's fragments take the rest) and framing (focusX, focusY, zoom), each laid over the
- * look's own setting.
+ * arrangement, treatment, motion, pictures (ids of clips and photos: the first is the picture; Split's
+ * second panel, Collage's fragments and Trace's tiles take the rest) and framing (focusX, focusY,
+ * zoom), each laid over the look's own setting. With no video plan, store.soloShot does the same for
+ * every part the look cuts itself.
  *
  * Players: every picture of this look at one size on one renderer shares one player per clip (the
  * outgoing and incoming look of a transition between two footage parts would otherwise each open the
@@ -37,14 +39,14 @@
  */
 import * as THREE from 'three';
 import type { ClipAsset, FrameContext, ParamDef, ParamValues, PartShot, PhotoAsset, PrepareContext, SceneDef, SceneInit, SceneInstance, TrackAnalysis } from '../../core/types';
-import { bool, num, str } from '../../core/uniforms';
-import { PRESETS } from '../../presets';
+import { bool, num } from '../../core/uniforms';
 import { Footage } from '../../shot/footage';
-import type { Colour } from '../../shot/kit';
+import { MOTION_HINT, MOTION_IDS, MOTION_NAMES } from '../../shot/motion';
 import { paletteFromPixels } from '../../shot/palette';
-import { footageRun, type Run, type RunPart } from '../../shot/run';
+import { MAX_OPEN, MAX_STILLS, addedAt, footageRun, planParts, runPartOf, sigOf, withOwn, type Run, type RunPart } from '../../shot/run';
 import { footageNeed, partSequence, type PartOptions, type Sequence } from '../../shot/sequence';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
+import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
 import { STYLE_IDS, STYLE_NAMES } from '../../shot/styles';
 import { TREATMENT_IDS, TREATMENT_NAMES, type TreatmentId } from '../../shot/treatments';
 import { originalOf, parentsOf } from '../../state/planCache';
@@ -65,8 +67,16 @@ const params: ParamDef[] = [
     label: 'Treatment',
     type: 'select',
     default: 'none',
-    hint: 'How the picture itself is broken down: melted (Mosh), sorted into streaks (Sort), rebuilt in characters (Cells), read like a scan (Readout) or cut up with your other pictures (Collage). Auto picks one for each part.',
+    hint: 'How the picture itself is broken down: melted (Mosh), sorted into streaks (Sort), rebuilt in characters (Cells), read like a scan (Readout), cut up with your other pictures (Collage) or pinned up with them as a tracking board, lines traced between them (Trace). Auto picks one for each part.',
     options: [{ value: 'auto', label: 'Auto' }, ...TREATMENT_IDS.map((id) => ({ value: id, label: TREATMENT_NAMES[id] }))],
+  },
+  {
+    id: 'motion',
+    label: 'Motion',
+    type: 'select',
+    default: 'play',
+    hint: MOTION_HINT,
+    options: MOTION_IDS.map((id) => ({ value: id, label: MOTION_NAMES[id] })),
   },
   {
     id: 'colour',
@@ -97,31 +107,14 @@ const params: ParamDef[] = [
   { id: 'focusY', label: 'Focus up', type: 'number', min: 0, max: 1, step: 0.01, default: 0.55 },
 ];
 
-const DEFAULTS: ParamValues = Object.fromEntries(params.map((p) => [p.id, p.default]));
-
-/** looks saved before the styles carried the old settings: read them the nearest new way */
-function colourOf(p: ParamValues): Colour {
-  const c = str(p, 'colour', '');
-  if (c === 'clean' || c === 'tinted' || c === 'flat') return c;
-  const old = str(p, 'treat', '');
-  return old === 'clean' ? 'clean' : old ? 'flat' : 'tinted';
-}
-
-/** the settings that decide a part's shots, from a look's params */
-function runPartOf(p: ParamValues): RunPart {
-  return { style: str(p, 'style', 'auto'), seed: Math.max(1, Math.round(num(p, 'seed', 1))), colour: colourOf(p), shotBeats: Number(str(p, 'pace', '8')) || 8, treatment: str(p, 'treatment', 'none') };
-}
-const sigOf = (r: RunPart) => `${r.style}|${r.seed}|${r.colour}|${r.shotBeats}|${r.treatment}`;
 /** the run's key for a part: its settings and its own pictures */
 const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}`;
 
-/** how many clips one picture opens players for, and how many photos its deck holds */
-const MAX_OPEN = 6;
-const MAX_STILLS = 24;
-
-/** where part i is centred and how far it is pushed in: its own framing, else the look's focus point */
-function framingOf(i: number, p: ParamValues): { x: number; y: number; zoom: number } {
-  const own = partShotAt(i);
+/**
+ * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video
+ * plan, soloShot for the look on its own), else the look's focus point
+ */
+function framingOf(own: PartShot | null, p: ParamValues): { x: number; y: number; zoom: number } {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   return {
     x: clamp(own?.focusX ?? num(p, 'focusX', 0.5), 0, 1),
@@ -156,7 +149,7 @@ function titleWords(): string[] {
     .slice(0, 4);
 }
 
-/** a photo as a picture of the deck: a still with its own palette and brightness bands, kept by photo id */
+/** a photo as a picture of the deck: a still with its own palette, brightness bands and anchors, kept by photo id */
 const stills = new Map<string, { photo: PhotoAsset; clip: StageClip }>();
 function stillClip(p: PhotoAsset): StageClip {
   const had = stills.get(p.id);
@@ -166,34 +159,61 @@ function stillClip(p: PhotoAsset): StageClip {
   c.height = 64;
   const g = c.getContext('2d', { willReadFrequently: true })!;
   g.drawImage(p.image, 0, 0, 64, 64);
-  const clip = { footage: null, texture: p.texture, aspect: p.width / Math.max(1, p.height), duration: 1e6, palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data) };
+  const clip: StageClip = {
+    footage: null,
+    texture: p.texture,
+    aspect: p.width / Math.max(1, p.height),
+    duration: 1e6,
+    palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data),
+    anchors: anchorsOf(p.image, p.width, p.height),
+    name: p.name,
+  };
   stills.set(p.id, { photo: p, clip });
   // photos taken out of the store let go of their entry
   if (stills.size > 64) for (const k of [...stills.keys()].slice(0, stills.size - 64)) stills.delete(k);
   return clip;
 }
 
-/** a clip's library still as a texture (Collage cuts fragments from it), kept by clip id */
-const thumbs = new Map<string, THREE.Texture | null>();
-function thumbOf(c: ClipAsset): THREE.Texture | null {
-  if (thumbs.has(c.id)) return thumbs.get(c.id) ?? null;
-  thumbs.set(c.id, null);
-  if (!c.thumb) return null;
-  const img = new Image();
-  img.onload = () => {
-    const t = new THREE.Texture(img);
-    t.colorSpace = THREE.NoColorSpace;
-    t.minFilter = THREE.LinearFilter;
-    t.generateMipmaps = false;
-    t.needsUpdate = true;
-    thumbs.set(c.id, t);
-  };
-  img.src = c.thumb;
-  return null;
+/**
+ * A clip's still for the treatments that lay several pictures out (Collage, Trace): its library
+ * thumbnail at once, then a full-size frame of it with its anchors once that is grabbed. Kept by clip id.
+ */
+interface ClipStill {
+  thumb: THREE.Texture | null;
+  full: THREE.Texture | null;
+  anchors: Anchor[] | undefined;
+  /** settles once the full-size frame is in (or could not be had) */
+  ready: Promise<void>;
+}
+const clipStills = new Map<string, ClipStill>();
+function clipStill(c: ClipAsset): ClipStill {
+  const had = clipStills.get(c.id);
+  if (had) return had;
+  const entry: ClipStill = { thumb: null, full: null, anchors: undefined, ready: Promise.resolve() };
+  clipStills.set(c.id, entry);
+  if (c.thumb) {
+    const img = new Image();
+    img.onload = () => {
+      const t = new THREE.Texture(img);
+      t.colorSpace = THREE.NoColorSpace;
+      t.minFilter = THREE.LinearFilter;
+      t.generateMipmaps = false;
+      t.needsUpdate = true;
+      entry.thumb = t;
+      entry.anchors ??= anchorsOf(img, img.naturalWidth, img.naturalHeight);
+    };
+    img.src = c.thumb;
+  }
+  entry.ready = grabStill(c.url).then(
+    (got) => {
+      entry.full = got.texture;
+      entry.anchors = got.anchors;
+    },
+    () => undefined,
+  );
+  return entry;
 }
 
-/** when a clip or photo was added (its id carries the time it was made) */
-const addedAt = (id: string) => parseInt(id.split('-')[1] ?? '', 36) || 0;
 
 /** a part's own choices, when the Part panel has made any (the store keeps one per part of the plan) */
 function partShotAt(i: number): PartShot | null {
@@ -301,43 +321,8 @@ interface Flat {
 }
 const runs = new WeakMap<TrackAnalysis, { key: string; flat: Flat }>();
 
-/** a per-part choice of style or arrangement the Part panel may keep (store.partShot), laid over the look's */
-
-/**
- * The parts' settings when a video plan with one look per part plays this song cut (null otherwise):
- * for each part, its look's settings (the preset with the person's tweaks) when the look is footage.
- */
-function flatParts(a: TrackAnalysis, deckIds: string[]): { parts: (RunPart | null)[]; sigs: (string | null)[] } | null {
-  const s = useStudio.getState();
-  const plan = s.plan;
-  if (!s.planOn || !plan?.flat || plan.looks.length !== a.sections.length) return null;
-  const per = s.partShot;
-  const all = [...s.customPresets, ...PRESETS];
-  const sigs: (string | null)[] = [];
-  const parts = plan.looks.map((id, i) => {
-    const p = id ? all.find((x) => x.id === id) : undefined;
-    if (!p || p.sceneId !== 'footage') {
-      sigs.push(null);
-      return null;
-    }
-    const look = runPartOf({ ...DEFAULTS, ...(p.sceneParams ?? {}), ...(s.tweaks[p.id]?.sceneParams ?? {}) });
-    sigs.push(sigOf(look));
-    const own = per?.[i];
-    if (!own) return look;
-    const media = (own.media ?? []).map((id) => deckIds.indexOf(id)).filter((x) => x >= 0);
-    return {
-      ...look,
-      ...(own.style ? { style: own.style } : {}),
-      ...(own.seed ? { seed: Math.max(1, Math.round(own.seed)) } : {}),
-      ...(own.treatment ? { treatment: own.treatment } : {}),
-      ...(media.length ? { media } : {}),
-    };
-  });
-  return { parts, sigs };
-}
-
 function flatRun(a: TrackAnalysis, deck: StageClip[], deckIds: string[], words: string[]): Flat | null {
-  const fp = flatParts(a, deckIds);
+  const fp = planParts(a, deckIds);
   if (!fp) return null;
   const durations = deck.map((c) => Math.round(c.duration * 100) / 100);
   const key = `${fp.parts.map((p) => (p ? partKey(p) : '-')).join(',')}|${durations.join(',')}|${deckIds.join(',')}|${words.join(' ')}`;
@@ -358,6 +343,7 @@ interface Shown {
   from: number;
   style: string;
   treatment: string;
+  motion: string;
   arrive: string;
   leave: string;
   shots: number;
@@ -389,7 +375,7 @@ if (import.meta.env.DEV) {
       if (!seq) return null;
       const shot = seq.shots.find((x) => t < x.end) ?? seq.shots[seq.shots.length - 1];
       const n = Math.max(1, deckSize);
-      return { part: i, clip: shot.footageIndex % n, from: shot.clipFrom ?? 0, style: shot.style, treatment: shot.treatment ?? 'none', arrive: shot.arrive, leave: shot.leave, shots: seq.shots.length, alt: shot.alt === undefined ? null : shot.alt % n };
+      return { part: i, clip: shot.footageIndex % n, from: shot.clipFrom ?? 0, style: shot.style, treatment: shot.treatment ?? 'none', motion: shot.motion ?? 'play', arrive: shot.arrive, leave: shot.leave, shots: seq.shots.length, alt: shot.alt === undefined ? null : shot.alt % n };
     },
     /** every part this page's stage built, in order (cleared by the caller) */
     shown,
@@ -440,6 +426,7 @@ class FootageLook implements SceneInstance {
    * order they were added; with neither, the built-in placeholder photo.
    */
   private syncDeck(clips: ClipAsset[], photos: PhotoAsset[]) {
+    // the deck's order is the order of deckIdsOf (src/shot/run.ts), with the clips still opening left out
     const wanted = clips.slice(0, MAX_OPEN);
     // with one clip, Split shows two moments of it: a second player on it
     const keys = new Map<string, string>();
@@ -458,7 +445,7 @@ class FootageLook implements SceneInstance {
       changed = true;
     }
     if (changed) prune(this.renderer, new Set(clips.map((c) => c.id)), `${this.width}x${this.height}`);
-    const asClip = (c: ClipAsset, p: Player): StageClip => ({ footage: p.footage, texture: p.footage.texture, aspect: p.footage.aspect, duration: p.footage.duration, palette: c.palette });
+    const asClip = (c: ClipAsset, p: Player): StageClip => ({ footage: p.footage, texture: p.footage.texture, aspect: p.footage.aspect, duration: p.footage.duration, palette: c.palette, name: c.name });
     const ready = wanted.filter((c) => this.held.get(this.poolKey(c.id, false))?.ready);
     const allReady = ready.length === wanted.length;
     const echoReady = wanted.length === 1 && !!this.held.get(this.poolKey(wanted[0].id, true))?.ready;
@@ -473,7 +460,11 @@ class FootageLook implements SceneInstance {
     // a clip that is still opening doesn't change the deck until the others are ready too (or it fails)
     if (!allReady && this.deckKey && ready.length) return;
     this.deckKey = key;
-    this.deck = items.map((x) => (x.clip ? { ...asClip(x.clip, this.held.get(this.poolKey(x.id, false))!), still: thumbOf(x.clip) } : stillClip(x.photo!)));
+    this.deck = items.map((x) => {
+      if (!x.clip) return stillClip(x.photo!);
+      const st = clipStill(x.clip);
+      return { ...asClip(x.clip, this.held.get(this.poolKey(x.id, false))!), still: st.full ?? st.thumb, anchors: st.anchors };
+    });
     this.deckIds = items.map((x) => x.id);
     // with one clip, Split shows two moments of it; a still has no other moment: Split pushes in on it instead
     this.echo = items.map((x) => (x.clip && echoReady && x.clip.id === wanted[0].id ? asClip(x.clip, this.held.get(this.poolKey(x.id, true))!) : null));
@@ -481,14 +472,23 @@ class FootageLook implements SceneInstance {
     this.builtKey = '';
   }
 
-  /** the deck's clips' library stills arrive a moment after the deck is made: pick them up */
+  /** the deck's clips' stills arrive after the deck is made (the thumbnail, then the full frame): pick them up */
   private syncThumbs(clips: ClipAsset[]) {
     this.deck.forEach((d, i) => {
-      if (!d.footage || d.still) return;
+      if (!d.footage) return;
       const c = clips.find((x) => x.id === this.deckIds[i]);
-      const t = c ? thumbOf(c) : null;
-      if (t) d.still = t;
+      if (!c) return;
+      const st = clipStill(c);
+      d.still = st.full ?? st.thumb;
+      d.anchors = st.anchors;
     });
+  }
+
+  /** a render waits for the full-size stills of the deck's clips, so it cuts the same frames every time */
+  private async stillsReady(clips: ClipAsset[]) {
+    const ids = new Set(this.deckIds);
+    await Promise.all(clips.filter((c) => ids.has(c.id)).map((c) => clipStill(c).ready));
+    this.syncThumbs(clips);
   }
 
   /**
@@ -518,6 +518,9 @@ class FootageLook implements SceneInstance {
     const title = songTitle().toUpperCase();
     const flat = flatRun(a, this.deck, this.deckIds, words);
     const own = runPartOf(p);
+    // a look playing on its own (no video plan) takes the Look tab's choices for every part it cuts
+    const solo = flat ? null : useStudio.getState().soloShot;
+    const mine = withOwn(own, solo, this.deckIds);
     let seq: Sequence | null = null;
     let index: number;
     if (flat) {
@@ -530,12 +533,12 @@ class FootageLook implements SceneInstance {
     this.flat = flat;
     this.part = index;
     const size = `${this.width}x${this.height}`;
-    const key = flat ? `f|${flat.key}|${index}|${title}|${this.deckKey}|${size}` : `${a.duration}|${a.sections.length}|${index}|${sigOf(own)}|${words.join(' ')}|${title}|${this.deckKey}|${size}`;
+    const key = flat ? `f|${flat.key}|${index}|${title}|${this.deckKey}|${size}` : `${a.duration}|${a.sections.length}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}`;
     // the first footage look on this renderer compiles every shader the shots use, once
     warmShots(this.renderer, a, this.deck[0]);
     if (key !== this.builtKey) {
       if (!flat) {
-        const o: PartOptions = { ...own, words, card: words.length > 0, pictures: this.deck.length };
+        const o: PartOptions = { ...mine, words, card: words.length > 0, pictures: this.deck.length };
         seq = partSequence(a, index, o);
       }
       // a part of a video plan that isn't footage (this look is on its way out or in): its neighbour's shots
@@ -543,7 +546,7 @@ class FootageLook implements SceneInstance {
       this.builtKey = key;
       const t0 = performance.now();
       this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined });
-      if (import.meta.env.DEV && flat) {
+      if (import.meta.env.DEV) {
         const sh = seq.shots[0];
         const last = seq.shots[seq.shots.length - 1];
         const c = sh.footageIndex % this.deck.length;
@@ -553,6 +556,7 @@ class FootageLook implements SceneInstance {
           from: sh.clipFrom ?? 0,
           style: sh.style,
           treatment: sh.treatment ?? 'none',
+          motion: sh.motion ?? 'play',
           arrive: sh.arrive,
           leave: sh.leave,
           shots: seq.shots.length,
@@ -562,14 +566,14 @@ class FootageLook implements SceneInstance {
           playerAt: this.deck[c]?.footage?.video.currentTime ?? null,
           ms: performance.now() - t0,
           who: this.who,
-          zoom: framingOf(index, p).zoom,
-          focus: [framingOf(index, p).x, framingOf(index, p).y],
+          zoom: framingOf(flat ? partShotAt(index) : solo, p).zoom,
+          focus: [framingOf(flat ? partShotAt(index) : solo, p).x, framingOf(flat ? partShotAt(index) : solo, p).y],
         });
         if (shown.length > 400) shown.splice(0, shown.length - 400);
       }
     }
-    // the part's own framing, when it has one; else the look's focus point
-    const fr = flat ? framingOf(index, p) : { x: num(p, 'focusX', 0.5), y: num(p, 'focusY', 0.55), zoom: 1 };
+    // the part's own framing (or the look's on its own), when it has one; else the look's focus point
+    const fr = framingOf(flat ? partShotAt(index) : solo, p);
     this.focus.x = fr.x;
     this.focus.y = fr.y;
     this.zoom = fr.zoom;
@@ -625,6 +629,7 @@ class FootageLook implements SceneInstance {
       this.syncDeck(useStudio.getState().clips, frame.photos);
     }
     if (!this.sync(frame.analysis, frame.params, frame.photos, songTime)) return;
+    await this.stillsReady(useStudio.getState().clips);
     await this.stage.settle(songTime);
   }
 

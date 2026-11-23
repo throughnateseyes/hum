@@ -14,7 +14,8 @@
  *     &seed=3                        the arrangement (any whole number; default 1)
  *     &colour=flat                   clean, tinted (default) or flat
  *     &treatment=mosh                how the picture is broken down: none (default), mosh, sort, cells,
- *                                    readout, collage, or auto (one per shot)
+ *                                    readout, collage, trace, or auto (one per shot)
+ *     &motion=stutter                what a clip does in time: play (default), stutter, echo, reverse, slices
  *     &photo=/footage.local/p.jpg,…  photos as stills (they join the clips, photos after clips)
  *     &zoom=1.4                      push the picture in (1 fits the frame)
  *     &look=pixel-cube               the look that cuts in full frame
@@ -42,6 +43,7 @@ import type { TrackAnalysis } from '../core/types';
 import { Footage } from '../shot/footage';
 import { paletteFromPixels } from '../shot/palette';
 import { sequenceFromAnalysis, shotAt, type Sequence } from '../shot/sequence';
+import { anchorsOf, grabStill } from '../shot/stills';
 import { ShotStage, type StageClip } from '../shot/stage';
 import { useStudio } from '../state/store';
 
@@ -179,7 +181,9 @@ async function loadClip(src: string) {
     await footage.seek(footage.duration * at);
     g.drawImage(footage.video, 0, i * 36, 64, 36);
   }
-  const clip: StageClip = { footage, texture: footage.texture, aspect: footage.aspect, duration: footage.duration, palette: paletteFromPixels(g.getImageData(0, 0, 64, 36 * 3).data) };
+  // a full-size still and its anchors, for Collage and Trace
+  const still = await grabStill(src);
+  const clip: StageClip = { footage, texture: footage.texture, aspect: footage.aspect, duration: footage.duration, palette: paletteFromPixels(g.getImageData(0, 0, 64, 36 * 3).data), still: still.texture, anchors: still.anchors, name: src.split('/').pop() };
   // a fourth clip takes the place of the oldest
   clips = [...clips, clip].slice(-MAX_CLIPS);
   rebuild();
@@ -203,7 +207,7 @@ async function loadStill(src: string) {
   texture.colorSpace = THREE.NoColorSpace;
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;
-  stills = [...stills, { footage: null, texture, aspect: c.width / c.height, duration: 1e6, palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data) }];
+  stills = [...stills, { footage: null, texture, aspect: c.width / c.height, duration: 1e6, palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data), anchors: anchorsOf(c, c.width, c.height), name: src.split('/').pop() }];
   rebuild();
 }
 
@@ -219,7 +223,7 @@ function rebuild() {
   const at = q.get('at') ? Number(q.get('at')) : undefined;
   const phrase = (wordBox.value.trim() || songName.split(/[\s_\-–—]+/).slice(0, 3).join(' ') || 'hum').toUpperCase();
   const colour = q.get('colour');
-  seq = sequenceFromAnalysis(analysis, phrase, at, { style: q.get('style') || 'auto', seed: Number(q.get('seed')) || 1, colour: colour === 'clean' || colour === 'flat' ? colour : 'tinted', treatment: q.get('treatment') || 'none' });
+  seq = sequenceFromAnalysis(analysis, phrase, at, { style: q.get('style') || 'auto', seed: Number(q.get('seed')) || 1, colour: colour === 'clean' || colour === 'flat' ? colour : 'tinted', treatment: q.get('treatment') || 'none', motion: q.get('motion') || 'play' });
   const deck = [...clips, ...stills];
   stage.build({ seq, analysis, clips: deck.length ? deck : [placeholder], title: songName.toUpperCase(), lookId: q.get('look') || 'pixel-cube' });
   pausedAt = Math.min(Math.max(pausedAt, seq.start), seq.end);
@@ -411,6 +415,13 @@ window.__shot = {
     return out;
   },
   clearSheet: () => document.getElementById('sheet')?.remove(),
+  /** where each shot's curve (with its motion) puts the clip at these run times: to check a motion by numbers */
+  curve: (times: number[]) =>
+    times.map((at) => {
+      const t = (seq?.start ?? 0) + at;
+      const s = stage.shots.find((x) => t >= x.shot.start && t < x.shot.end);
+      return { at, motion: s?.shot.motion ?? 'play', clip: s ? +s.curve.footage(t).toFixed(3) : null, jolt: s ? +s.curve.jolt(t).toFixed(2) : 0 };
+    }),
   info: () => ({
     live: seq ? { at: +(songTime() - seq.start).toFixed(2), playing, drift: stage.drift(songTime()), frameMs: +frameMs.toFixed(1), workMs: +workMs.toFixed(2) } : null,
     seq,
