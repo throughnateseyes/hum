@@ -4,8 +4,9 @@
  *
  *   name, time, length     which section and shot it is
  *   Quick picks            the five looks that fit this part best, as pictures: one click (or 1–5) swaps
- *   actions                Play this part, Like, Reset, Undo
- *   Look                   its picture and name, and its other takes (versions)
+ *   actions                Play this part, Like, Reset, Undo (the app's one history, state/history.ts)
+ *   Look                   its picture and name, and its other takes (versions); a footage look shows
+ *                          its styles and Shuffle instead of takes
  *   More looks             the full Swap the look list, with moods and a search (PartSheet.tsx), folded away
  *   Hand-drawn             As the video / On / Off, for these parts only
  *   Pop-ups                Auto / Off / Few / Lots, and Shuffle for a different deal of them (popSeed.ts)
@@ -26,12 +27,14 @@ import { sceneShowsWords } from '../scenes/three/songInfo';
 import { activeFinish } from '../state/direction';
 import { onFrame } from '../state/live';
 import { MEDIUM_CHOICES, vocalDensity, type LyricMedium } from '../state/lyricPlan';
-import { likePart, onUndoChange, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords, undoLabel, undoPartEdit } from '../state/partEdit';
+import { historyLabels, onHistoryChange, undo } from '../state/history';
+import { likePart, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords } from '../state/partEdit';
 import { findLook, listNames, makeVideo, partEdits, partNames, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
 import { parentsOf } from '../state/planCache';
 import { reshufflePops } from '../state/popSeed';
-import type { Preset } from '../core/types';
+import type { ParamValue, Preset } from '../core/types';
 import { setQuickPicks } from './shotActions';
+import type { LookTweak } from '../state/tweaks';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { Play } from './Icons';
@@ -122,7 +125,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const partWords = useStudio((s) => s.partWords);
   const videoFinish = useStudio((s) => activeFinish(s));
   const busy = useStudio((s) => !!s.clip);
-  const undoText = useSyncExternalStore(onUndoChange, undoLabel);
+  // the app's one undo (state/history.ts): the same step Cmd+Z and the transport's arrow take back
+  const undoText = useSyncExternalStore(onHistoryChange, historyLabels).undo;
   const n = a.sections.length;
   const one = parts.length === 1;
   const i = parts[0];
@@ -215,7 +219,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
           </button>
         )}
         {undoText && (
-          <button className="btn sm ghost" onClick={undoPartEdit} disabled={busy} title={`Undo ${undoText}`}>
+          <button className="btn sm ghost" onClick={undo} disabled={busy} title={`Undo ${undoText} (⌘Z)`}>
             Undo
           </button>
         )}
@@ -244,7 +248,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         ) : (
           <p className="pp-note">No look yet.</p>
         )}
-        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && (
+        {sameLook !== 'mixed' && look && isFootage(look) && <FootageControls look={look} busy={busy} />}
+        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
           <div className="ps-takes" role="group" aria-label={`Versions of ${fam.name}`}>
             {fam.takes.map((p) => (
               <button key={p.id} className={`ps-take ${p.id === look?.id ? 'on' : ''}`} aria-pressed={p.id === look?.id} disabled={busy} title={`${takeName(p)}: ${p.description}`} onClick={() => setPartsLook(parts, p.id)}>
@@ -335,6 +340,103 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
       )}
 
       {wordy && <WordsField key={`${parts.join(',')}|${words}`} parts={parts} value={words} disabled={busy} />}
+    </div>
+  );
+}
+
+/** a look built on the person's clips (the footage looks): styles and Shuffle stand in for takes */
+export function isFootage(p: Preset): boolean {
+  return !!getScene(p.sceneId)?.usesClips;
+}
+
+/** the value a look plays with for one of its scene's settings: the person's tweak, the preset, the default */
+function lookParam(p: Preset, tweak: { sceneParams?: Record<string, ParamValue> } | undefined, k: string): ParamValue | undefined {
+  return tweak?.sceneParams?.[k] ?? p.sceneParams?.[k] ?? getScene(p.sceneId)?.params.find((d) => d.id === k)?.default;
+}
+
+/**
+ * Change one of a look's scene settings for this video. The look on screen goes through setSceneParam
+ * like any slider; a look that isn't on screen gets the same change in its tweak (state/tweaks.ts), which
+ * is what setSceneParam would have kept. Either way it is one Undo step, and every part playing the look
+ * shows it.
+ */
+function setLookParam(p: Preset, k: string, v: ParamValue) {
+  const s = useStudio.getState();
+  if (s.presetId === p.id) return s.setSceneParam(k, v);
+  const orig = p.sceneParams?.[k] ?? getScene(p.sceneId)?.params.find((d) => d.id === k)?.default;
+  const t = s.tweaks[p.id];
+  const sceneParams = { ...t?.sceneParams };
+  if (v === orig) delete sceneParams[k];
+  else sceneParams[k] = v;
+  const next: LookTweak = { ...t, sceneParams };
+  if (!Object.keys(sceneParams).length) delete next.sceneParams;
+  const tweaks = { ...s.tweaks };
+  if (Object.keys(next).length) tweaks[p.id] = next;
+  else delete tweaks[p.id];
+  s.set({ tweaks });
+}
+
+/** the arrangements a footage look had before its last shuffles, by look id (Previous steps back) */
+const seedsBefore = new Map<string, number[]>();
+
+/**
+ * A footage look's own row: its styles (Auto first) and Shuffle, which deals a new arrangement of the
+ * same style (the `seed` setting), with Previous to go back one. The arrangement belongs to the look,
+ * like any fine-tuning, so every part that plays this look changes with it; the hint says so.
+ */
+export function FootageControls({ look, busy }: { look: Preset; busy: boolean }) {
+  const tweak = useStudio((s) => s.tweaks[look.id]);
+  const [, redraw] = useState(0);
+  const styleDef = getScene(look.sceneId)?.params.find((d) => d.id === 'style');
+  const styles = styleDef?.type === 'select' ? styleDef.options : [];
+  const style = String(lookParam(look, tweak, 'style') ?? 'auto');
+  const seed = Number(lookParam(look, tweak, 'seed') ?? 1);
+  const before = seedsBefore.get(look.id) ?? [];
+  const shuffle = () => {
+    let next = seed;
+    while (next === seed) next = 1 + Math.floor(Math.random() * 999);
+    seedsBefore.set(look.id, [...before, seed].slice(-5));
+    setLookParam(look, 'seed', next);
+    redraw((n) => n + 1);
+  };
+  const previous = () => {
+    const prev = before[before.length - 1];
+    if (prev === undefined) return;
+    seedsBefore.set(look.id, before.slice(0, -1));
+    setLookParam(look, 'seed', prev);
+    redraw((n) => n + 1);
+  };
+  return (
+    <div className="pp-foot">
+      {styles.length > 0 && (
+        <div className="seg grid pp-styles" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }} role="group" aria-label="Footage style">
+          {styles.map((o) => (
+            <button
+              key={o.value}
+              className={style === o.value ? 'on' : ''}
+              aria-pressed={style === o.value}
+              disabled={busy}
+              title={o.value === 'auto' ? 'A style picked for each part of the song' : `${o.label} in every part`}
+              onClick={() => setLookParam(look, 'style', o.value)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="pp-foot-row">
+        <button className="btn sm" disabled={busy} onClick={shuffle} title="Lay the same style out another way">
+          <ShuffleIcon />
+          Shuffle
+        </button>
+        <button className="btn sm ghost" disabled={busy || !before.length} onClick={previous} title="Go back to the arrangement before the last shuffle">
+          Previous
+        </button>
+        <span className="pp-foot-n" title="Which arrangement is playing (1 to 999)">
+          No. {seed}
+        </span>
+      </div>
+      <p className="pp-note">Style and Shuffle change every part that plays this look.</p>
     </div>
   );
 }

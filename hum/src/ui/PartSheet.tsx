@@ -5,12 +5,14 @@
  *   Play this part   jump there and play
  *   Look             a few families that fit this part and sit well with its neighbours (fit.ts),
  *                    filtered by mood; More looks… lists every family for the part, with a search
- *   Version          the other takes of the part's look, one tap each
+ *   Version          the other takes of the part's look, one tap each (a footage look: its styles
+ *                    and Shuffle instead, PartPanel.tsx FootageControls)
  *   Lyrics           the part's lyric style (songs with timed lyrics)
  *   Pop-ups          Auto / Off / Few / Lots
  *
  * Changes go into the plan (state/partEdit.ts), are saved for the song, survive a re-plan, and show on
- * the song map; Reset this part puts the planner's pick back and Undo takes back the last change.
+ * the song map; Reset this part puts the planner's pick back and Undo takes back the last change (the
+ * app's one history, state/history.ts).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
@@ -20,12 +22,14 @@ import { inMood, moodById, type MoodId } from '../presets/moods';
 import { profileFor } from '../render/lyricProfiles';
 import { getScene } from '../scenes';
 import { MEDIUM_CHOICES, vocalDensity } from '../state/lyricPlan';
-import { playPart, resetPart, setPartLook, setPartLyric, setPartPopsLevel, undoLabel, undoPartEdit, onUndoChange } from '../state/partEdit';
+import { historyLabels, onHistoryChange, undo } from '../state/history';
+import { playPart, resetPart, setPartLook, setPartLyric, setPartPopsLevel } from '../state/partEdit';
 import { findLook, LABEL_NAME, makeVideo, partEdits, partEnergy, popsOf, sectionNames, validPlan } from '../state/plan';
 import { useStudio } from '../state/store';
 import { Play, X } from './Icons';
 import { STATIC_THUMBS, Thumb } from './Library';
 import { MoodChips } from './Moods';
+import { FootageControls, isFootage } from './PartPanel';
 import { hidePeek, peekHandlers } from './Peek';
 import { presetToLook } from '../presets/apply';
 import { useRenderMode } from './RenderBar';
@@ -60,7 +64,7 @@ function refocus(act: () => void) {
     if (sheet && !sheet.contains(document.activeElement)) sheet.querySelector<HTMLElement>('[data-autofocus]')?.focus({ preventScroll: true });
   });
 }
-const partEl = (i: number) => document.querySelector<HTMLElement>(`.tl-sec[data-part="${i}"]`);
+const partEl = (i: number) => document.querySelector<HTMLElement>(`.tln-part[data-part="${i}"]`);
 
 /** where the popover stands: over part i, its arrow on the part's middle, inside the window */
 function popoverAt(i: number): { left: number; width: number; bottom: number; maxH: number; arrow: number } | null {
@@ -105,7 +109,7 @@ function SheetFrame({ i, a }: { i: number; a: TrackAnalysis }) {
       if (p) setPos(p);
     };
     place();
-    const row = document.querySelector('.tl-secs');
+    const row = document.querySelector('.tln-parts');
     const ro = new ResizeObserver(place);
     if (row) ro.observe(row);
     window.addEventListener('resize', place);
@@ -152,7 +156,7 @@ function SheetFrame({ i, a }: { i: number; a: TrackAnalysis }) {
     if (phone) return;
     const down = (e: PointerEvent) => {
       const t = e.target as Element | null;
-      if (!t || box.current?.contains(t) || t.closest('.tl-sec') || t.closest('.peek') || t.closest('.toast')) return;
+      if (!t || box.current?.contains(t) || t.closest('.tln-part') || t.closest('.peek') || t.closest('.toast')) return;
       closePartSheet();
     };
     document.addEventListener('pointerdown', down, true);
@@ -361,7 +365,8 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const partWords = useStudio((s) => s.partWords);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
-  const undoText = useSyncExternalStore(onUndoChange, undoLabel);
+  // the app's one undo (state/history.ts), the same step as Cmd+Z and the transport's arrow
+  const undoText = useSyncExternalStore(onHistoryChange, historyLabels).undo;
   const hasPlan = validPlan(plan, a);
 
   const sec = a.sections[i];
@@ -411,7 +416,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
           </button>
         )}
         {undoText && (
-          <button className="btn sm ghost" onClick={() => refocus(undoPartEdit)} disabled={busy} title={`Undo ${undoText}`}>
+          <button className="btn sm ghost" onClick={() => refocus(undo)} disabled={busy} title={`Undo ${undoText}`}>
             Undo
           </button>
         )}
@@ -430,7 +435,17 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
 
       <SwapList a={a} i={i} name={name} busy={busy} onPick={pickLookHere} headingId={`${headingId}-look`} />
 
-      {fam && fam.takes.length > 1 && (
+      {hasPlan && look && isFootage(look) && (
+        <section className="ps-sec pp" aria-label="Footage style">
+          <div className="ps-h">
+            <h3>Style</h3>
+            <span>{look.name}</span>
+          </div>
+          <FootageControls look={look} busy={busy} />
+        </section>
+      )}
+
+      {fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
         <section className="ps-sec" aria-labelledby={`${headingId}-take`}>
           <div className="ps-h">
             <h3 id={`${headingId}-take`}>Version</h3>

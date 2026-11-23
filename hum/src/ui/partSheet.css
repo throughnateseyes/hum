@@ -734,3 +734,23 @@ html.phone.land .ps-phone {
   min-width: 0;
   text-align: right;
 }
+
+/* a footage look's styles and Shuffle, under the look in the Part tab (PartPanel.tsx FootageControls) */
+.pp-foot {
+  margin-top: 4px;
+}
+.pp-foot-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pp-foot-row .btn {
+  gap: 5px;
+}
+.pp-foot-n {
+  margin-left: auto;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

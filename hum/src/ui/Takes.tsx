@@ -7,6 +7,7 @@ import { useState } from 'react';
 import type { LookFamily } from '../presets/fit';
 import { ROLES, takeName } from '../presets/fit';
 import { pickLook } from '../state/plan';
+import { getScene } from '../scenes';
 import { useLookFamily } from './lookFamily';
 import { useStudio } from '../state/store';
 import { noteHandPick } from '../state/taste';
@@ -30,10 +31,12 @@ function fitLine(f: LookFamily): string {
  */
 export function TakesStrip({ compact = false }: { compact?: boolean }) {
   const presetId = useStudio((s) => s.presetId);
+  // a footage look has no takes to hunt through: its styles and Shuffle sit under the look (PartPanel.tsx)
+  const footage = useStudio((s) => !!getScene(s.sceneId)?.usesClips);
   const fam = useLookFamily();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
-  if (!fam) return null;
+  if (!fam || footage) return null;
 
   const save = () => {
     const st = useStudio.getState();
