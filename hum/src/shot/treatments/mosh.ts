@@ -61,7 +61,7 @@ uniform sampler2D tD;
 uniform vec2 uDRes, uRes;
 uniform float uSeedT, uBlock;
 uniform vec2 uDrift, uPush;
-uniform float uSwirl, uStill, uRefresh;
+uniform float uSwirl, uRefresh;
 uniform float uShove, uShoveSeed;
 float hash(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 float vnoise(vec2 p) {
@@ -166,7 +166,6 @@ export class Mosh {
       uDrift: { value: new THREE.Vector2() },
       uPush: { value: new THREE.Vector2() },
       uSwirl: { value: 0 },
-      uStill: { value: 0 },
       uRefresh: { value: 0 },
       uShove: { value: 0 },
       uShoveSeed: { value: 0 },

@@ -80,32 +80,24 @@ void main() {
     vec3 here = bed((o + d * u) / uRes).rgb;
     col = mix(head, here, pos * pos * 0.35);
   } else {
-    // sixteen samples of the run, put in order of brightness
-    vec4 s[16];
+    // sixteen samples of the run, put in order of brightness. Each sample's place in the order is
+    // counted rather than sorted in place, which keeps every array index fixed (much cheaper on a GPU)
+    vec3 s[16];
+    float l[16];
     for (int i = 0; i < 16; i++) {
-      vec3 cc = bed((o + d * (rs + len * (float(i) + 0.5) / 16.0)) / uRes).rgb;
-      s[i] = vec4(cc, luma(cc));
-    }
-    for (int i = 1; i < 16; i++) {
-      vec4 key = s[i];
-      int j = i - 1;
-      for (int k = 0; k < 16; k++) {
-        if (j < 0) break;
-        bool after = uDesc > 0.5 ? s[j].a < key.a : s[j].a > key.a;
-        if (!after) break;
-        s[j + 1] = s[j];
-        j--;
-      }
-      s[j + 1] = key;
+      s[i] = bed((o + d * (rs + len * (float(i) + 0.5) / 16.0)) / uRes).rgb;
+      l[i] = uDesc > 0.5 ? -luma(s[i]) : luma(s[i]);
     }
     float f = pos * 15.0;
-    int i0 = int(floor(f));
-    int i1 = min(15, i0 + 1);
-    vec3 lo = s[0].rgb;
-    vec3 hi = s[0].rgb;
+    float r0 = floor(f);
+    float r1 = min(15.0, r0 + 1.0);
+    vec3 lo = s[0];
+    vec3 hi = s[0];
     for (int i = 0; i < 16; i++) {
-      if (i == i0) lo = s[i].rgb;
-      if (i == i1) hi = s[i].rgb;
+      float rank = 0.0;
+      for (int k = 0; k < 16; k++) rank += (l[k] < l[i] || (l[k] == l[i] && k < i)) ? 1.0 : 0.0;
+      if (rank == r0) lo = s[i];
+      if (rank == r1) hi = s[i];
     }
     col = mix(lo, hi, fract(f));
   }

@@ -5,8 +5,10 @@
  * footage part IS one shot: the timeline's cut is the cut. This file decides, for every footage part
  * of the song at once, what it shows:
  *
- *   the clip     every cut moves to the next clip, counted across the song (so the clips rotate
- *                through the video), and a clip used again carries on from where it stopped
+ *   the clip     every cut moves to the next picture in the deck (clips and photos in the order they
+ *                were added), counted across the song, and a clip used again carries on from where it
+ *                stopped; a part with its own media list deals only from that list, first one first
+ *   treatment    a fixed treatment as it is; Auto picks one per shot from the section and its energy
  *   the hit      a part that opens a section landing on a drop (or a jump in energy), or that starts
  *                on a drop, arrives with the flash, the frozen frames and the burst
  *   the ramp     a part speeds up into its cut when the part after it lands on a hit
