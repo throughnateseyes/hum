@@ -356,8 +356,10 @@ export interface PartShot {
   style?: string;
   /** 1..999: the same style arranged differently */
   seed?: number;
-  /** how the picture itself is broken down: 'none', 'mosh', 'sort', 'cells', 'readout', 'collage' */
+  /** how the picture itself is broken down: 'none', 'mosh', 'sort', 'cells', 'readout', 'collage', 'trace' */
   treatment?: string;
+  /** what a video clip does in time, beyond playing: 'play', 'stutter', 'echo', 'reverse', 'slices' */
+  motion?: string;
   /** ids of the clips and photos this part may use, in order (missing: dealt automatically) */
   media?: string[];
   /** where the picture is centred, 0..1 from the left and from the bottom */

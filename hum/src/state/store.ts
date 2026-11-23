@@ -108,6 +108,8 @@ export interface StudioState extends LookState {
   partHand: (boolean | null)[] | null;
   /** each part's own footage choices: style, arrangement, treatment, which media and how it is framed (missing: all as the look) */
   partShot: (PartShot | null)[] | null;
+  /** the same choices for a look playing on its own, with no video plan (the Look tab's Picture controls) */
+  soloShot: PartShot | null;
   /** the words a look that writes text shows in one part (null: its own words, from the lyrics or the title text) */
   partWords: (string | null)[] | null;
   perform: boolean;
@@ -409,6 +411,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   metersOpen: false,
   partHand: null,
   partShot: null,
+  soloShot: null,
   partWords: null,
   perform: false,
   autoPilot: false,
