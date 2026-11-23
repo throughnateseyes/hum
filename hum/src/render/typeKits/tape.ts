@@ -1,7 +1,8 @@
 import type { Palette } from '../../core/types';
 import type { Placed, Role, TypeLayout, Voice } from '../lyricAuto';
+import { noteDeco, noteInk, notePlate, platePad, spaceLog, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, css, fromHsl, hexRGB, huesOf, mix, reach, roundRect, rowsBox, scratchCanvas, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, capOf, clamp01, css, fromHsl, hexRGB, huesOf, lineCap, mix, reach, roundRect, rowsBox, scratchCanvas, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Tape: lettering off a 1984 cassette sleeve or a computer's splash screen (references 12, 15, 16,
@@ -25,7 +26,7 @@ const TERM = KIT_FACES.tapeTerm;
 
 export function tapeVoice(role: Role | 'kicker', base: Voice): Voice {
   if (role === 'caption') return { ...base, family: TERM, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: 0.08, case: 'upper', leading: 1.62, size: 0.062 };
-  if (role === 'aside') return { ...base, family: TERM, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: 0.01, case: 'asis', leading: 1.18, size: 0.06 };
+  if (role === 'aside') return { ...base, family: TERM, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: 0.04, case: 'asis', leading: 1.24, size: 0.06 };
   if (role === 'kicker') return { ...base, family: TERM, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: 0.04, case: 'upper', leading: 1.3, size: 0.044 };
   if (role === 'giant') return { ...base, family: WIDE, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: -0.02, case: 'upper', leading: 1, size: 0.22 };
   return { ...base, family: WIDE, weight: 400, stretch: undefined, widen: undefined, enter: undefined, italic: false, italicKey: false, typed: false, track: -0.01, case: 'upper', leading: 1.16, size: 0.07 };
@@ -76,9 +77,19 @@ interface Led {
   /** each word's dot columns and rows (canvas px, relative to the plate) */
   spans: { x: number; y: number; w: number; h: number }[];
   key: string;
+  /** the lit dots' box (canvas px, relative to the plate) and the capitals' height in dots */
+  ink: { x0: number; y0: number; x1: number; y1: number };
+  cap: number;
 }
 const leds = new WeakMap<TypeLayout, Led>();
 let rasterCanvas: HTMLCanvasElement | null = null;
+
+/** the LED plate's padding round the letters: the rule's, plus a dot (dots round out past the glyph) */
+function ledPad(L: TypeLayout) {
+  const p = Math.max(3, L.size / 10);
+  const pad = platePad(lineCap(L.words));
+  return { v: pad.v + p, h: pad.h + p };
+}
 
 /** spell the line in dots once per line: a grid of unlit dots, and the lit ones with their glow */
 function buildLed(L: TypeLayout, col: RGB, light: boolean): Led {
@@ -87,11 +98,12 @@ function buildLed(L: TypeLayout, col: RGB, light: boolean): Led {
   // enough to stay dots through the tape's smear
   const p = Math.max(3, size / 10);
   const box = rowsBox(L, 0);
-  const pad = p * 2.6;
-  const x0 = Math.floor(box.x0 - pad);
-  const y0 = Math.floor(box.y0 - pad * 0.9);
-  const cols = Math.ceil((box.x1 - box.x0 + pad * 2) / p);
-  const rows = Math.ceil((box.y1 - box.y0 + pad * 1.6 + size * 0.2) / p);
+  // the plate pads the letters by the rule (lyricSpace.ts); a lit dot can land a dot past the glyph
+  const pad = ledPad(L);
+  const x0 = Math.floor(box.x0 - pad.h);
+  const y0 = Math.floor(box.y0 - pad.v);
+  const cols = Math.ceil((box.x1 - box.x0 + pad.h * 2) / p);
+  const rows = Math.ceil((box.y1 - box.y0 + pad.v * 2) / p);
   const w = Math.ceil(cols * p);
   const h = Math.ceil(rows * p);
   if (!rasterCanvas) rasterCanvas = document.createElement('canvas');
@@ -139,13 +151,18 @@ function buildLed(L: TypeLayout, col: RGB, light: boolean): Led {
   grad.addColorStop(1, css(col, 0));
   sg.fillStyle = grad;
   sg.fillRect(0, 0, ss, ss);
+  const ink = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (data[(y * cols + x) * 4 + 3] < 120) continue;
       ng.drawImage(sp, x * p + p / 2 - ss / 2, y * p + p / 2 - ss / 2);
+      ink.x0 = Math.min(ink.x0, x * p);
+      ink.y0 = Math.min(ink.y0, y * p);
+      ink.x1 = Math.max(ink.x1, (x + 1) * p);
+      ink.y1 = Math.max(ink.y1, (y + 1) * p);
     }
   }
-  return { x0, y0, w, h, p, off, on, spans, key: css(col) };
+  return { x0, y0, w, h, p, off, on, spans, key: css(col), ink, cap: lineCap(L.words) };
 }
 
 function drawLed(k: KitLine, col: RGB) {
@@ -166,6 +183,8 @@ function drawLed(k: KitLine, col: RGB) {
   g.lineWidth = Math.max(1, p * 0.3);
   g.stroke();
   g.drawImage(led.off, x0, y0);
+  notePlate(g, { x0, y0, x1: x0 + w, y1: y0 + h }, led.cap, 'tape LED plate');
+  noteInk(g, { x0: x0 + led.ink.x0, y0: y0 + led.ink.y0, x1: x0 + led.ink.x1, y1: y0 + led.ink.y1 }, led.cap, 'tape LED dots');
   L.words.forEach((wd, i) => {
     const a = arrival(L, wd, t);
     const s = led!.spans[i];
@@ -231,6 +250,12 @@ function drawLogotype(k: KitLine) {
       s.fillText(wd.text, wd.x, wd.y + a.dy);
       s.restore();
     } else s.fillText(wd.text, wd.x, wd.y + a.dy);
+    if (spaceLog.on) {
+      // drawn in through the scratch canvas: its ink is noted here (with the chroma ghosts either side)
+      const m = s.measureText(wd.text);
+      const gx = Math.max(1.5, size * 0.035);
+      noteInk(g, { x0: wd.x - m.actualBoundingBoxLeft - gx, y0: wd.y + a.dy - m.actualBoundingBoxAscent, x1: wd.x + m.actualBoundingBoxRight + gx, y1: wd.y + a.dy + m.actualBoundingBoxDescent }, capOf(wd), wd.text);
+    }
   });
   s.globalAlpha = 1;
   s.letterSpacing = '0px';
@@ -249,7 +274,7 @@ function drawLogotype(k: KitLine) {
   g.save();
   g.globalAlpha = alpha;
   // the hairline frame, the terminal line above and the progress bar under the line
-  chrome(k, big, term, size);
+  chrome(k, big, term);
   if (any) {
     if (k.light) {
       g.shadowColor = css(mix(bands[k.seed % 4], [255, 255, 255], 0.3), 0.7);
@@ -274,46 +299,124 @@ function drawLogotype(k: KitLine) {
   g.restore();
 }
 
-/** the small secondary lines round a display line: song facts, a bar for the line, a frame */
-function chrome(k: KitLine, big: Placed[], term: RGB, size: number) {
-  const { g, L, t, W, H, facts } = k;
-  if (!big.length) return;
-  // round every row (a giant moment's terminal kicker too), so the header never sits on a line
+/**
+ * Where the hairline frame and its secondary lines sit round a display line, from the line's ink:
+ * the header line above it, the progress bar under it, and the frame padded round all of it by the
+ * plate rule (in the big letters' cap height). Shared by the drawing and by tapeReach, so the layer
+ * keeps the whole frame inside the safe area.
+ */
+function frameOf(L: TypeLayout, W: number, H: number) {
+  const big = L.words.filter((w) => !isTerm(w));
+  const size = big.length ? Math.max(...big.map((w) => w.size)) : L.size;
   const box = rowsBox(L, 0);
   // big enough to survive the tape's soft, smeared picture
   const fs = Math.max(15, Math.min(Math.max(size * 0.36, Math.min(W, H) * 0.032), Math.min(W, H) * 0.045));
-  const pad = fs * 0.9;
-  const x0 = box.x0 - pad;
-  const x1 = box.x1 + pad;
-  const y0 = box.y0 - fs * 2.1;
-  const y1 = box.y1 + fs * 2.4;
+  const pad = platePad(lineCap(big.length ? big : L.words));
+  // the chroma ghosts sit a little either side of the letters
+  const ghost = Math.max(1.5, size * 0.035);
+  const side = pad.h + ghost;
+  // VT323's capitals stand about 0.6 of its size; the header and the bar each get a clear gap from the letters
+  const gap = Math.max(pad.v, fs * 0.6);
+  // a giant moment's terminal kicker hangs its "> " prompt left of the words
+  const term = L.words.find(isTerm);
+  const x0 = box.x0 - side - (term ? promptW(term) : 0);
+  // wide enough for the header (its longest: a six-letter part name) and the bar with its count
+  const inner = Math.max(box.x1 - box.x0, headWidth(fs), fs * 11.5);
+  const x1 = box.x0 + inner + side;
+  const headBase = box.y0 - gap - fs * 0.12;
+  const y0 = headBase - fs * 0.62 - pad.v;
+  const barY = box.y1 + gap;
+  // the count beside the bar dips a touch below it (its slash)
+  const y1 = barY + fs * 0.85 + pad.v;
+  return { x0, x1, y0, y1, fs, side, headBase, barY, cap: lineCap(big.length ? big : L.words) };
+}
+
+/** the small secondary lines round a display line: song facts, a bar for the line, a frame */
+function chrome(k: KitLine, big: Placed[], term: RGB) {
+  const { g, L, t, W, H, facts } = k;
+  if (!big.length) return;
+  const f = frameOf(L, W, H);
+  const { x0, x1, y0, y1, fs } = f;
   // drawn on over the line's first moment
   const on = clamp01((t - k.start) / 0.35);
   g.save();
   g.strokeStyle = css(term, 0.55 * on);
   g.lineWidth = Math.max(1, fs * 0.08);
   g.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, Math.round(x1 - x0), Math.round(y1 - y0));
+  notePlate(g, { x0, y0, x1, y1 }, f.cap, 'tape frame');
   g.font = `400 ${fs.toFixed(1)}px ${TERM}`;
+  // small terminal lines read better a little open
+  g.letterSpacing = `${(fs * 0.05).toFixed(2)}px`;
   g.textBaseline = 'alphabetic';
   g.fillStyle = css(term, 0.92 * on);
   if (k.light) {
     g.shadowColor = css(term, 0.6);
     g.shadowBlur = fs * 0.5;
   }
-  g.fillText(`> ${facts.part.toUpperCase()}  ${facts.time}${facts.bpm ? `  ${facts.bpm} BPM` : ''}`, x0 + fs * 0.5, y0 + fs * 1.3);
+  // the header and the bar line up with the letters' left edge, inside the frame's padding
+  const lx = x0 + f.side;
+  const rx = x1 - f.side;
+  g.fillText(`> ${facts.part.toUpperCase()}  ${facts.time}${facts.bpm ? `  ${facts.bpm} BPM` : ''}`, lx, f.headBase);
   // the line's progress: how many of its words have been sung
   const sung = L.words.filter((w) => w.t <= t).length / Math.max(1, L.words.length);
-  const bx = x0 + fs * 0.5;
-  const by = y1 - fs * 1.35;
-  const bwid = Math.min(x1 - x0 - fs, Math.max(fs * 8, (x1 - x0) * 0.42));
+  const by = f.barY;
+  const bwid = Math.min(rx - lx - fs * 3.5, Math.max(fs * 8, (rx - lx) * 0.42));
   g.shadowBlur = 0;
   g.strokeStyle = css(term, 0.85 * on);
-  g.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(bwid), Math.round(fs * 0.7));
-  g.fillRect(bx + fs * 0.18, by + fs * 0.18, Math.max(0, (bwid - fs * 0.36) * sung), fs * 0.7 - fs * 0.36 + 1);
+  g.strokeRect(Math.round(lx) + 0.5, Math.round(by) + 0.5, Math.round(bwid), Math.round(fs * 0.7));
+  g.fillRect(lx + fs * 0.18, by + fs * 0.18, Math.max(0, (bwid - fs * 0.36) * sung), fs * 0.7 - fs * 0.36 + 1);
+  noteDeco(g, { x0: lx, y0: by, x1: lx + bwid, y1: by + fs * 0.7 }, 'tape progress bar');
   g.textAlign = 'right';
-  g.fillText(`${String(facts.line).padStart(2, '0')}/${String(facts.lines).padStart(2, '0')}`, x1 - fs * 0.5, by + fs * 0.66);
+  g.fillText(`${String(facts.line).padStart(2, '0')}/${String(facts.lines).padStart(2, '0')}`, rx, by + fs * 0.66);
   g.textAlign = 'left';
+  g.letterSpacing = '0px';
   g.restore();
+}
+
+/** the little terminal window round a prompt on a light picture: the rows, their "> " and the caret, padded */
+function termWindow(L: TypeLayout) {
+  const box = rowsBox(L, 0);
+  const pad = platePad(lineCap(L.words));
+  const prompt = promptW(L.words[0]);
+  const caret = L.size * 0.56;
+  return { x0: box.x0 - prompt - pad.h, y0: box.y0 - pad.v, x1: box.x1 + caret + pad.h, y1: box.y1 + pad.v, cap: lineCap(L.words) };
+}
+
+/** the header line's widest (a six-letter part, a two-digit minute, a three-digit tempo), at fs */
+function headWidth(fs: number): number {
+  if (!pctx) pctx = document.createElement('canvas').getContext('2d')!;
+  pctx.font = `400 ${fs.toFixed(1)}px ${TERM}`;
+  pctx.letterSpacing = `${(fs * 0.05).toFixed(2)}px`;
+  const w = pctx.measureText('> BRIDGE  00:00  000 BPM').width;
+  pctx.letterSpacing = '0px';
+  return w;
+}
+
+let pctx: CanvasRenderingContext2D | null = null;
+/** how far the "> " prompt hangs left of a row */
+function promptW(w: Placed | undefined): number {
+  if (!w) return 0;
+  if (!pctx) pctx = document.createElement('canvas').getContext('2d')!;
+  wordFont(pctx, w);
+  pctx.letterSpacing = '0px';
+  return pctx.measureText('> ').width;
+}
+
+/** how far past the ink each medium draws (see TypeKit.reach) */
+export function tapeReach(L: TypeLayout, _medium: KitLine['medium'], W: number, H: number): Insets {
+  const box = rowsBox(L, 0);
+  if (L.role === 'caption') {
+    const pad = ledPad(L);
+    // the plate snaps out to whole dots
+    const p = Math.max(3, L.size / 10);
+    return { l: pad.h + 1, t: pad.v + 1, r: pad.h + p, b: pad.v + p };
+  }
+  if (L.role === 'aside') {
+    const w = termWindow(L);
+    return { l: box.x0 - w.x0, t: box.y0 - w.y0, r: w.x1 - box.x1, b: w.y1 - box.y1 };
+  }
+  const f = frameOf(L, W, H);
+  return { l: box.x0 - f.x0 + 1, t: box.y0 - f.y0 + 1, r: f.x1 - box.x1 + 1, b: f.y1 - box.y1 + 1 };
 }
 
 /* ───────────────────────── terminal (sparse) ───────────────────────── */
@@ -359,6 +462,7 @@ function drawTerm(k: KitLine, words: Placed[], col: RGB, caret: boolean) {
     g.shadowBlur = 0;
     g.globalAlpha = alpha * 0.9;
     g.fillRect(nw.x + cw + nw.size * 0.12, nw.y - nw.size * 0.62, nw.size * 0.42, nw.size * 0.7);
+    noteDeco(g, { x0: nw.x + cw + nw.size * 0.12, y0: nw.y - nw.size * 0.62, x1: nw.x + cw + nw.size * 0.54, y1: nw.y + nw.size * 0.08 }, 'tape caret');
   }
   g.letterSpacing = '0px';
   g.restore();
@@ -376,7 +480,7 @@ export function drawTape(k: KitLine) {
     if (!k.light) {
       // on a light or busy picture the dark phosphor colours vanish: the prompt gets its own little
       // terminal window instead, dark glass with a hairline, and glows as it does on a dark picture
-      const box = rowsBox(k.L, k.L.size * 0.35);
+      const box = termWindow(k.L);
       k.g.save();
       k.g.globalAlpha = k.alpha * clamp01((k.t - k.start + 0.2) / 0.2);
       k.g.fillStyle = 'rgba(10, 8, 16, 0.84)';
@@ -384,6 +488,7 @@ export function drawTape(k: KitLine) {
       k.g.strokeStyle = css(termInk(k.pal, true), 0.6);
       k.g.lineWidth = Math.max(1, k.L.size * 0.04);
       k.g.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+      notePlate(k.g, box, box.cap, 'tape terminal window');
       k.g.restore();
       drawTerm({ ...k, light: true }, k.L.words, termInk(k.pal, true), true);
       return;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { notePlate } from './lyricSpace';
 import type { Palette } from '../core/types';
 
 /**
@@ -506,6 +507,7 @@ export function drawBacking(g: CanvasRenderingContext2D, rows: { x: number; y: n
       g.fillStyle = css(PAPER, m.paper * alpha);
       g.fill();
       g.restore();
+      notePlate(g, { x0: r.x + r.w / 2 - w / 2, y0: r.y + r.h / 2 - h / 2 + size * 0.06, x1: r.x + r.w / 2 + w / 2, y1: r.y + r.h / 2 + h / 2 - size * 0.06 }, size * 0.7, 'paper strip');
     }
   }
   g.restore();

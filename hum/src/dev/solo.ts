@@ -33,6 +33,9 @@
  *
  *   shots() also returns finishMs: what each finish pass alone costs per frame at this size.
  *
+ *   /solo.html?space=1&w=1080&h=1920        the lyric spacing check instead (src/dev/space.ts,
+ *                                            scripts/space-check.mjs)
+ *
  *   await __solo.ready                       → { ok, errors }
  *   await __solo.shots({ times: [4, 16, 32.1], from: 0 })  → { sheet: <png data url>, errors, ms }
  */
@@ -459,7 +462,8 @@ async function boot() {
   return { shots, scene: def.id };
 }
 
-const booted = boot();
+// ?space=1: the lyric spacing check takes the page instead (src/dev/space.ts)
+const booted: ReturnType<typeof boot> = q.get('space') ? import('./space').then(() => new Promise<never>(() => {})) : boot();
 (window as unknown as Record<string, unknown>).__solo = {
   ready: booted.then(
     (b) => ({ ok: true, scene: b.scene, errors }),

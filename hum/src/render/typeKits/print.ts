@@ -1,7 +1,8 @@
 import type { Palette } from '../../core/types';
-import type { Role, Voice } from '../lyricAuto';
+import type { Role, TypeLayout, Voice } from '../lyricAuto';
+import { notePlate, PAD_H, PAD_V, platePad, safeInsets, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, lum, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, lineCap, lum, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Print: lettering for the risograph and ink-wash finishes (references 21, 22, 14), drawn before the
@@ -30,7 +31,7 @@ export function printVoice(role: Role | 'kicker', base: Voice): Voice {
   if (role === 'aside') return { ...base, ...clean, family: TEXT, weight: 600, track: 0, case: 'lower', leading: 1.16, size: 0.058 };
   if (role === 'kicker') return { ...base, ...clean, family: TEXT, weight: 650, track: 0.12, case: 'upper', leading: 1.4, size: 0.036 };
   if (role === 'giant') return { ...base, ...clean, family: SHOW, weight: 400, track: 0, case: 'upper', leading: 1, size: 0.27 };
-  return { ...base, ...clean, family: SHOW, weight: 400, track: 0.01, case: 'upper', leading: 1.02, size: 0.08 };
+  return { ...base, ...clean, family: SHOW, weight: 400, track: 0.01, case: 'upper', leading: 1.5, size: 0.08 };
 }
 
 const RISO: RGB[] = [
@@ -69,17 +70,68 @@ const onBand = (band: RGB): RGB => (contrast(KEY, band) >= contrast(PAPER, band)
 /** a band's wavy edge: y offset at x (pure: fixed per row) */
 const wave = (x: number, W: number, amp: number, ph: number) => Math.sin((x / W) * Math.PI * 2.2 + ph) * amp;
 
+/** the stretch at most: across, and up (a little, so the letters fatten with the band) */
+const MAX_SX = 2.4;
+const MAX_SY = 1.08;
+
+/**
+ * One row's band: across the safe area edge to edge, the row's words stretched to fill it less the
+ * end padding, and tall enough to pad the stretched letters by the plate rule plus the wave (the
+ * padding is measured from the wave's inner crest, so the letters never touch the edge).
+ */
+function bandOf(L: TypeLayout, ri: number, W: number, H: number) {
+  const row = L.rows[ri];
+  const words = L.words.filter((w) => w.row === ri);
+  const s = safeInsets(W, H);
+  const x0 = s.l;
+  const x1 = W - s.r;
+  const bandW = x1 - x0;
+  const base = words[0]?.y ?? row.y + row.h;
+  const cap = words.length ? lineCap(words) : L.size * 0.7;
+  // the end padding is in the stretched letters' cap height (they grow up to MAX_SY), plus a hair for rounding
+  const padH = cap * MAX_SY * PAD_H + 1;
+  const sx = Math.max(1, Math.min(MAX_SX, (bandW - padH * 2) / Math.max(1, row.w)));
+  const sy = Math.min(MAX_SY, 1 + (sx - 1) * 0.1);
+  const pad = cap * sy * PAD_V;
+  const amp = L.size * 0.045;
+  const top = base - (base - row.y) * sy - pad - amp;
+  const bot = base + (row.y + row.h - base) * sy + pad + amp;
+  // where the row's ink starts once stretched: centred in the band
+  const inkX = x0 + (bandW - row.w * sx) / 2;
+  return { words, row, x0, x1, bandW, base, sx, sy, top, bot, amp, inkX };
+}
+
+/** how far past the ink the bands, the pill above them and the stretch reach (see TypeKit.reach) */
+export function printReach(L: TypeLayout, medium: KitLine['medium'], W: number, H: number): Insets {
+  const box = rowsBox(L, 0);
+  const cap = lineCap(L.words);
+  const pad = platePad(cap);
+  if (L.role === 'caption') {
+    const p = panelOf(L);
+    return { l: box.x0 - p.x0 + 1, t: box.y0 - p.y0 + 1, r: p.x1 - box.x1 + L.size * 0.12 + 1, b: p.y1 - box.y1 + L.size * 0.14 + 1 };
+  }
+  if (L.role === 'display' && medium === 'big' && L.rows.length) {
+    // the bands themselves always span the safe area; up and down they reach past the ink
+    const first = bandOf(L, 0, W, H);
+    const last = bandOf(L, L.rows.length - 1, W, H);
+    const pl = pillOf(L, W, H, first.top);
+    return { l: pad.h, r: pad.h, t: box.y0 - Math.min(first.top, pl.y) + 1, b: last.bot - box.y1 + 1 };
+  }
+  // stacked copies and offset shadows step down and right
+  const big = Math.max(...L.words.map((w) => w.size));
+  const d = L.role === 'aside' ? L.size * 0.08 : big * 0.06 * 3 + Math.max(2, big * 0.03);
+  return { l: 2, t: 2, r: d + 2, b: d + 2 };
+}
+
 function drawBands(k: KitLine) {
-  const { g, L, t, alpha, W } = k;
+  const { g, L, t, alpha, W, H } = k;
   const inks = printInks(k.pal);
   const size = L.size;
-  const margin = W * 0.055;
-  const x0 = margin;
-  const x1 = W - margin;
-  const bandW = x1 - x0;
-  const lh = size * 1.06;
-  L.rows.forEach((row, ri) => {
-    const words = L.words.filter((w) => Math.abs(w.y - (row.y + row.h * 0.78)) < row.h * 0.6);
+  let firstTop = Infinity;
+  L.rows.forEach((_, ri) => {
+    const b = bandOf(L, ri, W, H);
+    const { words, x0, bandW, base, sx, sy, top, bot, amp } = b;
+    firstTop = Math.min(firstTop, top);
     if (!words.length) return;
     const first = words[0];
     // the band comes in when its first word is sung
@@ -88,10 +140,6 @@ function drawBands(k: KitLine) {
     const grow = easeOut(clamp01(age / 0.22));
     const band = inks[(ri + k.seed) % inks.length];
     const ink = onBand(band);
-    const base = first.y;
-    const top = base - size * 0.86;
-    const bot = top + lh;
-    const amp = size * 0.07;
     const ph = hash1(k.seed + ri * 13) * 6.28;
     g.save();
     g.globalAlpha = alpha;
@@ -110,20 +158,17 @@ function drawBands(k: KitLine) {
     g.lineWidth = Math.max(1.5, size * 0.03);
     g.strokeStyle = css(KEY);
     g.stroke(p);
+    notePlate(g, { x0, y0: top + amp, x1: x0 + bandW, y1: bot - amp }, lineCap(words) * sy, 'print band');
     g.clip(p);
-    // the words stretched across the band edge to edge (never more than 2.4 times their width)
-    const rw = words[words.length - 1].x + words[words.length - 1].w - first.x;
-    const pad = size * 0.25;
-    const sx = Math.min(2.4, (bandW - pad * 2) / Math.max(1, rw));
-    const sy = Math.min(1.12, 1 + (sx - 1) * 0.12);
-    const startX = x0 + pad + (bandW - pad * 2 - rw * sx) / 2;
+    // the words stretched across the band edge to edge (never more than 2.4 times their width), with
+    // the plate rule's padding at each end
     g.fillStyle = css(ink);
     g.textBaseline = 'alphabetic';
     for (const w of words) {
       const a = arrival(L, w, t);
       if (!a.on) continue;
       g.save();
-      g.translate(startX + (w.x - first.x) * sx, base + a.dy - size * 0.06);
+      g.translate(b.inkX + (w.x - b.row.x) * sx, base + a.dy);
       g.scale(sx, sy);
       wordFont(g, w);
       g.globalAlpha = alpha * a.op;
@@ -132,23 +177,26 @@ function drawBands(k: KitLine) {
     }
     g.restore();
   });
-  pill(k, inks);
+  pill(k, inks, firstTop);
+}
+
+/** the pill's size and place: on the safe area's left edge, a clear gap above the first band */
+function pillOf(L: TypeLayout, W: number, H: number, bandTop: number) {
+  const fs = Math.max(12, Math.min(L.size * 0.3, W * 0.028));
+  const ph = fs * 1.7;
+  return { fs, ph, x: safeInsets(W, H).l, y: bandTop - fs * 0.6 - ph };
 }
 
 /** a small pill label with the part's name, by the line */
-function pill(k: KitLine, inks: RGB[]) {
-  const { g, L, t, W, facts } = k;
-  const box = rowsBox(L, 0);
-  const fs = Math.max(12, Math.min(L.size * 0.3, W * 0.028));
+function pill(k: KitLine, inks: RGB[], bandTop: number) {
+  const { g, L, t, W, H, facts } = k;
+  const { fs, ph, x, y } = pillOf(L, W, H, bandTop);
   g.save();
   g.font = `650 ${fs.toFixed(1)}px ${TEXT}`;
   g.letterSpacing = `${(fs * 0.14).toFixed(1)}px`;
   const label = facts.part.toUpperCase();
-  const tw = g.measureText(label).width;
+  const tw = g.measureText(label).width - fs * 0.14;
   const pw = tw + fs * 1.6;
-  const ph = fs * 1.7;
-  const x = W * 0.055;
-  const y = box.y0 - L.size * 0.25 - ph - fs * 0.5;
   g.globalAlpha = k.alpha * clamp01((t - k.start) / 0.3);
   roundRect(g, x, y, pw, ph, ph / 2);
   g.fillStyle = css(PAPER);
@@ -156,6 +204,7 @@ function pill(k: KitLine, inks: RGB[]) {
   g.lineWidth = Math.max(1.5, fs * 0.12);
   g.strokeStyle = css(KEY);
   g.stroke();
+  notePlate(g, { x0: x, y0: y, x1: x + pw, y1: y + ph }, fs * 0.7, 'print pill');
   g.fillStyle = css(mix(KEY, inks[0], 0.15));
   g.textBaseline = 'middle';
   g.fillText(label, x + fs * 0.8, y + ph / 2 + fs * 0.05);
@@ -216,14 +265,28 @@ function drawStack(k: KitLine) {
 
 /* ───────────────────────── subtitle: rounded panel ───────────────────────── */
 
+/**
+ * The caption panel round the rows' ink: padded by the plate rule, a little more at the ends so the
+ * rounded corners stay clear of the first and last letters
+ */
+function panelOf(L: TypeLayout) {
+  const box = rowsBox(L, 0);
+  const cap = lineCap(L.words);
+  const pad = platePad(cap);
+  const h = box.y1 - box.y0 + pad.v * 2;
+  const r = Math.min(L.size * 0.6, h / 2);
+  const ph = Math.max(pad.h, r * 0.75);
+  return { x0: box.x0 - ph, y0: box.y0 - pad.v, x1: box.x1 + ph, y1: box.y1 + pad.v, r, cap };
+}
+
 function drawPanel(k: KitLine) {
   const { g, L, t, alpha } = k;
   const inks = printInks(k.pal);
   const size = L.size;
-  const box = rowsBox(L, size * 0.45);
+  const box = panelOf(L);
   g.save();
   g.globalAlpha = alpha;
-  roundRect(g, box.x0, box.y0 + size * 0.1, box.x1 - box.x0, box.y1 - box.y0, size * 0.7);
+  roundRect(g, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0, box.r);
   // a step of ink behind the panel, out of register like the rest of the print
   g.save();
   g.translate(size * 0.12, size * 0.14);
@@ -239,6 +302,7 @@ function drawPanel(k: KitLine) {
   g.lineWidth = Math.max(1.5, size * 0.07);
   g.strokeStyle = css(KEY);
   g.stroke();
+  notePlate(g, box, box.cap, 'print panel');
   g.textBaseline = 'alphabetic';
   for (const w of L.words) {
     const a = arrival(L, w, t);
