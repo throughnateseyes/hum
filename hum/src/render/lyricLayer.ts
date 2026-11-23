@@ -11,6 +11,8 @@ import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProf
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
 import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
+import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type TypeKit } from './typeKits';
+import type { FinishId } from '../core/direction';
 import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
 
 /**
@@ -180,9 +182,17 @@ interface LineState {
   /** stats of the picture under the text (last probe) */
   stats: RegionStats | null;
   why: string;
+  /** the type kit the line is set in (typeKits/) */
+  kit: TypeKit;
+  /** the showing this line belongs to: when it started, which one of how many (for kit secondary lines) */
+  start: number;
+  nth: number;
+  of: number;
+  /** words placed in the picture (Subtitle, Sparse): set vertically up a side column */
+  turn?: { cx: number; cy: number };
 }
 
-const px = (r0: Rect, W: number, H: number): Box => {
+const px =(r0: Rect, W: number, H: number): Box => {
   const r = safe(r0);
   return { x0: r.x0 * W, y0: r.y0 * H, x1: r.x1 * W, y1: r.y1 * H };
 };
@@ -210,6 +220,8 @@ export interface LyricOpts {
   height: number;
   audio: AudioFrame;
   dt?: number;
+  /** the finish on the part playing: picks the type kit (typeKits/) when the lettering matches it */
+  finish?: FinishId;
 }
 
 /** what both prepare() and render() work out about a frame */
@@ -344,6 +356,21 @@ export class LyricLayer {
     this.keep = { now, next };
   }
 
+  /** the type kit for this frame: the Lettering setting, or the finish's own (typeKits/) */
+  private kitNow(o: LyricOpts): TypeKit {
+    return typeKit(kitFor(useStudio.getState().typeKit, o.finish ?? 'clean'));
+  }
+
+  /**
+   * Does this frame's lettering go in before the finish (so the finish works on the words too)?
+   * The stage asks, to draw the lyrics before or after present() (stage.ts).
+   */
+  underFinish(o: LyricOpts): boolean {
+    if (o.style === 'off' || !o.lines.length) return false;
+    const f = o.finish ?? 'clean';
+    return underFinish(kitFor(useStudio.getState().typeKit, f), f);
+  }
+
   /** the line for this showing, laid out (a new showing hands the old one over as a fading ghost) */
   private ensureLine(f: FrameFacts, o: LyricOpts) {
     const { W, H, t } = f;
@@ -361,7 +388,9 @@ export class LyricLayer {
     const group = `${line.first}-${line.last}|${line.text}`;
     // a cut to or from a scene that hosts the line lays it out again (as part of the new picture)
     const hostKey = hostFor(st.sceneId) ? st.sceneId : '-';
-    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}`;
+    // the type kit: a change of finish (or of the Lettering setting) sets the line again in the new kit
+    const kit = this.kitNow(o);
+    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}|${kit.id}|${kitFontVersion()}`;
     if (this.line?.key !== key) {
       // the next line arrived while this one was still up: fade it out over the new one
       const prev = this.line;
@@ -377,8 +406,11 @@ export class LyricLayer {
         this.ghost.width = W;
         this.ghost.height = H;
       }
-      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId, line.end);
+      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId, line.end, kit, f.cur!.i);
       this.line.group = group;
+      this.line.start = line.t;
+      this.line.nth = f.cur!.i + 1;
+      this.line.of = f.shows.length;
       // knockout hands over word to word itself (the last word is knocked out by the next): no ghost
       if (this.line.medium === 'knockout') this.ghostOn = false;
       // a new line while a "now singing" pop-up is open starts hidden (it's in the pop-up)
@@ -469,7 +501,7 @@ export class LyricLayer {
     const sung = words.filter((w) => w.t <= t).length;
     const an = st.analysis;
     const drop = dropMoment(an, o.t, o.audio);
-    const live = ko ? knockoutMoving(ko, tSung) : L.type ? moving(L.type, t, drop) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
+    const live = ko ? knockoutMoving(ko, tSung) : L.type ? (L.kit.moving ? L.kit.moving(L.type, t) : moving(L.type, t, drop)) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
     // redraw at 60 fps only while something moves (or fades); a still line keeps its last drawing
     const tick = live || ghostA > 0.01 || fadeOut > 0 ? Math.floor(t * 60) : -1;
     const drawKey = `${key}|${tick}|${sung}|${Math.round(alpha * 40)}|${ko ? kickStep(o.audio.kick) : ''}|${this.guard.key()}|${this.accentOK}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
@@ -492,14 +524,29 @@ export class LyricLayer {
           const boxes = knockoutBoxes(ko, tSung);
           if (boxes.length) drawBacking(g, boxes, this.guard, ko.shadowSize, W, alpha, L.i + 1);
           const c = this.inks(o.palette, L);
-          drawKnockout(g, ko, tSung, alpha, { ink: c.ink, accent: c.accent, shadow: c.shadow }, o.audio.kick, W, H);
+          const base = { ink: c.ink, accent: c.accent, shadow: c.shadow };
+          // under a kit, its face set huge and inked its way (a glow on tape, a flat print shadow on film)
+          const kc = L.kit.knockInks ? L.kit.knockInks(base, lumOf(this.guard.ink) > 0.5, o.palette) : base;
+          drawKnockout(g, ko, tSung, alpha, kc, o.audio.kick, W, H);
         } else if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
         else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio, this.hostNeed);
         else if (L.type) {
-          const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
-          drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);
-          if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
-          drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
+          // set vertically up a side column: drawn turned a quarter about the column's centre
+          if (L.turn) {
+            g.translate(L.turn.cx, L.turn.cy);
+            g.rotate(-Math.PI / 2);
+            g.translate(-L.turn.cx, -L.turn.cy);
+          }
+          const medium = L.medium === 'subtitle' || L.medium === 'sparse' ? L.medium : 'big';
+          const plate = !!L.kit.ownPlate?.(L.type.role, medium);
+          if (!plate) {
+            const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
+            drawBacking(g, rows, this.guard, L.type.size, W, alpha, L.i + 1);
+            if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
+          }
+          if (L.kit.draw) {
+            L.kit.draw({ g, L: L.type, t, alpha: Math.max(0, alpha), inks: this.inks(o.palette, L), light: lumOf(this.guard.ink) > 0.5, pal: o.palette, audio: o.audio, drop, W, H, medium, facts: songFacts(an, o.t, L.nth, L.of), seed: L.choice?.seed ?? L.i * 7919 + 1, start: L.start });
+          } else drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
         }
         g.restore();
       }
@@ -556,7 +603,7 @@ export class LyricLayer {
   }
 
   /** decide how line `li` is shown: medium, place, type; lay it out once */
-  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string, end: number): LineState {
+  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string, end: number, kit: TypeKit, showIdx: number): LineState {
     const g = this.ctx;
     let medium: Drawn;
     let moment: LyricMoment | null = null;
@@ -580,7 +627,7 @@ export class LyricLayer {
     const R = seeded(choice?.seed ?? li * 7919 + 1);
     const portrait = H > W * 1.2;
     const unit = Math.min(W, H);
-    const base: LineState = { key, i: li, medium, moment, choice, zone: 'middle', rect: { x0: 0.1, y0: 0.4, x1: 0.9, y1: 0.6 }, ladder: ladderFor(look), target: 3, inks: look.ink, stats: null, why };
+    const base: LineState = { key, i: li, medium, moment, choice, zone: 'middle', rect: { x0: 0.1, y0: 0.4, x1: 0.9, y1: 0.6 }, ladder: ladderFor(look), target: 3, inks: look.ink, stats: null, why, kit, start: 0, nth: 0, of: 0 };
     if (quiet(medium)) return base;
 
     // the font picked in the lyrics panel wins; on Auto, the song's family (Claude's plan or the local one)
@@ -599,7 +646,7 @@ export class LyricLayer {
       return { ...base, medium: 'world', host: hl, hostName: host.name, rect: hl.rect, why: `the look hosts the words: ${host.name}` };
     }
 
-    if (medium === 'knockout' && an) return this.planKnockout(base, words, lines, li, look, carries, W, H, pal, an, fam, tr, end);
+    if (medium === 'knockout' && an) return this.planKnockout(base, words, lines, li, look, carries, W, H, pal, an, kit.knockFace ?? fam, tr, end);
     if (medium === 'knockout') medium = 'big';
 
     const SP = spots(portrait);
@@ -626,7 +673,8 @@ export class LyricLayer {
     const fixedZone = (m: Drawn): Zone => (m === 'subtitle' ? 'bottom' : m === 'cutout' ? 'middle' : 'left');
     let zone = pickZone(medium as Placed2, fixedZone(medium));
     // the picture is too busy for display type even with a backing: hand the line to a caption
-    if (style === 'auto' && !moment && (medium === 'big' || medium === 'sparse') && this.probe.version > 0 && look.plate !== 'band') {
+    // (a kit that gives display lines their own plate, like Print's ink bands, reads anywhere)
+    if (style === 'auto' && !moment && (medium === 'big' || medium === 'sparse') && this.probe.version > 0 && look.plate !== 'band' && !kit.ownPlate?.('display', medium)) {
       const v = judge(this.probe, SP[medium][zone]!.r, { inks: this.inkList(look.ink, pal, null), target: 3, ladder: ladderFor(look), pal });
       if ((v.level >= 3 && v.bad > 0.15) || v.bad > 0.35) {
         medium = 'subtitle';
@@ -648,8 +696,10 @@ export class LyricLayer {
       const variant = R();
       const role: Role = moment === 'giant' ? 'giant' : medium === 'subtitle' ? 'caption' : medium === 'sparse' ? 'aside' : 'display';
       // fixed Subtitles stay in the clean face unless a font was picked
-      const voice = voiceFor(role, fam, tr, variant);
-      const kicker = role === 'giant' ? voiceFor('kicker', fam, tr, variant) : undefined;
+      // a type kit sets the line in its own faces (the song's family and motion still decide the rest)
+      const own = (r: Role | 'kicker', v: ReturnType<typeof voiceFor>) => (kit.voice ? kit.voice(r, v) : v);
+      const voice = own(role, voiceFor(role, fam, tr, variant));
+      const kicker = role === 'giant' ? own('kicker', voiceFor('kicker', fam, tr, variant)) : undefined;
       ensureLyricFont(voice.family);
       if (kicker) ensureLyricFont(kicker.family);
       const keyIdx = keyWords(words, 1).map((k) => words.indexOf(k));
@@ -673,7 +723,11 @@ export class LyricLayer {
         L.target = role === 'caption' ? 4.5 : role === 'aside' ? 4 : 3;
       }
       L.rect = rectOf(L.type.rows, W, H, 0.015) ?? L.rect;
+      // a kit medium with its own plate (the LED sign, the ink band, the paper panel) is its own
+      // backing: the guard has nothing to add under it
+      if (kit.ownPlate?.(role, medium === 'subtitle' || medium === 'sparse' ? medium : 'big')) L.ladder = ['none'];
     }
+    void showIdx;
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
       L.stats = regionStats(this.probe, L.rect);

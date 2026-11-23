@@ -21,6 +21,10 @@
  *                                            (one per section: intro, verse, build, drop, break, outro; any medium id:
  *                                            subtitle, big, knockout, sparse, cutout, own, none; "+giant" / "+burst"
  *                                            adds a moment). The look json may carry the same as `lyrics`.
+ *     &kit=auto | clean | tape | film | print  the lyrics' lettering (render/typeKits): auto matches the
+ *                                            finish; a kit under a GPU finish is drawn before it, as on
+ *                                            the stage. Also `kit` in the look JSON. shots() returns
+ *                                            lyricMs: the lyric layer's own cost per frame
  *     &finish=film                           a finish over the picture (clean, film, riso, ink, tape, hand);
  *                                            several (finish=clean,film,riso) put each one side by side for
  *                                            every time on the sheet. Also `finish` in the look JSON.
@@ -52,7 +56,8 @@ import { getScene, registerScene } from '../scenes';
 import { createPlaceholderPhoto } from '../scenes/photo/placeholder';
 import { resolveParams } from '../state/modulation';
 import { popLevelAt } from '../state/plan';
-import { HAND_DEFAULT, useStudio } from '../state/store';
+import { HAND_DEFAULT, TYPE_KITS, useStudio, type TypeKitSetting } from '../state/store';
+import { loadKitFonts } from '../render/typeKits/fonts';
 import { LyricLayer } from '../render/lyricLayer';
 import type { Treatment } from '../render/lyricAuto';
 import { setLyricPlanOverride, type LyricMedium, type LyricMoment, type TypeFamily } from '../state/lyricPlan';
@@ -70,6 +75,8 @@ interface LyricSpec {
 }
 interface LookSpec {
   finish?: string | string[];
+  /** the lettering: auto (matches the finish), clean, tape, film, print */
+  kit?: string;
   lyrics?: string | LyricSpec;
   palette?: string | Palette;
   sceneParams?: ParamValues;
@@ -207,6 +214,11 @@ async function boot() {
     lyricLayer.probe.readAsync = false;
     const lyrics = testLyricsSung();
     useStudio.setState({ lyrics, lyricStyle: lyr.style ?? 'auto', presetId: q.get('preset'), sceneId: def.id });
+    // the lettering: a type kit, or 'auto' to match the finish (render/typeKits); its faces are
+    // loaded up front so the first shot is already set in them
+    const kit = q.get('kit') ?? (q.get('look') ? (JSON.parse(q.get('look')!) as LookSpec).kit : undefined) ?? 'auto';
+    useStudio.setState({ typeKit: TYPE_KITS.includes(kit as TypeKitSetting) ? (kit as TypeKitSetting) : 'auto' });
+    await Promise.all((['tape', 'film', 'print'] as const).map((k) => loadKitFonts(k)));
     if (lyr.parts) {
       setLyricPlanOverride({
         seed: lyr.seed ?? 7,
@@ -251,6 +263,15 @@ async function boot() {
     const inks = Math.max(HAND_DEFAULT.inks, def.handInks ?? 0) as typeof HAND_DEFAULT.inks;
     if (id === 'hand') hand.render(renderer, id === finishIds[0] ? frameRT.texture : tex, null, { style: { ...HAND_DEFAULT, inks }, palette, width: W, height: H, drawing: Math.floor(ctx.time * 12) });
     else if (!finishes.get(id)?.render(renderer, tex, null, id, ctx)) shared.blit(tex, null);
+  };
+
+  // the lyric layer's own cost (shots() reports it as lyricMs): its calls, waited out on the GPU
+  const timing = { on: false, ms: 0 };
+  const onePx = new Uint8Array(4);
+  const drainNow = () => {
+    const gl = renderer.getContext();
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, onePx);
+    return performance.now();
   };
 
   let inst: SceneInstance | null = null;
@@ -315,26 +336,41 @@ async function boot() {
     fin.tex = tex;
     fin.ctx = { time: ctx.time, dt, audio, feel: ctx.feel, palette, width: W, height: H };
     for (const p of finishes.values()) p.advance(fin.ctx);
-    // the same order as the stage: picture (and finish), windows, pop-ups, lyrics; hand-drawn over all of it
+    // the same order as the stage: picture (and finish), windows, pop-ups, lyrics; hand-drawn over all
+    // of it. Under a type kit (render/typeKits) the lyrics go in before the finish instead.
     const handOn = finishIds[0] === 'hand';
-    const target = handOn ? frameRT : null;
-    if (handOn) shared.blit(tex, frameRT);
-    else present(finishIds[0]);
     const { params: _p, ...base } = ctx;
     void _p;
     const s = useStudio.getState();
     const levels = windowLevels(popsFixed ?? popLevelAt(audio.time), s.windowKind, def.category === 'board');
-    const lyricOpts = { lines: s.lyrics?.lines ?? [], t, style: s.lyricStyle, palette, width: W, height: H, audio, dt };
-    if (lyricLayer) lyricLayer.prepare(lyricOpts);
+    const lyricOpts = { lines: s.lyrics?.lines ?? [], t, style: s.lyricStyle, palette, width: W, height: H, audio, dt, finish: finishIds[0] };
+    const under = !handOn && !!lyricLayer?.underFinish(lyricOpts);
+    const target = handOn ? frameRT : null;
+    const lyricsInto = (rt: THREE.WebGLRenderTarget | null) => {
+      if (!lyricLayer) return;
+      lyricLayer.setOccluders([...(windows?.occupied() ?? []), ...(popups?.occupied() ?? [])]);
+      if (rt) lyricLayer.sample(renderer, rt.texture, shared.blit);
+      else lyricLayer.sampleScreen(renderer, W, H);
+      const t0 = timing.on ? drainNow() : 0;
+      lyricLayer.render(renderer, lyricOpts, rt);
+      if (timing.on) timing.ms += drainNow() - t0;
+    };
+    if (lyricLayer) {
+      const t0 = timing.on ? performance.now() : 0;
+      lyricLayer.prepare(lyricOpts);
+      if (timing.on) timing.ms += performance.now() - t0;
+    }
+    if (handOn) shared.blit(tex, frameRT);
+    else if (under) {
+      shared.blit(tex, frameRT);
+      lyricsInto(frameRT);
+      fin.tex = frameRT.texture;
+      present(finishIds[0]);
+    } else present(finishIds[0]);
     const keep = q.get('dodge') === '0' ? undefined : lyricLayer?.keepOut();
     if (windows) windows.render(renderer, base, { level: levels.looks, mainPresetId: q.get('preset'), mainSceneId: def.id, target, keep });
     if (popups) popups.render(renderer, base, target, levels.instruments, keep);
-    if (lyricLayer) {
-      lyricLayer.setOccluders([...(windows?.occupied() ?? []), ...(popups?.occupied() ?? [])]);
-      if (target) lyricLayer.sample(renderer, target.texture, shared.blit);
-      else lyricLayer.sampleScreen(renderer, W, H);
-      lyricLayer.render(renderer, lyricOpts, target);
-    }
+    if (!under) lyricsInto(target);
     if (handOn) present('hand');
   };
 
@@ -393,6 +429,12 @@ async function boot() {
     for (let i = 0; i < 60; i++) step(1 / 60);
     drain();
     const ms = Math.max(0, performance.now() - t0 - idle) / 60;
+    // the lyric layer alone over another second
+    timing.on = true;
+    timing.ms = 0;
+    for (let i = 0; i < 60; i++) step(1 / 60);
+    timing.on = false;
+    const lyricMs = Math.round((timing.ms / 60) * 100) / 100;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
     const gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'unknown';
     // each finish alone: 120 draws of it over the last frame ('clean' is the plain copy it replaces)
@@ -405,7 +447,7 @@ async function boot() {
       drain();
       finishMs[id] = Math.round((Math.max(0, performance.now() - f0 - idle) / 120) * 100) / 100;
     }
-    return { sheet: sheet.toDataURL('image/png'), errors, ms: Math.round(ms * 10) / 10, gpu, finishMs };
+    return { sheet: sheet.toDataURL('image/png'), errors, ms: Math.round(ms * 10) / 10, gpu, finishMs, lyricMs };
   }
 
   return { shots, scene: def.id };
