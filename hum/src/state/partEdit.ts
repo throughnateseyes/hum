@@ -6,8 +6,9 @@
  * timeline), and the parts themselves can be split and combined.
  *
  * Looks and lyric styles land in the plan itself, so the sequencer, scrubbing and renders read them
- * like any other plan, and the timeline shows them at once. Pop-up levels, hand-drawn and words go to
- * the store (partPops, partHand, partWords), outside the plan, so they outlast re-plans; they are kept
+ * like any other plan, and the timeline shows them at once. Pop-up levels, hand-drawn, words and a
+ * footage part's own picture (style, arrangement, treatment, media, framing) go to the store
+ * (partPops, partHand, partWords, partShot), outside the plan, so they outlast re-plans; they are kept
  * per song in planCache.ts. The plan's `base` (what the planner chose) tells a changed part from a
  * planned one: a re-plan keeps the changes (plan.ts keepEdits), "Reset this part" puts the planner's
  * pick back. Undo is the app's one history (state/history.ts), which follows the store, so nothing here
@@ -18,7 +19,7 @@
  * plan cache and a reload all find them again.
  */
 import { audioEngine } from '../audio/engine';
-import type { TrackAnalysis } from '../core/types';
+import type { PartShot, TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
 import { localLyricPlan, type LyricMedium } from './lyricPlan';
 import { assignLook, ensureDropCuts, findLook, listNames, partEdits, partNames, recutParts, releaseHold, sectionIndexAt, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
@@ -186,9 +187,65 @@ export function setPartsWords(is: number[], text: string | null) {
   setStored('partWords', is, v);
 }
 
+/* ───────── a footage part's own picture (store.partShot) ───────── */
+
+const SHOT_KEYS = ['style', 'seed', 'treatment', 'media', 'focusX', 'focusY', 'zoom'] as const satisfies readonly (keyof PartShot)[];
+
+/** a record with only the fields that say something, in one order, or null when none is left */
+function tidyShot(r: PartShot): PartShot | null {
+  const out: Record<string, unknown> = {};
+  for (const k of SHOT_KEYS) {
+    const v = r[k];
+    if (v === undefined || v === null) continue;
+    if (k === 'style' && v === 'auto') continue;
+    if (k === 'media' && (!Array.isArray(v) || !v.length)) continue;
+    out[k] = v;
+  }
+  return Object.keys(out).length ? (out as PartShot) : null;
+}
+
+/**
+ * Change parts `is`' own picture: the fields in `patch` are set (a field given as undefined goes back
+ * to the look's), the rest of each part's record stays as it was; null clears the record. One Undo
+ * step (state/history.ts names it), saved for the song (planCache.ts). Only the parts named change:
+ * the footage look's own settings, and every other part playing it, are left alone.
+ */
+export function setPartsShot(is: number[], patch: Partial<PartShot> | null) {
+  const s = useStudio.getState();
+  const cur = current();
+  if (!cur) return;
+  const parts = partsIn(is, cur.a);
+  const n = cur.a.sections.length;
+  if (!parts.length) return;
+  const next = s.partShot?.length === n ? [...s.partShot] : Array.from({ length: n }, () => null as PartShot | null);
+  let changed = false;
+  for (const i of parts) {
+    const v = patch === null ? null : tidyShot({ ...(next[i] ?? {}), ...patch });
+    if (JSON.stringify(next[i] ?? null) === JSON.stringify(v)) continue;
+    next[i] = v;
+    changed = true;
+  }
+  if (!changed) return;
+  s.set({ partShot: next.some((x) => x !== null) ? next : null });
+  if (!useStudio.getState().planOn) useStudio.getState().set({ planOn: true, autoPilot: false });
+}
+
+/** part i's own picture record (null: it follows its look) */
+export function partShotOf(i: number, s = useStudio.getState()): PartShot | null {
+  const n = s.analysis?.sections.length ?? -1;
+  return s.partShot?.length === n ? (s.partShot[i] ?? null) : null;
+}
+
+/** a per-part setting re-indexed by a re-cut: each new part takes the old part it came from */
+function carryFrom<T>(arr: (T | null)[] | null, from: number[], n0: number): (T | null)[] | null {
+  if (!arr || arr.length !== n0) return null;
+  const out = from.map((j) => arr[j] ?? null);
+  return out.some((v) => v !== null) ? out : null;
+}
+
 /* ───────── reset ───────── */
 
-/** put the planner's own picks back into parts `is` (looks, lyrics, pop-ups, hand-drawn and words) */
+/** put the planner's own picks back into parts `is` (looks, lyrics, pop-ups, hand-drawn, words and picture) */
 export function resetParts(is: number[]) {
   const s = useStudio.getState();
   const cur = current();
@@ -219,11 +276,12 @@ export function resetParts(is: number[]) {
   const partPops = withValue(s.partPops, n, parts, null);
   const partHand = withValue(s.partHand, n, parts, null);
   const partWords = withValue(s.partWords, n, parts, null);
+  const partShot = withValue(s.partShot, n, parts, null);
   // the plan's "kept your changes" line goes once nothing is changed any more
   if (partEdits(next, a, partPops, partHand, partWords).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
   const name = partsName(parts, a);
   commit(next);
-  s.set({ partPops, partHand, partWords });
+  s.set({ partPops, partHand, partWords, partShot });
   s.flash(`${name} ${parts.length > 1 ? 'are' : 'is'} back to the plan`);
 }
 
@@ -239,9 +297,12 @@ export const MIN_PART_S = 1;
 /** put a re-cut on: the new parts, the re-indexed plan and settings, in one store change and one Undo step */
 function applyRecut(r: Recut, selected: number[]) {
   const s = useStudio.getState();
+  // plan.ts recutParts re-indexes the plan and the older per-part settings; the picture records follow
+  // the same `from` (a split gives both halves the record, a combine keeps the first part's)
+  const partShot = carryFrom(s.partShot, r.from, s.analysis?.sections.length ?? -1);
   duringRecut(() => {
     audioEngine.setAnalysis(r.analysis);
-    s.set({ analysis: r.analysis, plan: r.plan, partPops: r.partPops, partHand: r.partHand, partWords: r.partWords, selectedParts: selected, planOn: true, autoPilot: false });
+    s.set({ analysis: r.analysis, plan: r.plan, partPops: r.partPops, partHand: r.partHand, partWords: r.partWords, partShot, selectedParts: selected, planOn: true, autoPilot: false });
   });
   if (r.plan) keepPlan(r.plan);
 }
