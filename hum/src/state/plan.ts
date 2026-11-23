@@ -1329,23 +1329,6 @@ export function startPlan(
 }
 
 /**
- * The parts a plan plays on: a plan with the person's own part lines (`bounds`) puts the song cut at
- * those lines on (the store's analysis and the audio engine's), so everything that reads the parts
- * (the planner, the timeline, the footage scene, lyrics, renders, Breakdown) sees the same list. A plan
- * without them puts the song's own parts back. Returns the analysis to use with the plan.
- */
-export function adoptCut(plan: VideoPlan, a: TrackAnalysis): TrackAnalysis {
-  const s = useStudio.getState();
-  const target = cutAnalysis(a, plan.bounds);
-  if (!target || target.sections.length !== plan.looks.length) return a;
-  if (s.analysis && s.analysis !== target && originalOf(s.analysis) === originalOf(target)) {
-    audioEngine.setAnalysis(target);
-    s.set({ analysis: target });
-  }
-  return target;
-}
-
-/**
  * The lyrics arrived (or changed) after this plan was made: give it a lyric plan for them. A plan
  * flattened to one look per part gets it through the planner's own plan (`a`: the song's own
  * analysis), which the caller puts on again (putOn), so its shots can follow the words too.

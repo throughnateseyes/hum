@@ -1,4 +1,3 @@
-import { activeFinish, setFinish } from '../state/direction';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
@@ -7,8 +6,8 @@ import { historyLabels, onHistoryChange, redo, undo } from '../state/history';
 import { onFrame } from '../state/live';
 import { makeVideo, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
 import { originalOf } from '../state/planCache';
-import { useStudio, type PopupMode } from '../state/store';
-import { LAYER_MIME, Slider, Toggle } from './controls';
+import { useStudio } from '../state/store';
+import { LAYER_MIME, Toggle } from './controls';
 import { Pause, Play, Redo, Sparkle, Wave } from './Icons';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { fmtTime } from './song';
@@ -23,7 +22,7 @@ import './timeline.css';
  * The bottom of the app: the transport (play, time, the part playing, tempo, volume, Breakdown) and the
  * timeline (Timeline.tsx). The live layer meters show only while store.metersOpen is on (they are for
  * dragging a sound onto a slider). Make a video, the moods and the whole-video switches live in the
- * right panel's Video tab, which mounts the components exported here (MakeVideoButton, FeelControls…).
+ * right panel's Video tab (VideoPanel.tsx).
  *
  * A phone keeps its own bottom: Make a video and Breakdown beside the timeline, the mood row under it,
  * and the part sheet for a tapped part.
@@ -39,17 +38,6 @@ export function Bottom() {
       {!phone && meters && <LayerStrip />}
       {phone && <PartSheet />}
     </div>
-  );
-}
-
-/** how hard it reacts, the hand-drawn finish and the pop-ups (the phone shows them in Look settings) */
-export function FeelControls() {
-  return (
-    <>
-      <ImpactKnob />
-      <HandToggle />
-      <OverlaysSwitch />
-    </>
   );
 }
 
@@ -227,65 +215,6 @@ export function MakeVideoButton({ className = '' }: { className?: string }) {
       {planning ? <span className="spin" /> : <Sparkle width={13} height={13} />}
       {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
     </button>
-  );
-}
-
-/* ───────────────────────── feel controls ───────────────────────── */
-
-/** one-click hand-drawn finish (its settings live in the Video tab) */
-export function HandToggle() {
-  const on = useStudio((s) => activeFinish(s) === 'hand');
-  return (
-    <label className="sw boxed has-tip tip-left" data-tip="Choppy frames, wobbly lines, ink on paper. Fine-tune it in the Video tab. (H)">
-      <Toggle on={on} onChange={() => toggleHand()} />
-      Hand-drawn
-    </label>
-  );
-}
-
-/** Hand-drawn is one of the finishes: on picks it, off picks Clean (the Finish picker can go back to Auto) */
-export function toggleHand() {
-  const on = activeFinish(useStudio.getState()) === 'hand';
-  setFinish(on ? 'clean' : 'hand');
-  useStudio.getState().flash(on ? 'Hand-drawn off (Finish: Clean)' : 'Hand-drawn on. Fine-tune it in the Video tab');
-}
-
-/** the pop-up windows over the picture: one switch for all of them (when they show lives in the Video tab) */
-let lastPopupsOn: Exclude<PopupMode, 'off'> = 'video';
-export function OverlaysSwitch() {
-  const mode = useStudio((s) => s.popups);
-  const on = mode !== 'off';
-  if (on) lastPopupsOn = mode;
-  const set = () => {
-    const s = useStudio.getState();
-    // read the store, not this render: two quick clicks must still flip twice
-    const v = s.popups === 'off';
-    if (!v) lastPopupsOn = s.popups as Exclude<PopupMode, 'off'>;
-    s.set({ popups: v ? lastPopupsOn : 'off' });
-    s.flash(v ? (lastPopupsOn === 'always' ? 'Pop-up windows on, all the time' : 'Pop-up windows on during videos') : 'Pop-up windows off');
-  };
-  return (
-    <label
-      className="sw boxed has-tip tip-left"
-      data-tip={`The little pop-up windows over the picture. ${on ? (mode === 'always' ? 'Showing all the time.' : 'Showing while a video plays.') : 'Hidden.'} Choose when they show in the Video tab.`}
-    >
-      <Toggle on={on} onChange={set} />
-      Pop-ups
-    </label>
-  );
-}
-
-export function ImpactKnob() {
-  const impact = useStudio((s) => s.impact);
-  const set = useStudio((s) => s.set);
-  return (
-    <div className="impact has-tip" data-tip="How hard the visuals react to the music. 0% is still, 100% is normal, 200% is wild.">
-      <span className="impact-l">Impact</span>
-      <div className="impact-s">
-        <Slider value={impact} min={0} max={2} step={0.05} onChange={(v) => set({ impact: v })} />
-      </div>
-      <span className="impact-v">{Math.round(impact * 100)}%</span>
-    </div>
   );
 }
 

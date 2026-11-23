@@ -29,7 +29,7 @@ import { useStudio } from '../state/store';
 import { Play, X } from './Icons';
 import { STATIC_THUMBS, Thumb } from './Library';
 import { MoodChips } from './Moods';
-import { FootageControls, isFootage } from './PartPanel';
+import { FootageControls } from './PartPanel';
 import { hidePeek, peekHandlers } from './Peek';
 import { presetToLook } from '../presets/apply';
 import { useRenderMode } from './RenderBar';
@@ -380,6 +380,8 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const medium = hasPlan ? (plan.lyricPlan?.parts[i]?.medium ?? null) : null;
   const sc = look ? getScene(look.sceneId) : undefined;
   const ownOk = !!look && profileFor(look.id, sc?.category, !!sc?.showsLyrics).own !== 'none';
+  // a footage look (the person's clips): its styles and Shuffle instead of versions
+  const footage = !!sc?.usesClips;
   // the person's level for this part (null: Auto), and what the plan gives it
   const mine = typeof partPops?.[i] === 'number' ? partPops[i] : null;
   const planned = hasPlan ? popsOf(plan, a, i) : null;
@@ -435,7 +437,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
 
       <SwapList a={a} i={i} name={name} busy={busy} onPick={pickLookHere} headingId={`${headingId}-look`} />
 
-      {hasPlan && look && isFootage(look) && (
+      {hasPlan && look && footage && (
         <section className="ps-sec pp" aria-label="Footage style">
           <div className="ps-h">
             <h3>Style</h3>
@@ -445,7 +447,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
         </section>
       )}
 
-      {fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
+      {fam && fam.takes.length > 1 && !footage && (
         <section className="ps-sec" aria-labelledby={`${headingId}-take`}>
           <div className="ps-h">
             <h3 id={`${headingId}-take`}>Version</h3>

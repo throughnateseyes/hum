@@ -1,32 +1,5 @@
 /* ───────── the part sheet (src/ui/PartSheet.tsx) and the mood row (src/ui/Moods.tsx) ───────── */
 
-/* the stage's empty state (.empty in index.css) shares the class name with an empty part and turned
-   its pointer off, so an empty part could be neither clicked nor dropped on */
-.tl-sec.empty {
-  pointer-events: auto;
-  container-type: normal;
-}
-/* the song map: a part changed by hand wears a dot, the part being edited a ring */
-.tl-sec.open {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-.tl-edit {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  z-index: 2;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 1.5px #fff;
-  pointer-events: none;
-}
-.tl-sec.tiny .tl-edit {
-  top: 2px;
-  right: 2px;
-}
-
 /* ── moods: one row under the song map ── */
 .moods {
   display: flex;

@@ -71,35 +71,6 @@ export function toggleRenderMode() {
   useRenderMode.setState({ on: true, ...(fresh && a ? { range: bestPart(a), forSong: a.duration } : {}) });
 }
 
-/**
- * The top bar's Render: opens the render row by the song map and brings it into view (on a phone
- * it's below the stage). Already open and on screen: closes it, like the button by the song map.
- */
-export function openRenderBar() {
-  const shown = useRenderMode.getState().on;
-  const row = document.querySelector<HTMLElement>('.rb');
-  if (shown && row && onScreen(row)) {
-    toggleRenderMode();
-    return;
-  }
-  if (!shown) toggleRenderMode();
-  requestAnimationFrame(() => {
-    const el = document.querySelector<HTMLElement>('.rb');
-    if (!el) return;
-    if (!onScreen(el)) el.closest('.bottom')?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    el.focus({ preventScroll: true });
-    // a short glow so the eye finds it
-    el.classList.remove('rb-hello');
-    void el.offsetWidth;
-    el.classList.add('rb-hello');
-  });
-}
-
-function onScreen(el: HTMLElement) {
-  const r = el.getBoundingClientRect();
-  return r.bottom > 0 && r.top < window.innerHeight - 8 && r.height > 0;
-}
-
 /** where a dragged time lands: a part's edge when it's close, else the bar line (the beat with ⌥) */
 function snap(a: TrackAnalysis, t: number, pxPerSec: number, fine: boolean): number {
   const d = a.duration;

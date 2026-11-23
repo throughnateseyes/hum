@@ -345,7 +345,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
 }
 
 /** a look built on the person's clips (the footage looks): styles and Shuffle stand in for takes */
-export function isFootage(p: Preset): boolean {
+function isFootage(p: Preset): boolean {
   return !!getScene(p.sceneId)?.usesClips;
 }
 

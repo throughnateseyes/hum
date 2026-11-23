@@ -84,7 +84,7 @@ function marksOf(a: TrackAnalysis | null): Mark[] {
 
 export function SeekBar({ onDragChange }: { onDragChange?: (dragging: boolean) => void }) {
   const cut = useStudio((s) => s.analysis);
-  const analysis = cut ? originalOf(cut) : null;
+  const analysis = useMemo(() => (cut ? originalOf(cut) : null), [cut]);
   const el = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);

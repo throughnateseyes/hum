@@ -274,9 +274,6 @@ html.phone body {
 .ph-sheet .director {
   border-top: 1px solid var(--line);
 }
-.ph-sheet .split-handle {
-  display: none;
-}
 /* Look settings is one long scroll (the sheet's body scrolls), not panels squeezed into it */
 .ph-settings {
   flex: none;
