@@ -278,6 +278,7 @@ export function Seg<T extends string | number>({
   disabled,
   cols,
   label,
+  onHover,
 }: {
   value: T;
   /** span: how many of the grid's columns a choice takes (with cols) */
@@ -286,6 +287,8 @@ export function Seg<T extends string | number>({
   disabled?: boolean;
   cols?: number;
   label?: string;
+  /** the choice under the pointer or with keyboard focus (null when none): for a line that explains it */
+  onHover?: (v: T | null) => void;
 }) {
   return (
     <div
@@ -302,7 +305,11 @@ export function Seg<T extends string | number>({
           aria-checked={value === o.v}
           className={value === o.v ? 'on' : ''}
           disabled={disabled}
-          title={o.tip}
+          title={onHover ? undefined : o.tip}
+          onMouseEnter={onHover ? () => onHover(o.v) : undefined}
+          onMouseLeave={onHover ? () => onHover(null) : undefined}
+          onFocus={onHover ? () => onHover(o.v) : undefined}
+          onBlur={onHover ? () => onHover(null) : undefined}
           style={o.span ? { gridColumn: `span ${o.span}` } : undefined}
           onClick={() => onChange(o.v)}
         >

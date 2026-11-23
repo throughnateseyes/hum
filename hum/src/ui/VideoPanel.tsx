@@ -4,7 +4,7 @@
  * since that's the one people come here for), how hard and how fast it moves, the pop-ups, the
  * transitions, the words and the song colours. The rarely touched switches sit under More.
  */
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
@@ -22,6 +22,7 @@ export function VideoPanel() {
   return (
     <div className="vp">
       <MakeBlock />
+      <FramesSection />
       <FinishSection />
       <Section id="video.move" title="Movement">
         <ImpactField />
@@ -123,11 +124,30 @@ function FinishSection() {
   );
 }
 
-const HAND_FPS: { v: HandStyle['fps']; label: string }[] = [
-  { v: 60, label: 'Smooth' },
-  { v: 12, label: 'Drawn' },
-  { v: 8, label: 'Choppy' },
+const FRAMES: { v: HandStyle['fps']; label: string; tip: string }[] = [
+  { v: 60, label: 'Smooth', tip: 'A new picture every frame: fluid, like normal video' },
+  { v: 12, label: 'Drawn', tip: '12 pictures a second, each held for a moment, the way hand-drawn animation moves. Kicks, snares and drops still land exactly on time.' },
+  { v: 8, label: 'Choppy', tip: '8 pictures a second: a stop-motion feel. Kicks, snares and drops still land exactly on time.' },
 ];
+const FRAMES_NOTE: Record<HandStyle['fps'], string> = {
+  60: 'Fluid motion. Try Drawn for a hand-made, less polished feel.',
+  12: 'Each picture is held for a moment, like hand-drawn animation. Works with every look and finish.',
+  8: 'Fewer pictures, held longer: stop-motion. Works with every look and finish.',
+};
+
+/** How many pictures a second: for the whole video, whatever the finish */
+function FramesSection() {
+  const fps = useStudio((s) => s.hand.fps);
+  // hovering a choice explains that choice; otherwise the line describes the one in use
+  const [hover, setHover] = useState<HandStyle['fps'] | null>(null);
+  const note = hover !== null && hover !== fps ? (FRAMES.find((f) => f.v === hover)?.tip ?? '') : FRAMES_NOTE[fps];
+  return (
+    <Section id="video.frames" title="Frames" sub="How smoothly the picture moves">
+      <Seg value={fps} options={FRAMES} onChange={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })} onHover={setHover} label="Frames" />
+      <p className="field-note">{note}</p>
+    </Section>
+  );
+}
 const HAND_INKS: { v: HandStyle['inks']; label: string }[] = [
   { v: 0, label: 'All' },
   { v: 1, label: '1' },
@@ -147,12 +167,6 @@ function HandSettings() {
   );
   return (
     <div className="vp-hand" aria-label="Hand-drawn settings">
-      <Field
-        label="Frames"
-        tip="Smooth keeps motion fluid and only re-draws the lines. Drawn (12 a second) and Choppy (8) hold each picture like hand animation; kicks, snares and drops always get a fresh one."
-      >
-        <Seg value={hand.fps} options={HAND_FPS} onChange={(v) => put({ fps: v })} label="Frames" />
-      </Field>
       <Field label="Inks" tip="Print with a few flat inks from the palette, or keep every colour.">
         <Seg value={hand.inks} options={HAND_INKS} onChange={(v) => put({ inks: v })} label="Inks" />
       </Field>

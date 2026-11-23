@@ -792,10 +792,11 @@ export class Stage {
     if (!this.current) return null;
     const time = (now - this.t0) / 1000;
 
-    // Hand-drawn: a new drawing only every 1/fps s (held in between, like animation on 2s or 3s),
-    // except that a kick, snare or drop always gets a fresh drawing so hits land on time.
+    // Drawn and Choppy frames, under any finish: a new picture only every 1/fps s (held in between,
+    // like animation on 2s or 3s), except that a kick, snare or drop always gets a fresh one so hits
+    // land on time.
     const hit = this.hitEdge(audio);
-    const hold = handOn && s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit;
+    const hold = s.hand.fps < 60 && this.holdReady && time - this.lastDrawing < 1 / s.hand.fps - 0.004 && !hit;
     return { o, now, dt, s, finish, handOn, audio, feel, time, hold };
   }
 
@@ -809,7 +810,7 @@ export class Stage {
       return;
     }
     this.lastDrawing = time;
-    if (!handOn) this.holdReady = false;
+    if (!handOn && s.hand.fps >= 60) this.holdReady = false;
 
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
     const photos = s.photos.length ? s.photos : [this.placeholder];
@@ -924,20 +925,27 @@ export class Stage {
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else {
+      // with Drawn or Choppy frames the whole finished picture (windows, pop-ups and lyrics too) is
+      // put together in the held frame, and the screen shows that until the next drawing is due
+      const held = s.hand.fps < 60 ? this.holdRT : null;
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
-        this.present(this.impactRT.texture, finish, base);
+        this.present(this.impactRT.texture, finish, base, held);
       } else {
-        this.present(finalTex, finish, base);
+        this.present(finalTex, finish, base, held);
       }
       o?.phase?.('windows');
-      this.sceneWindows.render(r, base, { ...winOpts, keep });
+      this.sceneWindows.render(r, base, held ? { ...winOpts, target: held, keep } : { ...winOpts, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, null, pops.instruments, keep);
-      beforeLyrics(null);
+      this.popups.render(r, base, held, pops.instruments, keep);
+      beforeLyrics(held);
       o?.phase?.('lyrics');
-      if (lyricOpts) this.lyricLayer.render(r, lyricOpts);
+      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, held ?? undefined);
+      if (held) {
+        this.holdReady = true;
+        this.shared.blit(held.texture, null);
+      }
     }
     this.resolveSnapshots();
   }
@@ -947,9 +955,9 @@ export class Stage {
    * is for Clean. Pop-ups, scene windows and lyrics go over it afterwards. The finish reads time,
    * audio and Feel from the frame context only.
    */
-  private present(tex: THREE.Texture, finish: ReturnType<typeof activeFinish>, base: Omit<FrameContext, 'params'>) {
-    const drawn = this.finishPass.render(this.renderer, tex, null, finish, { time: base.time, dt: base.dt, audio: base.audio, feel: base.feel, palette: base.palette, width: base.width, height: base.height });
-    if (!drawn) this.shared.blit(tex, null);
+  private present(tex: THREE.Texture, finish: ReturnType<typeof activeFinish>, base: Omit<FrameContext, 'params'>, target: THREE.WebGLRenderTarget | null = null) {
+    const drawn = this.finishPass.render(this.renderer, tex, target, finish, { time: base.time, dt: base.dt, audio: base.audio, feel: base.feel, palette: base.palette, width: base.width, height: base.height });
+    if (!drawn) this.shared.blit(tex, target);
   }
 
   /** blend the outgoing look into `inTex` while a transition runs; returns what goes on screen */
