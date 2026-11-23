@@ -219,7 +219,8 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
     // parts start on different pictures, and every cut moves on to the next one; a part with its
     // own pictures takes them in turn from its first
     const pic = mine.length ? mine[j % mine.length] : index + j;
-    const others = mine.length > 1 ? [...mine.slice(j % mine.length + 1), ...mine.slice(0, j % mine.length)] : [1, 2, 3, 4, 5].map((k) => pic + k);
+    // a part given its pictures keeps to them (one picture: Trace shows close-ups of it)
+    const others = mine.length ? [...mine.slice(j % mine.length + 1), ...mine.slice(0, j % mine.length)] : [1, 2, 3, 4, 5].map((k) => pic + k);
     shots.push({
       index: shots.length,
       kind: 'footage',

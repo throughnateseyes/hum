@@ -50,9 +50,26 @@ ${TAIL_GLSL}
 uniform sampler2D tCoarse;
 uniform vec2 uGrid, uCoarseSize, uOff;
 uniform float uPx, uCut, uPol, uSpan, uSeed, uBeatN, uGrain;
+uniform vec2 uBand;
 uniform vec3 uField, uAccent, uLine;
 uniform vec4 uBox[3];
 uniform float uBoxes;
+
+float soft(vec2 cell) {
+  // the cell's brightness softened with its neighbours (1-2-1 each way), so the subject of a busy
+  // picture reads as a shape rather than a speckle; read() softens the same way before the cut
+  float l = 0.0;
+  float w = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 c = cell + vec2(float(i), float(j));
+    if (c.x < 0.0 || c.y < 0.0 || c.x > uGrid.x - 1.0 || c.y > uGrid.y - 1.0) continue;
+    vec2 t = texture2D(tCoarse, (c + 0.5) / uCoarseSize).rg;
+    float k = (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0) * step(0.5, t.g);
+    l += t.r * k;
+    w += k;
+  }
+  return w > 0.0 ? l / w : texture2D(tCoarse, (cell + 0.5) / uCoarseSize).r;
+}
 
 float boxLine(vec2 px, vec4 r, float w) {
   // the outline of a box (x0, y0, x1, y1), w px thick
@@ -67,19 +84,19 @@ void main() {
   vec2 px = vUv * uRes;
   vec4 b = bed(vUv);
   vec2 cell = floor((px - uOff) / uPx);
-  vec2 cuv = (clamp(cell, vec2(0.0), uGrid - 1.0) + 0.5) / uCoarseSize;
-  vec2 lc = texture2D(tCoarse, cuv).rg;
+  float l = soft(clamp(cell, vec2(0.0), uGrid - 1.0));
   // how far into the subject this pixel is, in units of the picture's spread
-  float s = (uPol > 0.5 ? lc.r - uCut : uCut - lc.r) / max(0.04, uSpan);
+  float s = (uPol > 0.5 ? l - uCut : uCut - l) / max(0.04, uSpan);
 
   // paper: flat grey with a fine grain
   float grain = (hash(floor(px)) - 0.5) * uGrain + (vnoise(px * 0.35) - 0.5) * uGrain * 0.8;
   vec3 col = uField * (1.0 + grain);
   if (s > 0.0) {
-    // the subject: one colour in three shades, deeper toward its core
-    float shade = s > 0.9 ? 1.0 : s > 0.4 ? 0.82 : 0.66;
+    // the subject: one colour in three shades, deeper toward its core; the shades split the subject
+    // into thirds (uBand), so a busy picture whose subject sits close to the cut still gets all three
+    float shade = s > uBand.y ? 1.0 : s > uBand.x ? 0.8 : 0.58;
     col = mix(uField, uAccent, shade);
-    col = mix(col, uAccent * 1.12, step(0.9, s) * 0.5);
+    col = mix(col, uAccent * 1.12, step(uBand.y, s) * 0.5);
     // a few coarse pixels hold a scrap of fine texture, changing on the beat
     float h = hash(cell + floor(uBeatN) * 0.37 + uSeed);
     if (h < 0.05) {
@@ -138,6 +155,7 @@ export class Readout {
       uCut: { value: 0.5 },
       uPol: { value: 1 },
       uSpan: { value: 0.3 },
+      uBand: { value: new THREE.Vector2(0.4, 0.9) },
       uSeed: { value: 0 },
       uBeatN: { value: 0 },
       uGrain: { value: 0.06 },
@@ -206,12 +224,33 @@ export class Readout {
     const { cols, rows, px, off } = R;
     const buf = R.buf;
 
+    // the coarse pixels softened with their neighbours the way the shader does (soft())
+    const sm = new Float32Array(cols * rows);
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        let l = 0;
+        let wt = 0;
+        for (let j = -1; j <= 1; j++) {
+          for (let i = -1; i <= 1; i++) {
+            const cx = x + i;
+            const cy = y + j;
+            if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue;
+            const k = cy * cols + cx;
+            if (buf[k * 4 + 1] < 128) continue;
+            const g = (i === 0 ? 2 : 1) * (j === 0 ? 2 : 1);
+            l += (buf[k * 4] / 255) * g;
+            wt += g;
+          }
+        }
+        sm[y * cols + x] = wt ? l / wt : buf[(y * cols + x) * 4] / 255;
+      }
+    }
     // the cut that best splits the picture's coarse pixels into two (Otsu), and which side is smaller
     const hist = new Float32Array(64);
     let total = 0;
     for (let i = 0; i < cols * rows; i++) {
       if (buf[i * 4 + 1] < 128) continue;
-      hist[Math.min(63, buf[i * 4] >> 2)]++;
+      hist[Math.min(63, Math.floor(sm[i] * 64))]++;
       total++;
     }
     let sum = 0;
@@ -246,7 +285,12 @@ export class Readout {
     const span = Math.max(0.05, Math.abs(far / 64 - cut));
 
     // the largest blobs of the subject (4-connected), in coarse pixels
-    const isSub = (i: number) => buf[i * 4 + 1] >= 128 && (pol ? buf[i * 4] / 255 > cut : buf[i * 4] / 255 < cut);
+    const isSub = (i: number) => buf[i * 4 + 1] >= 128 && (pol ? sm[i] > cut : sm[i] < cut);
+    // the subject's thirds, for its three shades
+    const depth: number[] = [];
+    for (let i = 0; i < cols * rows; i++) if (isSub(i)) depth.push((pol ? sm[i] - cut : cut - sm[i]) / Math.max(0.04, span));
+    depth.sort((a, b) => a - b);
+    const band = depth.length >= 6 ? [depth[Math.floor(depth.length / 3)], depth[Math.floor((depth.length * 2) / 3)]] : [0.4, 0.9];
     const label = new Int32Array(cols * rows).fill(-1);
     const blobs: (Blob & { id: number })[] = [];
     const stack: number[] = [];
@@ -306,6 +350,7 @@ export class Readout {
     u.uCut.value = cut;
     u.uPol.value = pol;
     u.uSpan.value = span;
+    (u.uBand.value as THREE.Vector2).set(band[0], Math.max(band[0] + 1e-3, band[1]));
     u.uSeed.value = (f.layout % 977) * 0.53;
     u.uBeatN.value = beatN;
     u.uGrain.value = f.colour === 'flat' ? 0 : 0.07;

@@ -343,6 +343,7 @@ interface Shown {
   from: number;
   style: string;
   treatment: string;
+  motion: string;
   arrive: string;
   leave: string;
   shots: number;
@@ -374,7 +375,7 @@ if (import.meta.env.DEV) {
       if (!seq) return null;
       const shot = seq.shots.find((x) => t < x.end) ?? seq.shots[seq.shots.length - 1];
       const n = Math.max(1, deckSize);
-      return { part: i, clip: shot.footageIndex % n, from: shot.clipFrom ?? 0, style: shot.style, treatment: shot.treatment ?? 'none', arrive: shot.arrive, leave: shot.leave, shots: seq.shots.length, alt: shot.alt === undefined ? null : shot.alt % n };
+      return { part: i, clip: shot.footageIndex % n, from: shot.clipFrom ?? 0, style: shot.style, treatment: shot.treatment ?? 'none', motion: shot.motion ?? 'play', arrive: shot.arrive, leave: shot.leave, shots: seq.shots.length, alt: shot.alt === undefined ? null : shot.alt % n };
     },
     /** every part this page's stage built, in order (cleared by the caller) */
     shown,
@@ -545,7 +546,7 @@ class FootageLook implements SceneInstance {
       this.builtKey = key;
       const t0 = performance.now();
       this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined });
-      if (import.meta.env.DEV && flat) {
+      if (import.meta.env.DEV) {
         const sh = seq.shots[0];
         const last = seq.shots[seq.shots.length - 1];
         const c = sh.footageIndex % this.deck.length;
@@ -555,6 +556,7 @@ class FootageLook implements SceneInstance {
           from: sh.clipFrom ?? 0,
           style: sh.style,
           treatment: sh.treatment ?? 'none',
+          motion: sh.motion ?? 'play',
           arrive: sh.arrive,
           leave: sh.leave,
           shots: seq.shots.length,
@@ -564,8 +566,8 @@ class FootageLook implements SceneInstance {
           playerAt: this.deck[c]?.footage?.video.currentTime ?? null,
           ms: performance.now() - t0,
           who: this.who,
-          zoom: framingOf(partShotAt(index), p).zoom,
-          focus: [framingOf(partShotAt(index), p).x, framingOf(partShotAt(index), p).y],
+          zoom: framingOf(flat ? partShotAt(index) : solo, p).zoom,
+          focus: [framingOf(flat ? partShotAt(index) : solo, p).x, framingOf(flat ? partShotAt(index) : solo, p).y],
         });
         if (shown.length > 400) shown.splice(0, shown.length - 400);
       }

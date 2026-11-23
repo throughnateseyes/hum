@@ -241,9 +241,10 @@ export class Mosh {
     let swirl = 0;
     if (seg) {
       const speed = seg.speed(tt);
-      drift.copy(dirOf(seg.layout)).multiplyScalar(px * (0.5 + 0.9 * loud) * (0.6 + speed * 0.7));
-      swirl = px * (0.4 + 2.6 * loud * loud) * (0.7 + 0.3 * Math.min(3, speed));
-      refresh = seg.mosh ? 0.004 + 0.035 * (1 - loud) ** 2 : 1;
+      // floors on the drift and swirl so a quiet part still smears visibly: it melts slowly rather than sitting still
+      drift.copy(dirOf(seg.layout)).multiplyScalar(px * (0.95 + 0.6 * loud) * (0.6 + speed * 0.7));
+      swirl = px * (1.1 + 2.0 * loud * loud) * (0.7 + 0.3 * Math.min(3, speed));
+      refresh = seg.mosh ? 0.004 + 0.012 * (1 - loud) ** 2 : 1;
       const into = tt - seg.start;
       const prev = this.prevOf(seg);
       if (prev && into < PUSH_BEATS * plan.beat) {
@@ -258,7 +259,7 @@ export class Mosh {
     (u.uPush.value as THREE.Vector2).copy(push);
     u.uSwirl.value = swirl;
     u.uRefresh.value = refresh;
-    u.uShove.value = px * 16 * Math.exp(-kick.since / 0.07) * (0.5 + loud);
+    u.uShove.value = px * 16 * Math.exp(-kick.since / 0.07) * (0.8 + loud);
     u.uShoveSeed.value = kick.n * 1.37 + 0.5;
     u.uSeedT.value = Math.round(tt * RATE);
     u.uBlock.value = Math.max(8, Math.round(16 * px));

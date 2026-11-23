@@ -199,10 +199,12 @@ export function footageRun(o: RunInput): Run {
       }
       if (treatment === 'collage' || treatment === 'trace') {
         // Collage's fragments and Trace's other tiles: the part's other pictures (from the one after
-        // this shot's), else the next few in the deck
+        // this shot's), else the next few in the deck. A part given one picture keeps Trace to that
+        // picture (its tiles become close-ups of it); Collage still needs fragments from elsewhere.
         const want = treatment === 'trace' ? 5 : 3;
         const at = mine.indexOf(c);
-        const rest = mine.length > 1 ? [...mine.slice(at + 1), ...mine.slice(0, Math.max(0, at))].filter((m) => m !== c) : Array.from({ length: Math.min(want, count - 1) }, (_, m) => (c + 1 + m) % count);
+        const own = mine.length > 1 || (treatment === 'trace' && mine.length === 1);
+        const rest = own ? [...mine.slice(at + 1), ...mine.slice(0, Math.max(0, at))].filter((m) => m !== c) : Array.from({ length: Math.min(want, count - 1) }, (_, m) => (c + 1 + m) % count);
         shot.extra = rest.slice(0, want);
       }
       seq.shots.push(shot);
