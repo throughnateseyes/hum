@@ -10,6 +10,7 @@ import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
+import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
 
 /**
  * Timed lyrics drawn over the finished frame, so they are in recordings and stills too.
@@ -19,7 +20,10 @@ import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyri
  *   subtitle: a quiet caption low in the frame; each word brightens with a wipe as it's sung
  *   big:      a display line hung from a margin or a third; words rise out of a mask as they're sung
  *   cutout:   a paste-up collage, one printed scrap per word (cutout.ts). Rare: a one-off on a drop,
- *             or when picked in the chip
+ *             or when picked in the chip or for a part
+ *   knockout: one word at a time, huge, filling the frame, each landing on its sung time and knocking
+ *             the last one out (knockout.ts). Picked per part. It fills the frame, so it's the one
+ *             medium allowed above SAFE_TOP, and it never fades: it hands over word to word itself
  *   auto:     a lyric video. Each part of the song gets its own medium from the lyric plan
  *             (state/lyricPlan.ts): captions in verses, display lines in choruses and drops, an aside
  *             in a margin in builds, the look's own lyric components where it has them, plus one-off
@@ -70,8 +74,14 @@ const FADE_IN = 0.14;
 const FADE_OUT = 0.3;
 /** show the next line slightly early so the eye arrives with the voice */
 const LEAD = 0.08;
+/** knockout: a gap this short (s) before the next line is held through, the last word up until the next knocks it out */
+const KO_BRIDGE = 1.5;
 
-type Drawn = 'subtitle' | 'big' | 'cutout' | 'sparse' | 'own' | 'world';
+type Drawn = 'subtitle' | 'big' | 'cutout' | 'sparse' | 'knockout' | 'own' | 'none' | 'world';
+/** nothing of ours is drawn: the look shows the words, or the part has none */
+const quiet = (m: Drawn) => m === 'own' || m === 'none';
+/** the mediums placed in spots (knockout lays itself out over the frame) */
+type Placed2 = Exclude<Drawn, 'own' | 'none' | 'world' | 'knockout'>;
 
 interface Word {
   text: string;
@@ -205,7 +215,7 @@ interface Spot {
  * keep everything above the bottom ~24%, where Reels and TikTok put their captions and buttons, and
  * inside a 7% side margin.
  */
-function spots(portrait: boolean): Record<Exclude<Drawn, 'own' | 'world'>, Partial<Record<Zone, Spot>>> {
+function spots(portrait: boolean): Record<Placed2, Partial<Record<Zone, Spot>>> {
   if (portrait) {
     return {
       subtitle: { bottom: { r: { x0: 0.08, y0: 0.6, x1: 0.92, y1: 0.755 }, align: 'center', anchor: 'bottom' } },
@@ -269,6 +279,9 @@ interface LineState {
   cut?: CutoutLayout;
   host?: HostLine;
   hostName?: string;
+  ko?: KnockoutLayout;
+  /** knockout: its last word is up until then (song time), through a short gap before the next line */
+  holdTo?: number;
   /** normalized box around the text, probed for legibility */
   rect: Rect;
   ladder: Backing[];
@@ -315,6 +328,8 @@ interface FrameFacts {
   shows: Showing[];
   i: number;
   cur: { i: number; line: Showing } | null;
+  /** cur is the showing before a short gap (see KO_BRIDGE) */
+  bridging: boolean;
   W: number;
   H: number;
   look: LyricProfile;
@@ -357,6 +372,8 @@ export class LyricLayer {
   /** where the words are, for the windows (see keepOut) */
   private keep: KeepOut = NO_KEEP_OUT;
   private lastRect: Rect | null = null;
+  /** knockout: what the picture looked like when each showing was laid out (so a handed-over word matches) */
+  private koSeen = new WeakMap<LyricLine[], Map<number, { pic: RegionStats | null; needsField: boolean }>>();
 
   /** the picture under the lyrics, shrunk and read back every few frames */
   readonly probe = new FrameProbe();
@@ -395,14 +412,24 @@ export class LyricLayer {
     const st = useStudio.getState();
     const shows = showings(o.lines);
     const i = showingAt(shows, t);
-    const cur = i >= 0 && t < shows[i].end + FADE_OUT ? { i, line: shows[i] } : null;
+    let cur = i >= 0 && t < shows[i].end + FADE_OUT ? { i, line: shows[i] } : null;
+    // a short gap before the next showing: a knockout word holds through it until the next one knocks
+    // it out (only knockout lines use the bridge; see holdTo)
+    const bridging = !cur && i >= 0 && i + 1 < shows.length && shows[i + 1].t - shows[i].end < KO_BRIDGE;
+    if (bridging) cur = { i, line: shows[i] };
     const scale = Math.min(1, 1600 / Math.max(o.width, 1));
     const W = Math.max(2, Math.round(o.width * scale));
     const H = Math.max(2, Math.round(o.height * scale));
     const scene = getScene(st.sceneId);
     const show = st.lyricsOnBoards === 'show';
     const look = profileFor(st.presetId, scene?.category, !!scene?.showsLyrics);
-    return { t, shows, i, cur, W, H, look, carries: look.own === 'carries' && !show };
+    return { t, shows, i, cur, bridging, W, H, look, carries: look.own === 'carries' && !show };
+  }
+
+  /** in a bridged gap, only a knockout line still holding its last word is up */
+  private bridged(f: FrameFacts): boolean {
+    const L = this.line;
+    return !f.bridging || (!!L?.ko && L.holdTo !== undefined && f.t - LEAD < L.holdTo);
   }
 
   /**
@@ -417,7 +444,7 @@ export class LyricLayer {
     const f = this.facts(o);
     if (f.cur) this.ensureLine(f, o);
     const L = this.line;
-    const now = f.cur && L && L.medium !== 'own' && this.standDown < 0.5 ? L.rect : null;
+    const now = f.cur && this.bridged(f) && L && !quiet(L.medium) && this.standDown < 0.5 ? L.rect : null;
     if (now) this.lastRect = now;
     // the next showing, once it's close: lines in a part mostly come back to the same place
     const nx = f.shows[f.cur ? f.cur.i + 1 : f.i + 1];
@@ -458,8 +485,10 @@ export class LyricLayer {
         this.ghost.width = W;
         this.ghost.height = H;
       }
-      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId);
+      this.line = this.plan(key, line.first, o.lines, words, line.timed, o.style, f.look, f.carries, W, H, o.palette, st.analysis, st.sceneId, line.end);
       this.line.group = group;
+      // knockout hands over word to word itself (the last word is knocked out by the next): no ghost
+      if (this.line.medium === 'knockout') this.ghostOn = false;
       this.standDown = 0;
     }
   }
@@ -474,28 +503,29 @@ export class LyricLayer {
     const st = useStudio.getState();
     const f = this.facts(o);
     const { t, cur, W, H, carries } = f;
+    if (cur) this.ensureLine(f, o);
 
-    if (!cur) {
+    if (!cur || !this.bridged(f)) {
       if (!this.empty) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.empty = true;
         this.lastKey = '';
       }
-      this.line = null;
+      // in a bridged gap the laid-out line is kept, so it isn't laid out again every frame
+      if (!cur) this.line = null;
       this.ghostOn = false;
       if (o.style === 'auto') this.report(null, st.analysis);
       return;
     }
-    this.ensureLine(f, o);
     const line = cur.line;
     const words = line.words;
     const key = this.line!.key;
     const L = this.line!;
-    const guarded = L.medium !== 'own' && L.medium !== 'cutout' && L.medium !== 'world';
+    const guarded = !quiet(L.medium) && L.medium !== 'cutout' && L.medium !== 'world';
 
     // a cut to a look that shows the words itself mid-line: fade out rather than fight it
     // (Auto hands every medium to the look; the fixed Subtitles style keeps its subtitles).
-    const hideNow = (carries && L.medium !== 'own' && (o.style === 'auto' || L.medium !== 'subtitle'));
+    const hideNow = (carries && !quiet(L.medium) && (o.style === 'auto' || L.medium !== 'subtitle'));
     this.standDown += ((hideNow ? 1 : 0) - this.standDown) * Math.min(1, dt * 8);
 
     // a cut under the line: the picture changed at once, so the guard may follow at once
@@ -529,8 +559,12 @@ export class LyricLayer {
     }
     if (o.style === 'auto') this.report(L, st.analysis);
 
-    const fadeOut = Math.max(0, (t - line.end) / FADE_OUT);
-    const alpha = Math.min(1, (t - line.t) / FADE_IN, 1 - fadeOut) * (1 - this.standDown);
+    // knockout never fades: its words arrive and leave on their own (it only stands down for a lyric look)
+    const ko = L.ko;
+    const fadeOut = ko ? 0 : Math.max(0, (t - line.end) / FADE_OUT);
+    const alpha = ko ? 1 - this.standDown : Math.min(1, (t - line.t) / FADE_IN, 1 - fadeOut) * (1 - this.standDown);
+    // knockout words land on their sung time exactly (the layer's clock runs LEAD early for the others)
+    const tSung = t - LEAD;
     // the line that made way: fades and lifts a touch while the new one comes in
     if (this.ghostOn && (t < this.ghostFrom - 0.05 || t - this.ghostFrom > HANDOVER)) this.ghostOn = false;
     const gk = this.ghostOn ? 1 - (t - this.ghostFrom) / HANDOVER : 0;
@@ -538,10 +572,10 @@ export class LyricLayer {
     const sung = words.filter((w) => w.t <= t).length;
     const an = st.analysis;
     const drop = dropMoment(an, o.t, o.audio);
-    const live = L.type ? moving(L.type, t, drop) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
+    const live = ko ? knockoutMoving(ko, tSung) : L.type ? moving(L.type, t, drop) : L.cut ? cutoutMoving(L.cut, t) : L.host ? L.host.moving(t) : false;
     // redraw at 60 fps only while something moves (or fades); a still line keeps its last drawing
     const tick = live || ghostA > 0.01 || fadeOut > 0 ? Math.floor(t * 60) : -1;
-    const drawKey = `${key}|${tick}|${sung}|${Math.round(alpha * 40)}|${this.guard.key()}|${this.accentOK}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
+    const drawKey = `${key}|${tick}|${sung}|${Math.round(alpha * 40)}|${ko ? kickStep(o.audio.kick) : ''}|${this.guard.key()}|${this.accentOK}|${o.palette.fg}${o.palette.accent}${o.palette.bg}`;
     if (drawKey !== this.lastKey) {
       this.lastKey = drawKey;
       const g = this.ctx;
@@ -551,12 +585,18 @@ export class LyricLayer {
         g.drawImage(this.ghost, 0, -H * 0.012 * (1 - gk));
         g.globalAlpha = 1;
       }
-      this.lastAlpha = L.medium === 'own' ? 0 : alpha;
-      if (alpha > 0.01 && L.medium !== 'own') {
+      this.lastAlpha = quiet(L.medium) ? 0 : alpha;
+      if (alpha > 0.01 && !quiet(L.medium)) {
         g.save();
         // quick soft exit: the line lifts a little as it fades
         if (fadeOut > 0) g.translate(0, -fadeOut * H * 0.012);
-        if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
+        if (ko) {
+          // a scrim only when the guard asks for one (no field to cut the words from on this look)
+          const boxes = knockoutBoxes(ko, tSung);
+          if (boxes.length) drawBacking(g, boxes, this.guard, ko.shadowSize, W, alpha, L.i + 1);
+          const c = this.inks(o.palette, L);
+          drawKnockout(g, ko, tSung, alpha, { ink: c.ink, accent: c.accent, shadow: c.shadow }, o.audio.kick, W, H);
+        } else if (L.cut) drawCutout(g, L.cut, L.moment === 'burst' ? t + 0.04 : t, Math.max(0, alpha));
         else if (L.host) L.host.draw(g, t, Math.max(0, alpha), o.audio, this.hostNeed);
         else if (L.type) {
           const rows = L.type.role === 'caption' ? L.type.rows : rowsUp(L.type, t);
@@ -587,6 +627,8 @@ export class LyricLayer {
    * gets the halo where the look would use a soft scrim.
    */
   private ladderNow(L: LineState, st: RegionStats): Backing[] {
+    // knockout answers a busy picture with its field, not a halo
+    if (L.medium === 'knockout') return L.ladder;
     if (coveredShare(L.rect, this.occluders) > OVER_WINDOW) return ['halo', ...L.ladder.filter((b) => b === 'band' || b === 'paper')];
     if (st.edge >= BUSY_EDGE) {
       if (L.ladder.includes('soft')) return L.ladder.map((b) => (b === 'soft' ? 'halo' : b));
@@ -617,7 +659,7 @@ export class LyricLayer {
   }
 
   /** decide how line `li` is shown: medium, place, type; lay it out once */
-  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string): LineState {
+  private plan(key: string, li: number, lines: LyricLine[], words: Word[], timed: boolean, style: LyricStyle, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis | null, sceneId: string, end: number): LineState {
     const g = this.ctx;
     let medium: Drawn;
     let moment: LyricMoment | null = null;
@@ -631,8 +673,8 @@ export class LyricLayer {
       moment = choice?.moment ?? null;
       why = choice?.why ?? '';
       // moments bring their own medium: the giant word is display type, the burst is a collage
-      if (moment === 'giant' && medium !== 'own') medium = 'big';
-      if (moment === 'burst' && medium !== 'own') medium = 'cutout';
+      if (moment === 'giant' && !quiet(medium)) medium = 'big';
+      if (moment === 'burst' && !quiet(medium)) medium = 'cutout';
     } else {
       medium = style === 'auto' ? 'big' : style === 'big' ? 'big' : style === 'cutout' ? 'cutout' : 'subtitle';
       if (medium !== 'subtitle' && carries) medium = 'own';
@@ -642,7 +684,7 @@ export class LyricLayer {
     const portrait = H > W * 1.2;
     const unit = Math.min(W, H);
     const base: LineState = { key, i: li, medium, moment, choice, zone: 'middle', rect: { x0: 0.1, y0: 0.4, x1: 0.9, y1: 0.6 }, ladder: ladderFor(look), target: 3, inks: look.ink, stats: null, why };
-    if (medium === 'own') return base;
+    if (quiet(medium)) return base;
 
     // the font picked in the lyrics panel wins; on Auto, the song's family (Claude's plan or the local one)
     const picked = useStudio.getState().lyricFont;
@@ -653,16 +695,19 @@ export class LyricLayer {
     // words inside the world: a scene that can host the line takes it (on Auto, all but dense
     // caption lines, which need to stay plain to be read; on Big words, every line)
     const wps = words.length / Math.max(0.5, (words[words.length - 1]?.end ?? 0) - (words[0]?.t ?? 0));
-    const hostTakes = style === 'big' ? medium !== 'cutout' : style === 'auto' && medium !== 'cutout' && !(medium === 'subtitle' && wps > 2.6);
+    const hostTakes = style === 'big' ? medium !== 'cutout' : style === 'auto' && medium !== 'cutout' && medium !== 'knockout' && !(medium === 'subtitle' && wps > 2.6);
     if (host && hostTakes) {
       for (const f of [FACES.hand, FACES.archivo, FACES.instrument, FACES.fraunces, FACES.tight, fam ? FAMILY_FONTS[fam] : FONT]) ensureLyricFont(f);
       const hl = host.build(g, words, { W, H, pal, family: fam, treatment: tr, big: moment === 'giant', seed: choice?.seed ?? li * 7919 + 1 });
       return { ...base, medium: 'world', host: hl, hostName: host.name, rect: hl.rect, why: `the look hosts the words: ${host.name}` };
     }
 
+    if (medium === 'knockout' && an) return this.planKnockout(base, words, lines, li, look, carries, W, H, pal, an, fam, tr, end);
+    if (medium === 'knockout') medium = 'big';
+
     const SP = spots(portrait);
     // placement: auto picks the calmest allowed zone for the medium (fixed styles keep their place)
-    const pickZone = (m: Exclude<Drawn, 'own' | 'world'>, fixed: Zone): Zone => {
+    const pickZone = (m: Placed2, fixed: Zone): Zone => {
       const boxes = SP[m];
       if (style !== 'auto') return fixed;
       const cand = [...look.zones.filter((z) => boxes[z]), ...(Object.keys(boxes) as Zone[]).filter((z) => !look.zones.includes(z))];
@@ -682,7 +727,7 @@ export class LyricLayer {
       return best;
     };
     const fixedZone = (m: Drawn): Zone => (m === 'subtitle' ? 'bottom' : m === 'cutout' ? 'middle' : 'left');
-    let zone = pickZone(medium as Exclude<Drawn, 'own' | 'world'>, fixedZone(medium));
+    let zone = pickZone(medium as Placed2, fixedZone(medium));
     // the picture is too busy for display type even with a backing: hand the line to a caption
     if (style === 'auto' && !moment && (medium === 'big' || medium === 'sparse') && this.probe.version > 0 && look.plate !== 'band') {
       const v = judge(this.probe, SP[medium][zone]!.r, { inks: this.inkList(look.ink, pal, null), target: 3, ladder: ladderFor(look), pal });
@@ -693,7 +738,7 @@ export class LyricLayer {
       }
     }
     const L: LineState = { ...base, medium, zone, why };
-    const m = medium as Exclude<Drawn, 'own' | 'world'>;
+    const m = medium as Placed2;
     const spot = SP[m][zone] ?? SP[m].left ?? SP[m].middle ?? SP.subtitle.bottom!;
     const box = px(spot.r, W, H);
 
@@ -743,12 +788,75 @@ export class LyricLayer {
   }
 
   /**
+   * Lay a knockout showing out: the words as huge cards in the song's family, capitals or as written
+   * for the whole part, sized by how long each is held, the loudness there and the part's energy.
+   * When the showing before was knockout in the same part and runs right up to this one, it hands
+   * over its last card, so this showing's first word knocks it out (all from the plan, so scrubbing
+   * gives the same picture).
+   */
+  private planKnockout(base: LineState, words: Word[], lines: LyricLine[], li: number, look: LyricProfile, carries: boolean, W: number, H: number, pal: Palette, an: TrackAnalysis, fam: string | undefined, tr: Treatment, end: number): LineState {
+    const g = this.ctx;
+    const choice = base.choice;
+    const maxE = Math.max(0.01, ...an.sections.map((s) => s.energy));
+    const curve = an.energyCurve;
+    const loud = (t: number) => (curve?.length ? curve[Math.max(0, Math.min(curve.length - 1, Math.floor((t / Math.max(1, an.duration)) * curve.length)))] : 0.6);
+    const portrait = H > W * 1.2;
+    const bandR: Rect = portrait ? { x0: 0.05, y0: 0.2, x1: 0.95, y1: 0.76 } : { x0: 0.05, y0: 0.12, x1: 0.95, y1: 0.9 };
+    // what the picture under the band asks for: ink that clears it with a shadow at most, or the field
+    const sampled = this.probe.version > 0;
+    const pic = sampled ? regionStats(this.probe, bandR) : null;
+    const ladder: Backing[] = ['none', 'shadow'];
+    const v = sampled ? judge(this.probe, bandR, { inks: this.inkList(look.ink, pal, pic), target: 3, ladder, pal }) : null;
+    const field = fieldFor(pal, pic);
+    const needsField = !!v && v.bad > 0.12;
+    ensureLyricFont(fam ? FAMILY_FONTS[fam] : FONT);
+    const section = choice?.section ?? 0;
+    const opts = (e: number, seed: number) => ({
+      W,
+      H,
+      family: fam,
+      caps: knockoutCaps(fam, tr, choice?.partSeed ?? 1),
+      energy: an.sections[section] ? an.sections[section].energy / maxE : 0.7,
+      loud,
+      seed,
+      end: e,
+      pal,
+      pic,
+      needsField,
+    });
+    // the showings either side: knockout in the same part, close enough to hand over word to word?
+    const shows = showings(lines);
+    const k = shows.findIndex((s) => s.first === li);
+    const s = useStudio.getState();
+    const plan = lyricPlanNow({ analysis: an, lyrics: s.lyrics, plan: s.plan, planOn: s.planOn });
+    const koAt = (j: number) => {
+      const sh = shows[j];
+      if (!sh || !plan) return null;
+      const c = chooseForLine(plan, an, lines, sh.first, look, !carries);
+      return c.medium === 'knockout' && c.section === section ? c : null;
+    };
+    // held through a short gap until the next showing's first word knocks it out
+    const handsOn = (j: number) => j >= 0 && j + 1 < shows.length && shows[j + 1].t - shows[j].end < KO_BRIDGE && !!koAt(j + 1);
+    const endOf = (j: number) => (handsOn(j) ? shows[j + 1].t : shows[j]?.end ?? end);
+    const myEnd = k >= 0 ? endOf(k) : end;
+    let ko = buildKnockout(g, words, opts(myEnd, choice?.seed ?? li + 1));
+    const pc = k > 0 && handsOn(k - 1) ? koAt(k - 1) : null;
+    // the word handed over is drawn as it was on screen: laid out from what that showing saw
+    const seen = this.koSeen.get(lines) ?? new Map<number, { pic: RegionStats | null; needsField: boolean }>();
+    this.koSeen.set(lines, seen);
+    if (pc) ko = withLead(ko, buildKnockout(g, shows[k - 1].words, { ...opts(endOf(k - 1), pc.seed), ...(seen.get(shows[k - 1].first) ?? {}) }));
+    seen.set(li, { pic, needsField });
+    // with no field to cut the words from on this picture, ink may need a soft scrim
+    return { ...base, medium: 'knockout', ko, holdTo: myEnd + 0.1, rect: ko.rect, zone: 'middle', target: 3, ladder: field ? ladder : ['none', 'shadow', 'soft', 'band'] };
+  }
+
+  /**
    * How readable the line on screen is right now (for checks and the audit): the share of its box
    * where the ink, over the backing actually showing, misses the contrast target. null: nothing drawn.
    */
   legibilityNow(): { medium: Drawn; zone: Zone; moment: LyricMoment | null; backing: Backing; bad: number; why: string } | null {
     const L = this.line;
-    if (!L || L.medium === 'own' || this.standDown > 0.5 || this.probe.version <= 0) return null;
+    if (!L || quiet(L.medium) || this.standDown > 0.5 || this.probe.version <= 0) return null;
     if (L.medium === 'cutout') return { medium: L.medium, zone: L.zone, moment: L.moment, backing: 'paper', bad: 0, why: L.why };
     if (L.medium === 'world') return { medium: L.medium, zone: L.zone, moment: L.moment, backing: 'none', bad: 0, why: L.why };
     const gd = this.guard;
@@ -769,7 +877,7 @@ export class LyricLayer {
       family: plan?.family ?? null,
       section: si >= 0 && an ? (LABEL[an.sections[si]?.label] ?? '') : '',
       why: L?.why ?? '',
-      backing: L && L.medium !== 'own' && L.medium !== 'cutout' && L.medium !== 'world' ? this.guard.backing : 'none',
+      backing: L && !quiet(L.medium) && L.medium !== 'cutout' && L.medium !== 'world' ? this.guard.backing : 'none',
       source: plan?.source ?? null,
     });
   }

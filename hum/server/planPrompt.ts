@@ -13,6 +13,10 @@
  */
 import { TRANSITION_IDS } from '../src/core/transitionList.js';
 
+/** every lyric medium a part can have (the app's list is LYRIC_MEDIUMS in src/state/lyricPlan.ts; keep them the same) */
+export const LYRIC_MEDIUM_IDS = ['subtitle', 'big', 'knockout', 'cutout', 'sparse', 'own', 'none'] as const;
+const isMedium = (v: unknown): v is string => typeof v === 'string' && (LYRIC_MEDIUM_IDS as readonly string[]).includes(v);
+
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const clip = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, n) : '');
 
@@ -31,6 +35,9 @@ export function shortFit(fit: string): string {
   const f = noTop(fit.replace(/\s+/g, ' ').trim());
   if (/carries the words/.test(f)) return 'own';
   return f
+    // knockout suits nearly every look (it brings its own field): not worth a word per look
+    .replace(/\/knockout\b/g, '')
+    .replace(/(suits |poor for )knockout\/?/g, '$1')
     .replace(/^suits subtitle\/big\/cutout\/sparse/, 'all')
     .replace(/^suits /, '')
     .replace(/; poor for /g, ', not ')
@@ -207,7 +214,7 @@ export const EDIT_PLAN_TOOL = {
             pops: { type: 'integer', minimum: 0, maximum: 3 },
             pace: { type: 'integer', enum: [1, 2, 4, 8], description: 'Bars per shot.' },
             transition: { type: 'string', enum: [...TRANSITION_IDS], description: 'How the section arrives.' },
-            lyric: { type: 'string', enum: ['subtitle', 'big', 'cutout', 'sparse', 'own'], description: 'How its lyrics appear.' },
+            lyric: { type: 'string', enum: [...LYRIC_MEDIUM_IDS], description: 'How its lyrics appear (knockout: one huge word at a time, for loud choruses and drops with few words; none: no words on screen there).' },
           },
           required: ['index'],
         },
@@ -243,7 +250,7 @@ export function describePlanForEdit(rawSections: unknown, rawPlan: unknown, know
       const rot = Array.isArray(rotate[i]) ? (rotate[i] as unknown[]).map(id).filter(Boolean).slice(0, 3) : [];
       const p = num(pops[i]);
       const b = num(pace[i]);
-      const l = typeof lyric[i] === 'string' && ['subtitle', 'big', 'cutout', 'sparse', 'own'].includes(lyric[i] as string) ? (lyric[i] as string) : '';
+      const l = isMedium(lyric[i]) ? lyric[i] : '';
       return [
         `#${i} ${label} grp ${g}${e !== null ? ` energy ${Math.max(0, Math.min(1, e)).toFixed(2)}` : ''}${d !== null ? ` DROP ${Math.max(0, Math.min(1, d)).toFixed(2)}` : ''}`,
         `look ${id(looks[i]) || '(none)'}${rot.length ? ` +${rot.join(',')}` : ''}`,
@@ -304,7 +311,7 @@ export function cleanPlanEdit(raw: unknown, known: Set<string>, sections: number
     if (typeof c.pops === 'number') out.pops = Math.max(0, Math.min(3, Math.round(c.pops)));
     if (typeof c.pace === 'number' && [1, 2, 4, 8].includes(c.pace)) out.pace = c.pace;
     if (typeof c.transition === 'string' && (TRANSITION_IDS as readonly string[]).includes(c.transition)) out.transition = c.transition;
-    if (typeof c.lyric === 'string' && ['subtitle', 'big', 'cutout', 'sparse', 'own'].includes(c.lyric)) out.lyric = c.lyric;
+    if (isMedium(c.lyric)) out.lyric = c.lyric;
     if (Object.keys(out).length > 1) {
       seen.add(i);
       changes.push(out);
