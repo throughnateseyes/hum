@@ -32,6 +32,7 @@ import { combineParts, combineRun, likePart, playFrom, playPart, resetParts, set
 import { assignLook, findLook, partEdits, partNames, planShots, sectionIndexAt, sectionNames, shotIndexAt, validPlan, type Shot } from '../state/plan';
 import { originalOf, parentsOf } from '../state/planCache';
 import { useStudio } from '../state/store';
+import { withTweak } from '../state/tweaks';
 import { noteHandPick } from '../state/taste';
 import { ContextMenu, MOD, type MenuItem } from './ContextMenu';
 import { Plus } from './Icons';
@@ -411,7 +412,10 @@ function ZoomControl({ zoom, max }: { zoom: number; max: number }) {
 
 /* ───────── the section headers ───────── */
 
-/** Intro, Build, Drop…: one header over the parts each section of the song gave (click: pick them all) */
+/**
+ * Intro, Build, Drop…: one header over the parts each section of the song gave (click: pick them all).
+ * Zoomed in, a section's name stays pinned at the left edge of the timeline while any of it is in view.
+ */
 function SectionHeads({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
   const orig = originalOf(a);
   const names = sectionNames(orig.sections);
@@ -442,8 +446,11 @@ function SectionHeads({ a, laneW }: { a: TrackAnalysis; laneW: number }) {
             onClick={() => mine.length && pickParts(mine)}
             onDoubleClick={() => playFrom(sec.start)}
           >
-            <i style={{ background: GROUP_INK[sec.group % GROUP_INK.length] }} />
-            {px >= 30 && <b>{names[j]}</b>}
+            {/* sticky: zoomed in, the name stays at the left edge until its section scrolls away */}
+            <span className="tln-hd-l">
+              <i style={{ background: GROUP_INK[sec.group % GROUP_INK.length] }} />
+              {px >= 30 && <b>{names[j]}</b>}
+            </span>
           </button>
         );
       })}
@@ -500,6 +507,9 @@ function PartsRow({
   const partPops = useStudio((s) => s.partPops);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
+  // looks fine-tuned for this video show as they play (state/tweaks.ts): their colours on the blocks
+  const tweaks = useStudio((s) => s.tweaks);
+  const tuned = (p: Preset | undefined) => (p ? withTweak(p, tweaks[p.id]) : undefined);
   const phone = useLayout((s) => s.phone);
   useStudio((s) => s.customPresets.length);
   const dragId = useDraggedLook();
@@ -592,7 +602,7 @@ function PartsRow({
       }}
     >
       {secs.map((sec, i) => {
-        const look = findLook(looks[i]);
+        const look = tuned(findLook(looks[i]));
         const len = sec.end - sec.start;
         const px = (len / a.duration) * laneW;
         const size = px < PIC_PX ? 'tiny' : px < FULL_PX ? 'small' : '';
@@ -671,7 +681,7 @@ function PartsRow({
                 // a plan that isn't one look per part: its shots inside the part
                 mine.map(({ sh, k }, m) => {
                   const end = mine[m + 1]?.sh.t ?? sec.end;
-                  const p = findLook(sh.lookId);
+                  const p = tuned(findLook(sh.lookId));
                   const w = ((end - sh.t) / a.duration) * laneW;
                   const mode = w >= FULL_PX ? 'full' : w >= PIC_PX ? 'pic' : 'tick';
                   const stip = `${p?.name ?? 'A look'} · ${fmtTime(sh.t)}–${fmtTime(end)} · ${CUT_ON[sh.on]}`;
@@ -735,7 +745,7 @@ function DropTip({ x, y, at, look, names, multi, alike, fills, alt }: { x: numbe
   );
 }
 
-/** hover a block: a live preview of its look over the timeline */
+/** hover a block: a live preview of its look over the timeline, with this video's fine-tuning on it */
 function shotPeek(p: Preset, part: string, tip: string) {
   return peekHandlers({
     key: `shot:${part}:${p.id}`,
@@ -743,7 +753,7 @@ function shotPeek(p: Preset, part: string, tip: string) {
     hint: `${tip.split(' · ').slice(1).join(' · ')}. Click to pick the part, double-click to play it, right-click for more.`,
     poster: STATIC_THUMBS[p.id],
     place: 'above',
-    getLook: () => (useStudio.getState().presetId === p.id ? null : presetToLook(p)),
+    getLook: () => (useStudio.getState().presetId === p.id ? null : presetToLook(withTweak(p, useStudio.getState().tweaks[p.id]))),
   });
 }
 

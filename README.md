@@ -17,8 +17,11 @@ It's a studio for experimenting rather than a video template. You can make music
 - **Textures that listen.** Nearly 100 hand-built looks: 3D places (concrete, water, gardens, night cities), shader fields, ink and print, paper cut-outs, particles, type and photo treatments. Each one is designed around its quiet parts, its build-up and its drop, not only the beat. Looks come in families of variations, and you can drag any audio layer onto any slider to make it react to that layer too.
 - **Lyrics, found and timed.** Lyrics come from the file's tags or from [LRCLIB](https://lrclib.net), a free lyrics library. You can also search LRCLIB or paste lyrics yourself; Hum then times each line by listening to the song on your computer. The lyric style follows the song's mood: soft fades, blur-ins, words that slam in, or a newspaper-cutout ransom note.
 - **Make a video.** Hum plans a look for every part of the song (with Claude, or offline) and cuts between them on musical phrases. The **Pace** setting makes it cut slower or faster.
-- **Finishes.** A hand-drawn mode, an effect stack (dither, halftone, ASCII, grain…), an Impact knob, pop-up instrument windows, and 9:16 / 4:5 / 1:1 frames for reels.
-- **Save it.** Render any stretch to MP4 with sound, at any size, or save a still PNG.
+- **Edit it shot by shot.** The timeline shows one block per shot under the song's sections. Click to pick a shot (⌘/Ctrl-click or Shift-click for more), right-click for a menu, split with `C`, combine with `⌘/Ctrl+J`, and zoom in to work closely. The right panel has three tabs: **Video** for the whole video, **Part** for the picked shot (its look, five quick picks on `1`–`5`, hand-drawn, pop-ups, lyrics and fine-tuning) and **Render**. `X` skips the shot playing and `K` likes it, in full screen too.
+- **Nothing to save.** Every change is kept as you make it, `⌘/Ctrl+Z` and `⇧⌘Z` undo and redo all of it, and the song, your clips and your video come back after a reload.
+- **Your own footage.** Drop in video clips and the footage looks cut them on the beat in the song's colours, with graphics in six styles you can pick and shuffle.
+- **Finishes.** A hand-drawn mode, an effect stack (dither, halftone, ASCII, grain…), an Impact knob, pop-up instrument windows, Knockout lyrics (one huge word at a time), and 9:16 / 4:5 / 1:1 frames for reels.
+- **Save it.** Render any stretch to MP4 with sound, at any size, make a clip for socials in one click, or save a still PNG.
 - **An AI director.** Describe a feeling and get a look, or a brand-new GLSL scene written and compiled live.
 
 ## Run it
@@ -63,7 +66,7 @@ A Make a video costs about $0.04 on the default model. When a limit is hit, the 
 
 Without a key, the hosted site still works with the offline director.
 
-Visitors without a code can use everything except the AI. When they press an AI action (Make a video, describe a feeling, a new scene), Hum asks for a code and then carries on with that action. The same box links to this repo and explains how to run Hum on their own computer with their own Claude sign-in. If the site has no key at all, the box just says AI is off here. The server is the real check: codes and limits are enforced in `hum/server/`, never in the browser. A saved code can be changed or forgotten under Look → Advanced.
+Visitors without a code can use everything except the AI. When they press an AI action (Make a video, describe a feeling, a new scene), Hum asks for a code and then carries on with that action. The same box links to this repo and explains how to run Hum on their own computer with their own Claude sign-in. If the site has no key at all, the box just says AI is off here. The server is the real check: codes and limits are enforced in `hum/server/`, never in the browser. The welcome screen asks for the code too, under the demos. A saved code can be changed or forgotten under Video → More.
 
 ## The full guide
 

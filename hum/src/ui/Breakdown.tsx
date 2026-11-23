@@ -5,6 +5,7 @@ import { chordPace } from '../audio/harmony';
 import type { TrackAnalysis, TrackHarmony, TrackNote } from '../core/types';
 import { onFrame } from '../state/live';
 import { sectionNames } from '../state/plan';
+import { originalOf } from '../state/planCache';
 import { useStudio } from '../state/store';
 import { X } from './Icons';
 import { GROUP_INK, GROUP_TINT, dropList, fmtTime } from './song';
@@ -68,7 +69,8 @@ export function Breakdown() {
   return (
     <section className="bd" role="dialog" aria-label="Song breakdown">
       {analysis ? (
-        <BreakdownBody a={analysis} name={track?.name ?? 'This song'} />
+        // the song's own sections, not the video's shots (every shot is a part of its own: flatPlan.ts)
+        <BreakdownBody a={originalOf(analysis)} name={track?.name ?? 'This song'} />
       ) : (
         <>
           <BdHeader title={track?.name ?? 'No song yet'} />

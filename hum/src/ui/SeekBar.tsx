@@ -14,6 +14,7 @@ import type { TrackAnalysis } from '../core/types';
 import { onFrame } from '../state/live';
 import { sectionIndexAt, sectionNames } from '../state/plan';
 import { beginScrub, endScrub, isScrubbing, scrubTo, showMoment } from '../state/scrub';
+import { originalOf } from '../state/planCache';
 import { useStudio } from '../state/store';
 import { dropList, fmtTime } from './song';
 
@@ -30,6 +31,15 @@ function namesOf(secs: TrackAnalysis['sections']): string[] {
   return v;
 }
 
+/**
+ * The song's own sections, as Hum heard them. Every shot of a video is its own part (flatPlan.ts), but
+ * the marks, the names and Shift ← / → go by the song's sections (Intro, Verse, Drop…), not by shot.
+ */
+function song(): TrackAnalysis | null {
+  const a = useStudio.getState().analysis;
+  return a ? originalOf(a) : null;
+}
+
 const duration = () => {
   const a = useStudio.getState().analysis;
   return a?.duration || audioEngine.frame.duration || 0;
@@ -44,12 +54,12 @@ export function seekBy(by: number) {
 }
 
 /**
- * The previous or next part (Shift ← / →). Back works like a music player's back button: more than
- * two seconds into a part goes to its start, otherwise to the part before.
+ * The previous or next section of the song (Shift ← / →). Back works like a music player's back
+ * button: more than two seconds into a section goes to its start, otherwise to the one before.
  */
 export function jumpPart(dir: 1 | -1) {
   if (audioEngine.kind !== 'file') return;
-  const secs = useStudio.getState().analysis?.sections ?? [];
+  const secs = song()?.sections ?? [];
   if (!secs.length) return seekBy(dir * SEEK_STEP * 3);
   const t = audioEngine.currentTime;
   const i = sectionIndexAt(secs, t);
@@ -73,7 +83,8 @@ function marksOf(a: TrackAnalysis | null): Mark[] {
 }
 
 export function SeekBar({ onDragChange }: { onDragChange?: (dragging: boolean) => void }) {
-  const analysis = useStudio((s) => s.analysis);
+  const cut = useStudio((s) => s.analysis);
+  const analysis = useMemo(() => (cut ? originalOf(cut) : null), [cut]);
   const el = useRef<HTMLDivElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);
@@ -120,7 +131,7 @@ export function SeekBar({ onDragChange }: { onDragChange?: (dragging: boolean) =
       const box = el.current;
       if (box && sec !== lastSec) {
         lastSec = sec;
-        const a = useStudio.getState().analysis;
+        const a = song();
         const part = a?.sections.length ? namesOf(a.sections)[sectionIndexAt(a.sections, t)] : '';
         box.setAttribute('aria-valuenow', String(sec));
         box.setAttribute('aria-valuemax', String(Math.round(dur)));
@@ -280,7 +291,7 @@ export function SeekTime() {
         const t = audioEngine.currentTime;
         const text = live ? 'Live' : `${fmtTime(t)} / ${fmtTime(duration())}`;
         if (time.current && time.current.textContent !== text) time.current.textContent = text;
-        const a = useStudio.getState().analysis;
+        const a = song();
         const p = !live && a?.sections.length ? namesOf(a.sections)[sectionIndexAt(a.sections, t)] : '';
         if (part.current && part.current.textContent !== p) part.current.textContent = p;
       }),

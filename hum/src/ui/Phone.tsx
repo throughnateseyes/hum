@@ -5,8 +5,8 @@
  * pull down, a second tap on their tab, or a swipe down on the picture (a swipe up brings the last one
  * back, stageGestures.ts). On a phone held sideways the sheet takes the right-hand column instead.
  */
-import type { ReactNode } from 'react';
-import { useStudio } from '../state/store';
+import { useEffect, type ReactNode } from 'react';
+import { useStudio, type PopupMode } from '../state/store';
 import { pickLook } from '../state/plan';
 import { PRESETS } from '../presets';
 import { Sheet } from './Sheet';
@@ -14,7 +14,9 @@ import { Library } from './Library';
 import { Inspector } from './Inspector';
 import { DirectorPanel } from './Director';
 import { LyricsPanel } from './Lyrics';
-import { FeelControls } from './Bottom';
+import { activeFinish } from '../state/direction';
+import { Slider, Toggle } from './controls';
+import { toggleHand } from './hand';
 import { FramePicker } from './Perform';
 import { RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 import { ShareClip } from './ShareClip';
@@ -91,8 +93,15 @@ function shuffle() {
   if (pool.length) pickLook(pool[Math.floor(Math.random() * pool.length)]);
 }
 
-/** Look settings: the frame, how it reacts, then the inspector and the chat with Claude */
+/**
+ * Look settings: the frame, how it reacts, then the inspector and the chat with Claude. The phone renders
+ * from its own Export panel, so the inspector's Render tab is hidden here (phone.css): left open, it kept
+ * render mode on after the sheet closed, and the song map stopped opening parts.
+ */
 function SettingsPanel() {
+  useEffect(() => {
+    if (useStudio.getState().inspectorTab === 'render') useStudio.getState().set({ inspectorTab: 'video' });
+  }, []);
   return (
     <div className="ph-settings">
       <div className="ph-row">
@@ -132,6 +141,69 @@ function ExportPanel() {
           <RenderBar />
         </div>
       )}
+    </div>
+  );
+}
+
+/* ───────── how it feels: Impact, Hand-drawn and Pop-ups (the desktop has them in the Video tab) ───────── */
+
+/** how hard it reacts, the hand-drawn finish and the pop-ups, in a row at the top of Look settings */
+function FeelControls() {
+  return (
+    <>
+      <ImpactKnob />
+      <HandToggle />
+      <OverlaysSwitch />
+    </>
+  );
+}
+
+/** one-click hand-drawn finish (its settings live in the Video tab) */
+function HandToggle() {
+  const on = useStudio((s) => activeFinish(s) === 'hand');
+  return (
+    <label className="sw boxed has-tip tip-left" data-tip="Choppy frames, wobbly lines, ink on paper. Fine-tune it in the Video tab. (H)">
+      <Toggle on={on} onChange={() => toggleHand()} />
+      Hand-drawn
+    </label>
+  );
+}
+
+/** the pop-up windows over the picture: one switch for all of them (when they show lives in the Video tab) */
+let lastPopupsOn: Exclude<PopupMode, 'off'> = 'video';
+function OverlaysSwitch() {
+  const mode = useStudio((s) => s.popups);
+  const on = mode !== 'off';
+  if (on) lastPopupsOn = mode;
+  const set = () => {
+    const s = useStudio.getState();
+    // read the store, not this render: two quick clicks must still flip twice
+    const v = s.popups === 'off';
+    if (!v) lastPopupsOn = s.popups as Exclude<PopupMode, 'off'>;
+    s.set({ popups: v ? lastPopupsOn : 'off' });
+    s.flash(v ? (lastPopupsOn === 'always' ? 'Pop-up windows on, all the time' : 'Pop-up windows on during videos') : 'Pop-up windows off');
+  };
+  return (
+    <label
+      className="sw boxed has-tip tip-left"
+      data-tip={`The little pop-up windows over the picture. ${on ? (mode === 'always' ? 'Showing all the time.' : 'Showing while a video plays.') : 'Hidden.'} Choose when they show in the Video tab.`}
+    >
+      <Toggle on={on} onChange={set} />
+      Pop-ups
+    </label>
+  );
+}
+
+function ImpactKnob() {
+  const impact = useStudio((s) => s.impact);
+  const set = useStudio((s) => s.set);
+  return (
+    <div className="impact has-tip" data-tip="How hard the visuals react to the music. 0% is still, 100% is normal, 200% is wild.">
+      <span className="impact-l">Impact</span>
+      <div className="impact-s">
+        <Slider value={impact} min={0} max={2} step={0.05} onChange={(v) => set({ impact: v })} />
+      </div>
+      <span className="impact-v">{Math.round(impact * 100)}%</span>
     </div>
   );
 }

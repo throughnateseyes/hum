@@ -6,7 +6,8 @@
 import { useState } from 'react';
 import type { LookFamily } from '../presets/fit';
 import { ROLES, takeName } from '../presets/fit';
-import { pickLook } from '../state/plan';
+import { pickLook, validPlan } from '../state/plan';
+import { getScene } from '../scenes';
 import { useLookFamily } from './lookFamily';
 import { useStudio } from '../state/store';
 import { noteHandPick } from '../state/taste';
@@ -30,10 +31,15 @@ function fitLine(f: LookFamily): string {
  */
 export function TakesStrip({ compact = false }: { compact?: boolean }) {
   const presetId = useStudio((s) => s.presetId);
+  // a footage look has no takes to hunt through: its styles and Shuffle sit under the look (PartPanel.tsx)
+  const footage = useStudio((s) => !!getScene(s.sceneId)?.usesClips);
+  // with a video plan the Part tab shows the part's own look and its takes (PartPanel.tsx): this strip,
+  // which follows the look on screen, would show the same takes twice
+  const planned = useStudio((s) => validPlan(s.plan, s.analysis));
   const fam = useLookFamily();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
-  if (!fam) return null;
+  if (!fam || footage || (compact && planned)) return null;
 
   const save = () => {
     const st = useStudio.getState();
