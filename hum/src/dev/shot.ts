@@ -415,6 +415,13 @@ window.__shot = {
     return out;
   },
   clearSheet: () => document.getElementById('sheet')?.remove(),
+  /** where each shot's curve (with its motion) puts the clip at these run times: to check a motion by numbers */
+  curve: (times: number[]) =>
+    times.map((at) => {
+      const t = (seq?.start ?? 0) + at;
+      const s = stage.shots.find((x) => t >= x.shot.start && t < x.shot.end);
+      return { at, motion: s?.shot.motion ?? 'play', clip: s ? +s.curve.footage(t).toFixed(3) : null, jolt: s ? +s.curve.jolt(t).toFixed(2) : 0 };
+    }),
   info: () => ({
     live: seq ? { at: +(songTime() - seq.start).toFixed(2), playing, drift: stage.drift(songTime()), frameMs: +frameMs.toFixed(1), workMs: +workMs.toFixed(2) } : null,
     seq,

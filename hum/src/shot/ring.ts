@@ -242,7 +242,8 @@ function offsets(motion: MotionId, f: RingFrame): number[] {
   }
   const n = 6 + Math.floor(unit(f.layout, 43) * (STRIPS - 5));
   const swell = 0.5 + 0.5 * Math.sin((f.t / (f.beat * 8)) * Math.PI * 2);
-  const spread = Math.min((SLOTS - 1) / (n - 1), (0.35 + 1.1 * f.loud) * (0.7 + 0.5 * swell) * (1 + 0.9 * kick));
+  // at least a tick between strips even in a quiet part, or the strips round to the same moment
+  const spread = Math.min((SLOTS - 1) / (n - 1), Math.max(1, (0.6 + 1.1 * f.loud) * (0.7 + 0.5 * swell) * (1 + 0.9 * kick)));
   return Array.from({ length: n }, (_, i) => Math.min(SLOTS - 1, Math.round(i * spread)));
 }
 

@@ -14,7 +14,8 @@
  *   --treatment mosh            how the picture is broken down (none, mosh, sort, cells, readout, collage, trace, auto)
  *   --motion stutter            what a clip does in time (play, stutter, echo, reverse, slices)
  *   --photo /footage.local/p.jpg,...   photos as stills   --zoom 1.4   push the picture in
- *   --hash 5,1,3,5               checksums of the frames at these times, drawn in that order (seek check)
+ *   --curve                     print where the clip is at each time (with --strip or --at) instead of a sheet
+ *   --hash 5,1,3,5              checksums of the frames at these times, drawn in that order (seek check)
  *   --size 720x1280             picture size (default 9:16)
  *   --cols 6  --cell 300        sheet layout
  *   --port 5178                 the dev server's port
@@ -86,6 +87,12 @@ try {
   } else {
     // a tour: a few moments from every shot, more of them just after it starts
     times = info.shots.flatMap((s) => [0.04, 0.2, 0.45, 0.7, 0.93].map((f) => Math.round((s.from + (s.to - s.from) * f) * 100) / 100));
+  }
+  if (args.includes('--curve')) {
+    // where the clip is at each of the times (the motion's curve), instead of a sheet
+    for (const c of await page.evaluate((ts) => window.__shot.curve(ts), times)) console.log(`${c.at.toFixed(3)}  ${c.motion.padEnd(8)} clip ${c.clip}  jolt ${c.jolt}`);
+    await browser.close();
+    process.exit(0);
   }
   if (opt('hash')) {
     const hs = await page.evaluate((ts) => window.__shot.hashes(ts), opt('hash').split(',').map(Number));
