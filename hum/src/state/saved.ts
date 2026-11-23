@@ -7,17 +7,19 @@
  *
  *   rememberSong / recallSong / forgetSong   the one song that is loaded
  *   recallClips, keepClipsSaved              the clips; once started, the saved set follows the store
+ *   recallPhotos, keepPhotosSaved            the photos, the same way (each kept as a JPEG of the picture as loaded)
  *   recallPlan, keepPlanSaved                the video on screen, hand changes included (small: localStorage)
  */
-import type { ClipAsset, TrackAnalysis } from '../core/types';
+import type { ClipAsset, PhotoAsset, TrackAnalysis } from '../core/types';
 import type { VideoPlan } from './plan';
 import { cutAnalysis } from './planCache';
 import { useStudio } from './store';
 
 const DB_NAME = 'hum';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SONG = 'song';
 const CLIPS = 'clips';
+const PHOTOS = 'photos';
 
 export interface SavedSong {
   name: string;
@@ -40,6 +42,7 @@ function open(): Promise<IDBDatabase | null> {
         const db = req.result;
         if (!db.objectStoreNames.contains(SONG)) db.createObjectStore(SONG);
         if (!db.objectStoreNames.contains(CLIPS)) db.createObjectStore(CLIPS, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(PHOTOS)) db.createObjectStore(PHOTOS, { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -183,4 +186,70 @@ export function recallPlan(name: string, a: TrackAnalysis, lookExists: (id: stri
   } catch {
     return null;
   }
+}
+
+/* ───────── the photos ───────── */
+
+interface SavedPhoto {
+  id: string;
+  name: string;
+  blob: Blob;
+  added: number;
+}
+
+const keptPhotos = new Set<string>();
+
+/** The photos saved last time, oldest first, as files to load again (each keeps its id, so a part that picked one still finds it) */
+export async function recallPhotos(): Promise<{ id: string; file: File }[]> {
+  const r = await ask<SavedPhoto[]>(PHOTOS, 'readonly', (s) => s.getAll());
+  const list = (r.value ?? []).filter((p) => p && typeof p.id === 'string' && p.blob instanceof Blob);
+  list.sort((a, b) => a.added - b.added);
+  for (const p of list) keptPhotos.add(p.id);
+  return list.map((p) => ({ id: p.id, file: new File([p.blob], `${p.name || 'photo'}.jpg`, { type: p.blob.type || 'image/jpeg' }) }));
+}
+
+/** the picture as it was loaded (already scaled down), as a JPEG */
+function photoBlob(p: PhotoAsset): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = p.width;
+      c.height = p.height;
+      c.getContext('2d')!.drawImage(p.image, 0, 0, p.width, p.height);
+      c.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+let photosFollowing = false;
+/** From now on, save every photo that is added and forget every photo that is removed. Call once, after recallPhotos. */
+export function keepPhotosSaved() {
+  if (photosFollowing) return;
+  photosFollowing = true;
+  let order = Date.now();
+  const sync = (photos: PhotoAsset[]) => {
+    const ids = new Set(photos.map((p) => p.id));
+    for (const p of photos) {
+      if (p.builtin || keptPhotos.has(p.id)) continue;
+      keptPhotos.add(p.id);
+      const added = order++;
+      void photoBlob(p).then(async (blob) => {
+        const r = blob ? await ask(PHOTOS, 'readwrite', (s) => s.put({ id: p.id, name: p.name, blob, added } satisfies SavedPhoto)) : { ok: false };
+        if (r.ok) return;
+        keptPhotos.delete(p.id);
+        warn();
+      });
+    }
+    for (const id of [...keptPhotos]) {
+      if (ids.has(id)) continue;
+      keptPhotos.delete(id);
+      void ask(PHOTOS, 'readwrite', (s) => s.delete(id));
+    }
+  };
+  sync(useStudio.getState().photos);
+  useStudio.subscribe((s, prev) => {
+    if (s.photos !== prev.photos) sync(s.photos);
+  });
 }

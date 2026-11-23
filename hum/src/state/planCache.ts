@@ -245,15 +245,26 @@ export function watchPlan(key: string, plan: VideoPlan, analysis: TrackAnalysis)
   });
 }
 
-/* ── the person's own settings per part (pop-ups, hand-drawn, words), per song ── */
+/* ── the person's own settings per part (pop-ups, hand-drawn, words, footage picture), per song ── */
 
-type PartField = 'partPops' | 'partHand' | 'partWords';
-const PART_KEYS: Record<PartField, string> = { partPops: 'hum.partPops', partHand: 'hum.partHand', partWords: 'hum.partWords' };
+type PartField = 'partPops' | 'partHand' | 'partWords' | 'partShot';
+const PART_KEYS: Record<PartField, string> = { partPops: 'hum.partPops', partHand: 'hum.partHand', partWords: 'hum.partWords', partShot: 'hum.partShot' };
 const PART_OK: Record<PartField, (v: unknown) => boolean> = {
   partPops: (v) => v === null || (typeof v === 'number' && v >= 0 && v <= 3),
   partHand: (v) => v === null || typeof v === 'boolean',
   partWords: (v) => v === null || (typeof v === 'string' && v.length <= 200),
+  partShot: (v) => v === null || okShot(v),
 };
+
+/** a saved footage picture record (store.partShot) still reads as one */
+function okShot(v: unknown): boolean {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const r = v as Record<string, unknown>;
+  const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
+  const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= 40);
+  const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
+  return text('style') && text('treatment') && media && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
+}
 const FIELDS = Object.keys(PART_KEYS) as PartField[];
 
 function readPart(field: PartField): Record<string, unknown[]> {
@@ -311,9 +322,10 @@ useStudio.subscribe((s, prev) => {
     const same = !!prev.analysis && originalOf(prev.analysis) === originalOf(a);
     const patch: Partial<Record<PartField, unknown[] | null>> = {};
     if (!same) {
-      // a new song: the last song's hand-drawn, words and picked parts go (tracks.ts clears pop-ups)
+      // a new song: the last song's hand-drawn, words, pictures and picked parts go (tracks.ts clears pop-ups)
       if (s.partHand) patch.partHand = null;
       if (s.partWords) patch.partWords = null;
+      if (s.partShot) patch.partShot = null;
       if (s.selectedParts.length) (patch as { selectedParts?: number[] }).selectedParts = [];
     }
     for (const f of FIELDS) {

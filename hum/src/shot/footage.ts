@@ -145,6 +145,12 @@ uniform vec3 uInk, uPaper, uAccent, uMid;
 uniform vec2 uCuts;
 uniform vec2 uFocus, uTexel;
 uniform float uTreat, uBlur, uPunch, uFlash, uFlip;
+// a treated shot: the bed goes to the treatment with alpha saying where the picture shows (uAlphaOut),
+// and the treatments that recolour the picture themselves want it unprinted (uRaw)
+uniform float uAlphaOut, uRaw;
+// the shot's framing: the part's push-in, and a still's slow drift and push (uv, and a scale)
+uniform float uZoomAll, uGrow;
+uniform vec2 uDrift;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -172,6 +178,11 @@ vec3 solid(float mode) {
   return mode < 4.5 ? uPaper : mode < 5.5 ? uInk : uAccent;
 }
 
+// 1 where a region shows the picture, 0 where it is a flat field (once the shot has taken its colours)
+float isPicture(float mode) {
+  return (mode > 3.5 && mode < 6.5) ? 1.0 - uTreat : 1.0;
+}
+
 // one region: the clip inside its box, pushed in on the focus, smeared by speed, printed in its tone
 vec3 region(vec4 box, float zoom, float mode) {
   bool plain = mode > 3.5 && mode < 6.5;
@@ -179,7 +190,7 @@ vec3 region(vec4 box, float zoom, float mode) {
   vec2 local = (vUv - box.xy) / box.zw;
   float aspect = uAspect * box.z / box.w;
   vec2 f = clamp((uFocus - box.xy) / box.zw, 0.0, 1.0);
-  vec2 uv = f + (local - f) / (zoom * (1.0 + uPunch));
+  vec2 uv = f + (local - f) / (zoom * uZoomAll * uGrow * (1.0 + uPunch)) + uDrift;
   vec3 col = vec3(0.0);
   float j = hash(gl_FragCoord.xy);
   // the smear takes ten taps; a still shot (most of every shot) needs one
@@ -191,6 +202,7 @@ vec3 region(vec4 box, float zoom, float mode) {
   }
   col /= taps;
   if (mode < 0.5) return col;
+  if (uRaw > 0.5 && !plain) return col;
   if (plain) return mix(col, solid(mode), uTreat);
   // brightness, read a little soft so flat bands have clean edges instead of speckle
   vec2 tx = uTexel / (zoom * box.zw);
@@ -216,11 +228,14 @@ void main() {
   float wb = m.g;
   float w0 = clamp(1.0 - wa - wb, 0.0, 1.0);
   vec3 col = vec3(0.0);
-  if (w0 > 0.002) { gSrc = uSrc.x; col += region(uRect0, uZoom.x, uTone.x) * w0; }
-  if (wa > 0.002) { gSrc = uSrc.y; col += region(uRect1, uZoom.y, uTone.y) * wa; }
-  if (wb > 0.002) { gSrc = uSrc.z; col += region(uRect2, uZoom.z, uTone.z) * wb; }
-  col /= max(0.001, w0 + wa + wb);
-  gl_FragColor = vec4(mix(col, uPaper, uFlash), 1.0);
+  // how much of this pixel is picture (not a flat field the style laid), for a treatment
+  float pic = 0.0;
+  if (w0 > 0.002) { gSrc = uSrc.x; col += region(uRect0, uZoom.x, uTone.x) * w0; pic += isPicture(uTone.x) * w0; }
+  if (wa > 0.002) { gSrc = uSrc.y; col += region(uRect1, uZoom.y, uTone.y) * wa; pic += isPicture(uTone.y) * wa; }
+  if (wb > 0.002) { gSrc = uSrc.z; col += region(uRect2, uZoom.z, uTone.z) * wb; pic += isPicture(uTone.z) * wb; }
+  float sum = max(0.001, w0 + wa + wb);
+  col /= sum;
+  gl_FragColor = vec4(mix(col, uPaper, uFlash), uAlphaOut > 0.5 ? pic / sum : 1.0);
 }
 `;
 
@@ -234,6 +249,16 @@ export interface FootageState {
   /** 0..1 white-out (to the paper) */
   flash: number;
   flip: boolean;
+  /** a still's slow push (1: none) and drift (uv) */
+  grow: number;
+  drift: [number, number];
+}
+
+/** how the bed is drawn: the part's push-in, and for a treated shot alpha and an unprinted picture */
+export interface BedOptions {
+  zoom: number;
+  alpha: boolean;
+  raw: boolean;
 }
 
 export class FootagePass {
@@ -273,6 +298,11 @@ export class FootagePass {
         uPunch: { value: 0 },
         uFlash: { value: 0 },
         uFlip: { value: 0 },
+        uAlphaOut: { value: 0 },
+        uRaw: { value: 0 },
+        uZoomAll: { value: 1 },
+        uGrow: { value: 1 },
+        uDrift: { value: new THREE.Vector2(0, 0) },
       },
     });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
@@ -301,8 +331,13 @@ export class FootagePass {
   }
 
   /** `focus` is 0..1 from the bottom-left: the point the picture pushes in on. `mask` holds the style's windows, if any. */
-  render(renderer: THREE.WebGLRenderer, w: number, h: number, focus: { x: number; y: number }, s: FootageState, bed: Bed, mask: THREE.Texture | null) {
+  render(renderer: THREE.WebGLRenderer, w: number, h: number, focus: { x: number; y: number }, s: FootageState, bed: Bed, mask: THREE.Texture | null, o: BedOptions = { zoom: 1, alpha: false, raw: false }) {
     const u = this.material.uniforms;
+    u.uZoomAll.value = o.zoom;
+    u.uAlphaOut.value = o.alpha ? 1 : 0;
+    u.uRaw.value = o.raw ? 1 : 0;
+    u.uGrow.value = s.grow;
+    (u.uDrift.value as THREE.Vector2).set(s.drift[0], s.drift[1]);
     u.tMask.value = mask;
     u.uHasMask.value = mask ? 1 : 0;
     u.uAspect.value = w / h;

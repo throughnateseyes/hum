@@ -17,6 +17,7 @@
 import type { TrackAnalysis } from '../core/types';
 import type { Colour } from './kit';
 import { styleForPart, type StyleId } from './styles';
+import { treatmentForShot, type TreatmentId } from './treatments';
 import { clamp01, easeInCubic, feltBeat, scoreFromAnalysis, since, smooth } from './time';
 
 export type ShotKind = 'footage' | 'look' | 'card';
@@ -54,6 +55,10 @@ export interface Shot {
   altFrom?: number;
   /** the second clip is the shot's own clip opened a second time (there is only one clip) */
   altEcho?: boolean;
+  /** how the picture itself is broken down (src/shot/treatments); missing: none */
+  treatment?: TreatmentId;
+  /** Collage: the other pictures its fragments are cut from, by footage index */
+  extra?: number[];
 }
 
 export interface Sequence {
@@ -63,6 +68,8 @@ export interface Sequence {
   beat: number;
   kicks: number[];
   snares: number[];
+  /** hi-hat hits (the beat's eighths when the song has none) */
+  hats?: number[];
   shots: Shot[];
   /** the part's name for small type (e.g. CHORUS), its start, and how loud it is */
   part: string;
@@ -97,7 +104,7 @@ export function layoutOf(seed: number, part: number, shot: number): number {
 const blank = (kind: ShotKind, start: number, end: number, rest: Partial<Shot>): Shot => ({ index: 0, kind, start, end, footageIndex: -1, arrive: 'cold', leave: 'cut', rampBeats: RAMP, colour: 'clean', style: '', layout: 0, word: '', ...rest });
 
 /** `phrase` is the words to set in type: the card shows all of it, the shots one word each */
-export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number, o: { style?: string; seed?: number; colour?: Colour } = {}): Sequence {
+export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: number, o: { style?: string; seed?: number; colour?: Colour; treatment?: string } = {}): Sequence {
   const base = scoreFromAnalysis(a, at);
   const beat = base.beat;
   const lead = SEQ_LEAD * beat;
@@ -128,11 +135,16 @@ export function sequenceFromAnalysis(a: TrackAnalysis, phrase: string, at?: numb
     blank('footage', at14, end, { arrive: 'hit', leave: 'settle', colour, style: pick('chorus', 0.7, 2), layout: layoutOf(seed, 0, 4), word: last }),
   ];
   let n = 0;
+  const labels = ['build', 'drop', 'chorus'] as const;
   shots.forEach((s, i) => {
     s.index = i;
-    if (s.kind === 'footage') s.footageIndex = n++;
+    if (s.kind !== 'footage') return;
+    const k = n++;
+    s.footageIndex = k;
+    s.treatment = treatmentForShot({ start: 0, end: 1, energy: [0.5, 0.9, 0.7][k] ?? 0.7, label: labels[k] ?? 'chorus', group: k }, 0, o.treatment ?? 'none', seed, '', 3);
+    s.extra = [k + 1, k + 2, k + 3];
   });
-  return { start, hit, end, beat, kicks, snares, shots, part: 'DROP', partStart: start, energy: 0.8, words };
+  return { start, hit, end, beat, kicks, snares, hats: hatsIn(a, start, end, beat), shots, part: 'DROP', partStart: start, energy: 0.8, words };
 }
 
 /* ───────── one part of a song, in the app ───────── */
@@ -150,6 +162,10 @@ export interface PartOptions {
   words: string[];
   /** hold a card of type for the two beats before a hit */
   card: boolean;
+  /** a treatment id, 'auto', or missing for none */
+  treatment?: string;
+  /** how many pictures there are to cut between (Auto only picks Collage with several) */
+  pictures?: number;
 }
 
 /**
@@ -204,6 +220,8 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
       style,
       layout: layoutOf(o.seed, index, j),
       word: o.words.length ? o.words[(index + j) % o.words.length] : '',
+      treatment: treatmentForShot(sec, j, o.treatment ?? 'none', o.seed, '', o.pictures ?? 1),
+      extra: [index + j + 1, index + j + 2, index + j + 3],
     });
   }
   if (cardFrom < end) shots.push(blank('card', cardFrom, end, { index: shots.length, word: o.words.slice(0, 4).join(' ') }));
@@ -216,12 +234,20 @@ export function partSequence(a: TrackAnalysis, index: number, o: PartOptions): S
     beat,
     kicks,
     snares,
+    hats: hatsIn(a, start, end, beat),
     shots,
     part: sec.label.toUpperCase(),
     partStart: start,
     energy: sec.energy,
     words: o.words,
   };
+}
+
+/** hi-hat hits in a stretch of the song, or the beat's eighths when it has none */
+export function hatsIn(a: TrackAnalysis, start: number, end: number, beat: number): number[] {
+  const hats = inRange(a.layers?.hat, start, end, beat * 0.2);
+  if (hats.length >= 4) return hats;
+  return Array.from({ length: Math.max(1, Math.floor((end - start) / (beat / 2))) }, (_, i) => start + (i * beat) / 2);
 }
 
 export const shotAt = (seq: Sequence, t: number): Shot => seq.shots.find((s) => t < s.end) ?? seq.shots[seq.shots.length - 1];

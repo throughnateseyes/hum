@@ -614,6 +614,46 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     motion: 'drifting',
     themes: ['photo'],
   },
+  'footage-mosh': {
+    name: 'Footage · Mosh',
+    blurb: 'Your clips and photos melting in soft dragged blocks, like a broken video file; kicks shove the blocks and cuts land smeared.',
+    roles: ['peak', 'build'],
+    energy: [0.6, 1],
+    motion: 'explosive',
+    themes: ['photo', 'retro'],
+  },
+  'footage-sort': {
+    name: 'Footage · Sort',
+    blurb: 'Your clips and photos pixel-sorted into streaks of their own colours, in stepped diagonal bands that leap on the kick.',
+    roles: ['peak', 'build', 'verse'],
+    energy: [0.55, 1],
+    motion: 'pulsing',
+    themes: ['photo', 'graphic'],
+  },
+  'footage-cells': {
+    name: 'Footage · Cells',
+    blurb: 'Your clips and photos rebuilt in blocks, digits and punctuation on black; cells flip on the hi-hats.',
+    roles: ['build', 'break', 'verse'],
+    energy: [0.3, 0.8],
+    motion: 'pulsing',
+    themes: ['photo', 'data'],
+  },
+  'footage-readout': {
+    name: 'Footage · Readout',
+    blurb: 'Your clips and photos read like a scan: coarse pixels of one colour on grey, numbered boxes and captions about the song.',
+    roles: ['break', 'bridge', 'intro', 'outro'],
+    energy: [0, 0.55],
+    motion: 'drifting',
+    themes: ['photo', 'data'],
+  },
+  'footage-collage': {
+    name: 'Footage · Collage',
+    blurb: 'One big picture with torn fragments of your other clips and photos laid over it, a new piece on every kick.',
+    roles: ['peak', 'bridge'],
+    energy: [0.45, 0.95],
+    motion: 'pulsing',
+    themes: ['photo', 'graphic'],
+  },
 
   /* ───────── water, gardens and graphic posters (second wave) ───────── */
   laminar: {

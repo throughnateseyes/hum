@@ -49,7 +49,7 @@ More detail is in [hum/docs/DIRECTOR.md](hum/docs/DIRECTOR.md).
 ## Privacy
 
 - Your audio never leaves your computer. Analysis and lyric timing run in the browser.
-- The last song, your video clips and the video you made are kept in the browser's own storage on your computer, so a reload brings them back. Loading another song replaces the saved one, and removing a clip forgets it.
+- The last song, your video clips, your photos and the video you made are kept in the browser's own storage on your computer, so a reload brings them back. Loading another song replaces the saved one, and removing a clip forgets it.
 - Lyric lookup sends only the song's title, artist and length to LRCLIB.
 - The AI director sends a text description of the song (its sections, mood and tags, and lyrics when there are any) to Claude, and nothing else.
 

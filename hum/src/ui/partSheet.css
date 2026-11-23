@@ -727,3 +727,194 @@ html.phone.land .ps-phone {
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── a footage part's Picture group (FootagePicture.tsx, MediaPicker.tsx, Framing.tsx) ── */
+.pp-sub {
+  margin-top: 12px;
+}
+.pp-sub-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--fs-3);
+  color: var(--ink-2);
+}
+.pp-sub-h span + span {
+  min-width: 0;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* folded rows inside the group: Treatment, Framing */
+.pp-fold {
+  margin-top: 12px;
+}
+.pp-fold-body {
+  margin-top: 8px;
+}
+/* room for the longest hint, so hovering the choices doesn't make the panel jump */
+.pp-hint {
+  min-height: 2.8em;
+}
+/* a quiet text button, inside a note or under a row */
+.pp-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-2);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.pp-link:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+.pp-link[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.mp > .pp-link {
+  margin-top: 6px;
+}
+
+/* the media row: Automatic, then a square tile per clip or photo; at most two rows until Show all */
+.mp-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 4px;
+}
+.mp-auto {
+  grid-column: span 2;
+  min-height: 38px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-2);
+  font-weight: 500;
+  cursor: pointer;
+}
+.mp-auto:hover {
+  color: var(--ink);
+  background: var(--panel-2);
+}
+.mp-auto.on {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mp-tile {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+.mp-tile img,
+.mp-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.mp-tile:hover img {
+  filter: brightness(1.06);
+}
+.mp-tile.on {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.mp-auto[disabled],
+.mp-tile[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+/* a clip: a small play mark in the corner */
+.mp-kind {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 5px solid #fff;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.6));
+}
+.mp-tick {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* framing: the picture whole, the video's window bright over it, the focus point on top */
+.fr-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  border-radius: var(--r);
+  background: var(--panel-2);
+}
+.fr-pic {
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  background-size: 100% 100%;
+  background-color: var(--line);
+  cursor: crosshair;
+  touch-action: none;
+}
+.fr-pic.is-off {
+  cursor: default;
+  opacity: 0.6;
+}
+/* the border sits inside, so a window as big as the picture still shows its edge */
+.fr-win {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 999px rgba(20, 20, 20, 0.45);
+  pointer-events: none;
+}
+.fr-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: grab;
+}
+.fr-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.fr .field {
+  margin-top: 10px;
+}
