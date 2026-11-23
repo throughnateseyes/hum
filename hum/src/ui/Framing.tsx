@@ -15,7 +15,7 @@ import type { MediaItem } from './footageMedia';
 
 const RATIO: Record<Aspect, number> = { fill: 16 / 9, '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:5': 4 / 5 };
 /** the preview's tallest */
-const MAX_H = 150;
+const MAX_H = 120;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const round2 = (v: number) => Math.round(v * 100) / 100;

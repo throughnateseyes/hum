@@ -146,7 +146,7 @@ export function FootagePicture({ parts, look, busy, headingId }: { parts: number
   const ownTreat = common(shots.map((r) => r?.treatment ?? null));
   const treat = common(shots.map((r) => r?.treatment ?? lookTreat));
   const treatName = treat === MIXED ? 'Mixed' : (treats.find((t) => t.v === treat)?.label ?? treat);
-  const treatNote = hover !== null ? (treats.find((t) => t.v === hover)?.tip ?? '') : ownTreat === null ? 'Follows the look.' : ownTreat === MIXED ? 'Different in each part.' : one ? 'For this shot only.' : 'For these shots only.';
+  const treatNote = hover !== null ? (treats.find((t) => t.v === hover)?.tip ?? '') : ownTreat === null ? 'Follows the look.' : ownTreat === MIXED ? 'Different in each part.' : one ? 'Set for this shot.' : 'Set for these shots.';
 
   // media: the parts' common choice (null: automatic)
   const chosen = common(shots.map((r) => r?.media ?? null));
