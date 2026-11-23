@@ -11,6 +11,7 @@
  * colours of the footage next to it), its own style arrangement and its own speed curve.
  */
 import * as THREE from 'three';
+import { dryRun } from '../render/warmup';
 import { FULLSCREEN_VERT } from '../core/glsl';
 import type { Palette, TrackAnalysis } from '../core/types';
 import type { Footage, FootageState } from './footage';
@@ -544,7 +545,10 @@ export function warmShots(renderer: THREE.WebGLRenderer, analysis: TrackAnalysis
   try {
     stage.build({ seq: { start: 0, hit: 0, end, beat: 0.25, kicks: [], snares: [], hats: [], shots, part: 'HUM', partStart: 0, energy: 0.8, words: ['HUM'] }, analysis, clips: [clip], title: 'HUM', lookId: '', tellStore: false, live: true });
     const was = renderer.getRenderTarget();
-    stage.drawAll(target);
+    // compile in the background (KHR_parallel_shader_compile) rather than on this frame: every style and
+    // treatment at once is dozens of programs, which on Windows/Direct3D can hold a frame for seconds.
+    // The warm stage stays anchored to the renderer, so the programs stay alive for the real shots.
+    void dryRun(renderer, () => stage.drawAll(target));
     renderer.setRenderTarget(was);
   } catch (err) {
     console.warn('[hum] could not warm the footage shots', err);

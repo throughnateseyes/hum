@@ -56,12 +56,12 @@ const LONG_MS = 50;
 const SOFTWARE = /swiftshader|basic render|llvmpipe|softpipe|software|mesa offscreen|microsoft basic/i;
 
 function backendOf(r: string): string {
+  if (/swiftshader/i.test(r)) return 'SwiftShader (software, no GPU)';
   if (/direct3d11|d3d11/i.test(r)) return 'Direct3D 11 (through ANGLE)';
   if (/direct3d9|d3d9/i.test(r)) return 'Direct3D 9 (through ANGLE)';
   if (/vulkan/i.test(r)) return 'Vulkan (through ANGLE)';
   if (/metal/i.test(r)) return 'Metal (through ANGLE)';
   if (/opengl/i.test(r)) return 'OpenGL (through ANGLE)';
-  if (/swiftshader/i.test(r)) return 'SwiftShader (software)';
   return 'unknown';
 }
 
@@ -182,8 +182,12 @@ class PerfMonitor {
       const rec = progLook.get(a[0] as object);
       if (rec) rec.ms += ms;
     });
-    timed('getShaderInfoLog');
-    timed('getProgramInfoLog');
+    // three.js reads the logs right after linking, which is where a driver that compiles lazily waits
+    timed('getShaderInfoLog', (a, ms) => onShader(a[0] as object, ms));
+    timed('getProgramInfoLog', (a, ms) => {
+      const rec = progLook.get(a[0] as object);
+      if (rec) rec.ms += ms;
+    });
     // the first draw with a program is where some drivers really compile: count it too
     const use = g.useProgram;
     const used = new WeakSet<object>();

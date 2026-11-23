@@ -10,7 +10,12 @@
  * locked onto them frame by frame, with a caption that says something true about the song.
  *
  * Every frame reads the coarse pixels back (a few hundred bytes) to find the cut and the blobs, so
- * the boxes are a function of the picture on screen and nothing else.
+ * the boxes are a function of the picture on screen and nothing else. Live, the read is asynchronous
+ * (a pixel-pack buffer and a fence: a synchronous readPixels makes the page wait for the GPU to finish
+ * everything queued so far, which stalls Direct3D badly), so the cut and the boxes follow the picture
+ * a frame or two late; the coarse pixels themselves are always this frame's. The first frame of a
+ * shot, and a render (render/timeline.ts takes the async read away so frames come out the same every
+ * time), still read synchronously.
  */
 import * as THREE from 'three';
 import { HEAD_GLSL, TAIL_GLSL, barOf, clock, headUniforms, makeMaterial, strictFor, unit, type TreatFrame } from './common';
@@ -113,6 +118,9 @@ export class Readout {
   readonly material: THREE.ShaderMaterial;
   private rt: THREE.WebGLRenderTarget | null = null;
   private buf = new Uint8Array(4);
+  /** the grid the last finished read was taken on (the boxes are placed on it), and its shot */
+  private read: { cols: number; rows: number; px: number; off: THREE.Vector2; shot: number; buf: Uint8Array } | null = null;
+  private pending = false;
   private readonly lines = new TextLines();
   private readonly boxes = [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()];
 
@@ -171,14 +179,39 @@ export class Readout {
     cu.uPx.value = px;
     (cu.uOff.value as THREE.Vector2).copy(off);
     draw(this.coarse, rt);
-    renderer.readRenderTargetPixels(rt, 0, 0, cols, rows, this.buf);
+    const grid = { cols, rows, px, off: off.clone(), shot: f.shotStart };
+    const ar = renderer as THREE.WebGLRenderer & { readRenderTargetPixelsAsync?: (...a: unknown[]) => Promise<unknown> };
+    if (!ar.readRenderTargetPixelsAsync || !this.read || this.read.shot !== f.shotStart) {
+      renderer.readRenderTargetPixels(rt, 0, 0, cols, rows, this.buf);
+      this.read = { ...grid, buf: this.buf.slice(0, cols * rows * 4) };
+    } else if (!this.pending) {
+      this.pending = true;
+      const into = new Uint8Array(cols * rows * 4);
+      ar.readRenderTargetPixelsAsync(rt, 0, 0, cols, rows, into)
+        .then(() => {
+          // a read that finished after a cut belongs to the old shot
+          if (this.read?.shot === grid.shot) this.read = { ...grid, buf: into };
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          this.pending = false;
+        });
+    }
+    this.analyse(f, w, h, rt, cols, rows, px, off, beatN, short);
+  }
+
+  /** find the cut and the blobs on the last read grid, and set up the shader for this frame's grid */
+  private analyse(f: TreatFrame, w: number, h: number, rt: THREE.WebGLRenderTarget, curCols: number, curRows: number, curPx: number, curOff: THREE.Vector2, beatN: number, short: number) {
+    const R = this.read!;
+    const { cols, rows, px, off } = R;
+    const buf = R.buf;
 
     // the cut that best splits the picture's coarse pixels into two (Otsu), and which side is smaller
     const hist = new Float32Array(64);
     let total = 0;
     for (let i = 0; i < cols * rows; i++) {
-      if (this.buf[i * 4 + 1] < 128) continue;
-      hist[Math.min(63, this.buf[i * 4] >> 2)]++;
+      if (buf[i * 4 + 1] < 128) continue;
+      hist[Math.min(63, buf[i * 4] >> 2)]++;
       total++;
     }
     let sum = 0;
@@ -213,7 +246,7 @@ export class Readout {
     const span = Math.max(0.05, Math.abs(far / 64 - cut));
 
     // the largest blobs of the subject (4-connected), in coarse pixels
-    const isSub = (i: number) => this.buf[i * 4 + 1] >= 128 && (pol ? this.buf[i * 4] / 255 > cut : this.buf[i * 4] / 255 < cut);
+    const isSub = (i: number) => buf[i * 4 + 1] >= 128 && (pol ? buf[i * 4] / 255 > cut : buf[i * 4] / 255 < cut);
     const label = new Int32Array(cols * rows).fill(-1);
     const blobs: (Blob & { id: number })[] = [];
     const stack: number[] = [];
@@ -264,11 +297,12 @@ export class Readout {
 
     const s = strictFor(f.scheme, f.palette, f.colour);
     const u = this.material.uniforms;
+    // the coarse pixels are this frame's grid; the cut, the boxes and captions come from the last read
     u.tCoarse.value = rt.texture;
-    (u.uGrid.value as THREE.Vector2).set(cols, rows);
+    (u.uGrid.value as THREE.Vector2).set(curCols, curRows);
     (u.uCoarseSize.value as THREE.Vector2).set(rt.width, rt.height);
-    (u.uOff.value as THREE.Vector2).copy(off);
-    u.uPx.value = px;
+    (u.uOff.value as THREE.Vector2).copy(curOff);
+    u.uPx.value = curPx;
     u.uCut.value = cut;
     u.uPol.value = pol;
     u.uSpan.value = span;
