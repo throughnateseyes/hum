@@ -8,7 +8,6 @@
 import * as THREE from 'three';
 import { FULLSCREEN_VERT } from '../core/glsl';
 import type { ShotPalette } from './palette';
-import { RAMP_BEATS, clamp01, easeInCubic, easeOutCubic, smooth, type ShotScore, type TimeCurve } from './time';
 
 export class Footage {
   readonly video: HTMLVideoElement;
@@ -55,7 +54,8 @@ export class Footage {
       if (Math.abs(off) > 1 / 50 && !v.seeking) v.currentTime = target;
       return;
     }
-    if (Math.abs(off) > 0.3 && !v.seeking) v.currentTime = target;
+    // a real jump: seek, aiming a little ahead so the clip lands where the curve will be by then
+    if (Math.abs(off) > 0.45 && !v.seeking) v.currentTime = target + rate * 0.08;
     v.playbackRate = Math.min(8, Math.max(0.0625, rate * (1 + Math.max(-0.35, Math.min(0.35, off * 2)))));
     if (v.paused) void v.play().catch(() => {});
   }
@@ -89,6 +89,8 @@ uniform float uFootageAspect, uAspect;
 uniform vec3 uFlats[5];
 uniform float uKeep[5];
 uniform float uCuts[4];
+uniform sampler2D tFill;
+uniform float uFill[5];
 uniform vec3 uPaper;
 uniform vec2 uFocus, uTexel;
 uniform float uTreat, uShift, uBlur, uPunch, uFlash, uFlip;
@@ -155,6 +157,10 @@ void main() {
   // the brightest band goes to paper: skies and glare open up into white
   a = mix(a, uPaper, step(3.5, band) * 0.85);
   b = mix(b, uPaper, step(3.5, next) * 0.85);
+  // a band can be a window onto a live picture (one of Hum's looks) instead of a flat colour
+  vec3 live = texture2D(tFill, vUv).rgb;
+  a = mix(a, live, uFill[int(band)]);
+  b = mix(b, live, uFill[int(next)]);
   vec3 flatCol = mix(a, b, edge);
   float keep = mix(uKeep[int(band)], uKeep[int(next)], edge);
 
@@ -179,7 +185,11 @@ export interface FootageState {
   flip: boolean;
   /** how flat each band is, shadows to highlights: 0 footage … 1 flat colour */
   keep: number[];
+  /** how much each band shows the live picture instead of its flat colour (0..1) */
+  fill: number[];
 }
+
+const NO_FILL = [0, 0, 0, 0, 0];
 
 export class FootagePass {
   private readonly material: THREE.ShaderMaterial;
@@ -199,6 +209,8 @@ export class FootagePass {
         uFlats: { value: Array.from({ length: 5 }, () => new THREE.Color()) },
         uKeep: { value: [1, 0, 0, 0, 1] },
         uCuts: { value: [0.2, 0.4, 0.6, 0.8] },
+        tFill: { value: null },
+        uFill: { value: [0, 0, 0, 0, 0] },
         uPaper: { value: new THREE.Color('#ffffff') },
         uFocus: { value: new THREE.Vector2(0.5, 0.5) },
         uTexel: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
@@ -228,8 +240,10 @@ export class FootagePass {
   }
 
   /** `focus` is 0..1 from the bottom-left: the point the picture pushes in on */
-  render(renderer: THREE.WebGLRenderer, w: number, h: number, focus: { x: number; y: number }, s: FootageState) {
+  render(renderer: THREE.WebGLRenderer, w: number, h: number, focus: { x: number; y: number }, s: FootageState, fill: THREE.Texture | null = null) {
     const u = this.material.uniforms;
+    u.tFill.value = fill;
+    u.uFill.value = fill ? s.fill : NO_FILL;
     u.uAspect.value = w / h;
     (u.uTexel.value as THREE.Vector2).set(1 / w, 1 / h);
     (u.uFocus.value as THREE.Vector2).set(focus.x, focus.y);
@@ -242,35 +256,4 @@ export class FootagePass {
     u.uKeep.value = s.keep;
     renderer.render(this.scene, this.camera);
   }
-}
-
-const BURST = [1, 0.2, 0, 0.25, 1];
-
-/**
- * How the footage looks at song time t: clean while it waits and winds up, the colours on within a few
- * frames of the hit and walking round on the beat, two bars where the whole picture goes flat (the
- * breather), then back to clean footage as the shot ends.
- */
-export function footageStateAt(t: number, score: ShotScore, curve: TimeCurve): FootageState {
-  const { hit, end, beat } = score;
-  const tau = t - hit;
-  const u = tau / beat;
-  const ramp = clamp01((t - (hit - RAMP_BEATS * beat)) / (RAMP_BEATS * beat));
-
-  // the colours step once a beat for the first bar, then every other beat
-  const base = u < 4 ? u : 4 + (u - 4) / 2;
-  const n = Math.floor(base);
-  const sinceStep = (base - n) * (u < 4 ? 1 : 2);
-  const shift = tau < 0 ? 0 : n - 1 + easeOutCubic(clamp01(sinceStep / 0.22));
-
-  const breather = smooth(7.6, 8.4, u) * (1 - smooth(11.6, 12.4, u));
-  return {
-    treat: tau < 0 ? 0 : smooth(0, 0.18, tau) * (1 - smooth(end - beat * 2, end - beat * 0.5, t)),
-    shift,
-    blur: clamp01((curve.speed(t) - 1.2) / 2.2),
-    punch: tau < 0 ? 0.12 * easeInCubic(ramp) : 0.16 * Math.exp(-tau / 0.35),
-    flash: tau < 0 ? 0 : tau < 1 / 30 ? 1 : 0.55 * Math.exp(-(tau - 1 / 30) / 0.06),
-    flip: curve.flip && tau >= 0,
-    keep: BURST.map((k) => k + (1 - k) * breather),
-  };
 }
