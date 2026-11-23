@@ -55,7 +55,7 @@ function MakeBlock() {
   return (
     <div className="vp-make">
       <button
-        className={`btn primary vp-go has-tip ${locked ? 'locked' : ''}`}
+        className={`btn primary vp-go has-tip tip-below ${locked ? 'locked' : ''}`}
         disabled={planning || !parts}
         // locked: the press goes through the access gate first (postDirector opens it straight away,
         // since the server's answer is already known), then plans once the code is in
