@@ -181,7 +181,8 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
     const e = sec.energy / maxE;
     const why: string[] = [];
     // knockout only where it's loud and the words come slowly enough to hit one at a time
-    const loudSparse = dens.wps > 0 && dens.wps < 1.8 && e > 0.6;
+    // (0 at 2.2 words a second and up, full at 1.4 and below)
+    const loudSparse = e > 0.6 ? Math.max(0, Math.min(1, (2.2 - dens.wps) / 0.8)) : 0;
     if (prof?.own === 'carries') return { medium: 'own', why: 'the look types the words itself' };
     let medium: LyricMedium;
     const known = byGroup.get(sec.group);
@@ -195,9 +196,9 @@ export function localLyricPlan(a: TrackAnalysis, lyrics: Lyrics | null, seed: nu
           case 'verse':
             return { subtitle: 3, sparse: dens.wps < 1.4 ? 1.2 : 0.3, big: e > 0.65 ? 0.9 : 0.3 };
           case 'chorus':
-            return { big: 2.5, subtitle: 0.6, sparse: 0.3, knockout: loudSparse ? 1.6 : 0 };
+            return { big: 2.5, subtitle: 0.6, sparse: 0.3, knockout: 1.6 * loudSparse };
           case 'drop':
-            return { big: 2.5, sparse: 0.3, subtitle: 0.3, knockout: loudSparse ? 2.2 : 0 };
+            return { big: 2.5, sparse: 0.3, subtitle: 0.3, knockout: 2.2 * loudSparse };
           case 'build':
             return { sparse: 3, big: 1, subtitle: 0.4 };
           case 'bridge':

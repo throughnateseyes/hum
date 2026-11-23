@@ -18,7 +18,8 @@
  *                                            part, see testLyricsSung). The json fixes the Auto plan so shots compare:
  *                                            { style: 'auto', family: 'serif', motion: 'tender',
  *                                              parts: ['sparse', 'subtitle', 'sparse', 'big+giant', 'sparse', 'subtitle'] }
- *                                            (one per section: intro, verse, build, drop, break, outro; "+giant" / "+burst"
+ *                                            (one per section: intro, verse, build, drop, break, outro; any medium id:
+ *                                            subtitle, big, knockout, sparse, cutout, own, none; "+giant" / "+burst"
  *                                            adds a moment). The look json may carry the same as `lyrics`.
  *     &finish=film                           a finish over the picture (clean, film, riso, ink, tape, hand);
  *                                            several (finish=clean,film,riso) put each one side by side for

@@ -276,11 +276,13 @@ export function buildKnockout(g: CanvasRenderingContext2D, words: KWord[], o: Kn
       const ink = inkOf(g, v, text, weight, italic, track);
       const inkW = Math.max(1, ink.x1 - ink.x0);
       // as wide as the frame, and wider for the big held words: cropped by its right edge. The crop only
-      // ever takes part of the last letter, so the word still reads
+      // ever takes a quarter of the last letter, so the word still reads (a T cut in half reads as an I)
       const fill = portrait ? 0.92 + 0.5 * s : 0.72 + 0.48 * s;
-      const letterW = inkW / Math.max(1, letters(text));
+      const lastCh = [...text.replace(/[^\p{L}\p{N}]+$/u, '')].pop() ?? 'o';
+      const lw = inkOf(g, v, lastCh, weight, italic, 0);
+      const crop = 0.25 * Math.max(0, lw.x1 - lw.x0);
       let size = (100 * availW * fill) / inkW;
-      size = Math.min(size, (100 * (W - mx)) / Math.max(1, inkW - 0.3 * letterW));
+      size = Math.min(size, (100 * (W - mx)) / Math.max(1, inkW - crop));
       const kick = gr.kind === 'kick';
       const hMax = bandH * (kick ? 0.62 : 0.86) * (0.6 + 0.4 * s);
       size = Math.min(size, hMax / capH);
