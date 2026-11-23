@@ -6,6 +6,7 @@ import type { TrackAnalysis } from '../core/types';
 import { historyLabels, onHistoryChange, redo, undo } from '../state/history';
 import { onFrame } from '../state/live';
 import { makeVideo, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
+import { originalOf } from '../state/planCache';
 import { useStudio, type PopupMode } from '../state/store';
 import { LAYER_MIME, Slider, Toggle } from './controls';
 import { Pause, Play, Redo, Sparkle, Wave } from './Icons';
@@ -196,9 +197,11 @@ function PhoneSide() {
 /** the name of the part playing at t ("Chorus 2"), names worked out once per list of parts */
 const partNames = new WeakMap<TrackAnalysis, string[]>();
 function partName(a: TrackAnalysis, t: number): string {
-  let names = partNames.get(a);
-  if (!names) partNames.set(a, (names = sectionNames(a.sections)));
-  return names[sectionIndexAt(a.sections, t)] ?? '';
+  // the song's own section (Intro, Drop…), not the shot: every shot is a part of its own (flatPlan.ts)
+  const song = originalOf(a);
+  let names = partNames.get(song);
+  if (!names) partNames.set(song, (names = sectionNames(song.sections)));
+  return names[sectionIndexAt(song.sections, t)] ?? '';
 }
 
 /**
