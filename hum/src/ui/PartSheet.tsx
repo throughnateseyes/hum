@@ -19,7 +19,7 @@ import { bestTake, familyIdOf, familyOf, fitScore, neighbourScore, relationsOf, 
 import { inMood, moodById, type MoodId } from '../presets/moods';
 import { profileFor } from '../render/lyricProfiles';
 import { getScene } from '../scenes';
-import { vocalDensity, type LyricMedium } from '../state/lyricPlan';
+import { MEDIUM_CHOICES, vocalDensity } from '../state/lyricPlan';
 import { playPart, resetPart, setPartLook, setPartLyric, setPartPopsLevel, undoLabel, undoPartEdit, onUndoChange } from '../state/partEdit';
 import { findLook, LABEL_NAME, makeVideo, partEdits, partEnergy, popsOf, sectionNames, validPlan } from '../state/plan';
 import { useStudio } from '../state/store';
@@ -240,12 +240,7 @@ const POP_LEVELS: { label: string; v: number | null; tip: string }[] = [
   { label: 'Few', v: 1, tip: 'A window pops up now and then' },
   { label: 'Lots', v: 3, tip: 'Windows pop in on the beats and on the drop' },
 ];
-const LYRIC_OPTS: { m: LyricMedium; label: string; tip: string }[] = [
-  { m: 'subtitle', label: 'Subtitles', tip: 'A quiet caption low in the picture' },
-  { m: 'big', label: 'Big words', tip: 'One big line at a time, each word rising in as it’s sung' },
-  { m: 'sparse', label: 'A word or two', tip: 'The line small and quiet in a margin' },
-  { m: 'own', label: 'The look’s own', tip: 'This look writes the words itself; the overlay stands down' },
-];
+const LYRIC_OPTS = MEDIUM_CHOICES;
 const SHORT_LIST = 5;
 
 interface Ranked {

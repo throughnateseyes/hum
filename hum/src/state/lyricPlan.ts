@@ -51,6 +51,13 @@ export const MEDIUM_NAME: Record<LyricMedium, string> = {
   sparse: 'A word or two',
   own: 'The look’s own lyrics',
 };
+/** the ways of showing the words a person can pick for a part, in the order the part controls list them */
+export const MEDIUM_CHOICES: { m: LyricMedium; label: string; tip: string }[] = [
+  { m: 'subtitle', label: 'Subtitles', tip: 'A quiet caption low in the picture' },
+  { m: 'big', label: 'Big words', tip: 'One big line at a time, each word rising in as it’s sung' },
+  { m: 'sparse', label: 'A word or two', tip: 'The line small and quiet in a margin' },
+  { m: 'own', label: 'The look’s own', tip: 'This look writes the words itself; the overlay stands down' },
+];
 export const MOMENT_NAME: Record<LyricMoment, string> = { giant: 'one giant word', burst: 'a collage' };
 export const FAMILY_NAME: Record<TypeFamily, string> = {
   grotesk: 'grotesk',
