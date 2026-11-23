@@ -10,7 +10,7 @@ import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
 import { useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
-import { forgetSong, keepClipsSaved, keepPlanSaved, recallClips, recallSong, rememberSong } from './saved';
+import { forgetSong, keepClipsSaved, keepPhotosSaved, keepPlanSaved, recallClips, recallPhotos, recallSong, rememberSong } from './saved';
 
 const demoCache = new Map<string, Blob>();
 let loadToken = 0;
@@ -511,6 +511,13 @@ export async function restoreSession() {
   const clips = await recallClips();
   if (clips.length && !useStudio.getState().clips.length) useStudio.getState().addClips(clips);
   keepClipsSaved();
+  // photos too, each under the id it had, so a part that picked one still finds it
+  const saved = await recallPhotos();
+  if (saved.length && !useStudio.getState().photos.length) {
+    const photos = (await Promise.all(saved.map(({ id, file }) => loadPhoto(file).then((p) => ({ ...p, id }), () => null)))).filter((p) => p !== null);
+    if (photos.length) useStudio.getState().addPhotos(photos);
+  }
+  keepPhotosSaved();
   const song = await recallSong();
   // something was opened while we were looking: that wins
   if (!song || useStudio.getState().track) return keepPlanSaved();
