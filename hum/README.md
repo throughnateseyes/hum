@@ -1,10 +1,10 @@
 # Hum — sound → feeling → space
 
 An experiment in texture, music and emotion. Drop a song in; Hum splits it into layers (sub, bass, mids,
-air, kick / snare / hat hits, energy, build-ups, drops), reads its mood, picks a look that fits, and
-paints with it. Everything is tweakable: scenes, a stackable effect chain, a modulation matrix that
-routes any audio layer to any slider, palettes, photos, and an AI director that writes looks — or
-brand-new GLSL scenes — from a sentence.
+air, kick / snare / hat hits, energy, build-ups, drops), reads its mood, gives every part of it a look,
+and plays the video. Every shot can be changed on its own, and everything is tweakable underneath:
+scenes, a stackable effect chain, links from any audio layer to any slider, palettes, photos, your own
+video clips, and an AI director that writes looks (or brand-new GLSL scenes) from a sentence.
 
 ```bash
 npm install
@@ -17,8 +17,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 
 ## Using it
 
-- **Drop audio** anywhere (mp3 / wav / m4a / flac), pick a built-in demo (*Pressure* — 140 bpm
-  halftime bass with a build and a drop; *Driftwood* — 72 bpm rain and piano), or use the mic.
+- **The start screen** asks for one thing: a song. Drop audio anywhere (mp3 / wav / m4a / flac), press
+  the big target to pick a file, or try a demo (*Pressure*, 140 bpm halftime bass with a build and a
+  drop; *Driftwood*, 72 bpm rain and piano). The microphone and another browser tab are in the song
+  menu in the top bar. Under that, the screen asks for an **AI access code** when the site wants one:
+  with a code Claude directs the video, without one Hum's built-in director does, and everything else
+  works the same. The code is kept in this browser; change or forget it under Video → More.
+- **It comes back after a reload.** The song, your video clips and the video you made (your changes
+  included) are kept in this browser (`src/state/saved.ts`: the files in IndexedDB, the plan in
+  localStorage), so a reload or a closed tab picks up where you were, with a short "Bringing back"
+  note instead of the start screen. Loading another song replaces the saved one; removing a clip
+  forgets it.
 - **One tap.** Drop a song (or pick a file or a demo) and that's it: Hum listens to it, plans the
   video and plays it from the top, with one calm progress note on the stage ("Listening to the
   song", then "Planning the video") instead of a stack of messages. It starts on the offline plan
@@ -28,18 +37,20 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   transition lands on the line), unless you've already changed the video yourself; lyrics that
   turn up later are timed in as they arrive. A song Claude has planned before plays its saved plan
   at once. The tap or drop that loaded the song is what lets it play; if the browser still won't
-  start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Look
-  tab, Video) turns it off: then a song just plays, and Make a video is up to you.
+  start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Video
+  tab → More) turns it off: then a song just plays, and Make a video is up to you.
 - **On a phone** (a touch screen up to 760 px wide, or a phone on its side) Hum has its own layout:
   the picture on top at full width, play/pause, the time, the part you're in and the song map
-  under it, and a slim tab row at the bottom (**Looks**, **Settings**, **Lyrics**, **Export**). Each
-  tab opens its panel in a bottom sheet: drag its handle between peek, half and full, flick it, or
+  under it, then **Remake video**, **Breakdown** and the undo / redo arrows, the moods, and a slim
+  tab row at the bottom (**Looks**, **Settings**, **Lyrics**, **Export**). Settings holds the frame,
+  Impact, Hand-drawn, Pop-ups and the Video and Part tabs (rendering lives in Export). Tap a part on
+  the song map for its part sheet. Each tab opens its panel in a bottom sheet: drag its handle between peek, half and full, flick it, or
   pull it down to close (tap the handle to swap half and full). Held sideways, the picture fills
   the left and the controls and panels share a column on the right. On the picture: **swipe left
   or right** to step through looks (the other takes of the look on screen first, then the looks
   that sit with it in the part that's playing, then everything else; a small note names each one),
   **swipe up** for the panels and down to put them away, **tap** for the controls on the picture
-  (full screen, Keep / Skip), **double-tap** for full screen. Add `?phone=1` (or `?phone=0`) to
+  (full screen, Like / Skip), **double-tap** for full screen. Add `?phone=1` (or `?phone=0`) to
   the address to force the phone layout on or off. Computers and tablets keep the layout below.
 - **Share clip** (phone: Export). Pick 15, 30 or 60 s (or the stretch you picked on the song map),
   and Hum renders that much around the song's biggest drop as a 1080×1920 vertical video, frame by
@@ -49,14 +60,53 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   AAC-LC stereo sound in an MP4 with the index up front, which is what Instagram and TikTok take.
 - **Drop photos** anywhere — photo scenes and the instrument boards dissolve, mosh and rebuild them
   (a new photo every 4 bars).
-- **Looks** (left) are presets. After a track is analysed they're ranked for it ("fits"). Hover any
-  look or scene to preview it live in a small window beside the list; click to use it.
-- **The timeline** (bottom) is one lane: the waveform, the song's parts (intro, verse, chorus,
-  bridge, build, drop, break, outro) with each part's look as a picture and name (or an empty
-  "No look yet" slot), drops marked by how big they are, and one playhead. Parts that sound alike
-  share a colour, so a returning chorus is easy to spot.
-  **Make a video** asks Claude to give every part a look (offline plan if Claude isn't reachable) and
-  plays the song from the top. Each part is cut into short shots on musical phrases, rotating
+- **The Library** (left) has three tabs: **Looks**, **Photos** and **Footage**. Looks are presets;
+  after a track is analysed they're ranked for it ("fits"). Hover any look to preview it live in a
+  small window beside the list (a look you fine-tuned for this video previews as you tuned it); click
+  to use it, or drag it onto a part of the timeline.
+- **The right panel** has three tabs, by what you're changing:
+  - **Video**, the whole video: **Make a video** / **Remake video** and the moods; **Play the video
+    plan**; **Finish** (Auto, Clean, Hand-drawn, Film, Riso, Ink wash, Tape) with the hand-drawn
+    settings right under it when Hand-drawn is on (Frames, Inks, Wobble, Pencil lines, Paper,
+    Misprint); **Movement** (Impact, Pace); **Pop-ups** and what's in them; **Transitions** and
+    their length; **Words** (the lyrics style and the title text); **Song colours**; and, folded
+    under **More**, Make a video when a song loads, Auto-pilot, Your taste, Render quality and the
+    AI access code. The Director chat stays docked at the bottom of the panel.
+  - **Part**, the part picked on the timeline (or the one playing when nothing is picked; with no
+    video yet the tab says **Look** and is about the look on screen): its name, time and which shot of
+    its section it is; **Quick picks**, the five looks that fit it best, one click or `1`–`5` to swap;
+    **Play this part**, **Like**, **Reset this part** and **Undo**; its **Look** with that look's
+    takes (a footage look shows its styles and Shuffle instead, see *Footage* below); **More looks**,
+    every look by how well it fits, with moods and a search; **Hand-drawn** for this part (As the
+    video / On / Off); **Pop-ups** (Auto / Off / Few / Lots, and Shuffle for a different deal of
+    windows that then stays put); **Lyrics** for this part; **Words** for looks that write text; then,
+    folded, **Fine-tune this look**: Parameters (the scene's sliders), Effects, Colours, **Reacts to
+    sound** (which part of the music moves which slider; opening it shows the live meters) and Save
+    as a take. With several parts picked it says how many and shows only what applies to all of them.
+  - **Render**: a quick **Clip for socials** and any stretch at any sizes (see *Render* below).
+- **The timeline** (bottom, under the transport) shows the song's sections as headers (Intro, Build,
+  Drop…) and under them one block per shot, each with its look's picture (and its name when zoomed
+  in), over the waveform, the drops marked by how big they are, and one playhead. Sections that sound
+  alike share a colour, so a returning chorus is easy to spot. What you see is exactly what plays:
+  every shot is a part of its own (`src/state/flatPlan.ts`), so each can be changed, liked or skipped
+  without touching its neighbours, and nothing is re-rolled behind your back.
+  - **Click** a block to pick it (the Part tab comes forward); **⌘/Ctrl-click** adds or takes one
+    away, **Shift-click** picks the run between, **click a section header** to pick all its shots,
+    **double-click** to play it, `Esc` or a click on an empty spot to pick nothing. Drag a look from
+    the Library onto a block (onto a picked block: onto all the picked ones).
+  - **Right-click** for the part menu: Skip this look, Like this look, Split here, Combine (the picked
+    parts, or with the next or previous one), Play from here, Swap look…, Hand-drawn, Pop-ups, Reset.
+  - **Split** with the scissors or `C`: a guide follows the pointer and a click cuts the part in two on
+    the nearest beat; both halves keep its look and settings. **Combine** the picked parts with
+    `⌘/Ctrl+J`; the joined part keeps the first one's settings.
+  - **Zoom** with − / + / Fit at the end of the header row, the keys `-`, `+` and `0`, or ⌘/Ctrl +
+    scroll (a trackpad pinch) around the pointer; Shift + scroll or a sideways swipe pans. Zoomed in,
+    each section's name stays pinned at the left edge while its shots are on screen, and the view turns
+    the page when the playhead reaches its edge.
+  - A block wears a dot when you changed it, a heart when you liked it and a pencil when it is
+    hand-drawn on its own (`src/ui/Timeline.tsx`, `src/state/partEdit.ts`).
+- **Make a video** (Video tab) asks Claude to give every part a look (offline plan if Claude isn't
+  reachable) and plays the song from the top. Each part is cut into short shots on musical phrases,
   through 2–4 related looks: busy parts cut faster, calm parts hold longer, extra cuts land when the
   kick or bass comes back, a vocal starts or a lyric line begins, and every big drop is a hard cut.
   Cuts follow the harmony too: a phrase cut slides onto a chord change when one is within a beat,
@@ -66,22 +116,31 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   light and cloud dissolves, film burn, ink, soft wipe, iris, ripple, mosaic, glyphs, zoom push,
   slit-scan, cut), timed in beats and picked to fit the moment: long dissolves in calm parts, wipes
   and slit-scans on builds, quick pushes and glitch swaps in loud ones, and a hard cut on every big
-  drop. Dissolves step forward on kicks. **Transition** (Look tab) pins one for everything (videos,
+  drop. Dissolves step forward on kicks. **Transitions** (Video tab) pins one for everything (videos,
   auto-pilot and your own picks) or Cut, and **Length** sets it in beats.
-  **Pace** (Look tab: Slow / Song-driven / Fast) sets how often it cuts. To edit, drag a look onto
-  a part (hold ⌥ to change only that one), or pick a look while a part plays, or ask in words in the
-  Director's **Video** mode ("calmer chorus", "something brighter on the drop", "fewer pop-ups"):
-  only the parts you mention change, on the small model, for a fraction of a cent. Picking a scene
-  pauses the song map.
-  **Click a part** to open its sheet (a popover over the part on a computer, a bottom sheet on a
-  phone: swipe it down or tap outside to close). It has **Play this part**; **Swap the look** with
-  the five families that fit the part best and sit well beside its neighbours (filter by mood, or
-  **More looks…** for all of them with a search); **Version** to pick a take in one tap;
-  **Lyrics** for this part (Subtitles, Big words, A word or two, the look's own) when the song has
-  synced lyrics; and **Pop-ups** Auto / Off / Few / Lots (Off also stops the windows). A part you changed wears a dot. Changes are kept
-  with the saved video, a new plan keeps them, and **Reset this part** / **Undo** in the sheet put
-  things back (`src/ui/PartSheet.tsx`, `src/state/partEdit.ts`).
-  **Mood** (the row under the song map) re-plans the whole video in one tap inside one world:
+  **Pace** (Video tab: Slow / Normal / Fast) sets how often it cuts. To edit, use the timeline and
+  the Part tab, or ask in words in the Director's **Video** mode ("calmer chorus", "something
+  brighter on the drop", "fewer pop-ups"): only the parts you mention change, on the small model, for
+  a fraction of a cent.
+- **Skip and like.** `X` skips the shot playing: only that shot gets a new look, at once, and the
+  shots around it (liked or not) stay as they are. `K` likes it: a liked shot is kept by a later skip
+  next to it and by a remake. Both work in full screen too (the bar has **Like** and **Skip**), and in
+  the timeline's right-click menu. Both also teach Hum your taste.
+- **Changes are kept as you make them.** There is no Save button: every change (a swapped look, a
+  split, a slider, a finish) is kept for the song at once and comes back after full screen, a remake
+  or a reload. Looks you fine-tune keep their tweaks for this video in every shot that uses them
+  (`src/state/tweaks.ts`), and the timeline and the previews show them as they play.
+- **Undo and redo** cover all of it, in one history (`src/state/history.ts`): `⌘/Ctrl+Z` undoes,
+  `⇧⌘Z` / `Ctrl+Y` redoes, or use the two arrows in the transport row (their tooltip names the step).
+  The Part tab's **Undo** and the phone's part sheet take back the same steps. In a text field the
+  keys are the browser's own.
+  **On a phone, tap a part** to open its sheet, a bottom sheet (swipe it down or tap outside to
+  close). It has **Play this part**; **Swap the look** with the five families that fit the part best
+  and sit well beside its neighbours (filter by mood, or **More looks…** for all of them with a
+  search); **Version** to pick a take in one tap (a footage look: its styles and Shuffle);
+  **Lyrics** for this part when the song has synced lyrics; and **Pop-ups** Auto / Off / Few / Lots,
+  with **Reset this part** and **Undo** at the top (`src/ui/PartSheet.tsx`).
+  **Mood** (Video tab, under Make a video; on a phone, the row under the song map) re-plans the whole video in one tap inside one world:
   Brutal, Dreamy, Hacker, Nature, Club, Paper, Night city or Playful. Each mood is a hand-picked set
   of look families and takes plus one finish and transition set (`src/presets/moods.ts`), and both
   the offline planner and Claude stay inside it, as do each part's rotation, drop cuts, skips and
@@ -90,26 +149,23 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   **Saved videos:** the last video Claude made for a song stays in this browser (24 songs), edits
   included, so **Make a video** on a song you've done before plays it straight away with no new
   request. **Remake video** (or typing a wish) always asks Claude for a fresh take.
-- **Your taste.** Hum learns what you like as you use it. While a video plays (or any look is on
-  screen), hover the stage and press **♥ Keep** (`K`) on looks you love or **✕ Skip** (`X`) on ones
-  you don't; Skip also takes that look out of the part and moves on. Looks you pick from the list
-  or drag onto a part count too, and a look Hum chose that you swap out within a few seconds counts
-  a little against it. Each reaction remembers where it happened (chorus, drop…) and what kind of
-  song it was (genre, mood, energy), so Hum can learn "Paper looks on choruses" and "no Glyph on
-  tender songs" at once. Recent reactions count most and old ones fade (half as much every 30
-  days). It steers the offline planner, auto-pilot, each part's rotation and the AI planner, but
+- **Your taste.** Hum learns what you like as you use it: **Like** (`K`) and **Skip** (`X`) on shots,
+  looks you pick from the list or drag onto a part, and a look Hum chose that you swap out within a
+  few seconds (a little against it). Each reaction remembers where it happened (chorus, drop…) and
+  what kind of song it was (genre, mood, energy), so Hum can learn "Paper looks on choruses" and "no
+  Glyph on tender songs" at once. Recent reactions count most and old ones fade (half as much every
+  30 days). It steers the offline planner, auto-pilot, the quick picks, skips and the AI planner, but
   about one pick in five still explores, and every **Make a video** is a new take: renders are
   seeded and Hum remembers the last few plans per song so it doesn't repeat one. **Your taste**
-  (Look tab) says in plain words what Hum has learned, with a switch to turn learning off and a
-  reset. It all stays in this browser (localStorage); the AI planner only gets a short summary
+  (Video tab → More) says in plain words what Hum has learned, with a switch to turn learning off
+  and a reset. It all stays in this browser (localStorage); the AI planner only gets a short summary
   (look ids, tags, section names and counts) with a plan you asked for.
-- **Breakdown** (button by the timeline, or `B`) shows how Hum took the song apart: its genre,
-  mood and instruments, the parts, every drop with how big it is and why, the waveform, energy and
+- **Breakdown** (the wave button at the end of the transport row, or `B`) shows how Hum took the song
+  apart: its genre, mood and instruments, the song's own sections (not the video's shots), every drop with how big it is and why, the waveform, energy and
   low / mid / high lanes, the key and chords ("A minor · chords change every bar in the chorus", a box
   per chord, a dot where the harmony comes home, and a tension lane for how far from home it is),
   kick, snare and hat hits, a piano roll of the bass and lead notes, and where the vocals are. Click
   anywhere to jump there.
-- **Overlays** (switch by the timeline) turns the pop-up windows off or back on.
 - **Lyrics** are found on their own. Hum reads the song's title and artist from the file's tags
   (or its name, like `Artist - Title.mp3`; music-video rips work too, with "(Official Video)",
   "[Lyrics]", "feat. …" and the like ignored), then gets timed lyrics from
@@ -121,7 +177,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   what was found. It also switches between **Auto** (the default, a lyric video: see *Auto lyrics*
   below), **Subtitles** (a quiet caption), **Big words** (one display line at a time, each word
   revealed as it's sung), **Collage** (the line as a paper collage: one printed scrap per word, laid
-  down as it's sung) and **Off**. On looks that already type the words out (Diary,
+  down as it's sung) and **Off** (the same choice is under Words in the Video tab). On looks that already type the words out (Diary,
   Orbit) the big lines stand down by default; *Show anyway* in the chip brings them back. Lyrics show up in recordings and stills, and the song map's planner reads them
   to fit each part's look to the words. Songs that aren't on LRCLIB (unreleased ones, for example)
   get no lyrics, but you can **paste them** in the chip. Hum then times each line by listening for
@@ -143,7 +199,10 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   typewriter, the lyric walls, the word cards: overlay text stands down there). One-off moments land
   too: one giant word on the biggest drop (the key word huge on a third, the rest of the line as a
   small kicker above it), and on loud songs, rarely, one drop line laid down as a paper collage.
-  The choice comes from each part's label, energy, words per second and the look planned there.
+  The choice comes from each part's label, energy, words per second and the look planned there. In
+  the Part tab you can set a part's style yourself: Subtitles, Big words, **Knockout** (one huge word
+  at a time filling the picture, each one knocking the last out as it's sung; `src/render/knockout.ts`),
+  A word or two, Collage, the look's own, or Off.
 - **Lyric type** is set like a motion designer would set it (`src/render/lyricAuto.ts`): one line at
   a time, sentence case (lines that arrive in capitals are set back to sentence case), no trailing
   commas, rows balanced so there's no lone word, hung from a margin or a third of the picture rather
@@ -186,7 +245,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   typewriter, a word cloud of everything sung so far, the next line coming up, a mood weather
   report) and **Forecast** (a weather station for the song: sun, drizzle, a storm on the drop, the
   next parts as a forecast, a news crawl of the whole lyric sheet).
-  **Pop-ups** (Look tab) are little framed windows of these instruments that pop in over whatever is
+  **Pop-ups** (Video tab) are little framed windows of these instruments that pop in over whatever is
   playing on new parts, drops and some bars, then snap shut a few bars later. They're in recordings too. *In videos* (the default) shows them while a video plan
   plays, busier on choruses and drops; *Always* keeps a few coming. The video planner (Claude or
   offline) marks how busy each part's pop-ups get and can open a part with a board look for its
@@ -194,21 +253,23 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   draws, so windows open away from it (and from where the next line will land), and one already open
   where a line arrives glides out of the way on a spring. With no room to move (small phone frames,
   lots of windows) it shrinks a little and stays, and the words over it get the halo.
-  **Per part:** `useStudio.getState().setPartPops(sectionIndex, level)` sets how busy pop-ups get in
-  one part (0 none: no instrument pop-ups and no scene windows; 1–3; `null` hands it back to the
-  planner). The person's levels win over the plan's, apply with Pop-ups on Always too, and are kept
+  **Per part:** the Part tab's Pop-ups (Auto / Off / Few / Lots, or the timeline's right-click menu)
+  sets how busy they get in that part, and its **Shuffle** deals that part a different set of windows,
+  which then stays the same every time it plays (`src/state/popSeed.ts`). In code,
+  `useStudio.getState().setPartPops(sectionIndex, level)` does the same (0 none: no instrument pop-ups
+  and no scene windows; 1–3; `null` hands it back to the planner). The person's levels win over the plan's, apply with Pop-ups on Always too, and are kept
   per song beside the saved plans (`src/state/planCache.ts`), so they survive Remake video and
   reloads; `partPopsAt(i)` (`src/state/plan.ts`) reads a part's level and whether it was set by hand.
 - **Scene windows.** Pop-ups can also be other looks: framed windows (a title bar with the look's
   name, a plain card, or a round cut-out) each playing a different look live over the picture, so
   looks combine like a desktop stacked with programs. They open on new parts and phrases, bump on
   kicks, stamp a cascade of copies on snares, huddle and tremble through a build, slam shut on the
-  drop and burst back open a beat later. *Windows show* (Look tab → Video) picks Instruments, Looks
-  or Both (the default); the Pop-ups switch turns all of them on or off.
+  drop and burst back open a beat later. *What's in them* (Video tab → Pop-ups) picks Instruments,
+  Looks or Both (the default); *Show them* Off turns all of them off.
 - **Song colours.** A video cut from many looks still reads as one piece: every look leans toward
   the colours of the look the song uses most (choruses and drops count double), and scene windows
   wear them too. Only hue moves, so each look keeps its own lights and darks and stays readable.
-  *Song colours* (Look tab → Video): *Blend* (the default) meets halfway, *Match* puts every look on
+  *Song colours* (Video tab): *Blend* (the default) meets halfway, *Match* puts every look on
   the main look's colours, *Off* leaves them alone. See `docs/song-colours.jpg`.
 - **Direction.** Every video commits to one direction, so it feels made rather than shuffled: one
   world (the looks' style family), one set of colours (Song colours), one **finish** and one way of
@@ -232,9 +293,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
     tracking roll sweeping down the picture on the drop, and the torn lines along the bottom.
   - *Hand-drawn*: the hand-drawn finish (below).
   - *Clean*: nothing.
-  **Finish** (Look tab → Video) is *Auto* by default: each video uses its own direction's finish, and
+  **Finish** (Video tab) is *Auto* by default: each video uses its own direction's finish, and
   outside a video it's Hand-drawn when that's switched on, else Clean. Pick one to use it everywhere.
-  The Hand-drawn switch (`H`) is the same control: on picks Hand-drawn, off picks Clean. A video's
+  `H` is the same control: on picks Hand-drawn, off picks Clean. A video's
   transitions lean on its set (*soft* dissolves, *film* burns and fades to black, *graphic* wipes and
   slit-scans, *organic* ink and ripples, *kinetic* cuts and pushes, *glitch* mosaics and glyphs); big
   drops still cut. Finishes go over the picture and under pop-ups, windows and lyrics, and cost under
@@ -286,38 +347,47 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   Build, Drop, Break, Bridge, Outro), and with a song loaded **Playing now** follows the part under
   the playhead. **Theme** filters by what a look is of (Nature, Night city, Club, Light, Paper,
   Graphic, Type, Retro tech, Data, Photo, Boards). With a song loaded the list stays **Ranked for this
-  track**; with no song it's grouped by theme. Looks you saved sit under **Yours**. The Scenes tab is
-  grouped by style.
-- **Takes strip** (top of the right column): the family of the look on screen, what it's best for
-  ("Best for intro, verse, breakdown · drifts · quiet to lively") and every take, built-in and your
-  own, one click each. **Save take** keeps what's on screen (colours, sliders, effects) as a new take
-  of that family; Director looks are filed under the family of the scene they're built on.
-- **Impact** (next to the timeline) sets how hard everything reacts: 0% is still, 200% is wild. Every
+  track**; with no song it's grouped by theme. Looks you saved sit under **Yours**. The raw scenes the
+  looks are built from sit at the bottom of Looks, folded away, grouped by style.
+- **Takes** (Part tab, under the look): every take of the part's look, built-in and your own, one
+  click each. **Save as a take** (under Fine-tune this look) keeps what's on screen (colours, sliders,
+  effects) as a new take of that family; Director looks are filed under the family of the scene
+  they're built on. With no video, the Look tab shows the takes of the look on screen.
+- **Footage** (Library → Footage, or drop video files on the page) adds your own clips. The footage
+  looks cut them on the beat and print them in the song's colours, with graphics on top in one of six
+  styles: Caption, Poster, Window, Slab, Grid, Split. In the Part tab a footage look has no takes to
+  hunt through: right under it is a row of styles (**Auto** picks one for each part) and **Shuffle**,
+  which lays the same style out another way, with **Previous** to go back one. Style and Shuffle
+  belong to the look, so they change every part that plays it (the hint under the button says so),
+  they're kept with the video and Undo takes them back (`src/scenes/footage`, `src/shot`).
+- **Impact** (Video tab → Movement) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
-- **Hand-drawn** (next to Impact, or `H`) runs every scene through a hand-made finish. It draws a
+- **Hand-drawn** (Video tab → Finish, or `H`; per part in the Part tab) runs every scene through a hand-made finish. It draws a
   new picture only 12 or 8 times a second, like hand animation (kicks, snares and drops always get
   a fresh drawing so hits land), and lines wobble between drawings. Colours print as a few flat inks
-  from the palette, slightly out of line, on paper, with an optional pencil outline. Fine-tune it in
-  the Look tab. Lyrics go through it too, and saved looks keep their hand-drawn settings.
-- **Scenes** (left) are the raw visual engines; **Inspector** (right) has the scene's sliders, the
-  **Effects** stack, **Routing** (the modulation matrix) and **Look** (palette, lyric text, frame
-  aspect for 9:16 reels / 4:5 / 1:1, quality, auto-pilot, save look).
-- **Drag a layer meter** from the bottom strip onto any slider to make it react to that layer. The
-  blue tick on a slider shows its live, modulated value.
+  from the palette, slightly out of line, on paper, with an optional pencil outline. Its settings
+  sit right under Finish in the Video tab. Lyrics go through it too, and saved looks keep their hand-drawn settings.
+- **Fine-tune this look** (Part tab, folded) is where the engine is: the scene's sliders, the
+  **Effects** stack, **Colours** (the palette) and **Reacts to sound**, in plain words: Hum hears the
+  kick, the bass, the hi-hats and how loud it is, and each can move a slider. Opening it shows a row
+  of live meters under the timeline; **drag a meter** onto any slider to link it. The blue tick on a
+  slider shows its live, linked value. **Reset** puts the look back as it came.
 - **Director** (bottom of the right column, `/` to focus): a chat with history. Describe a feeling →
   a *Look*; switch to *New scene* → Claude writes a brand-new GLSL scene that's compiled live (errors
-  show in the Scene tab); with a video made, *Video* changes it in plain words. A short tweak of the
+  come back in the chat); with a video made, *Video* changes it in plain words. A short tweak of the
   look on screen ("warmer", "less busy", "more grain") goes to the small model with a shorter catalog.
-- **Render quality** (Look tab → Advanced) is the most detail Hum draws. When frames run late Hum
+- **Render quality** (Video tab → More) is the most detail Hum draws. When frames run late Hum
   eases off by itself, cheapest first: fewer pop-up scene windows, then the main picture drawn a
   little smaller, then effects at that size, then a lighter hand-drawn finish. It tries the detail
   back when there's room, and waits longer after each try that didn't hold, so it settles instead of
   flickering (`src/render/quality.ts`; the field says "easing off" while it is).
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
-- **Render** (in the top bar's save group, and by the song map) makes videos without you timing a
-  thing. The song map turns into a picker: drag across it to choose a stretch (it snaps to bars and
+- **Render** (the top bar's one dark button opens the Render tab; on a phone, Export) makes videos
+  without you timing a thing. **Clip for socials** at the top does it in one click: the song's best
+  15 to 30 seconds as a 1080×1920 vertical clip with sound. Or pick any stretch: while the tab is open
+  the timeline turns into a picker: drag across it to choose a stretch (it snaps to bars and
   to the parts' edges; hold ⌥ to snap to beats), drag an edge or the middle to adjust, double-click a
   part to take that whole part, or use **Best part** (the strongest 15–30 s, built around the
   biggest drop or hook) or **Whole song**. While you drag, the song pauses and the playhead and the
@@ -334,11 +404,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   frame itself from the song file, at its own pace (often faster than real time). The same stretch
   comes out exactly the same every time, and every size shows the same moments: the same cuts,
   transitions, pop-ups, windows, lyrics and Song colours that playback shows there. Afterwards the
-  look, the playhead and the stage are back as they were. **Clip for TikTok** (top right) does this
-  in one click: Best part at 9:16. Browsers that can't encode video themselves (no WebCodecs or AAC)
-  fall back to recording the stretch live while it plays, and say so.
-- The camera icon saves a PNG of the stage. Still, Render and Clip for TikTok sit together as one
-  group in the top bar.
+  look, the playhead and the stage are back as they were. Browsers that can't encode video themselves
+  (no WebCodecs or AAC) fall back to recording the stretch live while it plays, and say so.
+- The camera icon in the top bar (and **Save a still image** in the Render tab) saves a PNG of the stage.
 - **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
   and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
   Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser
@@ -349,11 +417,23 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   hovering shows the time and the part ("Verse 2 · 0:28"). Click to jump; near a part's start or a
   drop the click snaps onto it. Drag to scrub: the song pauses and the picture follows you (as with
   the render handles, `src/state/scrub.ts`), then plays on from where you let go if it was playing.
-  Under it: play / pause, the time and the part you're in, volume, the frame and exit
+  Under it: play / pause, the time and the section you're in, **Like** and **Skip** for the shot on
+  screen (`K`, `X`), volume, the frame and exit
   (`src/ui/SeekBar.tsx`, `PerformControls` in `src/ui/Perform.tsx`). The bar is page-only, so it is
   never in recordings or renders. In full screen `←/→` move 5 s and `⇧←/⇧→` jump to the previous /
-  next part (back goes to the start of the part you're in first, like a music player).
-- Keys: `space` play/pause · `←/→` previous/next look (in full screen: back / forward 5 s, with `⇧` by part) · `[` / `]` previous/next look (anywhere) · `K` keep · `X` skip · `R` shuffle · `H` hand-drawn · `B` breakdown · `F` full screen (perform mode) · `I` / `O` set the render's start / end to the playhead (render row open) · `esc` exit.
+  next section of the song, not shot by shot (back goes to the start of the section you're in first,
+  like a music player). The seek line's gaps and names are the song's sections too.
+- **Keys** (none of them while you type in a field):
+  - Playing: `space` play / pause · `M` mute · `↑` / `↓` volume · `F` full screen · `esc` leave full
+    screen · in full screen `←` / `→` back / forward 5 s and `⇧←` / `⇧→` the previous / next section.
+  - Looks: `←` / `→` or `[` / `]` the previous / next look · `R` a look at random · `K` like the shot
+    playing · `X` skip it · `1`–`5` the Part tab's quick picks for the picked part · `H` hand-drawn
+    on / off · `A` the next frame shape (`⇧A` the one before).
+  - Timeline: click, `⌘/Ctrl`-click, `Shift`-click to pick · `C` the split tool · `⌘/Ctrl+J` combine
+    · `+` / `-` / `0` zoom in, out, fit · `esc` leave the split tool, then pick nothing.
+  - Editing: `⌘/Ctrl+Z` undo · `⇧⌘Z` or `Ctrl+Y` redo.
+  - Elsewhere: `B` breakdown · `/` write to the Director · `I` / `O` set the render's start / end to
+    the playhead (Render tab open).
 
 ## How it's built
 
@@ -365,7 +445,7 @@ audio file / mic
   → harmony (src/audio/harmony.ts)         in the same worker: chroma, chords, key, key changes, tension
   → lyrics (src/audio/tags.ts, lyrics.ts)    file tags / name → embedded LRC or LRCLIB timed lines
   → video plan (src/state/plan.ts)         a look per section; switches looks along the song
-  → taste memory (src/state/taste.ts)      Keep / Skip and hand picks, in context; biases every pick
+  → taste memory (src/state/taste.ts)      Like / Skip and hand picks, in context; biases every pick
 AudioFrame + analysis → Feel (src/core/feel.ts)       the song's emotional state and a shared world, the same for every look
 AudioFrame → modulation matrix (src/state/modulation.ts) → resolved params
   → SceneInstance.render → render target   (src/scenes/{board,three,shader,photo,nature,worlds,print,type})
