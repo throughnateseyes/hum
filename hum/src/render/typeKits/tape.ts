@@ -373,6 +373,21 @@ export function drawTape(k: KitLine) {
     return;
   }
   if (k.L.role === 'aside') {
+    if (!k.light) {
+      // on a light or busy picture the dark phosphor colours vanish: the prompt gets its own little
+      // terminal window instead, dark glass with a hairline, and glows as it does on a dark picture
+      const box = rowsBox(k.L, k.L.size * 0.35);
+      k.g.save();
+      k.g.globalAlpha = k.alpha * clamp01((k.t - k.start + 0.2) / 0.2);
+      k.g.fillStyle = 'rgba(10, 8, 16, 0.84)';
+      k.g.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+      k.g.strokeStyle = css(termInk(k.pal, true), 0.6);
+      k.g.lineWidth = Math.max(1, k.L.size * 0.04);
+      k.g.strokeRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+      k.g.restore();
+      drawTerm({ ...k, light: true }, k.L.words, termInk(k.pal, true), true);
+      return;
+    }
     drawTerm(k, k.L.words, termInk(k.pal, k.light), true);
     return;
   }

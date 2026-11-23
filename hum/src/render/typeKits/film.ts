@@ -1,7 +1,7 @@
 import type { Palette } from '../../core/types';
 import type { Placed, Role, Voice } from '../lyricAuto';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, contrast, css, easeOut, fromHsl, hexRGB, huesOf, lum, mix, reach, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, clamp01, css, easeOut, fromHsl, hexRGB, huesOf, lum, mix, parseRGB, reach, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Film: '70s title lettering (references 18, 19, 22, 23, 24), drawn before the film finish so its
@@ -189,14 +189,24 @@ export function drawFilm(k: KitLine) {
   if (L.role === 'caption' || L.role === 'aside') {
     // one flat offset shadow; the film finish supplies the wear
     const d = Math.max(1.5, L.size * 0.07);
-    const sh = k.light ? (contrast(c.sh1, c.main) > 2 ? c.sh1 : KEYLINE) : c.sh1;
+    // small type takes the ink the legibility guard checked against this picture (warmed a touch,
+    // its lightness kept), so a caption never goes cream on cream paper; the shadow is a warm ink
+    // on the far side of it
+    const ink = parseRGB(k.inks.ink);
+    const [ih, , il] = toHsl(ink);
+    const [wh, ws] = toHsl(warmed(ink));
+    const main = fromHsl(wh * 0.5 + ih * 0.5, Math.min(0.5, ws), il);
+    const sh: RGB = lum(main) > 0.4 ? reach(c.sh1, [0, 0, 0], 0, 0.12) : reach(c.sh1, [255, 255, 255], 0.45);
+    c.main = main;
     for (const w of L.words) {
       const a = arrival(L, w, t);
       if (!a.on) continue;
       wordFont(g, w);
-      g.globalAlpha = alpha * a.op;
+      // the shadow drops in as the word is sung, so unsung words are the bare ink, not a pale blur
+      g.globalAlpha = alpha * a.op * a.p;
       g.fillStyle = css(sh);
       g.fillText(w.text, w.x + d, w.y + a.dy + d);
+      g.globalAlpha = alpha * a.op;
       g.fillStyle = css(c.main);
       g.fillText(w.text, w.x, w.y + a.dy);
     }

@@ -41,6 +41,12 @@ export function hexRGB(hex: string): RGB {
   const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h.slice(0, 6), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
+/** a CSS colour as RGB: '#rrggbb' or 'rgb(a)(r,g,b…)' (the guard hands its ink over as rgba()) */
+export function parseRGB(s: string): RGB {
+  if (s.startsWith('#')) return hexRGB(s);
+  const n = s.match(/[\d.]+/g)?.map(Number) ?? [];
+  return [n[0] ?? 255, n[1] ?? 255, n[2] ?? 255];
+}
 export const css = (c: RGB, a = 1) => (a >= 1 ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a.toFixed(3)})`);
 export const mix = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 const lin = (v: number) => {
@@ -132,7 +138,9 @@ export function arrival(L: TypeLayout, w: Placed, t: number): Arrival {
   const age = t - w.t;
   if (L.role === 'caption') {
     const p = age <= 0 ? 0 : easeOut(clamp01(age / Math.min(0.45, Math.max(0.12, w.end - w.t))));
-    return { on: true, op: 0.4 + 0.6 * p, dy: 0, wipe: 1, p };
+    // unsung words stay readable ahead of the voice (the finishes lift blacks, so not too faint),
+    // sung ones go full
+    return { on: true, op: 0.65 + 0.35 * p, dy: 0, wipe: 1, p };
   }
   if (age < 0) return { on: false, op: 0, dy: 0, wipe: 0, p: 0 };
   const rd = REVEAL[L.treatment];
