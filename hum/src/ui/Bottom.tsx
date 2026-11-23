@@ -1,13 +1,14 @@
 import { activeFinish, setFinish } from '../state/direction';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { audioEngine } from '../audio/engine';
 import { LAYERS } from '../core/palettes';
 import type { TrackAnalysis } from '../core/types';
+import { historyLabels, onHistoryChange, redo, undo } from '../state/history';
 import { onFrame } from '../state/live';
 import { makeVideo, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
 import { useStudio, type PopupMode } from '../state/store';
 import { LAYER_MIME, Slider, Toggle } from './controls';
-import { Pause, Play, Sparkle, Wave } from './Icons';
+import { Pause, Play, Redo, Sparkle, Wave } from './Icons';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { fmtTime } from './song';
 import { Volume } from './Volume';
@@ -116,6 +117,7 @@ function TopRow() {
       </div>
       {!phone && (
         <div className="bt-group">
+          <UndoRedo />
           <span className="time bpm" title="The song’s tempo">
             {analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}
           </span>
@@ -138,6 +140,41 @@ function TopRow() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Undo and redo (state/history.ts): small and quiet, faded when there's nothing to take back, and the
+ * tooltip names the step. They stay hoverable when faded (aria-disabled, not disabled) so the tooltip
+ * can say why nothing happens.
+ */
+function UndoRedo() {
+  const { undo: u, redo: r } = useSyncExternalStore(onHistoryChange, historyLabels);
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  const key = mac ? '⌘' : 'Ctrl+';
+  return (
+    <span className="bt-hist" style={{ display: 'inline-flex', gap: 2 }}>
+      <button
+        className="btn icon sm ghost has-tip"
+        aria-label={u ? `Undo: ${u}` : 'Nothing to undo'}
+        aria-disabled={!u}
+        style={u ? undefined : { opacity: 0.35, cursor: 'default' }}
+        data-tip={u ? `Undo: ${u} (${key}Z)` : 'Nothing to undo yet'}
+        onClick={undo}
+      >
+        <Redo width={14} height={14} style={{ transform: 'scaleX(-1)' }} />
+      </button>
+      <button
+        className="btn icon sm ghost has-tip"
+        aria-label={r ? `Redo: ${r}` : 'Nothing to redo'}
+        aria-disabled={!r}
+        style={r ? undefined : { opacity: 0.35, cursor: 'default' }}
+        data-tip={r ? `Redo: ${r} (${mac ? '⇧⌘Z' : 'Ctrl+Y'})` : 'Nothing to redo'}
+        onClick={redo}
+      >
+        <Redo width={14} height={14} />
+      </button>
+    </span>
   );
 }
 

@@ -9,6 +9,7 @@ import { useStudio, type InspectorTab } from '../state/store';
 import { clipBlocker } from '../render/clipExport';
 import { clipForTikTok } from '../render/timeline';
 import { takeName } from '../presets/fit';
+import { tweakParts } from '../state/tweaks';
 import { Clamp, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
 import { Camera, Down, Plus, Up, X } from './Icons';
 import { TakesStrip } from './Takes';
@@ -88,6 +89,9 @@ function PartTab() {
   const many = useStudio((s) => s.selectedParts.length > 1);
   const fxCount = useStudio((s) => s.effects.length);
   const modCount = useStudio((s) => s.modulations.length);
+  // what this look's tweaks for the song touch (each section shows a quiet "changed" mark)
+  const tweak = useStudio((s) => (s.presetId ? s.tweaks[s.presetId] : undefined));
+  const ch = tweakParts(tweak);
   return (
     <div className="pt">
       <PartPanel />
@@ -95,18 +99,19 @@ function PartTab() {
       {!many && (
         <>
           <TakesStrip compact />
-          <Section id="part.tune" title="Fine-tune this look" sub="Sliders, effects, colours, sound" collapsible defaultOpen={false}>
+          <Section id="part.tune" title={<>Fine-tune this look{tweak && <Changed />}</>} sub="Sliders, effects, colours, sound" collapsible defaultOpen={false}>
             <div className="tune">
-              <Section id="tune.params" title="Parameters" collapsible defaultOpen={false}>
+              <TuneHead changed={!!tweak} />
+              <Section id="tune.params" title={<>Parameters{ch.params && <Changed />}</>} collapsible defaultOpen={false}>
                 <ParamsBody />
               </Section>
-              <Section id="tune.fx" title="Effects" right={fxCount ? <span className="param-val">{fxCount}</span> : undefined} collapsible defaultOpen={false}>
+              <Section id="tune.fx" title={<>Effects{ch.fx && <Changed />}</>} right={fxCount ? <span className="param-val">{fxCount}</span> : undefined} collapsible defaultOpen={false}>
                 <FxBody />
               </Section>
-              <Section id="tune.colours" title="Colours" collapsible defaultOpen={false}>
+              <Section id="tune.colours" title={<>Colours{ch.colours && <Changed />}</>} collapsible defaultOpen={false}>
                 <ColoursBody />
               </Section>
-              <Section id="tune.sound" title="Reacts to sound" right={modCount ? <span className="param-val">{modCount}</span> : undefined} collapsible defaultOpen={false}>
+              <Section id="tune.sound" title={<>Reacts to sound{ch.sound && <Changed />}</>} right={modCount ? <span className="param-val">{modCount}</span> : undefined} collapsible defaultOpen={false}>
                 <SoundBody />
               </Section>
               <Section id="tune.save" title="Save as a take" collapsible defaultOpen={false}>
@@ -115,6 +120,43 @@ function PartTab() {
             </div>
           </Section>
         </>
+      )}
+    </div>
+  );
+}
+
+/** a quiet mark beside a section that differs from the look's original */
+function Changed() {
+  return (
+    <span className="tune-changed" title="Changed from the original" style={{ marginLeft: 8, fontSize: 'var(--fs-1)', fontWeight: 400, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <i aria-hidden style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)' }} />
+      changed
+    </span>
+  );
+}
+
+/**
+ * Fine-tuning needs no Save: every change is kept for this look (state/tweaks.ts), in every part of
+ * this video that uses it, and comes back after a cut, a remake or a reload. Reset puts the preset back.
+ */
+function TuneHead({ changed }: { changed: boolean }) {
+  const hasPlan = useStudio((s) => validPlan(s.plan, s.analysis));
+  const hasLook = useStudio((s) => !!s.presetId);
+  if (!hasLook) return null;
+  return (
+    <div className="tune-keep" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, padding: '0 0 6px' }}>
+      <span className="field-note" style={{ margin: 0 }}>
+        {hasPlan ? 'Changes are kept for this look in this video' : 'Changes are kept for this look'}
+      </span>
+      {changed && (
+        <button
+          className="btn sm ghost has-tip"
+          style={{ marginLeft: -8 }}
+          onClick={() => useStudio.getState().resetLookTweaks()}
+          data-tip="Put this look back the way it came, everywhere it plays in this video"
+        >
+          Reset to the original
+        </button>
       )}
     </div>
   );
