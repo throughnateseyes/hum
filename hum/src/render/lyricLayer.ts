@@ -10,6 +10,7 @@ import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
+import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
 import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockoutCaps, knockoutMoving, withLead, type KnockoutLayout } from './knockout';
 
 /**
@@ -57,23 +58,15 @@ import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockou
  * `showsLyrics`) unless the user picks "Show anyway".
  */
 
+export { readTime, showings, type Showing } from './lyricTiming';
+
 const FONT = LYRIC_FAMILIES.grotesk;
 /** nothing is placed above this share of the frame height: the top stays clear */
 const SAFE_TOP = 0.34;
 /** a line that has to make way fades out over the next one for this long (s) */
 const HANDOVER = 0.35;
-/** read time: base + per word (s), and never less than READ_MIN */
-const READ_BASE = 0.6;
-const READ_PER_WORD = 0.28;
-const READ_MIN = 1.4;
-/** a line's last word stays up at least this long after it starts (s) */
-const TAIL = 0.75;
-/** lines merged into one showing never go over this many words (or three lines) */
-const MAX_SHOWN_WORDS = 14;
 const FADE_IN = 0.14;
 const FADE_OUT = 0.3;
-/** show the next line slightly early so the eye arrives with the voice */
-const LEAD = 0.08;
 /** knockout: a gap this short (s) before the next line is held through, the last word up until the next knocks it out */
 const KO_BRIDGE = 1.5;
 
@@ -82,109 +75,6 @@ type Drawn = 'subtitle' | 'big' | 'cutout' | 'sparse' | 'knockout' | 'own' | 'no
 const quiet = (m: Drawn) => m === 'own' || m === 'none';
 /** the mediums placed in spots (knockout lays itself out over the frame) */
 type Placed2 = Exclude<Drawn, 'own' | 'none' | 'world' | 'knockout'>;
-
-interface Word {
-  text: string;
-  t: number;
-  end: number;
-}
-
-/** word timings: real ones when the lyrics have them, otherwise spread across the line by length */
-function wordsOf(line: LyricLine): Word[] {
-  if (line.words?.length) return line.words;
-  const parts = line.text.split(/\s+/).filter(Boolean);
-  const total = parts.reduce((a, w) => a + w.length + 1, 0);
-  const span = Math.max(0.4, (line.end - line.t) * 0.82);
-  let acc = 0;
-  return parts.map((text) => {
-    const t = line.t + (acc / total) * span;
-    acc += text.length + 1;
-    return { text, t, end: line.t + (acc / total) * span };
-  });
-}
-
-/** how long a line of n words needs on screen to be read */
-export const readTime = (n: number) => Math.max(READ_MIN, READ_BASE + READ_PER_WORD * n);
-
-/** what is on screen at once: one lyric line, or a few quick ones together, with display times */
-export interface Showing {
-  /** first and last lyric line (indices into the lines) */
-  first: number;
-  last: number;
-  /** on screen from t to end (end includes the read time; the fade-out comes after) */
-  t: number;
-  end: number;
-  text: string;
-  words: Word[];
-  timed: boolean;
-}
-
-const shownCache = new WeakMap<LyricLine[], Showing[]>();
-
-/**
- * Turn timed lines into what's shown: each line stays up for its read time and a moment after its
- * last word; lines that start before the one before could be read join it (up to three lines /
- * MAX_SHOWN_WORDS), so nothing flashes by. If a showing still has to leave early for the next one,
- * its late words are pulled in so every word is drawn before it goes.
- */
-export function showings(lines: LyricLine[]): Showing[] {
-  const hit = shownCache.get(lines);
-  if (hit) return hit;
-  const out: Showing[] = [];
-  let k = 0;
-  while (k < lines.length) {
-    const first = k;
-    let words = wordsOf(lines[k]).map((w) => ({ ...w }));
-    let timed = !!lines[k].words?.length;
-    let last = k;
-    while (last + 1 < lines.length && last - first < 2 && words.length) {
-      const nx = lines[last + 1];
-      const upFor = nx.t - lines[first].t;
-      const tailFor = nx.t - words[words.length - 1].t;
-      if (upFor >= readTime(words.length) && tailFor >= TAIL) break;
-      const nw = wordsOf(nx);
-      if (words.length + nw.length > MAX_SHOWN_WORDS) break;
-      words = words.concat(nw.map((w) => ({ ...w })));
-      timed = timed && !!nx.words?.length;
-      last++;
-    }
-    k = last + 1;
-    if (!words.length) continue;
-    const t = lines[first].t;
-    const next = lines[last + 1]?.t ?? Infinity;
-    const lastW = words[words.length - 1];
-    const want = Math.max(lines[last].end, lastW.end + 0.25, lastW.t + TAIL, t + readTime(words.length));
-    const end = Math.min(want, next);
-    // every word is drawn before the showing goes: if it must leave early, pull its late words in
-    const latest = end - 0.35;
-    const w0 = Math.min(words[0].t, latest);
-    if (lastW.t > latest && latest > t) {
-      const f = (latest - w0) / Math.max(1e-3, lastW.t - w0);
-      for (const w of words) {
-        if (w.t > w0) w.t = w0 + (w.t - w0) * f;
-        w.end = Math.min(end, Math.max(w.t + 0.05, w0 + (w.end - w0) * f));
-      }
-    }
-    out.push({ first, last, t, end, text: words.map((w) => w.text).join(' '), words, timed });
-  }
-  shownCache.set(lines, out);
-  return out;
-}
-
-/** index of the last showing that has started by time t (-1 before the first) */
-function showingAt(shows: Showing[], t: number): number {
-  let lo = 0;
-  let hi = shows.length - 1;
-  let found = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (shows[mid].t <= t) {
-      found = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-  return found;
-}
 
 const STOP = new Set('a an and are as at be but by for from had has have he her his i if in into is it its me my no not of on or our she so that the their them then there they this to too up us was we were what when where who will with you your oh ooh yeah la na da'.split(' '));
 /** the words that carry a line: held long, not filler */
@@ -356,6 +246,8 @@ export class LyricLayer {
   private devClock = 0;
   /** fades the line out when a shot cuts to a look that shows the words itself */
   private standDown = 0;
+  /** a pop-up showing the sung line was open last frame (see lyricTiming.noteLineWindow) */
+  private lineWindow = false;
   /** look + scene the guard last saw, to notice cuts */
   private lookKey = '';
   /** the accent passes the same per-pixel contrast test as the ink (else the giant word uses the ink) */
@@ -489,7 +381,9 @@ export class LyricLayer {
       this.line.group = group;
       // knockout hands over word to word itself (the last word is knocked out by the next): no ghost
       if (this.line.medium === 'knockout') this.ghostOn = false;
-      this.standDown = 0;
+      // a new line while a "now singing" pop-up is open starts hidden (it's in the pop-up)
+      this.standDown = this.lineWindow ? 1 : 0;
+      if (this.lineWindow) this.ghostOn = false;
     }
   }
 
@@ -501,6 +395,7 @@ export class LyricLayer {
     const dt = o.dt ?? Math.min(0.1, Math.max(0, now - (this.clock || now)));
     this.clock = now;
     const st = useStudio.getState();
+    this.lineWindow = takeLineWindow();
     const f = this.facts(o);
     const { t, cur, W, H, carries } = f;
     if (cur) this.ensureLine(f, o);
@@ -525,7 +420,9 @@ export class LyricLayer {
 
     // a cut to a look that shows the words itself mid-line: fade out rather than fight it
     // (Auto hands every medium to the look; the fixed Subtitles style keeps its subtitles).
-    const hideNow = (carries && !quiet(L.medium) && (o.style === 'auto' || L.medium !== 'subtitle'));
+    // A "now singing" pop-up shows the sung line too: the words are in one place at a time, so the
+    // overlay stands down while one is open (lyricTiming.noteLineWindow, from mod-words.ts).
+    const hideNow = (carries && !quiet(L.medium) && (o.style === 'auto' || L.medium !== 'subtitle')) || (this.lineWindow && !quiet(L.medium));
     this.standDown += ((hideNow ? 1 : 0) - this.standDown) * Math.min(1, dt * 8);
 
     // a cut under the line: the picture changed at once, so the guard may follow at once
