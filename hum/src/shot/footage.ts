@@ -182,11 +182,14 @@ vec3 region(vec4 box, float zoom, float mode) {
   vec2 uv = f + (local - f) / (zoom * (1.0 + uPunch));
   vec3 col = vec3(0.0);
   float j = hash(gl_FragCoord.xy);
+  // the smear takes ten taps; a still shot (most of every shot) needs one
+  float taps = uBlur > 0.01 ? 10.0 : 1.0;
   for (int i = 0; i < 10; i++) {
+    if (float(i) >= taps) break;
     float s = (float(i) + j) / 10.0;
     col += footage(f + (uv - f) * (1.0 - uBlur * 0.24 * s) - 0.5, aspect);
   }
-  col /= 10.0;
+  col /= taps;
   if (mode < 0.5) return col;
   if (plain) return mix(col, solid(mode), uTreat);
   // brightness, read a little soft so flat bands have clean edges instead of speckle

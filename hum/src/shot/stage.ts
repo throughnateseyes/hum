@@ -140,6 +140,7 @@ export class ShotStage {
       // a card takes the colours of the footage it leads into; a look, of the footage it follows
       const neighbour = shot.kind === 'card' ? (footageShots.find((s) => s.start >= shot.end) ?? footageShots[0]) : ([...footageShots].reverse().find((s) => s.end <= shot.start) ?? footageShots[0]);
       const clip = shot.kind === 'footage' ? clipOf(shot) : null;
+      const alt = altOf(shot);
       const palette = (clip ?? (neighbour ? clipOf(neighbour) : o.clips[0])).palette;
       const scheme = schemeFor(palette);
       const curve = curves[shot.index];
@@ -198,6 +199,8 @@ export class ShotStage {
           arrive: shot.arrive,
           leave: shot.leave,
           freeze: curve.freeze,
+          clipFrom: curve.footage(shot.start),
+          altFrom: alt ? (shot.altFrom ?? (curve.footage(shot.start) + alt.duration * 0.5) % Math.max(0.25, alt.duration - 0.25)) : null,
         };
         try {
           style = factory(ctx);
@@ -213,7 +216,7 @@ export class ShotStage {
           this.errors.push(`style "${shot.style || shot.kind}": ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      this.rigs.push({ shot, curve, palette, scheme, clip, alt: altOf(shot), look, frame, mask, style });
+      this.rigs.push({ shot, curve, palette, scheme, clip, alt, look, frame, mask, style });
     }
   }
 

@@ -383,7 +383,8 @@ class FootageLook implements SceneInstance {
       this.echo = this.deck.map((_, i) => (i === 0 && echoReady ? asClip(ready[0], this.held.get(this.poolKey(ready[0].id, true))!) : null));
     } else {
       this.deck = photos.slice(0, MAX_OPEN).map(stillClip);
-      this.echo = this.deck.map((c) => c);
+      // a still has no other moment: Split pushes in on it instead
+      this.echo = this.deck.map(() => null);
     }
     this.builtKey = '';
   }

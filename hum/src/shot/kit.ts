@@ -101,6 +101,9 @@ export interface StyleContext {
   arrive: 'hit' | 'cold';
   leave: 'ramp' | 'settle' | 'cut';
   freeze: number;
+  /** the second of its clip the shot opens on, and of its second clip when it has one (Split's slates) */
+  clipFrom: number;
+  altFrom: number | null;
 }
 
 export interface StyleFrame {
@@ -202,6 +205,10 @@ export class Flat {
 
   color(c: THREE.ColorRepresentation) {
     this.mat.color.set(c);
+  }
+
+  alpha(a: number) {
+    this.mat.opacity = a;
   }
 
   hide() {

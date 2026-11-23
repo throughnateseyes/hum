@@ -6,14 +6,14 @@
  *           it slides across to stand on the opposite edge. The bar count is set big in it, with the
  *           song's title small on the margin.
  *   disc    a circle wider than the frame's short side, its centre on a corner; each bar it rolls to
- *           the next corner. The song's title small on the margin.
+ *           the next corner. The bar count big on that corner, the song's title small beside it.
  *
  *   arrives   slides in from off the frame within 0.2 s
  *   the beat  one slide per bar, then still
  *   hands over  in the last beat it grows to cover the frame, so the cut is a wipe in the accent
  */
 import * as THREE from 'three';
-import { arrival, barStep, Flat, handOver, lerp, settling, type StyleFactory } from '../kit';
+import { arrival, barStep, Flat, handOver, lerp, MOVE, settling, type StyleFactory } from '../kit';
 import { DISPLAY_FONT, MONO_FONT, placeLine, riseLetters, typeLine } from '../type';
 import { choose } from './common';
 
@@ -34,8 +34,7 @@ export const slab: StyleFactory = (ctx) => {
   const bars = Math.max(1, Math.round((ctx.end - ctx.start) / (ctx.beat * 4)));
   const firstBar = Math.max(0, Math.round((ctx.start - ctx.partStart) / (ctx.beat * 4)));
   const numbers = Array.from({ length: bars }, (_, i) => typeLine(String(firstBar + i + 1).padStart(2, '0'), s.onAccent, DISPLAY_FONT, 300));
-  if (kind === 'block') for (const nb of numbers) group.add(nb.mesh);
-  else for (const nb of numbers) nb.mesh.visible = false;
+  for (const nb of numbers) group.add(nb.mesh);
 
   /** the block standing on side 0 (top / left) or 1 (bottom / right), pushed `off` of its depth out of the frame */
   const blockAt = (side: number, off: number) => {
@@ -100,11 +99,17 @@ export const slab: StyleFactory = (ctx) => {
         const k = n === 0 ? 1 : e;
         const rr = r * a * (1 - gone) + cover * Math.hypot(W, H) * 2.2;
         piece.disc(lerp(c0[0], c1[0], k), lerp(c0[1], c1[1], k), rr);
-        // the title on the margin, inside the circle's quarter
+        // the bar number big on the corner the circle stands on, and the title under (or over) it
         const c = c1;
         tAlign = c[0] < 0 ? 'left' : 'right';
         tx = c[0] < 0 ? g.x0 : g.x1;
-        ty = c[1] > 0 ? g.y1 - g.tiny : g.y0;
+        const big = (g.portrait ? g.colW : g.rowH) * 1.25;
+        const nbase = c[1] > 0 ? g.y1 - big : g.y0 + g.tiny * 2.6;
+        const nb = numbers[Math.min(n, numbers.length - 1)];
+        numbers.forEach((x, i) => (x.mesh.visible = i === Math.min(n, numbers.length - 1) && a > 0.5 && cover < 0.3 && (n === 0 || e > 0.99)));
+        placeLine(nb, tx, nbase, big, tAlign);
+        riseLetters(nb, f.t, ctx.start + ctx.freeze + (n ? n * ctx.beat * 4 + MOVE : 0) + 0.04, 0.2);
+        ty = c[1] > 0 ? nbase - g.tiny * 2.2 : g.y0;
       }
       placeLine(title, tx, ty, g.tiny, tAlign);
       title.mesh.visible = a > 0.9 && cover < 0.3 && (n === 0 || e > 0.99);
