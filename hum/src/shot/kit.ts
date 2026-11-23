@@ -1,21 +1,20 @@
 /**
- * What every shape over a shot is built on (prototype, see src/dev/shot.ts).
+ * What every footage style is built on (the styles themselves are in src/shot/styles).
  *
- * A shot's graphics are motifs: small pieces (a burst of shapes, bars on the kicks, ribbons, a word)
- * that each own some three.js objects and place them from song time alone. Motifs live in one of two
- * spaces:
+ * A style draws one shot's graphics: a few flat shapes and lines of type, pinned to the frame and
+ * placed on its grid (grid.ts). It can also cut windows: shapes drawn into a mask, where the footage
+ * shows with a different treatment (or a different crop) from the rest of the frame. Each frame the
+ * style places everything from song time alone and fills in the Bed: how the footage is drawn in
+ * each of the three regions (the frame, mask red, mask green).
  *
- *   'world'  a 3D space the shot travels through. The camera stands still at z = CAM_Z looking down
- *            -z; the world slides toward it as the footage runs (faster on a speed ramp), so shapes
- *            come up out of the distance, pass the lens and leave. z = 0 is the plane in focus.
- *   'frame'  pinned to the picture, on the plane in focus: type, rulers, anything that must stay put.
- *
- * ShapeCloud is the shared way to draw flat shapes with depth: each shape goes soft as it leaves the
- * plane in focus (large and blurred close to the lens), casts a soft shadow on the picture behind it,
- * and can be a window onto a live picture instead of a flat colour.
+ * The motion every style shares (timing.ts below): graphics arrive within 0.2 s of the shot starting,
+ * hold, move once on a bar line with a quick eased slide, and hold again; a shot that speeds up into
+ * its cut hands over with one move in its last beat.
  */
 import * as THREE from 'three';
-import type { ShotPalette } from './palette';
+import type { Grid } from './grid';
+import type { Scheme } from './palette';
+import { clamp01, easeInExpo, easeOutExpo, smooth } from './time';
 
 export const FOV = 35;
 /** the camera's distance from the plane in focus */
@@ -27,286 +26,199 @@ export function frameSize(aspect: number): { halfW: number; halfH: number } {
   return { halfW: halfH * aspect, halfH };
 }
 
-export interface MotifContext {
+/** how the footage is drawn in a region (see the shader in footage.ts) */
+export const TONE = {
+  /** the clip as it is */
+  clean: 0,
+  /** a smooth print from ink to paper */
+  mono: 1,
+  /** a smooth print from ink to the accent */
+  duo: 2,
+  /** three flat bands: ink, a mid tone, paper */
+  flat: 3,
+  paper: 4,
+  ink: 5,
+  accent: 6,
+  /** two flat bands: ink and paper */
+  print: 7,
+} as const;
+
+/** what the look's Colour setting asks of the footage */
+export type Colour = 'clean' | 'tinted' | 'flat';
+export const toneOf = (c: Colour): number => (c === 'flat' ? TONE.flat : c === 'tinted' ? TONE.mono : TONE.clean);
+
+/** how the footage is drawn this frame, region by region: 0 the frame, 1 mask red, 2 mask green */
+export interface Bed {
+  tone: number[];
+  /** each region's box in the frame (0..1 from the bottom-left): x, y, width, height */
+  rect: THREE.Vector4[];
+  /** push-in on top of the crop (1 = none) */
+  zoom: number[];
+}
+
+export interface Labels {
+  /** the song's title */
+  title: string;
+  /** the part, e.g. CHORUS */
+  part: string;
+  /** where the part starts in the song, e.g. 0:32 */
+  time: string;
+  /** e.g. 120 BPM */
+  tempo: string;
+}
+
+export interface StyleContext {
   halfW: number;
   halfH: number;
   /** picture size in px */
   width: number;
   height: number;
-  palette: ShotPalette;
+  grid: Grid;
+  scheme: Scheme;
   /** seconds per felt beat */
   beat: number;
-  /** the shot's stretch of the song (s), and the drum hits that fall in it */
+  /** the shot's stretch of the song (s) */
   start: number;
   end: number;
-  kicks: number[];
-  snares: number[];
-  /** how far the world has slid toward the camera at song time t (world units, 0 at the shot's start) */
-  travel(t: number): number;
-  /** the same at the shot's end: shapes placed between z = -depth and 0 all come past the plane in focus */
-  depth: number;
-  /** dice that roll the same every run: never use Math.random */
+  /** where the part this shot belongs to starts (bar numbers count from there) */
+  partStart: number;
+  /** a whole number for this shot's arrangement: the seed and the shot, so rules can pick from lists */
+  layout: number;
+  /** dice for anything finer; the same every run */
   rnd(): number;
-  /** a live picture (one of Hum's looks) that shapes can be windows onto; null when there is none */
-  fill: THREE.Texture | null;
-  /** the big word of this shot ('' for none) and a small line to go with it */
+  /** the words to set (the song's title, one word each), and this shot's own */
+  words: string[];
   word: string;
-  caption: string;
+  labels: Labels;
+  /** the tone the look's Colour setting asks for */
+  tone: number;
+  colour: Colour;
+  /** how loud the part is, 0..1 */
+  energy: number;
   /** how the shot arrives and leaves (see Shot in sequence.ts), and the frames it holds still on a hit (s) */
   arrive: 'hit' | 'cold';
   leave: 'ramp' | 'settle' | 'cut';
   freeze: number;
-  /** beats a shot that leaves on a ramp spends speeding up */
-  rampBeats: number;
-  /** the whole run of shots this one belongs to (song s): its start, its main hit and its end */
-  run: { start: number; hit: number; end: number };
 }
 
-export interface MotifFrame {
+export interface StyleFrame {
   /** song time (s) */
   t: number;
-  /** how far the world has slid by now (same as ctx.travel(t)) */
-  travel: number;
-  /** 0..1: how hard the picture is rushing (the speed ramp) */
-  rush: number;
-  /** the focus point on the plane in focus, in world units */
-  focusX: number;
-  focusY: number;
-  camera: THREE.PerspectiveCamera;
+  /** the focus point (0..1 from the bottom-left of the frame) */
+  focusU: number;
+  focusV: number;
 }
 
-export interface Motif {
-  space: 'world' | 'frame';
-  /** added to the scene for its space; a world motif's children sit at their resting z and the stage slides the whole space */
+export interface StyleShot {
+  /** drawn over the footage */
   object: THREE.Object3D;
-  update(f: MotifFrame): void;
+  /** drawn into the mask (MASK_A red, MASK_B green), or null when the style cuts no windows */
+  mask: THREE.Object3D | null;
+  /** place everything for this frame, and say how the footage is drawn under it */
+  update(f: StyleFrame, bed: Bed): void;
   dispose(): void;
 }
 
-export type MotifFactory = (ctx: MotifContext) => Motif;
+export type StyleFactory = (ctx: StyleContext) => StyleShot;
 
-/* ───────── ShapeCloud ───────── */
+/* ───────── timing ───────── */
 
-export const SHAPE = { rect: 0, disc: 1, triangle: 2, ring: 3 } as const;
-export type ShapeId = (typeof SHAPE)[keyof typeof SHAPE];
+/** seconds the graphics take to arrive */
+export const IN = 0.2;
+/** seconds a move on a bar line takes */
+export const MOVE = 0.3;
 
-const CLOUD_VERT = /* glsl */ `
-attribute vec3 aPos;
-attribute vec4 aQuat;
-attribute vec2 aSize;
-attribute vec3 aColor;
-attribute vec4 aParams; // shape, alpha, soft, window
-uniform float uShadow;  // 0 the shape itself, 1 its shadow
-varying vec2 vP;
-varying vec3 vColor;
-varying vec4 vParams;
-varying vec2 vSize;
-vec3 turn(vec3 v, vec4 q) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
-void main() {
-  float soft = aParams.z + uShadow * 0.5;
-  // room round the shape for its soft edge
-  float grow = 1.0 + soft * 2.2;
-  vec3 local = vec3(position.xy * aSize * grow, 0.0);
-  vec3 world = aPos + turn(local, aQuat);
-  // a shadow lands lower and further off the higher the shape floats above the picture
-  float lift = clamp(aPos.z + 3.0, 0.0, 8.0);
-  world.xy += uShadow * vec2(0.035, -0.06) * (0.6 + lift);
-  world.z -= uShadow * 0.02;
-  vP = position.xy * 2.0 * grow;
-  vColor = aColor;
-  vParams = vec4(aParams.x, aParams.y, soft, aParams.w);
-  vSize = aSize;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(world, 1.0);
-}
-`;
+export const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2);
 
-const CLOUD_FRAG = /* glsl */ `
-precision highp float;
-uniform float uShadow;
-uniform vec3 uShadowColor;
-uniform sampler2D tFill;
-uniform vec2 uRes;
-uniform float uHasFill;
-varying vec2 vP;        // -1..1 across the shape, beyond that in the soft margin
-varying vec3 vColor;
-varying vec4 vParams;
-varying vec2 vSize;
-
-// distance to the shape's edge, in units of the shape's smaller half size (negative inside).
-// p spans -1..1 across the shape.
-float edge(vec2 p, float shape) {
-  if (shape < 0.5) {
-    // measured in real units, so a long bar's edge is as soft along it as across it
-    vec2 hs = vSize * 0.5;
-    vec2 d = abs(p * hs) - hs;
-    return (length(max(d, 0.0)) + min(max(d.x, d.y), 0.0)) / min(hs.x, hs.y);
-  }
-  if (shape < 1.5) return length(p) - 1.0;
-  if (shape < 2.5) {
-    // an upright triangle
-    p.y += 0.3;
-    const float k = 1.7320508;
-    p.x = abs(p.x) - 1.0;
-    p.y = p.y + 1.0 / k;
-    if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
-    p.x -= clamp(p.x, -2.0, 0.0);
-    return -length(p) * sign(p.y);
-  }
-  return abs(length(p) - 0.82) - 0.18;
-}
-
-void main() {
-  float d = edge(vP, vParams.x);
-  float soft = vParams.z;
-  float aa = fwidth(d) * 0.75;
-  float cover = 1.0 - smoothstep(-soft - aa, soft + aa, d);
-  // a blurred shape spreads its ink over more of the picture, so it gets fainter
-  float a = cover * vParams.y / (1.0 + soft * 1.6);
-  if (a < 0.004) discard;
-  vec3 col = vColor;
-  if (vParams.w > 0.5 && uHasFill > 0.5) col = texture2D(tFill, gl_FragCoord.xy / uRes).rgb;
-  if (uShadow > 0.5) {
-    col = uShadowColor;
-    a *= 0.26;
-  }
-  gl_FragColor = vec4(col, a);
-}
-`;
-
-const IDENTITY = new THREE.Quaternion();
+/** 0 → 1 as the graphics arrive: within IN seconds of the shot starting (after a hit's frozen frames) */
+export const arrival = (ctx: StyleContext, t: number, delay = 0) => easeOutExpo(clamp01((t - ctx.start - ctx.freeze - delay) / IN));
 
 /**
- * Up to `max` flat shapes drawn in one go. Each frame: call begin(), add() every shape that is on
- * screen, then commit(). Shapes are sorted far to near, so they can overlap softly.
+ * The moves on bar lines inside a shot: how many bar lines t has passed (n), and how far through the
+ * slide after the latest one (e, eased, 1 when still). No move starts in the last beat before a cut.
  */
-export class ShapeCloud {
-  readonly object = new THREE.Group();
-  private readonly geo: THREE.InstancedBufferGeometry;
-  private readonly pos: Float32Array;
-  private readonly quat: Float32Array;
-  private readonly size: Float32Array;
-  private readonly color: Float32Array;
-  private readonly params: Float32Array;
-  private readonly materials: THREE.ShaderMaterial[] = [];
-  private readonly items: { z: number; data: Float32Array }[] = [];
-  private count = 0;
-  /** how quickly shapes go soft away from the plane in focus (0 = everything sharp) */
-  blur = 1;
+export function barStep(ctx: StyleContext, t: number, beats = 4): { n: number; e: number } {
+  const len = beats * ctx.beat;
+  const last = Math.floor((ctx.end - ctx.beat * 0.9 - ctx.start) / len);
+  const n = Math.max(0, Math.min(last, Math.floor((t - ctx.start) / len)));
+  if (n === 0) return { n: 0, e: 1 };
+  return { n, e: easeInOutCubic(clamp01((t - ctx.start - n * len) / MOVE)) };
+}
 
-  constructor(
-    private readonly max: number,
-    opts: { shadows?: boolean; shadowColor?: string; fill?: THREE.Texture | null; width?: number; height?: number; order?: number } = {},
-  ) {
-    const quad = new THREE.PlaneGeometry(1, 1);
-    const geo = new THREE.InstancedBufferGeometry();
-    geo.index = quad.index;
-    geo.setAttribute('position', quad.getAttribute('position'));
-    const attr = (name: string, n: number) => {
-      const a = new THREE.InstancedBufferAttribute(new Float32Array(max * n), n);
-      a.setUsage(THREE.DynamicDrawUsage);
-      geo.setAttribute(name, a);
-      return a.array as Float32Array;
-    };
-    this.pos = attr('aPos', 3);
-    this.quat = attr('aQuat', 4);
-    this.size = attr('aSize', 2);
-    this.color = attr('aColor', 3);
-    this.params = attr('aParams', 4);
-    this.geo = geo;
-    for (let i = 0; i < max; i++) this.items.push({ z: 0, data: new Float32Array(16) });
+/** whole beats since the shot started (0 on its first beat) */
+export const beatIndex = (ctx: StyleContext, t: number) => Math.max(0, Math.floor((t - ctx.start + 0.001) / ctx.beat));
 
-    const make = (shadow: boolean) => {
-      const m = new THREE.ShaderMaterial({
-        vertexShader: CLOUD_VERT,
-        fragmentShader: CLOUD_FRAG,
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        uniforms: {
-          uShadow: { value: shadow ? 1 : 0 },
-          uShadowColor: { value: new THREE.Color(opts.shadowColor ?? '#101020') },
-          tFill: { value: opts.fill ?? null },
-          uHasFill: { value: opts.fill ? 1 : 0 },
-          uRes: { value: new THREE.Vector2(opts.width ?? 1280, opts.height ?? 720) },
-        },
-      });
-      const mesh = new THREE.Mesh(geo, m);
-      mesh.frustumCulled = false;
-      mesh.renderOrder = (opts.order ?? 3) + (shadow ? -0.5 : 0);
-      this.materials.push(m);
-      this.object.add(mesh);
-    };
-    if (opts.shadows !== false) make(true);
-    make(false);
+/** 0 → 1 over the shot's last beat (at most half a second) when it speeds up into its cut */
+export function handOver(ctx: StyleContext, t: number): number {
+  if (ctx.leave !== 'ramp') return 0;
+  const len = Math.min(ctx.beat, 0.5);
+  return easeInExpo(clamp01((t - (ctx.end - len)) / len));
+}
+
+/** 0 → 1 over the last two beats of the song's last shot, as its graphics leave */
+export const settling = (ctx: StyleContext, t: number) => (ctx.leave === 'settle' ? smooth(ctx.end - ctx.beat * 2.2, ctx.end - ctx.beat * 0.6, t) : 0);
+
+export const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+/* ───────── flat shapes ───────── */
+
+const PLANE = new THREE.PlaneGeometry(1, 1);
+const DISC = new THREE.CircleGeometry(0.5, 160);
+
+/** the colours shapes are drawn in, in the mask */
+export const MASK_A = '#ff0000';
+export const MASK_B = '#00ff00';
+
+/** one flat rectangle or disc, pinned to the frame */
+export class Flat {
+  readonly mesh: THREE.Mesh;
+  private readonly mat: THREE.MeshBasicMaterial;
+
+  constructor(parent: THREE.Object3D, color: THREE.ColorRepresentation, shape: 'rect' | 'disc' = 'rect', order = 3) {
+    this.mat = new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false });
+    this.mesh = new THREE.Mesh(shape === 'disc' ? DISC : PLANE, this.mat);
+    this.mesh.renderOrder = order;
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+    parent.add(this.mesh);
   }
 
-  begin() {
-    this.count = 0;
+  /** a rectangle between two corners (any order) */
+  rect(xa: number, ya: number, xb: number, yb: number) {
+    const w = Math.abs(xb - xa);
+    const h = Math.abs(yb - ya);
+    this.mesh.visible = w > 1e-4 && h > 1e-4;
+    this.mesh.position.set((xa + xb) / 2, (ya + yb) / 2, 0);
+    this.mesh.scale.set(Math.max(w, 1e-4), Math.max(h, 1e-4), 1);
   }
 
-  /**
-   * One shape. `x, y, z` is its centre in this cloud's space, `w, h` its full size, `soft` extra blur
-   * on top of what its depth gives it (0 for none), `window` true to show the live picture through it.
-   */
-  add(shape: ShapeId, x: number, y: number, z: number, w: number, h: number, color: THREE.Color, alpha = 1, quat: THREE.Quaternion = IDENTITY, soft = 0, window = false) {
-    if (this.count >= this.max || alpha <= 0.003 || w <= 0 || h <= 0) return;
-    const d = this.items[this.count++].data;
-    d[0] = x;
-    d[1] = y;
-    d[2] = z;
-    d[3] = quat.x;
-    d[4] = quat.y;
-    d[5] = quat.z;
-    d[6] = quat.w;
-    d[7] = w;
-    d[8] = h;
-    d[9] = color.r;
-    d[10] = color.g;
-    d[11] = color.b;
-    d[12] = shape;
-    d[13] = alpha;
-    d[14] = soft;
-    d[15] = window ? 1 : 0;
+  disc(x: number, y: number, r: number) {
+    this.mesh.visible = r > 1e-4;
+    this.mesh.position.set(x, y, 0);
+    this.mesh.scale.set(Math.max(2 * r, 1e-4), Math.max(2 * r, 1e-4), 1);
   }
 
-  /** `travel` is how far this cloud's space has slid toward the camera (0 for a cloud pinned to the frame) */
-  commit(travel = 0) {
-    const n = this.count;
-    const list = this.items;
-    for (let i = 0; i < n; i++) list[i].z = list[i].data[2];
-    // far to near; the unused tail stays where it is
-    const used = list.slice(0, n).sort((a, b) => a.z - b.z);
-    for (let i = 0; i < n; i++) {
-      const d = used[i].data;
-      this.pos.set([d[0], d[1], d[2]], i * 3);
-      this.quat.set([d[3], d[4], d[5], d[6]], i * 4);
-      this.size.set([d[7], d[8]], i * 2);
-      this.color.set([d[9], d[10], d[11]], i * 3);
-      // depth of field: sharp on the plane in focus, softer the further from it, most of all near the lens
-      const zc = d[2] + travel;
-      const lens = Math.max(0.35, CAM_Z - zc);
-      const coc = (Math.abs(zc) / lens) * 0.11 * this.blur;
-      const reach = Math.max(0.02, Math.min(d[7], d[8]) * 0.5);
-      this.params.set([d[12], d[13], d[14] + Math.min(1.6, coc / reach), d[15]], i * 4);
-    }
-    for (let i = 0; i < n; i++) list[i] = used[i];
-    this.geo.instanceCount = n;
-    for (const name of ['aPos', 'aQuat', 'aSize', 'aColor', 'aParams']) (this.geo.getAttribute(name) as THREE.InstancedBufferAttribute).needsUpdate = true;
+  color(c: THREE.ColorRepresentation) {
+    this.mat.color.set(c);
   }
 
-  /** true when a point in this cloud's space is still in front of the lens after `travel` */
-  static ahead(z: number, travel: number): boolean {
-    return z + travel < CAM_Z - 0.3;
+  hide() {
+    this.mesh.visible = false;
   }
 
   dispose() {
-    this.geo.dispose();
-    for (const m of this.materials) m.dispose();
+    this.mat.dispose();
   }
 }
 
-/** a colour from the shot's palette as a THREE.Color: 0..4 the flats, 'ink', 'paper' */
-export function inkOf(palette: ShotPalette, which: number | 'ink' | 'paper'): THREE.Color {
-  return new THREE.Color(which === 'ink' ? palette.ink : which === 'paper' ? palette.paper : palette.flats[((which % 5) + 5) % 5]);
+/** frees every material under `group` (geometries here are shared and kept) */
+export function disposeGroup(group: THREE.Object3D) {
+  group.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    if (m) for (const mat of Array.isArray(m) ? m : [m]) mat.dispose();
+  });
 }
+
+/** world units on the plane in focus → 0..1 across the frame */
+export const toU = (g: Grid, x: number) => (x + g.halfW) / (2 * g.halfW);
+export const toV = (g: Grid, y: number) => (y + g.halfH) / (2 * g.halfH);

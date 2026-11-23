@@ -9,7 +9,8 @@
  *   --at 0.5,3,5.2,...          seconds into the run of shots (default: a tour of every shot)
  *   --strip 5.1,0.05,8          8 frames from 5.1 s, 0.05 s apart (to check motion across a cut)
  *   --clip /footage.local/a.mp4,/footage.local/b.mp4   clips the dev server can serve
- *   --words "LOUDER THAN THE DARK"   --look <id>   --fill <id>   --at-song 42.5
+ *   --words "LOUDER THAN THE DARK"   --look <id>   --at-song 42.5
+ *   --style poster  --seed 3  --colour flat   the footage style, its arrangement and its colour
  *   --size 720x1280             picture size (default 9:16)
  *   --cols 6  --cell 300        sheet layout
  *   --port 5178                 the dev server's port
@@ -24,7 +25,7 @@ const opt = (k, d) => {
 const port = opt('port', '5178');
 const [w, h] = opt('size', '720x1280').split('x').map(Number);
 const qs = new URLSearchParams({ w: String(w), h: String(h) });
-for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['fill', 'fill'], ['at-song', 'at']]) if (opt(k)) qs.set(name, opt(k));
+for (const [k, name] of [['clip', 'clip'], ['words', 'words'], ['look', 'look'], ['style', 'style'], ['seed', 'seed'], ['colour', 'colour'], ['at-song', 'at']]) if (opt(k)) qs.set(name, opt(k));
 const out = opt('out', `${process.cwd()}/shot-sheet.png`);
 const cols = Number(opt('cols', '6'));
 const cell = Number(opt('cell', '300'));
