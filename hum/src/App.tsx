@@ -79,6 +79,9 @@ export default function App() {
         const dir = e.key === 'ArrowRight' ? 1 : -1;
         if (e.shiftKey) jumpPart(dir);
         else seekBy(dir * SEEK_STEP);
+      } else if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.defaultPrevented) {
+        // a part is picked: the timeline moved the pick instead (Timeline.tsx)
+        return;
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === ']' || e.key === '[') {
         const i = PRESETS.findIndex((p) => p.id === s.presetId);
         const j = (i + (e.key === 'ArrowRight' || e.key === ']' ? 1 : -1) + PRESETS.length) % PRESETS.length;

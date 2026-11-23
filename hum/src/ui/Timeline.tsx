@@ -10,6 +10,9 @@
  *
  *   click            pick a part (the Part tab comes forward; the song doesn't move)
  *   ⌘/Ctrl-click     add or take away a part      Shift-click   pick the run between
+ *   drag across      pick every part the band touches (⌘/Ctrl or Shift: add them); Esc mid-drag puts
+ *                    the pick back; at the edge of the view it scrolls. Not on touch, where a drag scrolls.
+ *   ← / →            move the pick one part (⇧ to stretch it), while a part is picked
  *   click a header   pick every part of that section
  *   double-click     play the part                Esc / click an empty spot   pick nothing
  *   right-click      the part menu: skip, like, split, combine, play from here, swap, hand-drawn, pop-ups, reset
@@ -44,7 +47,7 @@ import { Plus } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { useLayout } from './layout';
 import { togglePartSheet } from './PartSheet';
-import { peekHandlers } from './Peek';
+import { hidePeek, peekHandlers } from './Peek';
 import { RangeOverlay, useRenderMode } from './RenderBar';
 import { GROUP_INK, dropList, fmtTime, lookBg } from './song';
 import { maxZoom, takeZoomAnchor, useTimelineZoom, zoomFit, zoomStep, zoomTo } from './timelineZoom';
@@ -73,11 +76,33 @@ const fmtFine = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padS
 
 /** the part last clicked without Shift: where a Shift-click run starts */
 let anchor: number | null = null;
+/** the moving end of the pick (the last part clicked, dragged to or stepped to): where ← → go from */
+let lead: number | null = null;
 
 /** pick parts on the timeline; the Part tab comes forward when there are any */
 function pickParts(sel: number[]) {
   const s = useStudio.getState();
   s.set(sel.length ? { selectedParts: sel, inspectorTab: 'part' } : { selectedParts: [] });
+}
+
+/**
+ * ← → move the pick one part; with Shift the pick stretches from the anchor to the new end (as in a
+ * file list). Returns the part the pick moved to.
+ */
+function stepPick(dir: 1 | -1, stretch: boolean, n: number): number {
+  const cur = useStudio.getState().selectedParts;
+  if (lead === null || !cur.includes(lead)) lead = dir > 0 ? Math.max(...cur) : Math.min(...cur);
+  if (anchor === null || anchor >= n || !cur.includes(anchor)) anchor = lead;
+  const next = Math.max(0, Math.min(n - 1, lead + dir));
+  lead = next;
+  if (stretch) {
+    const [lo, hi] = anchor < next ? [anchor, next] : [next, anchor];
+    pickParts(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k));
+  } else {
+    anchor = next;
+    pickParts([next]);
+  }
+  return next;
 }
 
 const typing = (t: EventTarget | null) => {
@@ -270,6 +295,20 @@ export function Timeline({ side }: { side?: React.ReactNode }) {
       } else if (e.key === '0' && plain && !phone && s.analysis) {
         e.preventDefault();
         zoomFit();
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && plain && !phone && s.analysis && s.selectedParts.length) {
+        // with a part picked the arrows move the pick (App.tsx leaves them alone then; with nothing
+        // picked they still step through the looks there)
+        e.preventDefault();
+        const next = stepPick(e.key === 'ArrowRight' ? 1 : -1, e.shiftKey, s.analysis.sections.length);
+        // zoomed in: scroll so the part the pick moved to is in view
+        const v = view.current;
+        const el = v?.querySelector<HTMLElement>(`[data-part="${next}"]`);
+        if (v && el) {
+          const r = el.getBoundingClientRect();
+          const vr = v.getBoundingClientRect();
+          if (r.right > vr.right) v.scrollLeft += r.right - vr.right + 8;
+          else if (r.left < vr.left) v.scrollLeft -= vr.left - r.left + 8;
+        }
       }
     };
     document.addEventListener('keydown', key);
@@ -342,7 +381,15 @@ export function Timeline({ side }: { side?: React.ReactNode }) {
             {analysis && secs.length > 0 ? (
               <>
                 <SectionHeads a={analysis} laneW={laneW} />
-                <PartsRow a={analysis} laneW={laneW} blade={blade} quiet={!!menu} onSplit={(x) => splitPartAt(timeAt(x))} onMenu={openMenu} />
+                <PartsRow
+                  a={analysis}
+                  laneW={laneW}
+                  blade={blade}
+                  quiet={!!menu}
+                  onSplit={(x) => splitPartAt(timeAt(x))}
+                  onMenu={openMenu}
+                  onPan={() => (userScrolled.current = performance.now())}
+                />
               </>
             ) : (
               <div className="tln-parts tl-placeholder">
@@ -519,6 +566,7 @@ function PartsRow({
   quiet,
   onSplit,
   onMenu,
+  onPan,
 }: {
   a: TrackAnalysis;
   laneW: number;
@@ -526,6 +574,8 @@ function PartsRow({
   quiet: boolean;
   onSplit: (clientX: number) => void;
   onMenu: (e: React.MouseEvent) => void;
+  /** the band scrolled the view (so a playing song doesn't turn the page under the drag) */
+  onPan: () => void;
 }) {
   const plan = useStudio((s) => s.plan);
   const pace = useStudio((s) => s.pace);
@@ -542,6 +592,7 @@ function PartsRow({
   const tweaks = useStudio((s) => s.tweaks);
   const tuned = (p: Preset | undefined) => (p ? withTweak(p, tweaks[p.id]) : undefined);
   const phone = useLayout((s) => s.phone);
+  const renderOn = useRenderMode((s) => s.on);
   useStudio((s) => s.customPresets.length);
   const dragId = useDraggedLook();
   const [over, setOver] = useState<{ i: number; alt: boolean; x: number; y: number } | null>(null);
@@ -549,6 +600,10 @@ function PartsRow({
   const dragMedia = dragMediaId ? media.find((m) => m.id === dragMediaId) : undefined;
   const [mover, setMover] = useState<{ i: number; x: number; y: number } | null>(null);
   const partEls = useRef<(HTMLDivElement | null)[]>([]);
+  // the drag-to-pick band, in px across the row, while there is one
+  const [band, setBand] = useState<{ x0: number; x1: number } | null>(null);
+  // the click a drag ends with is not a click (it would pick one part, or nothing between parts)
+  const swallowClick = useRef(false);
   const shotEls = useRef<(HTMLSpanElement | null)[]>([]);
   const secs = a.sections;
   const names = partNames(a);
@@ -629,12 +684,127 @@ function PartsRow({
       sel = [i];
       anchor = i;
     }
+    lead = i;
     pickParts(sel);
+  };
+
+  /**
+   * Press and drag sideways: a band from the press to the pointer picks every part it touches, live.
+   * A press that doesn't move a few px stays a plain click (the click handler above). Mouse and pen
+   * only: on touch a drag scrolls the timeline, as it always did.
+   */
+  const pressBand = (e: React.PointerEvent<HTMLDivElement>) => {
+    swallowClick.current = false;
+    if (e.button !== 0 || e.pointerType === 'touch' || blade || phone || renderOn || dragging) return;
+    const row = e.currentTarget;
+    const view = row.closest<HTMLElement>('.tln-view');
+    const id = e.pointerId;
+    const startX = e.clientX;
+    const s0 = useStudio.getState();
+    const before = { sel: s0.selectedParts, tab: s0.inspectorTab };
+    const add = e.metaKey || e.ctrlKey || e.shiftKey;
+    const xIn = (cx: number) => Math.max(0, Math.min(row.clientWidth, cx - row.getBoundingClientRect().left));
+    const partAt = (x: number) => sectionIndexAt(secs, (x / Math.max(1, row.clientWidth)) * a.duration);
+    const x0 = xIn(startX);
+    let lastX = startX;
+    let on = false;
+    let raf = 0;
+    let last = '';
+
+    const update = () => {
+      const x1 = xIn(lastX);
+      setBand({ x0, x1 });
+      const w = Math.max(1, row.clientWidth);
+      const lo = (Math.min(x0, x1) / w) * a.duration;
+      const hi = (Math.max(x0, x1) / w) * a.duration;
+      const hits = secs.map((sec, j) => (sec.end > lo && sec.start < hi ? j : -1)).filter((j) => j >= 0);
+      const sel = add ? [...before.sel, ...hits.filter((j) => !before.sel.includes(j))] : hits;
+      const key = sel.join(',');
+      if (key !== last) {
+        last = key;
+        pickParts(sel);
+      }
+    };
+    // held near the left or right edge of the view: scroll, faster the further out the pointer is
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      if (!view) return;
+      const r = view.getBoundingClientRect();
+      const EDGE = 28;
+      const out = lastX < r.left + EDGE ? lastX - (r.left + EDGE) : lastX > r.right - EDGE ? lastX - (r.right - EDGE) : 0;
+      if (!out) return;
+      const was = view.scrollLeft;
+      view.scrollLeft += Math.sign(out) * Math.min(32, 3 + Math.abs(out) * 0.5);
+      if (view.scrollLeft !== was) {
+        onPan();
+        update();
+      }
+    };
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      lastX = ev.clientX;
+      if (!on) {
+        if (Math.abs(lastX - startX) < 5) return;
+        on = true;
+        try {
+          row.setPointerCapture(id);
+        } catch {
+          // the pointer is already gone: the window listeners still see it out
+        }
+        hidePeek();
+        window.getSelection()?.removeAllRanges();
+        raf = requestAnimationFrame(tick);
+      }
+      update();
+    };
+    const finish = (keep: boolean) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', esc, true);
+      window.removeEventListener('contextmenu', cancel);
+      cancelAnimationFrame(raf);
+      if (!on) return;
+      swallowClick.current = true;
+      setBand(null);
+      if (keep) {
+        anchor = partAt(x0);
+        lead = partAt(xIn(lastX));
+        const sel = useStudio.getState().selectedParts;
+        if (sel.length) pickParts(sel);
+      } else {
+        useStudio.getState().set({ selectedParts: before.sel, inspectorTab: before.tab });
+      }
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId === id) finish(true);
+    };
+    const cancel = () => finish(false);
+    // Esc mid-drag puts the pick back (ahead of the timeline's own Esc, which would pick nothing)
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape' || !on) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', esc, true);
+    // a Ctrl-click on a Mac opens the menu: that press is not a drag
+    window.addEventListener('contextmenu', cancel);
   };
 
   return (
     <div
-      className={`tln-parts ${dragging ? 'dragging' : ''}`}
+      className={`tln-parts ${dragging ? 'dragging' : ''} ${band ? 'banding' : ''}`}
+      onPointerDown={pressBand}
+      onClickCapture={(e) => {
+        if (!swallowClick.current) return;
+        swallowClick.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
       onClick={(e) => {
         // a click between parts picks nothing
         if (e.target === e.currentTarget && !blade) pickParts([]);
@@ -757,7 +927,7 @@ function PartsRow({
                       className={`tln-shot ${mode} ${sh.on === 'interlude' ? 'inter' : ''}`}
                       style={{ left: `${((sh.t - sec.start) / len) * 100}%`, width: `${((end - sh.t) / len) * 100}%` }}
                       title={stip}
-                      {...(p && !dragging && !blade && !quiet && !phone ? shotPeek(p, names[i], stip) : {})}
+                      {...(p && !dragging && !blade && !quiet && !band && !phone ? shotPeek(p, names[i], stip) : {})}
                     >
                       {mode !== 'tick' && p && <span className="tln-pic" style={lookBg(p)} />}
                       {mode === 'full' && p && <span className="tln-sname">{p.name}</span>}
@@ -770,7 +940,7 @@ function PartsRow({
                   ref={(el) => {
                     if (mine[0]) shotEls.current[mine[0].k] = el;
                   }}
-                  {...(!dragging && !blade && !quiet && !phone && size !== 'tiny' ? shotPeek(look, names[i], tip) : {})}
+                  {...(!dragging && !blade && !quiet && !band && !phone && size !== 'tiny' ? shotPeek(look, names[i], tip) : {})}
                 >
                   {size === '' && <span className="tln-sname">{look.name}</span>}
                 </span>
@@ -791,6 +961,7 @@ function PartsRow({
           </div>
         );
       })}
+      {band && <div className="tln-band" style={{ left: Math.min(band.x0, band.x1), width: Math.abs(band.x1 - band.x0) }} aria-hidden />}
       {mover && dragMedia && <MediaDropTip x={mover.x} y={mover.y} item={dragMedia} parts={mediaParts(mover.i)} names={names} looks={looks} />}
       {over && dragLook && <DropTip x={over.x} y={over.y} at={over.i} look={dragLook} names={names} multi={multi ? selected.length : 0} alike={alike} fills={fills} alt={over.alt} />}
     </div>
@@ -827,7 +998,7 @@ function shotPeek(p: Preset, part: string, tip: string) {
   return peekHandlers({
     key: `shot:${part}:${p.id}`,
     title: `${part} · ${p.name}`,
-    hint: `${tip.split(' · ').slice(1).join(' · ')}. Click to pick the part, double-click to play it, right-click for more.`,
+    hint: `${tip.split(' · ').slice(1).join(' · ')}. Click to pick the part, drag across parts to pick several, double-click to play it, right-click for more.`,
     poster: STATIC_THUMBS[p.id],
     place: 'above',
     getLook: () => (useStudio.getState().presetId === p.id ? null : presetToLook(withTweak(p, useStudio.getState().tweaks[p.id]))),

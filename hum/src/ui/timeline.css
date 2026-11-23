@@ -185,6 +185,23 @@
 .tln-parts {
   position: relative;
   min-width: 0;
+  /* a drag across the parts picks them; it shouldn't select the look names as text */
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* the drag-to-pick band: a light wash of the accent over the parts it touches */
+.tln-band {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  z-index: 3;
+  pointer-events: none;
+  background: rgba(47, 75, 255, 0.1);
+  border: 1px solid rgba(47, 75, 255, 0.55);
+  border-radius: 4px;
+}
+.tln-parts.banding .tln-part {
+  cursor: default;
 }
 .tln-parts.tl-placeholder {
   display: flex;
