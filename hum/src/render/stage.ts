@@ -352,7 +352,7 @@ export class Stage {
     // small enough already, and on Direct3D the multisampled target and its resolve cost bandwidth on
     // every frame). A render at a fixed output size keeps ×4, so exports look as they always have.
     const px = sw * sh;
-    const samples = this.outSize ? 4 : px <= 1.05e6 ? 4 : px <= 2.4e6 ? 2 : 0;
+    const samples = this.outSize ? 4 : px <= 1.6e6 ? 4 : px <= 2.4e6 ? 2 : 0;
     if (samples !== this.sceneRT.samples) {
       for (const rt of [this.sceneRT, this.prevRT]) {
         rt.dispose();
