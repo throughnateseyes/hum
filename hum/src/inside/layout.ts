@@ -251,7 +251,7 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
           const block = setBlock(words, n, portrait ? 0.3 : 0.34 / n ** 0.4);
           const h = W * block.height * o.aspect;
           if (h > 0.82) continue;
-          for (const cx of [0.5, 0.36, 0.64])
+          for (const cx of W < 0.7 ? [0.5, 0.36, 0.64, 0.29, 0.71] : [0.5, 0.36, 0.64])
             for (const cy of [0.5, 0.62, 0.72, 0.4, 0.3]) {
               const a = unproject(lens, cx - W / 2, cy - h / 2, w);
               const b = unproject(lens, cx + W / 2, cy - h / 2, w);
@@ -345,7 +345,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
       for (const [i, c] of candidates(words, kind, o).entries()) {
         const r = reading(o, c, o.lens, o.times[0]);
         if (r.inside < 0.985 || r.least < (kind === 'ground' ? 0.075 : 0.05) || r.slim < (kind === 'wall' ? 0.3 : 0.2)) continue;
-        if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.52 - ease * 0.2) continue;
+        if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.52 - ease * 0.12) continue;
         // on the ground it is seen at a slant already: it has to be clear
         if (kind === 'ground' && (r.shown < 0.86 || r.worst < 0.6)) continue;
         let shown = r.shown;
