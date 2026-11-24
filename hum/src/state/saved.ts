@@ -17,10 +17,13 @@ import { cutAnalysis } from './planCache';
 import { useStudio } from './store';
 
 const DB_NAME = 'hum';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SONG = 'song';
 const CLIPS = 'clips';
 const PHOTOS = 'photos';
+/** what Claude saw in each clip and photo (by media id), and the drawings made for the person */
+export const NOTES = 'notes';
+export const DRAWINGS = 'drawings';
 
 export interface SavedSong {
   name: string;
@@ -44,6 +47,8 @@ function open(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(SONG)) db.createObjectStore(SONG);
         if (!db.objectStoreNames.contains(CLIPS)) db.createObjectStore(CLIPS, { keyPath: 'id' });
         if (!db.objectStoreNames.contains(PHOTOS)) db.createObjectStore(PHOTOS, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(NOTES)) db.createObjectStore(NOTES, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(DRAWINGS)) db.createObjectStore(DRAWINGS, { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -56,7 +61,7 @@ function open(): Promise<IDBDatabase | null> {
 }
 
 /** one request against one store; resolves to its result, or undefined if anything went wrong */
-async function ask<T>(store: string, mode: IDBTransactionMode, make: (s: IDBObjectStore) => IDBRequest<T>): Promise<{ ok: boolean; value?: T }> {
+export async function ask<T>(store: string, mode: IDBTransactionMode, make: (s: IDBObjectStore) => IDBRequest<T>): Promise<{ ok: boolean; value?: T }> {
   const db = await open();
   if (!db) return { ok: false };
   return new Promise((resolve) => {

@@ -28,7 +28,16 @@ export function saveAccessCode(code: string) {
     /* storage unavailable: the code lives for this page only */
   }
   memoryCode = code;
-  useAccessGate.setState({ saved: !!code });
+  useAccessGate.setState({ saved: !!code, canDraw: false });
+  void learnCan();
+}
+
+/**
+ * Ask the server what the code in use may do (drawings). Only for showing or hiding the control: the
+ * server checks again on every request.
+ */
+export async function learnCan(): Promise<void> {
+  await checkCode(currentCode()).catch(() => 'unknown');
 }
 
 export const forgetAccessCode = () => saveAccessCode('');
@@ -94,8 +103,12 @@ export async function checkCode(code: string, signal?: AbortSignal): Promise<Che
       body: JSON.stringify({ mode: 'check', accessCode: code || undefined }),
       signal,
     });
-    const json = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (res.ok) return 'ok';
+    const json = (await res.json().catch(() => null)) as { error?: string; can?: { draw?: boolean } } | null;
+    if (res.ok) {
+      // a late answer about another code must not unlock anything
+      if (code === currentCode() || !currentCode()) useAccessGate.setState({ canDraw: json?.can?.draw === true });
+      return 'ok';
+    }
     if (res.status === 403 && json?.error === 'access_code') return 'wrong';
     if (res.status === 501 && json?.error === 'no_key') return 'off';
     return 'unknown';
@@ -119,11 +132,13 @@ interface GateState {
   saved: boolean;
   /** an AI action is waiting on this (false when opened just to change the code) */
   pending: boolean;
+  /** what the code in use may do beyond directing a video */
+  canDraw: boolean;
   /** what the server wants (see ServerNeed); 'unknown' until learnNeed or a real request finds out */
   need: ServerNeed;
 }
 
-export const useAccessGate = create<GateState>(() => ({ open: false, mode: 'code', error: '', saved: !!readAccessCode(), pending: false, need: 'unknown' }));
+export const useAccessGate = create<GateState>(() => ({ open: false, mode: 'code', error: '', saved: !!readAccessCode(), pending: false, canDraw: false, need: 'unknown' }));
 
 let waiting: ((r: GateOutcome) => void)[] = [];
 

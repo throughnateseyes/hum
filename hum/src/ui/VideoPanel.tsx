@@ -8,7 +8,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
-import { forgetAccessCode, learnNeed, openAccessGate, useAccessGate } from '../director/access';
+import { forgetAccessCode, learnCan, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { quality as governor } from '../render/quality';
 import { perfReport, perfSummary } from '../render/perfReport';
 import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
@@ -54,6 +54,7 @@ function MakeBlock() {
   // after a reload the start screen never shows, so ask the server here too (once per page, free)
   useEffect(() => {
     void learnNeed();
+    void learnCan();
   }, []);
   return (
     <div className="vp-make">

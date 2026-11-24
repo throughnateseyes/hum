@@ -24,7 +24,9 @@ import type { LayerId } from '../src/core/types';
 import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide.js';
 import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
 import { DIRECTION_RULE, FINISH_IDS, TRANSITION_SET_IDS } from '../src/core/direction.js';
-import { checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
+import { canDraw, checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
+import { runStep, stepFor } from './steps/index.js';
+import type { StepImage } from './steps/images';
 import { DEFAULT_MODEL, modelFor, tierOf, type Task, type Tier } from './models.js';
 import { compactEditLooks, compactLooks, cleanPlanEdit, describePlanForEdit, EDIT_PLAN_TOOL, FAMILIES_FORMAT, FAMILIES_HEADER, LOOKS_HEADER, LYRIC_MEDIUM_IDS, PLAN_EDIT_SYSTEM } from './planPrompt.js';
 
@@ -37,13 +39,15 @@ export interface DirectorResult {
 
 /** what a local backend gets: one system prompt, one user prompt, and the JSON schema to answer in */
 export interface LocalRequest {
-  mode: 'preset' | 'shader' | 'plan' | 'planEdit';
+  mode: string;
   system: string;
   prompt: string;
   schema: Record<string, unknown>;
   effort: string;
-  /** main = the big model, small = the edit model (see server/models.ts) */
+  /** main = the big model, small = the edit model, best = the strongest (see server/models.ts) */
   tier?: Tier;
+  /** JPEGs that go before the prompt */
+  images?: StepImage[];
 }
 export type LocalResult = { ok: true; output: unknown } | { ok: false; status: number; error: string; note: string };
 export type LocalBackend = (req: LocalRequest) => Promise<LocalResult>;
@@ -585,7 +589,23 @@ export async function handleDirector(body: unknown, ip: string, env: DirectorEnv
   // it sends a real request. Same rule as every other mode, so it reveals nothing a real request wouldn't.
   if (body.mode === 'check') {
     if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
-    return { status: 200, json: { ok: true, via: useLocal ? 'subscription' : 'api' } };
+    return { status: 200, json: { ok: true, via: useLocal ? 'subscription' : 'api', can: { draw: canDraw(env, who, useLocal) } } };
+  }
+
+  const step = stepFor(body.mode);
+  // only steps carry pictures: everything else keeps the small body it has always had
+  if (!step && body.images !== undefined) return { status: 400, json: { error: 'bad_request', note: 'This request takes no pictures.' } };
+  if (step) {
+    if (who === null) return { status: 403, json: { error: 'access_code', note: 'A valid access code is required.' } };
+    if (step.needs === 'draw' && !canDraw(env, who, useLocal)) return { status: 403, json: { error: 'not_allowed', note: 'Drawings aren’t part of this access code.' } };
+    const gate = async (): Promise<DirectorResult | null> => {
+      if (useLocal) return null;
+      const g = await checkLimits(env, { ip, code: who });
+      return g.ok ? null : { status: g.status, json: g.json };
+    };
+    return runStep(String(body.mode), step, body, env, useLocal ? (opts.local ?? null) : null, gate, (label, model, effort, system, tool, content, maxTokens) =>
+      callWithTool(env, who, label, model, effort, [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }], tool, content, maxTokens),
+    );
   }
 
   const mode = body.mode === 'shader' ? 'shader' : body.mode === 'preset' ? 'preset' : body.mode === 'plan' ? 'plan' : body.mode === 'planEdit' ? 'planEdit' : null;
@@ -706,7 +726,8 @@ async function callWithTool(
   effort: string,
   system: Record<string, unknown>[],
   tool: { name: string; input_schema: unknown },
-  prompt: string,
+  /** text, or content blocks when the request has pictures */
+  prompt: unknown,
   maxTokens: number,
 ): Promise<DirectorResult | { input: unknown }> {
   const messages: Record<string, unknown>[] = [{ role: 'user', content: prompt }];

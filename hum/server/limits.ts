@@ -10,7 +10,9 @@
  * Env:
  *   HUM_ACCESS_CODES        per-person codes: "sam=river-42, jo=blue-moon". Remove one to cut that person off.
  *   HUM_ACCESS_CODE         one shared code (still works, counted as "shared")
- *   HUM_RATE_LIMIT          requests per visitor (IP) per hour, default 20, 0 = off
+ *   HUM_DRAW_CODES          who may make drawings (slow and costly): names from HUM_ACCESS_CODES, "nate, sam".
+ *                           Default nobody. Your own machine on your subscription always may.
+ *   HUM_RATE_LIMIT          requests per visitor (IP) per hour, default 60 (a video with footage is several), 0 = off
  *   HUM_DAILY_BUDGET        dollars per day for everyone together, default 5, 0 = off
  *   HUM_CODE_DAILY_BUDGET   dollars per day per code, default 1, 0 = off
  *   HUM_TIMEZONE            when the day resets, an IANA zone like America/Los_Angeles (default UTC)
@@ -150,6 +152,20 @@ export function matchCode(env: DirectorEnv, sent: unknown): string | null {
   return s ? hit : null;
 }
 
+/**
+ * May this caller make drawings? `who` is a matched code's name. Never for an open site (no codes) and
+ * never unless its name is listed; the local backend (your own subscription) always may.
+ */
+export function canDraw(env: DirectorEnv, who: string | null, local: boolean): boolean {
+  if (local) return true;
+  if (!who || who === 'open') return false;
+  return (env.HUM_DRAW_CODES ?? '')
+    .split(/[,\n]/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(who);
+}
+
 /* ───────────────────────── prices ───────────────────────── */
 
 /** dollars per million tokens: input, output, cache read. Cache writes (5 min) are 1.25× input. */
@@ -226,7 +242,7 @@ export async function checkLimits(env: DirectorEnv, who: { ip: string; code: str
     return { ok: false, status: 429, json: { error: 'budget_code', note: 'You’ve used today’s AI allowance for this code. The offline director still works; more tomorrow.' } };
   }
 
-  const limit = Math.floor(num(env.HUM_RATE_LIMIT, 20));
+  const limit = Math.floor(num(env.HUM_RATE_LIMIT, 60));
   if (limit > 0) {
     const bucket = Math.floor(now.getTime() / 1000 / HOUR);
     const count = await safely(store, (s) => s.incr(`hum:rl:${who.ip || 'unknown'}:${bucket}`, 1, HOUR + 60));

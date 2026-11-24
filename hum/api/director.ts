@@ -6,7 +6,9 @@
  */
 import { handleDirector } from '../server/director.js';
 
-const MAX_BODY_BYTES = 64_000;
+/** a step with pictures (server/steps); anything else is refused above MAX_TEXT_BYTES */
+const MAX_BODY_BYTES = 1_800_000;
+const MAX_TEXT_BYTES = 64_000;
 
 function corsHeaders(request: Request): Record<string, string> {
   const allowed = process.env.HUM_ALLOWED_ORIGIN?.trim();
@@ -44,6 +46,7 @@ export async function POST(request: Request): Promise<Response> {
     const text = await request.text();
     if (text.length > MAX_BODY_BYTES) return json(413, { error: 'too_large', note: 'Request too large.' }, cors);
     body = text ? JSON.parse(text) : {};
+    if (text.length > MAX_TEXT_BYTES && !(body as { images?: unknown } | null)?.images) return json(413, { error: 'too_large', note: 'Request too large.' }, cors);
   } catch {
     return json(400, { error: 'bad_json', note: 'Invalid JSON.' }, cors);
   }

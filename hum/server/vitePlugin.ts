@@ -13,7 +13,9 @@ import { loadEnv, type Plugin } from 'vite';
 import { cliBackend } from './cliDirector';
 import { handleDirector, type DirectorEnv, type LocalBackend } from './director';
 
-const MAX_BODY_BYTES = 64_000;
+/** a step with pictures (server/steps); anything else is refused above MAX_TEXT_BYTES */
+const MAX_BODY_BYTES = 1_800_000;
+const MAX_TEXT_BYTES = 64_000;
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -86,6 +88,7 @@ export function directorDevPlugin(options: { path?: string } = {}): Plugin {
           try {
             const text = await readBody(req);
             body = text ? JSON.parse(text) : {};
+            if (text.length > MAX_TEXT_BYTES && !(body as { images?: unknown })?.images) throw new Error('too_large');
           } catch (err) {
             const tooLarge = err instanceof Error && err.message === 'too_large';
             send(res, tooLarge ? 413 : 400, { error: tooLarge ? 'too_large' : 'bad_json', note: tooLarge ? 'Request too large.' : 'Invalid JSON.' });

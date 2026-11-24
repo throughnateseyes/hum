@@ -8,6 +8,7 @@
  *   HUM_CLAUDE_BIN    path to the claude binary (default: found on PATH or in the usual install dirs)
  *   HUM_CLI_MODEL     model alias or id for the CLI (default 'sonnet')
  *   HUM_CLI_EDIT_MODEL  model for small edits to a plan or a look (default 'haiku'; 'main' = HUM_CLI_MODEL)
+ *   HUM_CLI_BEST_MODEL  model for drawing (default 'opus')
  *   HUM_TIMEOUT_MS    per-request timeout (default 180000)
  */
 import { spawn } from 'node:child_process';
@@ -42,14 +43,17 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
   const mainModel = env.HUM_CLI_MODEL?.trim() || 'sonnet';
   // small edits ("make the chorus calmer") run on the small model, like the API path (server/models.ts)
   const editModel = env.HUM_CLI_EDIT_MODEL?.trim() || 'haiku';
+  const bestModel = env.HUM_CLI_BEST_MODEL?.trim() || 'opus';
   const timeoutMs = Number(env.HUM_TIMEOUT_MS) || 180_000;
 
   return (req: LocalRequest) =>
     new Promise<LocalResult>((resolve) => {
-      const model = req.tier === 'small' ? (editModel === 'main' ? mainModel : editModel) : mainModel;
+      const model = req.tier === 'best' ? bestModel : req.tier === 'small' ? (editModel === 'main' ? mainModel : editModel) : mainModel;
+      const pictures = req.images ?? [];
       const args = [
         '-p',
-        '--output-format', 'json',
+        // pictures can only go in as streamed messages; plain text goes in as it always has
+        ...(pictures.length ? ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'] : ['--output-format', 'json']),
         '--model', model,
         '--effort', req.effort,
         '--system-prompt', req.system,
@@ -109,6 +113,12 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
         finish({ ok: true, output: data.structured_output });
       });
 
-      child.stdin.end(req.prompt);
+      // a child that dies early must not take the dev server down with it
+      child.stdin.on('error', () => {});
+      child.stdin.end(
+        pictures.length
+          ? `${JSON.stringify({ type: 'user', message: { role: 'user', content: [...pictures.map((s) => ({ type: 'image', source: { type: 'base64', ...s } })), { type: 'text', text: req.prompt }] } })}\n`
+          : req.prompt,
+      );
     });
 }
