@@ -39,7 +39,7 @@
  */
 import * as THREE from 'three';
 import type { ClipAsset, FrameContext, ParamDef, ParamValues, PartShot, PhotoAsset, PrepareContext, SceneDef, SceneInit, SceneInstance, TrackAnalysis } from '../../core/types';
-import { bool, num } from '../../core/uniforms';
+import { bool, num, str } from '../../core/uniforms';
 import { Footage } from '../../shot/footage';
 import { MOTION_HINT, MOTION_IDS, MOTION_NAMES } from '../../shot/motion';
 import { paletteFromPixels } from '../../shot/palette';
@@ -48,6 +48,9 @@ import { MAX_OPEN, MAX_STILLS, addedAt, footageRun, planParts, runPartOf, sigOf,
 import { footageNeed, partSequence, type PartOptions, type Sequence } from '../../shot/sequence';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
+import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
+import { wordsIn } from '../../inside/lines';
+import { readingOf } from '../../inside/readings';
 import { STYLE_IDS, STYLE_NAMES } from '../../shot/styles';
 import { TREATMENT_IDS, TREATMENT_NAMES, type TreatmentId } from '../../shot/treatments';
 import { originalOf, parentsOf } from '../../state/planCache';
@@ -92,6 +95,14 @@ const params: ParamDef[] = [
     ],
   },
   {
+    id: 'paint',
+    label: 'Inside colours',
+    type: 'select',
+    default: 'auto',
+    hint: 'The colours the Inside style paints your clips in. Auto uses the video’s.',
+    options: [{ value: 'auto', label: 'Auto' }, ...INSIDE_PALETTES.map((p) => ({ value: p.id, label: p.name }))],
+  },
+  {
     id: 'pace',
     label: 'Beats per shot',
     type: 'select',
@@ -109,7 +120,7 @@ const params: ParamDef[] = [
 ];
 
 /** the run's key for a part: its settings and its own pictures */
-const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}`;
+const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}`;
 
 /**
  * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video
@@ -137,6 +148,26 @@ function beforeOf(flat: Flat, i: number): { start: number; end: number; layout: 
 export function songTitle(): string {
   const name = useStudio.getState().track?.name ?? '';
   return (name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name).replace(/\.[a-z0-9]{2,4}$/i, '').trim();
+}
+
+/** the colours of the video's inside shots: the look's own pick, the plan's, or one that goes with the song */
+function paintNow(p: ParamValues, a: TrackAnalysis) {
+  const own = str(p, 'paint', 'auto');
+  const plan = useStudio.getState().plan?.paint;
+  return insidePalette(own !== 'auto' ? own : plan, Math.round(a.duration * 10));
+}
+
+/** what decides which words an inside shot has: the shots are made again when it changes */
+let lastWords: unknown[] = [];
+let wordsRound = 0;
+function wordsKey(): number {
+  const s = useStudio.getState();
+  const now = [s.lyrics, s.lyricStyle, s.partWords, s.plan?.lyricPlan];
+  if (now.some((x, i) => x !== lastWords[i])) {
+    lastWords = now;
+    wordsRound++;
+  }
+  return wordsRound;
 }
 
 /** the song's title as words for the type, when no lyrics are being shown (the lyric layer owns those) */
@@ -168,6 +199,7 @@ export function stillClip(p: PhotoAsset): StageClip {
     palette: paletteFromPixels(g.getImageData(0, 0, 64, 64).data),
     anchors: anchorsOf(p.image, p.width, p.height),
     name: p.name,
+    reading: readingOf(p),
   };
   stills.set(p.id, { photo: p, clip });
   // photos taken out of the store let go of their entry
@@ -334,6 +366,33 @@ function flatRun(a: TrackAnalysis, deck: StageClip[], deckIds: string[], words: 
   return flat;
 }
 
+/* ───────── depth, read ahead of the inside shots that need it ───────── */
+
+/** the seconds of its clip each inside shot of a run shows, in order */
+export function insideRanges(seq: Sequence): { clip: number; range: [number, number] }[] {
+  return seq.shots.flatMap((shot) => {
+    if (shot.style !== 'inside') return [];
+    const from = shot.clipFrom ?? 0;
+    return [{ clip: shot.footageIndex, range: [Math.max(0, from - 0.1), from + footageNeed(seq, shot) * (shot.clipRate ?? 1) + 0.3] as [number, number] }];
+  });
+}
+
+let reading: Flat | null = null;
+/** read what the video's inside shots need, the ones coming up first; stops when the video changes */
+function readAhead(flat: Flat, deck: StageClip[], t: number) {
+  if (reading === flat) return;
+  reading = flat;
+  const seqs = flat.run.seqs.filter((s): s is Sequence => !!s);
+  const order = [...seqs.filter((s) => s.end > t), ...seqs.filter((s) => s.end <= t)];
+  void (async () => {
+    for (const seq of order)
+      for (const { clip, range } of insideRanges(seq)) {
+        if (reading !== flat) return;
+        await deck[clip % deck.length]?.reading?.need([range]);
+      }
+  })();
+}
+
 /* ───────── dev: what each footage part shows, for scripted checks ───────── */
 
 interface Shown {
@@ -444,7 +503,7 @@ class FootageLook implements SceneInstance {
       changed = true;
     }
     if (changed) prune(this.renderer, new Set(clips.map((c) => c.id)), `${this.width}x${this.height}`);
-    const asClip = (c: ClipAsset, p: Player): StageClip => ({ footage: p.footage, texture: p.footage.texture, aspect: p.footage.aspect, duration: p.footage.duration, palette: c.palette, name: c.name });
+    const asClip = (c: ClipAsset, p: Player): StageClip => ({ footage: p.footage, texture: p.footage.texture, aspect: p.footage.aspect, duration: p.footage.duration, palette: c.palette, name: c.name, reading: readingOf(c) });
     const ready = wanted.filter((c) => this.held.get(this.poolKey(c.id, false))?.ready);
     const allReady = ready.length === wanted.length;
     const echoReady = wanted.length === 1 && !!this.held.get(this.poolKey(wanted[0].id, true))?.ready;
@@ -532,7 +591,9 @@ class FootageLook implements SceneInstance {
     this.flat = flat;
     this.part = index;
     const size = `${this.width}x${this.height}`;
-    const key = flat ? `f|${flat.key}|${index}|${title}|${this.deckKey}|${size}` : `${a.duration}|${a.sections.length}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}`;
+    const paint = paintNow(p, a).id;
+    const say = wordsKey();
+    const key = flat ? `f|${flat.key}|${index}|${title}|${this.deckKey}|${size}|${paint}|${say}` : `${a.duration}|${a.sections.length}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}|${paint}|${say}`;
     // the first footage look on this renderer compiles every shader the shots use, once
     warmShots(this.renderer, a, this.deck[0]);
     if (key !== this.builtKey) {
@@ -544,7 +605,8 @@ class FootageLook implements SceneInstance {
       if (!seq) return this.builtKey !== '';
       this.builtKey = key;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords() : [], Math.abs(shot.start - seq!.partStart) < 0.05) } });
+      for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];
         const last = seq.shots[seq.shots.length - 1];
@@ -609,6 +671,7 @@ class FootageLook implements SceneInstance {
     // a render has already put the clips on this exact frame; live, they follow their speed curves
     if (this.preparedFor === null || Math.abs(this.preparedFor - t) > 1e-3) {
       this.stage.follow(t, ctx.audio.playing);
+      if (this.flat) readAhead(this.flat, this.deck, t);
       const busy = this.stage.steering(t);
       const cued = this.cueNext(t);
       if (cued) busy.add(cued);

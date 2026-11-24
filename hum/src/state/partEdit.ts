@@ -191,7 +191,7 @@ export function setPartsWords(is: number[], text: string | null) {
 
 /* ───────── a footage part's own picture (store.partShot) ───────── */
 
-const SHOT_KEYS = ['style', 'seed', 'treatment', 'motion', 'media', 'focusX', 'focusY', 'zoom', 'from', 'moment'] as const satisfies readonly (keyof PartShot)[];
+const SHOT_KEYS = ['style', 'seed', 'treatment', 'motion', 'media', 'focusX', 'focusY', 'zoom', 'from', 'moment', 'say'] as const satisfies readonly (keyof PartShot)[];
 
 /** a record with only the fields that say something, in one order, or null when none is left */
 function tidyShot(r: PartShot): PartShot | null {

@@ -55,6 +55,8 @@ export interface RunPart {
   from?: number;
   /** what the part is meant to feel like (src/moments) */
   moment?: string;
+  /** Inside: the words that stand in the picture when nothing is sung */
+  say?: string;
 }
 
 export interface RunInput {
@@ -144,7 +146,8 @@ export function footageRun(o: RunInput): Run {
     prevStyle = style;
     // the part's own pictures, when it has a choice of them (places that are still in the deck)
     const mine = o2.media?.filter((m) => m >= 0 && m < count) ?? [];
-    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count, mine.length > 1, moment);
+    // Inside is its own way of breaking a picture up: nothing else is done to it
+    const treatment = style === 'inside' ? 'none' : treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count, mine.length > 1, moment);
     prevTreat = treatment;
     const loud = sec.energy > 0.55 && style !== 'caption';
     const hitIn = lands(i);
@@ -194,6 +197,7 @@ export function footageRun(o: RunInput): Run {
         treatment,
         motion,
         ...(moment ? { moment } : {}),
+        ...(o2.say ? { say: o2.say } : {}),
       };
       // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
       const c = mine.length ? mine[j % mine.length] : ordinal % count;
@@ -284,6 +288,7 @@ export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds
     // a start belongs to the first picture of the list it was chosen with: gone if that picture is
     ...(typeof own.from === 'number' && media.length && deckIds[media[0]] === own.media?.[0] ? { from: own.from } : {}),
     ...(isMoment(own.moment) ? { moment: own.moment } : {}),
+    ...(own.say ? { say: own.say } : {}),
   };
 }
 

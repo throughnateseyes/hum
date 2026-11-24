@@ -406,6 +406,8 @@ export interface PartShot {
   from?: number;
   /** what the part is meant to feel like (a moment id, src/moments): how the picture runs and the camera moves */
   moment?: string;
+  /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
+  say?: string;
 }
 
 /* ───────────────────────── Scenes ───────────────────────── */

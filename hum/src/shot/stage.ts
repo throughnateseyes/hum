@@ -31,6 +31,12 @@ import type { TreatmentId } from './treatments';
 import { unit, type TreatFrame } from './treatments/common';
 import type { MoshPlan, MoshSegment } from './treatments/mosh';
 import { TreatPass } from './treatments/pass';
+import { InsidePass } from '../inside/pass';
+import type { InsidePalette } from '../inside/palettes';
+import { insidePalette } from '../inside/palettes';
+import { hasRange, noteInside, type Reading } from '../inside/reading';
+import { InsideShot } from '../inside/shot';
+import type { SungWord } from '../inside/layout';
 
 export interface StageClip {
   /** the video behind it; null for a still stand-in picture */
@@ -47,6 +53,8 @@ export interface StageClip {
   anchors?: Anchor[];
   /** the file's name, for Trace's readouts */
   name?: string;
+  /** how far away things in it are, for Inside (null: not being read) */
+  reading?: Reading | null;
 }
 
 export interface StageOptions {
@@ -68,6 +76,8 @@ export interface StageOptions {
   /** true inside the app: a look starts from the moment it is first drawn, not from the start of its
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
+  /** Inside: the colours of the whole video, and the words that stand in a shot */
+  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean } };
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -91,6 +101,8 @@ interface Rig {
   treatment: TreatmentId;
   /** Collage and Trace: the other pictures they lay out */
   pieces: StageClip[];
+  /** Inside: the shot's place, made when it is first drawn (`key`: what it was made from) */
+  inside: { shot: InsideShot; key: string } | null;
 }
 
 /** a picture as a treatment that lays several out reads it: a clip by its full-size still */
@@ -125,6 +137,9 @@ export class ShotStage {
   private ring: FrameRing | null = null;
   /** where follow() last put the clip, to tell a stutter's jump from playback drifting */
   private followed: { rig: Rig; t: number; at: number } | null = null;
+  /** draws inside shots; made when a shot first needs it */
+  private insidePass: InsidePass | null = null;
+  private insideOf: StageOptions['inside'];
   private analysis: TrackAnalysis | null = null;
   private labels: Labels = { title: '', part: '', time: '', tempo: '' };
 
@@ -173,6 +188,7 @@ export class ShotStage {
     const labels: Labels = { title: o.title, part: seq.part, time: clock(seq.partStart), tempo: `${Math.round(60 / seq.beat)} BPM` };
     this.labels = labels;
     this.analysis = o.analysis;
+    this.insideOf = o.inside;
 
     for (const shot of seq.shots) {
       // a card takes the colours of the footage it leads into; a look, of the footage it follows
@@ -259,7 +275,7 @@ export class ShotStage {
       const treatment: TreatmentId = shot.kind === 'footage' ? (shot.treatment ?? 'none') : 'none';
       // Collage's fragments and Trace's other tiles: the shot's other pictures, each once
       const pieces = treatment === 'collage' || treatment === 'trace' ? [...new Set((shot.extra ?? []).map((i) => o.clips[i % o.clips.length]))].filter((c) => c && c !== clip) : [];
-      this.rigs.push({ shot, curve, motion, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces });
+      this.rigs.push({ shot, curve, motion, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces, inside: null });
     }
     if (this.rigs.some((r) => usesRing(r.motion))) this.ring ??= new FrameRing(this.renderer);
     if (this.rigs.some((r) => r.treatment !== 'none')) {
@@ -357,8 +373,69 @@ export class ShotStage {
         ring.capture(rig.clip!.texture, tick, key);
       }
     }
+    // an inside shot is laid out from the depth of its whole stretch of the clip
+    if (rig.shot.style === 'inside' && rig.clip?.reading) await rig.clip.reading.need([this.clipRange(rig)]);
     const second = rig.alt?.footage;
     await Promise.all([f?.seek(rig.curve.footage(t)), second && second !== f ? second.seek(this.altTime(rig, t)) : undefined]);
+  }
+
+  /** the seconds of its clip a shot shows */
+  private clipRange(rig: Rig): [number, number] {
+    const { shot, curve } = rig;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i <= 24; i++) {
+      const c = curve.footage(shot.start + ((shot.end - shot.start) * i) / 24);
+      lo = Math.min(lo, c);
+      hi = Math.max(hi, c);
+    }
+    return [Math.max(0, lo), hi];
+  }
+
+  /** the seconds of each clip the inside shots of this run show */
+  insideNeeds(): { clip: StageClip; range: [number, number] }[] {
+    return this.rigs.filter((r) => r.shot.style === 'inside' && r.clip).map((r) => ({ clip: r.clip!, range: this.clipRange(r) }));
+  }
+
+  /** the shot's place, made again when its clip's depth has come in or the framing changed */
+  private insideShot(rig: Rig, focus: { x: number; y: number }, zoom: number): InsideShot {
+    const { shot, curve } = rig;
+    const clip = rig.clip!;
+    const scene = clip.reading?.scene ?? null;
+    const [from, to] = this.clipRange(rig);
+    const read = hasRange(scene, from, to);
+    const key = `${read ? scene!.id : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}`;
+    if (rig.inside?.key === key) return rig.inside.shot;
+    rig.inside?.shot.dispose();
+    const seq = this.seq!;
+    this.insidePass ??= new InsidePass(this.renderer, this.width, this.height);
+    const set = this.insideOf?.words(shot) ?? { words: shot.word ? [{ text: shot.word, t: shot.start, end: shot.end }] : [], sung: false };
+    const made = new InsideShot(this.insidePass, {
+      scene: read ? scene : null,
+      clipAspect: clip.aspect,
+      aspect: this.width / this.height,
+      start: shot.start,
+      end: shot.end,
+      beat: seq.beat,
+      kicks: seq.kicks,
+      snares: seq.snares,
+      partStart: seq.partStart,
+      energy: seq.energy,
+      moment: shot.moment,
+      layout: shot.layout,
+      arrive: shot.arrive,
+      leave: shot.leave,
+      palette: this.insideOf?.palette ?? insidePalette(undefined, 0),
+      cuts: rig.scheme.cuts,
+      words: set.words,
+      sung: set.sung,
+      clipAt: (t) => curve.footage(t),
+      focus: { ...focus },
+      zoom,
+      flip: curve.flip,
+    });
+    rig.inside = { shot: made, key };
+    return made;
   }
 
   /** a ring slot belongs to one shot of one clip */
@@ -467,6 +544,10 @@ export class ShotStage {
     }
     const tau = t - shot.start;
     const beat = this.seq.beat;
+    if (shot.kind === 'footage' && shot.style === 'inside' && rig.clip) {
+      this.drawInside(rig, t, focus, zoom, target);
+      return;
+    }
     // the clip, or the clip composed with its motion
     const source = shot.kind === 'footage' ? this.source(rig, t, zoom) : null;
     if (rig.clip && source) this.pass.setSource(source, rig.clip.aspect);
@@ -527,6 +608,17 @@ export class ShotStage {
     r.autoClear = autoClear;
   }
 
+  private drawInside(rig: Rig, t: number, focus: { x: number; y: number }, zoom: number, target: THREE.WebGLRenderTarget | null) {
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    r.autoClear = false;
+    const inside = this.insideShot(rig, focus, zoom);
+    const state = this.footageState(rig, t, focus.x, zoom);
+    inside.render(t, { footage: this.source(rig, t, zoom) ?? rig.clip!.texture, grow: state.grow, flash: state.flash, speed: rig.curve.speed(t), target });
+    r.autoClear = autoClear;
+    if (inside.spec.sung) noteInside();
+  }
+
   private treatFrame(rig: Rig, t: number, focus: { x: number; y: number }, flash: number): TreatFrame {
     const seq = this.seq!;
     const { shot } = rig;
@@ -573,6 +665,8 @@ export class ShotStage {
     this.treat = null;
     this.ring?.release();
     this.ring = null;
+    this.insidePass?.dispose();
+    this.insidePass = null;
   }
 
   /** compile the motion's materials (Echo, Slices) ahead of the first cut, on a tiny ring */
@@ -584,6 +678,7 @@ export class ShotStage {
   dispose() {
     for (const rig of this.rigs) {
       rig.style?.dispose();
+      rig.inside?.shot.dispose();
       this.frameScene.remove(rig.frame);
       if (rig.mask) this.maskScene.remove(rig.mask);
     }

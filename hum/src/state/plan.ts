@@ -87,6 +87,8 @@ export interface VideoPlan {
    */
   cues?: ShotCue[];
   shots?: (PartShot | null)[];
+  /** the colours footage's Inside shots are painted in, one set for the whole video (src/inside/palettes.ts); missing on plans made before it */
+  paint?: string;
   /** the moment each section is meant to feel like (src/moments; null: not said) */
   moments?: (MomentId | null)[];
   /** the idea of the whole video, one sentence (Claude, when it has seen the person's media) */
