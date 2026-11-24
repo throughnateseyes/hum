@@ -51,6 +51,9 @@ interface DrawJobs {
 
 export const useDrawJobs = create<DrawJobs>(() => ({ thinking: false, jobs: [], done: 0, total: 0, error: null }));
 
+/** drawings made since the page opened, and when: their thumbnails draw themselves on */
+export const justDrawn = new Map<string, number>();
+
 const patchJob = (id: string, p: Partial<DrawJob>) => useDrawJobs.setState((s) => ({ jobs: s.jobs.map((j) => (j.id === id ? { ...j, ...p } : j)) }));
 const running = new Map<string, AbortController>();
 let thinkingStop: AbortController | null = null;
@@ -140,7 +143,9 @@ export async function drawSong(opts: { count?: number; wish?: string } = {}) {
     );
     // the same song keeps the same hand: more drawings join the set they belong to
     const style = have.length ? have[have.length - 1].style : cleanStyle(out.style);
-    const ideas = (Array.isArray(out.objects) ? out.objects : []).flatMap((x) => ideaFrom(x, lines, a) ?? []).slice(0, opts.count ?? SET_SIZE);
+    // the same thing twice isn't worth the wait
+    const had = new Set(have.map((d) => lineKey(d.name)));
+    const ideas = (Array.isArray(out.objects) ? out.objects : []).flatMap((x) => ideaFrom(x, lines, a) ?? []).filter((x) => !had.has(lineKey(x.name))).slice(0, opts.count ?? SET_SIZE);
     if (!ideas.length) throw new StepError('Claude didn’t find anything to draw this time. Try again.');
     const jobs: DrawJob[] = ideas.map((idea) => ({ id: newId(), idea, style, kind: kindFor(idea.suits), song, state: 'waiting' }));
     useDrawJobs.setState((j) => ({ jobs: [...j.jobs.filter((x) => x.state !== 'failed'), ...jobs], total: j.total + jobs.length }));
@@ -266,7 +271,8 @@ function finish(job: DrawJob, data: unknown) {
   const s = useStudio.getState();
   const id = newId();
   const old = job.from ? s.drawings.find((d) => d.id === job.from) : undefined;
-  const asset: DrawingAsset = { ...job.idea, id, kind: job.kind, songs: old?.songs ?? [job.song], style: job.style, seed: seedOf(id), data, added: Date.now(), ...(job.from ? { from: job.from } : {}) };
+  const asset: DrawingAsset = { ...job.idea, id, kind: job.kind, songs: old?.songs ?? [job.song], style: job.style, seed: seedOf(id), data, added: old?.added ?? Date.now(), ...(job.from ? { from: job.from } : {}) };
+  justDrawn.set(id, performance.now());
   s.set({ drawings: [...s.drawings, asset] });
   if (old) deleteDrawing(old.id);
   useDrawJobs.setState((j) => ({ jobs: j.jobs.filter((x) => x.id !== job.id), done: j.done + 1 }));
@@ -292,10 +298,13 @@ export function retryJob(id: string) {
   pump();
 }
 
+/** can this drawing be drawn again here? */
+export const canRedraw = (d: DrawingAsset) => Object.hasOwn(MAKERS, d.kind);
+
 /** draw one again, asked for differently ("simpler", "from the side"). The old one goes when the new one is in. */
 export function redraw(id: string, note: string) {
   const d = allDrawings().find((x) => x.id === id);
-  if (!d || !Object.hasOwn(MAKERS, d.kind)) return;
+  if (!d || !canRedraw(d)) return;
   const { name, why, brief, wide, words, lines, parts, suits, style } = d;
   const job: DrawJob = { id: newId(), idea: { name, why, brief, wide, words, lines, parts, suits }, style, kind: d.kind, song: songName(useStudio.getState()), state: 'waiting', from: id, note: note.trim().slice(0, 200) };
   useDrawJobs.setState((s) => ({ jobs: [...s.jobs.filter((j) => j.from !== id || running.has(j.id)), job], total: s.total + 1, error: null }));

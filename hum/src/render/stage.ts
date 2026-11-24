@@ -963,10 +963,10 @@ export class Stage {
     // how busy each kind of pop-up window is right now, split by the "Windows show" setting
     // (none over the footage looks: their graphics are bare shapes in the picture, and windows would bury the clips)
     // Each part's windows are dealt from its own level (the same every time it plays); what's on screen now
-    // only limits how many of them show: none over footage, the odd one over a board look
+    // only limits how many of them show: none over footage or drawings, the odd one over a board look
     const kind = s.windowKind;
     const board = this.current.def.category === 'board';
-    const clips = !!this.current.def.usesClips;
+    const clips = !!this.current.def.usesClips || !!this.current.def.usesDrawings;
     const pops = {
       instruments: (t: number) => windowLevels(popLevelAt(t), kind, false).instruments,
       looks: (t: number) => windowLevels(popLevelAt(t), kind, false).looks,

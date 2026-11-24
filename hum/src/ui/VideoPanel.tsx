@@ -15,6 +15,7 @@ import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
+import { DrawingsSection } from './Drawings';
 import { Field, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
 import { MoodRow } from './Moods';
@@ -34,6 +35,7 @@ export function VideoPanel() {
       <TransitionSection />
       <WordsSection />
       <ColourSection />
+      <DrawingsSection />
       <MoreSection />
     </div>
   );

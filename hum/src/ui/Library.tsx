@@ -13,12 +13,13 @@ import { withTweak, type LookTweak } from '../state/tweaks';
 import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
 import { lookShows, playsClips, sceneShows } from '../director/footage';
-import { useDrawingsHere } from '../draw/hooks';
+import { useCanDraw, useDrawingsHere } from '../draw/hooks';
+import { DrawingsTab } from './Drawings';
 import { Chevron, Cube, Film, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 import { canShow, giveMedia, hereTarget, MEDIA_MIME, pictureKind, targetWords } from './footageMedia';
 
-type Tab = 'looks' | 'photos' | 'footage';
+type Tab = 'looks' | 'photos' | 'footage' | 'drawings';
 
 /* real thumbnails are captured from the stage the first time a look is shown */
 const thumbs = new Map<string, string>();
@@ -105,16 +106,20 @@ export function Library() {
   const [tab, setTab] = useState<Tab>('looks');
   const photos = useStudio((s) => s.photos.filter((p) => !p.builtin).length);
   const clips = useStudio((s) => s.clips.length);
+  // the drawings shelf isn't there at all for people whose access doesn't include drawings
+  const canDraw = useCanDraw();
+  const drawn = useDrawingsHere().length;
   const tabs: { id: Tab; label: string; n: number }[] = [
     { id: 'looks', label: 'Looks', n: 0 },
     { id: 'photos', label: 'Photos', n: photos },
     { id: 'footage', label: 'Footage', n: clips },
+    ...(canDraw ? [{ id: 'drawings' as const, label: 'Drawings', n: 0 }] : []),
   ];
   return (
     <aside className="library">
       {/* the same segmented control as the right panel's tabs (Inspector.tsx) */}
       <div className="insp-tabs lib-tabs">
-        <div className="seg full" role="tablist" aria-label="Library">
+        <div className={`seg full ${canDraw ? 'four' : ''}`} role="tablist" aria-label="Library">
           {tabs.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
               {t.label}
@@ -127,6 +132,12 @@ export function Library() {
         {tab === 'looks' && <Looks onAddFootage={() => setTab('footage')} />}
         {tab === 'photos' && <Photos />}
         {tab === 'footage' && <Footage />}
+        {tab === 'drawings' && canDraw && (
+          <>
+            <DrawingsTab />
+            {drawn > 0 && <SceneRows label="Looks made of drawings" scenes={allScenes().filter((s) => s.usesDrawings)} />}
+          </>
+        )}
       </div>
     </aside>
   );
