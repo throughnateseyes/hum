@@ -637,12 +637,14 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       cuts.push(e);
     }
     // footage winding up to a big landing cuts closer and closer: two bars out, then one, then half of one
-    const wind = feel && playsClips(findLook(main)) && sec.energy > 0.3 ? feel.winds.find((w) => Math.abs(w.to - s1) < 0.4 && w.strength >= 0.55) : undefined;
+    const wind = feel && playsClips(findLook(main)) && sec.energy > 0.12 ? feel.winds.find((w) => Math.abs(w.to - s1) < 0.4 && w.strength >= 0.55) : undefined;
     const soft = plan.moments?.[i] === 'held' || plan.moments?.[i] === 'hush' || plan.moments?.[i] === 'ache' || plan.moments?.[i] === 'float';
     if (wind && !soft)
       for (const back of [8, 4, 2]) {
         const t = snapBeat(s1 - back * beat);
         const room = Math.max(0.55, beat * back * 0.3);
+        // not through the middle of a line being sung
+        if (lines.some((l) => t > l.t + 0.2 && t < l.end - 0.2)) continue;
         if (t - s0 > 1.2 && s1 - t > 0.6 && back * beat < (s1 - s0) * 0.7 && !cuts.some((c) => Math.abs(c.t - t) < room)) cuts.push({ t, on: 'hit' });
       }
     cuts.sort((x, y) => x.t - y.t);
