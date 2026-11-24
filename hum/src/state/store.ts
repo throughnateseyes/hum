@@ -20,6 +20,8 @@ import { getScene, registerScene } from '../scenes';
 import { makeCustomShaderScene } from '../scenes/custom';
 import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { PRESETS } from '../presets';
+import { loadDrawParts, saveDrawParts } from '../draw/parts';
+import type { DrawingAsset, DrawPart } from '../draw/types';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
 import { isTransitionId, type TransitionId } from '../core/transitionList';
@@ -97,6 +99,14 @@ export interface StudioState extends LookState {
   analyzing: boolean;
   photos: PhotoAsset[];
   clips: ClipAsset[];
+  /** every drawing kept in this browser, deleted ones too until a reload (src/draw/session.ts asks the questions) */
+  drawings: DrawingAsset[];
+  /** ids of drawings that were deleted (so a delete can be undone) */
+  drawTrash: string[];
+  /** what parts of this song do with drawings, by time */
+  drawParts: DrawPart[];
+  /** small drawings beside the lyrics when a word that has one is sung */
+  drawOverlay: boolean;
   text: string;
   aspect: Aspect;
   inspectorTab: InspectorTab;
@@ -283,6 +293,7 @@ function loadPersisted(): Partial<StudioState> {
       typeKit: TYPE_KITS.includes(j.typeKit) ? (j.typeKit as TypeKitSetting) : undefined,
       lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
       oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
+      drawOverlay: typeof j.drawOverlay === 'boolean' ? j.drawOverlay : undefined,
     };
   } catch {
     return {};
@@ -323,6 +334,7 @@ function persist(s: StudioState) {
         finish: s.finish,
         finishPicked: s.finishPicked,
         oneTap: s.oneTap,
+        drawOverlay: s.drawOverlay,
       }),
     );
   } catch {
@@ -474,6 +486,10 @@ export const useStudio = create<StudioState>((set, get) => ({
   finish: persisted.finish ?? 'hand',
   finishPicked: persisted.finishPicked ?? false,
   oneTap: persisted.oneTap ?? true,
+  drawings: [],
+  drawTrash: [],
+  drawParts: [],
+  drawOverlay: persisted.drawOverlay ?? true,
   tweaks: loadTweaks(''),
   startup: null,
   needsTap: false,
@@ -621,7 +637,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch) persist(get());
   },
   setPartPops: (i, level) => {
     const a = get().analysis;
@@ -638,14 +654,16 @@ export const useStudio = create<StudioState>((set, get) => ({
   },
 }));
 
-// Each song keeps its own look tweaks: a song that loads brings its own back, and every change is saved.
+// Each song keeps its own look tweaks and what its parts do with drawings: a song that loads brings its
+// own back, and every change is saved.
 let tweakSong = '';
 useStudio.subscribe((s, prev) => {
   const song = s.track?.name ?? '';
   if (song !== tweakSong) {
     tweakSong = song;
-    useStudio.setState({ tweaks: loadTweaks(song) });
+    useStudio.setState({ tweaks: loadTweaks(song), drawParts: loadDrawParts(song) });
     return;
   }
   if (s.tweaks !== prev.tweaks) saveTweaks(song, s.tweaks);
+  if (s.drawParts !== prev.drawParts) saveDrawParts(song, s.drawParts);
 });

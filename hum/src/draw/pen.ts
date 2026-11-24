@@ -749,18 +749,31 @@ export function drawDrawing(g: CanvasRenderingContext2D, d: Drawing, o: DrawOpts
     return p;
   };
 
-  if (o.halo && prog >= 1) {
-    if (!tr.halo) {
-      tr.halo = new Path2D();
-      for (let i = 0; i < prep.runs.length; i++) tr.halo.addPath(pathOf(i));
-      for (const s of prep.solids) tr.halo.addPath(patchPath(s, o.seed, v, 0));
-    }
+  if (o.halo) {
     g.strokeStyle = o.halo.colour;
     g.fillStyle = o.halo.colour;
     g.lineWidth = o.halo.width * 2;
     g.lineJoin = 'round';
-    g.stroke(tr.halo);
-    g.fill(tr.halo);
+    if (prog >= 1) {
+      if (!tr.halo) {
+        tr.halo = new Path2D();
+        for (let i = 0; i < prep.runs.length; i++) tr.halo.addPath(pathOf(i));
+        for (const s of prep.solids) tr.halo.addPath(patchPath(s, o.seed, v, 0));
+      }
+      g.stroke(tr.halo);
+    } else {
+      // still being drawn: only round what is there
+      for (let i = 0; i < prep.runs.length; i++) {
+        const [t0, t1] = prep.runT[i];
+        if (prog <= t0) break;
+        if (prog >= t1) g.stroke(pathOf(i));
+        else {
+          const p = new Path2D();
+          inkAll(p, prep.runs[i], { hand: H, seed: o.seed, variant: v, upTo: ease((prog - t0) / Math.max(1e-4, t1 - t0)), fat: fatKey }, 0);
+          g.stroke(p);
+        }
+      }
+    }
   }
 
   const patch = (p: Patch, k: number, style: string | CanvasPattern) => {

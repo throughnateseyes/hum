@@ -65,6 +65,9 @@ const FIELDS = [
   'lyricStyle',
   'lyricStylePicked',
   'lyricFont',
+  'drawTrash',
+  'drawParts',
+  'drawOverlay',
 ] as const satisfies readonly (keyof StudioState)[];
 type Field = (typeof FIELDS)[number];
 /** fields that also change on their own (a plan arriving, a re-cut): only counted with intent */
@@ -393,6 +396,9 @@ function describe(a: Values, b: Values): string {
   if (a.impact !== b.impact) out.push(`Impact ${Math.round(b.impact * 100)}%`);
   if (a.lyricStyle !== b.lyricStyle && !out.some((x) => x.startsWith('lyrics for'))) out.push(`Lyrics: ${LYRICS[b.lyricStyle] ?? b.lyricStyle}`);
   if (a.lyricFont !== b.lyricFont) out.push('lyrics font');
+  if (a.drawTrash !== b.drawTrash) out.push(b.drawTrash.length > a.drawTrash.length ? (b.drawTrash.length - a.drawTrash.length > 1 ? 'deleted drawings' : 'deleted a drawing') : 'brought back a drawing');
+  if (a.drawParts !== b.drawParts) out.push('the drawings in a part');
+  if (a.drawOverlay !== b.drawOverlay) out.push(`Drawings beside the words ${b.drawOverlay ? 'on' : 'off'}`);
   if (!out.length) return 'a change';
   return out.length > 2 ? `${out[0]} and ${out.length - 1} more` : out.join(' and ');
 }

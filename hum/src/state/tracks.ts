@@ -8,6 +8,7 @@ import { DEMO_TRACKS } from '../audio/demoTracks';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
+import { startDrawings } from '../draw/session';
 import { useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
 import { forgetSong, keepClipsSaved, keepPhotosSaved, keepPlanSaved, recallClips, recallPhotos, recallSong, rememberSong } from './saved';
@@ -518,6 +519,8 @@ export async function restoreSession() {
     if (photos.length) useStudio.getState().addPhotos(photos);
   }
   keepPhotosSaved();
+  // and the drawings, where they are allowed
+  startDrawings();
   const song = await recallSong();
   // something was opened while we were looking: that wins
   if (!song || useStudio.getState().track) return keepPlanSaved();
