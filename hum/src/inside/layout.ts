@@ -161,7 +161,7 @@ const ROWS = 5;
  * How much of a block shows (its least readable line counts), the worst stretch about a letter wide, how
  * much of it is in the frame, and how big it is there
  */
-function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { shown: number; worst: number; inside: number; size: number; least: number } {
+function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number } {
   const map = o.scene ? mapAt(o.scene, t) : null;
   let inside = 0;
   let all = 0;
@@ -172,6 +172,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
   let shown = 1;
   let worst = 1;
   let least = 1;
+  let slim = 9;
   const col = new Float32Array(COLS);
   p.block.lines.forEach((_, li) => {
     const base = p.block.bases[li];
@@ -182,7 +183,13 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
       const at = (b: number) => project(lens, p.o[0] + p.across[0] * a + p.up[0] * b, p.o[1] + p.across[1] * a + p.up[1] * b, p.o[2] + p.across[2] * a + p.up[2] * b);
       const lo = at(base);
       const hi = at(base + cap);
-      least = Math.min(least, Math.hypot((hi.x - lo.x) * o.aspect, hi.y - lo.y));
+      const tall = Math.hypot((hi.x - lo.x) * o.aspect, hi.y - lo.y);
+      least = Math.min(least, tall);
+      // and how squeezed they are there
+      const n = Math.max(1, p.block.lines[li].words.reduce((s, w) => s + w.text.length + 1, -1));
+      const step = (a ? -1 : 1) / n;
+      const in1 = project(lens, p.o[0] + p.across[0] * (a + step) + p.up[0] * base, p.o[1] + p.across[1] * (a + step) + p.up[1] * base, p.o[2] + p.across[2] * (a + step) + p.up[2] * base);
+      slim = Math.min(slim, Math.hypot((in1.x - lo.x) * o.aspect, in1.y - lo.y) / Math.max(1e-4, tall));
     }
     let seen = 0;
     for (let i = 0; i < COLS; i++)
@@ -203,21 +210,22 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
           // something thin (a cable, a pole) takes less than the small map says: both sides of it are clear
           const thin = [-1, 1].every((k) => !hides(o.scene!, nearnessAt(o.scene!, map, o.crop, q.x + (k * 0.014) / o.aspect, q.y), q.w));
           if (!thin) continue;
-          part = 0.65;
+          part = 0.55;
         }
         seen += part;
         col[i] += part / ROWS;
       }
     shown = Math.min(shown, seen / (COLS * ROWS));
-    // a line's letters are about its cap height wide: the window is one of them
-    const span = Math.max(2, Math.min(8, Math.round(cap * 0.75 * COLS)));
+    // the window is one of its letters
+    const letters = Math.max(1, p.block.lines[li].words.reduce((s, w) => s + w.text.length + 1, -1));
+    const span = Math.max(2, Math.min(8, Math.round((COLS / letters) * 0.9)));
     for (let i = 0; i + span <= COLS; i++) {
       let s = 0;
       for (let k = 0; k < span; k++) s += col[i + k];
       worst = Math.min(worst, s / span);
     }
   });
-  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least };
+  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim };
 }
 
 /** the distances a word can stand at to have something in front of it and something behind, far to near */
@@ -239,7 +247,7 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
     const zs = kind === 'far' ? [st.far] : st.between;
     for (const w of zs)
       for (const n of lineChoices)
-        for (const W of portrait ? [0.88, 0.76] : [0.88, 0.74, 0.6, 0.46]) {
+        for (const W of portrait ? [0.88, 0.76, 0.64, 0.54] : [0.88, 0.74, 0.6, 0.46]) {
           const block = setBlock(words, n, portrait ? 0.3 : 0.34 / n ** 0.4);
           const h = W * block.height * o.aspect;
           if (h > 0.82) continue;
@@ -325,41 +333,46 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
   return out;
 }
 
-/** the best standing for these words, or null when nowhere can be read (never, in practice: 'far' with no depth always can) */
-export function place(words: string[], puts: PutId[], o: Where): Put | null {
+/** the best standing for these words (with nowhere that can be read: in front of everything, score 0) */
+export function place(words: string[], puts: PutId[], o: Where): Put {
   let best: Put | null = null;
   const order = [...puts, ...(['far', 'between'] as PutId[]).filter((p) => !puts.includes(p))];
-  order.forEach((kind, rank) => {
-    const fallback = rank >= puts.length;
-    if (fallback && best) return;
-    for (const [i, c] of candidates(words, kind, o).entries()) {
-      const r = reading(o, c, o.lens, o.times[0]);
-      if (r.inside < 0.985 || r.shown < 0.73 || r.worst < 0.42 || r.least < 0.05) continue;
-      let shown = r.shown;
-      let worst = r.worst;
-      let inside = r.inside;
-      o.around.forEach((l, k) => {
-        const s = reading(o, c, l, o.times[k + 1]);
-        shown = Math.min(shown, s.shown + 0.12);
-        worst = Math.min(worst, s.worst + 0.15);
-        inside = Math.min(inside, s.inside);
-      });
-      if (inside < (kind === 'far' || kind === 'between' ? 0.9 : 0.6) || shown < 0.68 || worst < 0.32) continue;
-      const behind = 1 - r.shown;
-      const size = Math.min(0.42, r.size);
-      // big, readable, with something crossing in front of it
-      const score = size * 2.1 + shown * 0.5 + Math.min(0.25, worst * 0.3) + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07;
-      if (!best || score > best.score) best = { ...c, score };
-    }
-  });
-  if (best) return best;
+  // strict first; then a place where a little more of the words is covered; then flat in front
+  for (const ease of [0, 1]) {
+    order.forEach((kind, rank) => {
+      const fallback = rank >= puts.length;
+      if (fallback && best) return;
+      for (const [i, c] of candidates(words, kind, o).entries()) {
+        const r = reading(o, c, o.lens, o.times[0]);
+        if (r.inside < 0.985 || r.least < 0.05 || r.slim < (kind === 'wall' ? 0.3 : 0.2)) continue;
+        if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.42 - ease * 0.14) continue;
+        let shown = r.shown;
+        let worst = r.worst;
+        let inside = r.inside;
+        o.around.forEach((l, k) => {
+          const s = reading(o, c, l, o.times[k + 1]);
+          shown = Math.min(shown, s.shown + 0.08);
+          worst = Math.min(worst, s.worst + 0.08);
+          inside = Math.min(inside, s.inside);
+        });
+        if (inside < (kind === 'far' || kind === 'between' ? 0.9 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.32 - ease * 0.12) continue;
+        const behind = 1 - r.shown;
+        const size = Math.min(0.42, r.size);
+        // big, readable, with something crossing in front of it
+        const score = size * 2.1 + shown * 0.5 + Math.min(0.25, worst * 0.3) + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07;
+        if (!best || score > best.score) best = { ...c, score };
+      }
+    });
+    if (best) return best;
+  }
   // nothing read well enough: the words full width in front of everything
   const block = setBlock(words, Math.min(words.length, o.aspect < 0.9 ? 3 : 2), 0.26);
   const W = Math.min(0.8, 0.6 / (block.height * o.aspect));
-  const w = 2;
+  // far off, so the place moving past leaves it where it is; it is drawn over everything
+  const w = 900;
   const y = 0.5 - (W * block.height * o.aspect) / 2;
   const a = unproject(o.lens, 0.5 - W / 2, y, w);
   const b = unproject(o.lens, 0.5 + W / 2, y, w);
   const len = Math.hypot(b.x - a.x, b.y - a.y);
-  return { kind: 'between', block, o: [a.x, a.y, a.z], across: [len, 0, 0], up: [0, len, 0], w, score: 0 };
+  return { kind: 'far', block, o: [a.x, a.y, a.z], across: [len, 0, 0], up: [0, len, 0], w, score: 0 };
 }

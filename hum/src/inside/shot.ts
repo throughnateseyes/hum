@@ -144,13 +144,12 @@ export class InsideShot {
     let last: PutId | undefined;
     chunks.forEach((chunk, i) => {
       const mid = chunk.from + (chunk.to - chunk.from) * 0.35;
-      const times = [mid, chunk.from + 0.02, chunk.to - 0.02];
+      const times = [mid, chunk.from + 0.02, chunk.from + (chunk.to - chunk.from) * 0.7, chunk.to - 0.02];
       const put = place(
         chunk.words.map((w) => w.text),
         s.put ? [s.put, ...this.recipe.put.filter((p) => p !== s.put)] : this.recipe.put,
         { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.05 : 0.04 },
       );
-      if (!put) return;
       last = put.kind;
       this.standing.push(this.stand(chunk, put));
     });
@@ -386,7 +385,7 @@ export class InsideShot {
       nearCut: this.cuts2.near,
       figureK: this.paintKind === 'figure' ? amount : 0,
       groundK: this.recipe.ground && painted ? amount * 0.85 : 0,
-      grade: this.paintKind === 'figure' ? 0.75 : Math.max(painted ? 0.08 : 0, this.recipe.grade) * (0.4 + 0.6 * inK) ,
+      grade: this.paintKind === 'figure' ? 0.75 : Math.max(painted ? 0.08 : this.standing.length ? (s.cuts[1] > 0.5 ? 0.8 : 0.55) : 0, this.recipe.grade) * (0.4 + 0.6 * inK) ,
       lineK: painted ? Math.min(0.9, snare * 0.9) : 0,
       cuts: s.cuts,
     };
@@ -435,7 +434,7 @@ export class InsideShot {
     return lum(now.word) - behind > 0.22 ? now.word : p.paper;
   }
 
-  private placeExtras(t: number, beats: number, l: Lens, now: { light: string; word: string }) {
+  private placeExtras(t: number, beats: number, l: Lens, now: { field: string; light: string; word: string }) {
     const s = this.spec;
     const p = s.palette;
     const S = this.span;
@@ -448,20 +447,23 @@ export class InsideShot {
       u.uReach.value = outCubic(beats / (soft ? 6 : 2)) * (s.leave === 'settle' ? 1 - smooth(s.end - s.beat * 3, s.end - s.beat, t) : 1);
       u.uTurn.value = tau * 0.06;
       u.uSeed.value = 1 + (s.layout % 97) + (soft ? 0 : Math.floor(beats / 4));
-      u.uA.value.set(now.light);
-      u.uB.value.set(now.word);
+      // never the colour of the words that stand in them
+      const clear = (hex: string) => [now.word, p.paper].every((w) => Math.abs(lum(hex) - lum(w)) > 0.22);
+      const pick = [now.light, ...p.accents, now.field, p.ink].filter(clear);
+      u.uA.value.set(pick[0] ?? p.ink);
+      u.uB.value.set(pick[1] ?? pick[0] ?? p.ink);
     }
     for (const [i, m] of this.lines.entries()) (m.material as THREE.ShaderMaterial).uniforms.uAlpha.value = smooth(i * 0.06, i * 0.06 + 0.7, tau) * 0.8;
     const ahead = goesAhead(s.scene) ? l.ahead : 0;
     for (const { m, side, i } of this.posts) {
       const gap = S * 0.14;
       const id = i + Math.floor(ahead / gap);
-      const z = S * 0.45 + i * gap - (ahead % gap);
+      const z = S * 0.8 + i * gap - (ahead % gap);
       const wave = backOut(beats * 1.1 - (1 - i / 22) * 1.6);
       const hop = Math.exp(-since(s.kicks, t) / (s.beat * 0.35));
       const roll = Math.abs(Math.sin(id * 12.9898 + side * 4.1) * 43758.5453) % 1;
       const roll2 = Math.abs(Math.sin(id * 78.233 + side) * 12543.1) % 1;
-      const h = S * (0.05 + 0.16 * roll + 0.09 * hop * roll2) * Math.max(0, Math.min(1.1, wave));
+      const h = S * (0.04 + 0.1 * roll + 0.06 * hop * roll2) * Math.max(0, Math.min(1.1, wave));
       m.visible = h > 0.01;
       m.position.set((side ? 1 : -1) * S * 0.34, 0, -z - l.ahead);
       m.rotation.y = (side ? -1 : 1) * 0.5;
@@ -482,12 +484,12 @@ export class InsideShot {
     for (const [i, m] of this.streaks.entries()) {
       const u = (n: number) => Math.abs(Math.sin((i + 1) * n) * 43758.5453) % 1;
       const q = beats - Math.floor(beats / every) * every - u(12.9) * 0.8;
-      const alive = q >= 0 && q < 2.6;
+      const alive = q >= 0 && q < 1.5;
       m.visible = alive;
       if (!alive) continue;
       const a = u(78.2) * 6.283;
-      const r = S * (0.12 + 0.3 * u(39.4));
-      const z = S * (2.4 * (1 - outCubic(q / 2.3)) + 0.06) - q * 0.4;
+      const r = S * (0.2 + 0.3 * u(39.4));
+      const z = S * (2.4 * (1 - outCubic(q / 2.3)) + 0.22);
       const len = S * (0.04 + 0.5 * (1 - outCubic(q / 2.3))) * (0.5 + u(5.3));
       const w = S * (0.002 + 0.004 * u(91.7));
       m.visible = z > 0.3;

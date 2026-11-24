@@ -140,7 +140,8 @@ void main() {
   float front = smoothstep(uNearCut * 0.94, uNearCut * 1.06, q);
   float mid = clamp(1.0 - far - front, 0.0, 1.0);
   // what stands in front of the far field is the same colour a step darker, so the layers part
-  vec3 deepF = mix(field, uInk, 0.42), deepL = mix(field, light, 0.35);
+  float down = mix(0.42, 0.68, luma(field));
+  vec3 deepF = mix(field, uInk, down), deepL = mix(field, uInk, down * 0.5);
   vec3 midC = mix(deepF, deepL, hi);
   midC = mix(midC, mix(field * 0.3, uInk, 0.6), lo);
   vec3 c = mix(nat, flatC, clamp(far * uPaint.x, 0.0, 1.0));
