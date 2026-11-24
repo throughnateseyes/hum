@@ -165,8 +165,9 @@ const MOTION_LINES: Record<string, string> = {
 const choices = <T extends string>(ids: readonly T[], serves: Record<T, Serves>, lines: Record<string, string>) =>
   ids.map((id) => ({ id, line: lines[id] ?? id, serves: (Object.entries(serves[id]) as [string, number][]).filter(([, v]) => v >= 2).map(([m]) => m) }));
 
-const vocabulary = () => ({
-  styles: choices(STYLE_IDS, STYLE_SERVES, STYLE_LINES),
+/** with lyrics on screen Poster has no word of its own to set, so it isn't offered */
+const vocabulary = (lyr: Lyrics | null) => ({
+  styles: choices(lyr?.lines.length ? STYLE_IDS.filter((s) => s !== 'poster') : STYLE_IDS, STYLE_SERVES, STYLE_LINES),
   treatments: choices(TREATMENT_IDS, TREATMENT_SERVES, TREATMENT_LINES),
   motions: choices(MOTION_IDS, MOTION_SERVES, MOTION_LINES),
 });
@@ -324,7 +325,7 @@ export function cutBody(cut: { plan: VideoPlan; analysis: TrackAnalysis; hand: (
         arc: story?.arc ?? '',
         sections: moments.map((m, i) => ({ moment: m ?? '', media: (story?.sections[i]?.media ?? []).map(keyOf).filter(Boolean), note: story?.sections[i]?.note ?? '' })),
       },
-      ...vocabulary(),
+      ...vocabulary(lyr),
       media: mediaBody(seen),
       parts,
     },
