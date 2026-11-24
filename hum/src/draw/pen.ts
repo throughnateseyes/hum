@@ -708,6 +708,74 @@ function tracedFor(d: Drawing, key: string): Traced {
   return t;
 }
 
+/** the drawing's silhouette as a small picture in one colour, covering -100..1100 of its units */
+const insides = new WeakMap<Drawing, { mask: Uint8Array; by: Map<string, HTMLCanvasElement> }>();
+const INSIDE = 240;
+const INSIDE_PAD = 100;
+/**
+ * Everything the outlines shut in, as a picture of one colour. Found by pouring in from the edges of the
+ * page, so a shape drawn with several strokes that only nearly meet still counts as a shape.
+ */
+function insideOf(d: Drawing, colour: string): HTMLCanvasElement {
+  let e = insides.get(d);
+  if (!e) {
+    const c = document.createElement('canvas');
+    c.width = c.height = INSIDE;
+    const g = c.getContext('2d', { willReadFrequently: true })!;
+    g.scale(INSIDE / (1000 + INSIDE_PAD * 2), INSIDE / (1000 + INSIDE_PAD * 2));
+    g.translate(INSIDE_PAD, INSIDE_PAD);
+    g.lineWidth = 16;
+    g.lineJoin = g.lineCap = 'round';
+    for (const s of d.strokes) {
+      if (s.role === 'hatch') continue;
+      const f = flatten(s);
+      g.beginPath();
+      for (let i = 0; i < f.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, f[i], f[i + 1]);
+      if (s.closed) g.closePath();
+      if (s.closed && s.role !== 'detail') g.fill();
+      g.stroke();
+    }
+    const px = g.getImageData(0, 0, INSIDE, INSIDE).data;
+    const out = new Uint8Array(INSIDE * INSIDE);
+    const todo: number[] = [];
+    const pour = (i: number) => {
+      if (out[i] || px[i * 4 + 3] > 90) return;
+      out[i] = 1;
+      todo.push(i);
+    };
+    for (let k = 0; k < INSIDE; k++) {
+      pour(k);
+      pour((INSIDE - 1) * INSIDE + k);
+      pour(k * INSIDE);
+      pour(k * INSIDE + INSIDE - 1);
+    }
+    while (todo.length) {
+      const i = todo.pop()!;
+      const x = i % INSIDE;
+      if (x > 0) pour(i - 1);
+      if (x < INSIDE - 1) pour(i + 1);
+      if (i >= INSIDE) pour(i - INSIDE);
+      if (i < INSIDE * (INSIDE - 1)) pour(i + INSIDE);
+    }
+    insides.set(d, (e = { mask: out, by: new Map() }));
+  }
+  let c = e.by.get(colour);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = c.height = INSIDE;
+    const g = c.getContext('2d')!;
+    const img = g.createImageData(INSIDE, INSIDE);
+    for (let i = 0; i < e.mask.length; i++) img.data[i * 4 + 3] = e.mask[i] ? 0 : 255;
+    g.putImageData(img, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = colour;
+    g.fillRect(0, 0, INSIDE, INSIDE);
+    if (e.by.size > 3) e.by.clear();
+    e.by.set(colour, c);
+  }
+  return c;
+}
+
 /** the drawing's place in `box`: scale and offset from drawing units */
 export function fitBox(p: Prepared, box: DrawOpts['box'], stand = false): { k: number; x: number; y: number } {
   const b = p.bounds;
@@ -750,6 +818,14 @@ export function drawDrawing(g: CanvasRenderingContext2D, d: Drawing, o: DrawOpts
   };
 
   if (o.halo) {
+    // the paper inside the shapes comes in behind the lines as they go down
+    const in01 = Math.min(1, Math.max(0, (prog - 0.12) / 0.4));
+    if (in01 > 0) {
+      g.globalAlpha = in01 * in01 * (3 - 2 * in01);
+      g.imageSmoothingEnabled = true;
+      g.drawImage(insideOf(d, o.halo.colour), -INSIDE_PAD, -INSIDE_PAD, 1000 + INSIDE_PAD * 2, 1000 + INSIDE_PAD * 2);
+      g.globalAlpha = 1;
+    }
     g.strokeStyle = o.halo.colour;
     g.fillStyle = o.halo.colour;
     g.lineWidth = o.halo.width * 2;
