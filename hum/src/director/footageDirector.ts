@@ -380,6 +380,23 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
   };
 }
 
+/**
+ * The picture with nothing on it is the exception: not where the video opens, not under words being sung
+ * (they stand in the picture then), not for long, and never twice in a row.
+ */
+function fewerPlain(got: Map<number, NonNullable<ReturnType<typeof readShot>>>, a: TrackAnalysis, lyr: Lyrics | null, paint: string | undefined) {
+  if (!paint) return;
+  const sung = (from: number, to: number) => !!lyr?.synced && textBetween(lyr.lines, from, to).trim().length > 0;
+  const bare = (i: number) => got.get(i)?.shot.style === 'plain' && got.get(i)?.shot.treatment === 'none';
+  a.sections.forEach((sec, i) => {
+    if (!bare(i)) return;
+    if (i === 0 || sec.end - sec.start > 4.2 || bare(i - 1) || sung(sec.start, sec.end)) {
+      const g = got.get(i)!;
+      got.set(i, { ...g, shot: { ...g.shot, style: 'inside' } });
+    }
+  });
+}
+
 /** what the check needs to know about the cut it was made for */
 export interface Chosen {
   cut: NonNullable<ReturnType<typeof cutNow>>;
@@ -416,6 +433,7 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
     run.note('Claude couldn’t choose the shots this time, so Hum chose them from its notes.');
     return alone;
   }
+  fewerPlain(got, cut.analysis, o.lyrics, told.paint);
   const rest = momentShots(cut.plan.flat?.src ?? told, cut.analysis, cut.plan.looks, findLook);
   const cues: ShotCue[] = cut.analysis.sections.flatMap((sec, i) => {
     const g = got.get(i);
@@ -486,6 +504,8 @@ export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; part
   for (const x of Array.isArray(r.json.weak) ? r.json.weak : []) {
     const g = readShot(x, seen);
     const cue = g && stills.parts.includes(g.i) ? chosen.cues.find((c) => Math.abs(c.at - chosen.cut.analysis.sections[g.i].start) < 0.06) : undefined;
+    // a shot made Inside stays it
+    if (g && cue?.shot.style === 'inside' && g.shot.style === 'plain') g.shot = { ...g.shot, style: 'inside', treatment: 'none' };
     if (g && cue && !at.has(g.i)) at.set(g.i, { ...cue, shot: g.shot, ...(g.why ? { why: g.why } : {}) });
   }
   if (!at.size) return;

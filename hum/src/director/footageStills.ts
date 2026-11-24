@@ -157,7 +157,7 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
         if (f) here[c % deck.length] = { ...deck[c % deck.length], footage: f, texture: f.texture, aspect: f.aspect, duration: f.duration };
       }
       stop();
-      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, Math.round(cut.analysis.duration * 10)), words: (sh) => wordsIn(sh, titleWords(), Math.abs(sh.start - seq.partStart) < 0.05) } });
+      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, Math.round(cut.analysis.duration * 10)), words: (sh) => wordsIn(sh, titleWords(true), Math.abs(sh.start - seq.partStart) < 0.05) } });
       await stage.settle(t);
       const own = cut.shotAt(i);
       const focus = { x: own?.focusX ?? 0.5, y: own?.focusY ?? 0.55 };

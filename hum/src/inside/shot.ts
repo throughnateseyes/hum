@@ -108,9 +108,11 @@ export class InsideShot {
     const s = spec;
     this.recipe = insideFor(s.moment, s.energy);
     this.rnd = dice(s.layout + 41);
-    const paints = this.recipe.paint.filter((p) => this.can(p));
+    // with no words in it, a quiet shot still has the far field and a ribbon to carry it
+    const bare = !s.words.length && this.recipe.paint[0] === 'none';
+    const paints = (bare ? (['far', 'deep'] as PaintId[]) : this.recipe.paint).filter((p) => this.can(p));
     this.paintKind = s.paint && this.can(s.paint) ? s.paint : (paints[(s.layout >> 3) % Math.max(1, paints.length)] ?? 'none');
-    this.extras = new Set(s.extras ?? this.recipe.with);
+    this.extras = new Set(s.extras ?? (bare ? (['ribbons'] as ExtraId[]) : this.recipe.with));
     this.crop = cropOf(s.clipAspect, s.aspect, s.focus, s.zoom, s.flip);
     this.clip0 = s.clipAt(s.start);
     const st = standing(s.scene);
@@ -390,6 +392,11 @@ export class InsideShot {
       cuts: s.cuts,
     };
 
+    // words on the bright, unpainted picture need it held back
+    if (this.paintKind === 'far' && s.cuts[1] > 0.45) {
+      const st = this.standing.find((x) => t >= x.chunk.from - 0.12 && t < x.chunk.to);
+      if (st && st.far < 0.6) paint.grade = Math.max(paint.grade, 0.6);
+    }
     this.placeWords(t, amount, now, p);
     this.placeExtras(t, beats, l, now);
 
@@ -408,11 +415,12 @@ export class InsideShot {
     const s = this.spec;
     this.standing.forEach((st, i) => {
       const next = this.standing[i + 1];
-      const to = next ? Math.max(st.chunk.to, Math.min(next.chunk.from, st.chunk.to)) : st.chunk.to;
+      // a block is gone before the next one's letters rise
+      const to = next && next.chunk.from - st.chunk.to < 0.1 ? next.chunk.from - 0.1 : st.chunk.to;
       const on = t >= st.chunk.from - 0.12 && t < to;
       st.group.visible = on;
       if (!on) return;
-      const leaving = to < s.end - 0.05 && !(next && next.chunk.from - to < 0.1) ? smooth(to - 0.22, to, t) : 0;
+      const leaving = to < s.end - 0.05 && !(next && next.chunk.from - to < 0.2) ? smooth(to - 0.22, to, t) : 0;
       for (const w of st.words) {
         // a word is up by the time it is sung: its letters rise over the tenth of a second before
         const show = w.mat.uniforms.uShow.value as number[];
@@ -464,7 +472,7 @@ export class InsideShot {
     for (const { m, side, i } of this.posts) {
       const gap = S * 0.14;
       const id = i + Math.floor(ahead / gap);
-      const z = S * 0.8 + i * gap - (ahead % gap);
+      const z = S * 1.1 + i * gap - (ahead % gap);
       const wave = backOut(beats * 1.1 - (1 - i / 22) * 1.6);
       const hop = Math.exp(-since(s.kicks, t) / (s.beat * 0.35));
       const roll = Math.abs(Math.sin(id * 12.9898 + side * 4.1) * 43758.5453) % 1;

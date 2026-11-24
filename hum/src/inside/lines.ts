@@ -52,6 +52,8 @@ export function wordsIn(shot: Shot, title: string[], opens: boolean): { words: S
   }
   const own = partWordsAt(s, mid) || shot.say;
   if (own) return { words: set(own), sung: false };
+  // the video opens on its title
+  if (title.length && opens && shot.start < 0.5) return { words: set(title.join(' ')), sung: false };
   if (!s.lyrics?.lines.length && title.length && opens && shot.arrive === 'hit') return { words: set(title.join(' ')), sung: false };
   return { words: [], sung: false };
 }

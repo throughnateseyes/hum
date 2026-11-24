@@ -173,11 +173,12 @@ uniform sampler2D tNear;
 uniform vec2 uRes;
 uniform float uZScale;
 varying float vW;
-float showing() {
-  float n = texture2D(tNear, gl_FragCoord.xy / uRes).r;
+float showingAt(vec2 at) {
+  float n = texture2D(tNear, at / uRes).r;
   float me = uZScale / vW;
   return 1.0 - smoothstep(me + max(0.0025, 0.05 * me), me + max(0.0055, 0.15 * me), n);
 }
+float showing() { return showingAt(gl_FragCoord.xy); }
 `;
 
 const PLACE_VERT = /* glsl */ `
@@ -212,7 +213,18 @@ void main() {
   vec2 q = vec2(vUv.x, vUv.y + (1.0 - s) * 0.9);
   float cut = step(uBleed * 0.4, vUv.y) + step(0.999, s);
   float a = texture2D(tText, q).a * step(q.y, 1.0) * min(cut, 1.0) * uAlpha;
-  a *= mix(1.0, showing(), uHide);
+  float show = showing();
+  if (show < 0.99 && uHide > 0.0) {
+    // something thin (a cable, a wire) only dims the word, so a lot of them can't cut it to pieces
+    float open = 0.0;
+    float r = 0.017 * uRes.y;
+    for (int k = 0; k < 8; k++) {
+      float t = float(k) * 0.7854 + 0.3;
+      open += showingAt(gl_FragCoord.xy + vec2(cos(t), sin(t)) * r);
+    }
+    show = max(show, 0.5 * smoothstep(0.55, 0.78, open / 8.0));
+  }
+  a *= mix(1.0, show, uHide);
   if (a < 0.004) discard;
   vec3 c = uColor;
   if (uShade > 0.001) {

@@ -171,8 +171,9 @@ function wordsKey(): number {
 }
 
 /** the song's title as words for the type, when no lyrics are being shown (the lyric layer owns those) */
-export function titleWords(): string[] {
-  if (useStudio.getState().lyrics?.lines.length) return [];
+/** `always`: in a song with lyrics too (the Inside shot a video opens on) */
+export function titleWords(always = false): string[] {
+  if (!always && useStudio.getState().lyrics?.lines.length) return [];
   return songTitle()
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
     .split(/[\s_\-–—]+/)
@@ -605,7 +606,7 @@ class FootageLook implements SceneInstance {
       if (!seq) return this.builtKey !== '';
       this.builtKey = key;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords() : [], Math.abs(shot.start - seq!.partStart) < 0.05) } });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - seq!.partStart) < 0.05) } });
       for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];
