@@ -99,6 +99,12 @@ A video made from the person's footage first asks one more small question (`serv
 
 `src/feeling` puts it against the clock with the sound (key, brightness, harmonic tension, never tempo) and finds the wind-up to every landing. From there it decides the moments when Claude doesn't, is told to the story and shots steps in a few words per section and part, keeps a soft line that matters on one picture, cuts closer into a big landing, and bends each shot's speed and camera (`bend` and `lean`). A plan keeps the feeling it was made with; plans made before it have none and play as they did.
 
+## Landing the clips
+
+What happens in a clip is measured in the browser, quietly, when the clip is added (`src/timing/read.ts`, `events.ts`; kept in IndexedDB by the file, nothing is sent): bursts of movement, movement that ends, begins or turns back, light that changes, and the clip's own cuts. The watch step is shown two frames of each of the strongest and says which really happen and how hard (`hits`); the shots step may ask for one to land on a part's start, a word, a beat or its end (`land`, `landOn`).
+
+Then code decides for every part at once (`src/timing/solve.ts`, through `src/director/footageTiming.ts`): which second of which clip lands on which accent, what the speed does round it, and which stretch each part plays, saving the best for the drops and not showing the same seconds or the same event twice. The cuts stay where the song and the feeling put them. A part that lands something carries `hit`, `on` and `ramp` (`PartShot`), and its start follows from them; parts without these play as they always did, and so does a part whose start or picture is chosen by hand. Review's replacements are timed again.
+
 ## The mix
 
 `Your footage` (`src/director/mix.ts`) is told to the story and plan steps, and then enforced by code: `dealMix` takes the sections a planner gave to footage and moves as few as it must to keep footage inside its share of the time.

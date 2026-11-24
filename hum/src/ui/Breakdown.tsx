@@ -10,6 +10,7 @@ import { sectionNames } from '../state/plan';
 import { originalOf } from '../state/planCache';
 import { useStudio } from '../state/store';
 import { X } from './Icons';
+import { useLandings, type Landing } from './landings';
 import { GROUP_INK, GROUP_TINT, dropList, fmtTime } from './song';
 
 /**
@@ -36,7 +37,7 @@ const C = {
   vocal: '#c94040',
 };
 
-type LaneId = 'feel' | 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'chords' | 'tension' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
+type LaneId = 'feel' | 'lands' | 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'chords' | 'tension' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
 interface Lane {
   id: LaneId;
   label: string;
@@ -120,6 +121,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
   const plan = useStudio((s) => s.plan);
   const making = useStudio((s) => !!s.making);
   const feel = useMemo(() => (making ? null : curvesFor(plan, a, lyrics)) ?? curvesNow(a, lyrics), [plan, a, lyrics, making]);
+  const lands = useLandings();
   const drops = dropList(a);
   const names = useMemo(() => sectionNames(a.sections), [a]);
   const harm = a.harmony;
@@ -132,6 +134,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
       { id: 'parts', label: 'Parts', sub: 'alike = same colour', h: 30 },
       { id: 'drops', label: 'Drops', sub: 'size = how big', h: 24 },
       { id: 'feel', label: 'Feeling', sub: 'bright up, dark down', h: 52 },
+      ...(lands.length ? [{ id: 'lands' as const, label: 'Your clips', sub: 'what lands when', h: 30 }] : []),
       { id: 'wave', label: 'Waveform', sub: 'loudness', h: 64 },
       { id: 'energy', label: 'Energy', sub: 'intensity', h: 38 },
       { id: 'low', label: 'Low', sub: 'sub, bass, kick', h: 26 },
@@ -159,7 +162,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
       y += l.h + GAP;
       return lane;
     });
-  }, [L, harm]);
+  }, [L, harm, lands.length]);
   const H = lanes.length ? lanes[lanes.length - 1].y + lanes[lanes.length - 1].h : 0;
 
   useLayoutEffect(() => {
@@ -184,9 +187,9 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
           v1 = Math.min(d, v0 + win);
         }
         viewRef.current = [v0, v1];
-        draw(canvas.current, a, lanes, H, v0, v1, t, hover.current, names, feel);
+        draw(canvas.current, a, lanes, H, v0, v1, t, hover.current, names, feel, lands);
       }),
-    [a, lanes, H, view, names, feel],
+    [a, lanes, H, view, names, feel, lands],
   );
 
   const toTime = (e: React.PointerEvent) => {
@@ -349,6 +352,7 @@ function draw(
   hover: number | null,
   names: string[],
   feel: Curves,
+  lands: Landing[],
 ) {
   if (!c) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -482,6 +486,8 @@ function draw(
   }
 
   feeling(g, feel, lane('feel')!, X, v0, v1, span, t, w);
+  const la = lane('lands');
+  if (la) landings(g, lands, la, X, v0, v1, t, w);
 
   const L = a.layers;
   if (L) {
@@ -596,6 +602,32 @@ function feeling(g: CanvasRenderingContext2D, c: Curves, l: Lane, X: (s: number)
       free = x + wide + 10;
     }
   }
+}
+
+/** a mark where something in a clip lands, with what it is where there is room */
+function landings(g: CanvasRenderingContext2D, all: Landing[], l: Lane, X: (s: number) => number, v0: number, v1: number, t: number, w: number) {
+  const mid = l.y + l.h / 2;
+  const seen = all.filter((x) => x.at >= v0 && x.at <= v1);
+  seen.forEach((m, i) => {
+    const x = X(m.at);
+    const r = m.on === 'drop' ? 6 : m.on === 'word' ? 5 : 4;
+    g.fillStyle = Math.abs(t - m.at) < 0.25 ? C.head : C.accent;
+    g.beginPath();
+    g.moveTo(x, mid - r);
+    g.lineTo(x + r, mid);
+    g.lineTo(x, mid + r);
+    g.lineTo(x - r, mid);
+    g.fill();
+    const room = (i + 1 < seen.length ? X(seen[i + 1].at) - 8 : w) - (x + r + 5);
+    if (!m.what || room < 40) return;
+    g.save();
+    g.beginPath();
+    g.rect(x + r + 5, l.y, room, l.h);
+    g.clip();
+    g.fillStyle = C.ink2;
+    g.fillText(m.what, x + r + 5, mid + 1);
+    g.restore();
+  });
 }
 
 function curve(g: CanvasRenderingContext2D, arr: Float32Array, l: Lane, color: string, v0: number, span: number, d: number, w: number) {

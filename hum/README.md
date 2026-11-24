@@ -360,6 +360,10 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   which lays the same style out another way, with **Previous** to go back one. Style and Shuffle
   belong to the look, so they change every part that plays it (the hint under the button says so),
   they're kept with the video and Undo takes them back (`src/scenes/footage`, `src/shot`).
+- **Landings.** Hum finds the moments inside each clip (a jump, a stop, someone leaving the frame, the
+  light changing) on this computer, and a Make lands them on the song: on a drop, a word, a cut or a
+  beat, with the speed bent round them. The Part tab says what a part lands on and can let the clip
+  just play; the Breakdown marks them all (`src/timing`).
 - **Inside** (a footage style) reads how deep each clip is (Depth Anything V2 Small, run in a worker on
   this computer: about 50 MB the first time, kept by the browser), finds its horizon and how the camera
   moves, and stands the words being sung and the part's shapes in the place: behind the skyline, between
