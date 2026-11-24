@@ -8,6 +8,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
+import { ownMedia } from '../director/media';
+import { framesNoteShown, framesSentBefore } from '../director/footageNotice';
 import { forgetAccessCode, learnCan, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { quality as governor } from '../render/quality';
 import { perfReport, perfSummary } from '../render/perfReport';
@@ -47,6 +49,8 @@ function MakeBlock() {
   const planning = useStudio((s) => s.planning);
   const plan = useStudio((s) => s.plan);
   const planOn = useStudio((s) => s.planOn);
+  const making = useStudio((s) => s.making);
+  const makeNote = useStudio((s) => s.makeNote);
   const hasPlan = validPlan(plan, analysis);
   const parts = analysis?.sections.length ?? 0;
   // without a code on a site that wants one, the button wears a lock (it still works: it asks first)
@@ -58,6 +62,7 @@ function MakeBlock() {
   }, []);
   return (
     <div className="vp-make">
+      <FramesNote />
       <button
         className={`btn primary vp-go has-tip tip-below ${locked ? 'locked' : ''}`}
         disabled={planning || !parts}
@@ -73,8 +78,25 @@ function MakeBlock() {
         }
       >
         {planning ? <span className="spin" /> : locked ? <Lock width={13} height={13} aria-hidden /> : <Sparkle width={13} height={13} />}
-        {planning ? 'Planning…' : hasPlan ? 'Remake video' : 'Make a video'}
+        {planning ? (making ? 'Making your video' : 'Planning…') : hasPlan ? 'Remake video' : 'Make a video'}
       </button>
+      {making && (
+        <div className="vp-step" role="status">
+          <span>
+            {making.text}
+            {making.of ? ` ${making.n} of ${making.of}` : ''}
+          </span>
+          <button className="btn sm ghost" onClick={() => void import('../director/footageDirector').then((d) => d.cancelMake())}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {!planning && hasPlan && plan!.idea && (
+        <p className="field-note vp-idea" title="Claude’s idea for this video">
+          {plan!.idea}
+        </p>
+      )}
+      {!planning && makeNote && <p className="field-note">{makeNote}</p>}
       {!parts && (
         <p className="field-note">
           {!track ? 'Load a song first. Its parts show up on the timeline.' : track.source === 'mic' ? 'Videos need a song file, not live sound.' : 'Listening to the song…'}
@@ -91,6 +113,25 @@ function MakeBlock() {
       )}
     </div>
   );
+}
+
+/**
+ * Said before the first small frames of the person's own footage are sent, while there is any; it goes once
+ * they have been. Until it has been on screen nothing is sent (state/plan.ts makeVideo).
+ */
+function FramesNote() {
+  const clips = useStudio((s) => s.clips);
+  const photos = useStudio((s) => s.photos);
+  const making = useStudio((s) => !!s.making);
+  const [before] = useState(framesSentBefore);
+  const media = clips.length + photos.length > 0 ? ownMedia() : [];
+  const show = media.length > 0 && !before && (making || !framesSentBefore());
+  useEffect(() => {
+    if (show) framesNoteShown();
+  }, [show]);
+  if (!show) return null;
+  const what = media.every((m) => m.kind === 'photo') ? 'your photos' : media.every((m) => m.kind === 'clip') ? 'your clips' : 'your clips and photos';
+  return <p className="field-note">{`To direct from ${what}, Hum sends Claude a few small frames of each, once. Whole files and sound stay on this computer.`}</p>;
 }
 
 /* ───────── finish, with the hand-drawn settings under it ───────── */

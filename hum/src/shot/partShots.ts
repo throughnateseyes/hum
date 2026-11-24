@@ -9,6 +9,7 @@
  * records with its new ones and carries the person's across.
  */
 import type { PartShot } from '../core/types';
+import type { LyricMedium } from '../state/lyricPlan';
 import type { VideoPlan } from '../state/plan';
 import { useStudio } from '../state/store';
 
@@ -43,7 +44,14 @@ export interface ShotCue {
   at: number;
   end: number;
   shot: PartShot;
+  /** what the shot does for the idea of the video, in a few words */
+  why?: string;
+  /** how the words appear on it */
+  lyric?: LyricMedium;
 }
+
+/** the cue a part starting at t plays under */
+export const cueAt = (cues: ShotCue[], t: number) => cues.find((x) => t >= x.at - 0.06 && t < x.end - 0.06);
 
 /**
  * The director's choices for parts starting at `bounds`, from its cues by time. A part that starts
@@ -52,7 +60,7 @@ export interface ShotCue {
  */
 export function shotsFromCues(cues: ShotCue[], bounds: number[]): (PartShot | null)[] {
   return bounds.map((b) => {
-    const c = cues.find((x) => b >= x.at - 0.06 && b < x.end - 0.06);
+    const c = cueAt(cues, b);
     if (!c) return null;
     return Math.abs(c.at - b) < 0.06 ? c.shot : withoutStart(c.shot);
   });

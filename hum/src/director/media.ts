@@ -110,6 +110,8 @@ export interface WatchResult {
   missed: number;
   /** why, in a short line ('' when nothing was missed) */
   reason: string;
+  /** no AI here, or no access code */
+  closed?: boolean;
 }
 
 /**
@@ -124,6 +126,7 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
   if (!todo.length) return { missed: 0, reason: '' };
   let done = 0;
   let reason = '';
+  let closed = false;
   const tell = (n: number) => opts.onProgress?.((done += n), todo.length);
   tell(0);
 
@@ -152,7 +155,10 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
         );
         if (got) keepNotes(got);
       }
-    } else reason = r.reason;
+    } else {
+      reason = r.reason;
+      closed ||= !!r.closed;
+    }
     tell(sent.length);
   };
   // the first request goes alone (the next sheets are made meanwhile): it may stop to ask for an
@@ -212,5 +218,5 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
   await Promise.all(flying);
   if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   const missed = todo.filter((m) => !known.has(m.id)).length;
-  return { missed, reason: missed ? reason || 'Claude did not say anything about some of your files.' : '' };
+  return { missed, reason: missed ? reason || 'Claude did not say anything about some of your files.' : '', closed };
 }

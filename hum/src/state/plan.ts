@@ -30,6 +30,7 @@ import { carryEdits, putOn, skipPlayingPart } from './flatPlan';
 import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, mediaReady, photoCount, playsClips } from '../director/footage';
+import { framesNoted } from '../director/footageNotice';
 import { withMoments } from '../director/footageShots';
 import { momentsFor, type MomentId } from '../moments';
 import { withoutStart, type ShotCue } from '../shot/partShots';
@@ -1145,23 +1146,34 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   // cost: a song that already has a plan from Claude plays it again without a new request
   // ("Remake video", a mood and typed wishes always ask again), see planCache.ts
   const cacheKey = s.track ? planKey(s.track.name, a, s.lyrics) : null;
+  // with clips or photos (and the line about frames on screen) the video is directed from them, in steps
+  const directed = mediaReady() && framesNoted();
   if (cacheKey && !wish.trim() && !opts.fresh && !mood) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
-    if (saved) {
+    // a video saved before Claude had watched the footage is made again, from it
+    if (saved && (!directed || saved.cues || saved.flat?.src.cues)) {
       void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim(), { restore: true });
       const on = useStudio.getState();
       if (on.plan && on.analysis) watchPlan(cacheKey, on.plan, on.analysis);
       return;
     }
   }
-  s.set({ planning: true });
-  const asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
+  s.set({ planning: true, makeNote: '' });
+  let asked: { plan: VideoPlan; reason: string };
+  let end = () => {};
+  if (directed) {
+    const made = await directVideo(a, prev, { wish, mood, keepEdits: opts.keepEdits });
+    if (!made) return;
+    asked = made;
+    end = made.end;
+  } else asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
   const reason = asked.reason;
   const plan = withBase(asked.plan, a);
   // the song may have changed while Claude was thinking
   const now = useStudio.getState();
   if (!now.analysis || originalOf(now.analysis) !== a) {
     now.set({ planning: false });
+    end();
     return;
   }
   // the parts the person changed by hand (and liked) keep their changes (the new plan's own picks stay
@@ -1170,11 +1182,64 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   const before = validPlan(now.plan, now.analysis) ? now.plan : prev;
   const keep = before && opts.keepEdits !== false ? before : null;
   now.set({ planning: false });
-  void startPlan(plan, a, plan.source === 'claude' ? plan.note : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
+  const idea = plan.idea ? `${plan.idea} ` : '';
+  void startPlan(plan, a, plan.source === 'claude' ? `${idea}${plan.note}` : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
+  end();
   const on = useStudio.getState();
   if (cacheKey && plan.source === 'claude' && on.plan && on.analysis) {
     savePlan(cacheKey, on.plan);
     watchPlan(cacheKey, on.plan, on.analysis);
+  }
+}
+
+/**
+ * A plan directed from the person's own footage: watched, a story found, the looks planned to it, and a
+ * shot chosen for every part (director/footageDirector.ts). Null when it was cancelled, or another song
+ * went on: the video playing then simply carries on. `end` is called once the plan is on.
+ */
+async function directVideo(
+  a: TrackAnalysis,
+  prev: VideoPlan | null,
+  o: { wish: string; mood?: Mood; keepEdits?: boolean },
+): Promise<{ plan: VideoPlan; reason: string; end: () => void } | null> {
+  const d = await import('../director/footageDirector');
+  const run = d.beginMake();
+  const sameSong = () => {
+    const now = useStudio.getState().analysis;
+    return !!now && originalOf(now) === a;
+  };
+  const off = useStudio.subscribe((s, was) => {
+    if (s.analysis !== was.analysis && !sameSong()) run.abort();
+  });
+  try {
+    const lyrics = useStudio.getState().lyrics;
+    const { story, closed } = await d.findStory(a, lyrics, o.wish, run);
+    const offline = freshLocalPlan(a, o.mood?.id);
+    if (closed) return { plan: await offlineVideoPlan(a, lyrics, offline), reason: '', end: run.end };
+    run.say('Choosing looks');
+    const asked = await requestVideoPlan(a, lyrics, offline, {
+      wish: o.wish,
+      mood: o.mood,
+      signal: run.signal,
+      ...(story ? { story: d.storyForPlan(story), moments: story.sections.map((x) => x.moment) } : {}),
+    });
+    if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
+    const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
+    const plan = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
+    if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    return { plan, reason: asked.reason, end: run.end };
+  } catch (err) {
+    if (!run.signal.aborted) {
+      // nothing here should throw, but a video must come of it if something does
+      console.warn('directing from footage failed', err);
+      run.note('Directing from your footage failed this time, so Hum planned this one by itself.');
+      return { plan: await offlineVideoPlan(a, useStudio.getState().lyrics, freshLocalPlan(a, o.mood?.id)), reason: '', end: run.end };
+    }
+    useStudio.getState().set({ planning: false, makeNote: '' });
+    run.end();
+    return null;
+  } finally {
+    off();
   }
 }
 
@@ -1196,9 +1261,19 @@ export function keepPlan(plan: VideoPlan, a: TrackAnalysis) {
 }
 
 /** an offline plan with its lyric video planned too (what one-tap start plays first) */
-export async function offlineVideoPlan(a: TrackAnalysis, lyr: Lyrics | null): Promise<VideoPlan> {
+export async function offlineVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, plan = freshLocalPlan(a)): Promise<VideoPlan> {
   const { getScene } = await import('../scenes');
-  return withLyricPlan(freshLocalPlan(a), a, lyr, null, getScene, (Math.random() * 2 ** 31) | 0);
+  return withLyricPlan(plan, a, lyr, null, getScene, (Math.random() * 2 ** 31) | 0);
+}
+
+interface RequestOpts {
+  wish?: string;
+  quiet?: boolean;
+  mood?: Mood;
+  signal?: AbortSignal;
+  /** the treatment of a directed video, and its moment per section */
+  story?: { idea: string; arc: string; sections: { moment: string; footage: boolean; note: string }[] };
+  moments?: MomentId[];
 }
 
 /**
@@ -1206,7 +1281,7 @@ export async function offlineVideoPlan(a: TrackAnalysis, lyr: Lyrics | null): Pr
  * reachable or says no). `quiet`: nobody pressed a button (one-tap start), so the access gate never
  * opens and a site that wants a code just gets the offline plan.
  */
-export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, offline: VideoPlan, opts: { wish?: string; quiet?: boolean; mood?: Mood } = {}): Promise<{ plan: VideoPlan; reason: string }> {
+export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, offline: VideoPlan, opts: RequestOpts = {}): Promise<{ plan: VideoPlan; reason: string }> {
   const wish = opts.wish ?? '';
   const mood = opts.mood;
   const { requestPlan } = await import('../director/client');
@@ -1216,7 +1291,9 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
   // the person's clips (director/footage.ts): without any, footage looks aren't offered; with some,
   // every footage look goes up (whatever the mood or the shortlist) and Claude is told they're there
   const clips = clipCount();
-  const inWorld = (p: Preset) => inMood(p, mood) || (playsClips(p) && clips > 0);
+  const photos = clips ? 0 : photoCount();
+  const footage = mediaReady();
+  const inWorld = (p: Preset) => inMood(p, mood) || (playsClips(p) && footage);
   // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
   // cost: the families that suit this song (all of them when there's a wish), each family on one
   // compressed line with its takes and its fit (see shortlist.ts and server/planPrompt.ts)
@@ -1227,7 +1304,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
       a,
       {
         wish,
-        keep: [...(taste ? [...taste.liked.map((x) => x.id), ...taste.avoid] : []), ...(clips ? planLooks().filter(playsClips).map((p) => p.id) : [])],
+        keep: [...(taste ? [...taste.liked.map((x) => x.id), ...taste.avoid] : []), ...(footage ? planLooks().filter(playsClips).map((p) => p.id) : [])],
         categoryOf: (p) => getScene(p.sceneId)?.category ?? '',
       },
     ),
@@ -1277,10 +1354,12 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
         ...(mood ? { mood: { name: mood.name, world: mood.world, finish: moodDirection(a, mood, []).finish, transitions: mood.transitions } } : {}),
         // the person's clips: the server tells Claude most parts should play them (footage looks)
         ...(clips ? { clips } : {}),
+        ...(photos >= 2 ? { photos } : {}),
+        ...(opts.story ? { story: opts.story } : {}),
       },
       // the saved access code is sent by the client; a missing or wrong one opens the access gate,
       // which retries this request once it's unlocked (closing it keeps the offline plan)
-      { quiet: opts.quiet },
+      { quiet: opts.quiet, signal: opts.signal },
     );
     if (r.ok) claudeLyric = r.lyric;
     if (r.ok) {
@@ -1291,18 +1370,26 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
         return mayPlan(p) && (!mood || (p ? inWorld(p) : inMood({ id, family: undefined }, mood)));
       };
       const picked = r.looks.map((id, i) => (fits(id) ? id : offline.looks[i]));
+      // a section the treatment gave to the footage plays a footage look, whatever was planned
+      const wanted = picked.map((id, i) => !!opts.story?.sections[i]?.footage && !playsClips(id ? findLook(id) : undefined));
+      const clipLooks = wanted.some(Boolean) ? planLooks().filter(playsClips) : [];
+      if (clipLooks.length)
+        picked.forEach((_, i) => {
+          if (wanted[i]) picked[i] = [...clipLooks].sort((x, y) => fitScore(y, a.sections[i].label, partEnergy(a, i)) - fitScore(x, a.sections[i].label, partEnergy(a, i)) || (x.id < y.id ? -1 : 1))[0].id;
+        });
+      const swapped = (i: number) => wanted[i] && clipLooks.length > 0;
       plan = ensureDropCuts({
         title: r.title,
         note: r.note,
         looks: picked,
-        why: r.why,
+        why: r.why.map((w, i) => (swapped(i) ? (opts.story?.sections[i]?.note ?? '') : w)),
         source: 'claude',
         via: r.via,
         duration: a.duration,
         pops: r.pops.map((v, i) => v ?? offline.pops?.[i] ?? 1),
-        interludes: mood ? r.interludes.map((id) => (fits(id) ? id : null)) : r.interludes,
+        interludes: r.interludes.map((id, i) => (swapped(i) || (mood && !fits(id)) ? null : id)),
         // Claude's rotation where it gave one, else picked around its main look
-        rotate: mood ? r.rotate.map((ids) => (ids ? ids.filter(fits) : null)) : r.rotate,
+        rotate: r.rotate.map((ids, i) => (swapped(i) ? null : mood && ids ? ids.filter(fits) : ids)),
         shotBars: r.shotBars,
         transitions: r.transitions,
         // the mood's direction (with Claude's type hint); else Claude's, else one picked offline around Claude's looks
@@ -1313,10 +1400,13 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
       }, a);
     } else reason = r.reason;
   } catch (e) {
+    if (opts.signal?.aborted) throw e;
     reason = String(e);
   }
   // an offline plan already carries its lyric plan
   if (plan !== offline || !offline.lyricPlan) plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
+  // footage cuts and moves by what each section feels like (src/moments)
+  if (footage) plan = withMoments(plan, a, opts.moments ?? momentsFor(a), (id) => findLook(id));
   return { plan, reason };
 }
 

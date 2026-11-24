@@ -501,6 +501,10 @@ export interface PlanRequest {
   mood?: { name: string; world: string; finish: string; transitions: string };
   /** how many video clips the person added (sent only when there are some): the footage looks play them */
   clips?: number;
+  /** how many photos, when there are no clips */
+  photos?: number;
+  /** the video's treatment, when Claude has watched the footage (director/footageDirector.ts) */
+  story?: { idea: string; arc: string; sections: { moment: string; footage: boolean; note: string }[] };
 }
 export type PlanReply =
   | {
@@ -527,14 +531,15 @@ export type PlanReply =
     }
   | { ok: false; reason: string };
 
-export type StepReply = { ok: true; json: Record<string, unknown>; via: 'api' | 'subscription' } | { ok: false; reason: string };
+/** `closed`: no AI here, or no access code: asking again would be refused the same way */
+export type StepReply = { ok: true; json: Record<string, unknown>; via: 'api' | 'subscription' } | { ok: false; reason: string; closed?: boolean };
 
 /**
  * One director step (server/steps): a small Claude call that is part of a longer job. Never throws for
  * server trouble: `reason` is a short line for the person. Throws only when cancelled.
  */
 export async function requestStep(mode: string, body: Record<string, unknown>, opts: DirectOptions = {}): Promise<StepReply> {
-  if (opts.quiet && !aiAllowedQuietly()) return { ok: false, reason: 'The AI director needs an access code or is off here.' };
+  if (opts.quiet && !aiAllowedQuietly()) return { ok: false, reason: 'The AI director needs an access code or is off here.', closed: true };
   let res: Response;
   try {
     res = await postDirector((accessCode) => ({ mode, accessCode, ...body }), opts);
@@ -545,8 +550,8 @@ export async function requestStep(mode: string, body: Record<string, unknown>, o
   const json: unknown = await res.json().catch(() => null);
   if (opts.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
   if (res.ok && isObj(json)) return { ok: true, json, via: json.via === 'subscription' ? 'subscription' : 'api' };
-  if (res.status === 501) return { ok: false, reason: 'AI is switched off on this site.' };
-  if (res.status === 403) return { ok: false, reason: 'The AI director needs an access code.' };
+  if (res.status === 501) return { ok: false, reason: 'AI is switched off on this site.', closed: true };
+  if (res.status === 403) return { ok: false, reason: 'The AI director needs an access code.', closed: true };
   const note = isObj(json) ? str(json.note, 160) : '';
   if (res.status === 429) return { ok: false, reason: note || 'The AI director is rate limited right now.' };
   return { ok: false, reason: note || `The AI director answered with an error (${res.status}).` };
@@ -574,6 +579,8 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         ...(req.lyricFit ? { lyricFit: req.lyricFit, wps: req.wps, lyricTake: req.lyricTake } : {}),
         ...(req.mood ? { mood: req.mood } : {}),
         ...(req.clips ? { clips: req.clips } : {}),
+        ...(req.photos ? { photos: req.photos } : {}),
+        ...(req.story ? { story: req.story } : {}),
         accessCode,
       }),
       opts,
