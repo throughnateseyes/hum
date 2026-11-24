@@ -200,7 +200,7 @@ async function one(t,target){
     const beatK=Math.exp(-((b%1))/.35);const ht=(2.0+6.5*rand(id*3+side*50)+3.2*beatK*rand(id+9))*wave;
     m.scale.set(1.1,Math.max(.001,ht),1);m.position.set(side?18.5:-12,1.2,-z);m.rotation.y=side?-.55:.55;m.material.color.set(postCols[((id%5)+5)%5])}
   /* ribbons */
-  ribs.forEach((r,i)=>{const on=(A||Z);const h0=A?8:20;for(const m of[r.f,r.b]){m.visible=on;const un=m.material.uniforms;const tt=(b-h0);const per=3.4+i*.35,q=((tt+8-i*.55)%per)/per,on2=tt>i*.18;const hd=1-outC(q)*1.25;un.head.value=on2?hd:2;un.tail.value=hd+.12+.22*Math.sin(Math.PI*Math.min(1,q*1.2));un.tz.value=tz;un.slide.value=(D-(A?base:base2))*.75;
+  ribs.forEach((r,i)=>{const on=(A||Z)&&i!==3;const h0=A?8:20;for(const m of[r.f,r.b]){m.visible=on;const un=m.material.uniforms;const tt=(b-h0);const per=3.4+i*.35,q=((tt+8-i*.55)%per)/per,on2=tt>i*.18;const hd=1-outC(q)*1.25;un.head.value=on2?hd:2;un.tail.value=hd+.12+.22*Math.sin(Math.PI*Math.min(1,q*1.2));un.tz.value=tz;un.slide.value=(D-(A?base:base2))*.75;
      un.w.value=[.26,.16,.22,.13,.18,.08,.07][i]*(1+.6*Math.exp(-(b%2)/.4))}});
   /* plus signs */
   pluses.forEach((m,i)=>{let on=false;for(const h of[8,12,20,24]){const q=(b-h)-rand(i)*.5;if(q>=0&&q<2.6){on=true;const a=rand(i+7)*6.283,rr=3.5+9*rand(i+13);const k=outC(q/2.2);const z=mix(130,3,k)-q*2;m.position.set(2+Math.cos(a)*rr*1.3,Math.max(.4,5+Math.sin(a)*rr*.7),-Math.max(1,z));m.rotation.z=a+1.57;const len=(1.5+9*(1-k))*(.6+rand(i+2));m.scale.set(.06+.12*rand(i+3),1,len);if(z<2)on=false}}m.visible=on});
