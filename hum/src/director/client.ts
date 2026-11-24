@@ -527,6 +527,31 @@ export type PlanReply =
     }
   | { ok: false; reason: string };
 
+export type StepReply = { ok: true; json: Record<string, unknown>; via: 'api' | 'subscription' } | { ok: false; reason: string };
+
+/**
+ * One director step (server/steps): a small Claude call that is part of a longer job. Never throws for
+ * server trouble: `reason` is a short line for the person. Throws only when cancelled.
+ */
+export async function requestStep(mode: string, body: Record<string, unknown>, opts: DirectOptions = {}): Promise<StepReply> {
+  if (opts.quiet && !aiAllowedQuietly()) return { ok: false, reason: 'The AI director needs an access code or is off here.' };
+  let res: Response;
+  try {
+    res = await postDirector((accessCode) => ({ mode, accessCode, ...body }), opts);
+  } catch (err) {
+    if (opts.signal?.aborted) throw err;
+    return { ok: false, reason: 'Couldn’t reach the AI director (offline?).' };
+  }
+  const json: unknown = await res.json().catch(() => null);
+  if (opts.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  if (res.ok && isObj(json)) return { ok: true, json, via: json.via === 'subscription' ? 'subscription' : 'api' };
+  if (res.status === 501) return { ok: false, reason: 'AI is switched off on this site.' };
+  if (res.status === 403) return { ok: false, reason: 'The AI director needs an access code.' };
+  const note = isObj(json) ? str(json.note, 160) : '';
+  if (res.status === 429) return { ok: false, reason: note || 'The AI director is rate limited right now.' };
+  return { ok: false, reason: note || `The AI director answered with an error (${res.status}).` };
+}
+
 /**
  * Ask Claude for a look per section. Never throws for server trouble: returns { ok: false, reason }
  * so the caller can use the offline plan. Unknown look ids and missing sections come back as null.
