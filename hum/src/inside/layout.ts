@@ -164,7 +164,7 @@ const ROWS = 5;
  * How much of a block shows (its least readable line counts), the worst stretch about a letter wide, how
  * much of it is in the frame, and how big it is there
  */
-function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number } {
+function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number; edge: number } {
   const map = o.scene ? mapAt(o.scene, t) : null;
   let inside = 0;
   let all = 0;
@@ -228,7 +228,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
       worst = Math.min(worst, s / span);
     }
   });
-  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim };
+  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim, edge: Math.min(x0, 1 - x1, y0, 1 - y1) };
 }
 
 /** the distances a word can stand at to have something in front of it and something behind, far to near */
@@ -354,13 +354,17 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
         let shown = r.shown;
         let worst = r.worst;
         let inside = r.inside;
+        let edge = r.edge;
         o.around.forEach((l, k) => {
           const s = reading(o, c, l, o.times[k + 1]);
           shown = Math.min(shown, s.shown + 0.08);
           worst = Math.min(worst, s.worst + 0.08);
           inside = Math.min(inside, s.inside);
+          edge = Math.min(edge, s.edge);
         });
         if (inside < (kind === 'far' || kind === 'between' ? 0.96 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
+        // a word that stands facing the camera keeps its margin while the place moves
+        if ((kind === 'far' || kind === 'between') && edge < o.margin * (ease ? 0.35 : 0.85)) continue;
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it
