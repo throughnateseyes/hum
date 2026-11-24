@@ -460,6 +460,8 @@ export interface SceneDef {
   usesPhotos?: boolean;
   /** true when the scene is built on the person's video clips (the footage looks) */
   usesClips?: boolean;
+  /** true when the scene draws the line figures made for the person (src/figures) */
+  usesFigures?: boolean;
   /** true when the scene expects a light (off-white) background by default */
   light?: boolean;
   /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);

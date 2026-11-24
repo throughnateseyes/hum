@@ -11,6 +11,7 @@
  */
 import type { Preset, SceneDef } from '../core/types';
 import { PRESETS } from '../presets';
+import { figureCount } from '../figures/store';
 import { allScenes, getScene } from '../scenes';
 import { useStudio } from '../state/store';
 
@@ -25,7 +26,9 @@ export function playsClips(p: Pick<Preset, 'sceneId'> | undefined): boolean {
 }
 
 /** may a planner use this scene right now? (a clip scene only once there are clips) */
-export function sceneMayPlan(s: Pick<SceneDef, 'usesClips'> | undefined): boolean {
+export function sceneMayPlan(s: Pick<SceneDef, 'usesClips' | 'usesFigures'> | undefined): boolean {
+  // line figures (src/figures): the same rule, once some have been made
+  if (s?.usesFigures && figureCount() === 0) return false;
   return !s?.usesClips || clipCount() > 0;
 }
 

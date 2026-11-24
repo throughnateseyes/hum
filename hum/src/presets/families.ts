@@ -663,6 +663,19 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     themes: ['photo', 'data'],
   },
 
+  /* ───────── line figures: the objects drawn for this song ───────── */
+  'line-figures': {
+    name: 'Line Figures',
+    blurb: 'The objects drawn for this song as fine line figures in real 3D: one held big, a whole floor of them, or a slow trip past each; built line by line, their parts moving on the beat.',
+    takes: { 'line-figures': 'One', 'line-figures-field': 'Field', 'line-figures-past': 'Past' },
+    roles: ['verse', 'intro', 'break', 'build', 'peak', 'outro'],
+    energy: [0.05, 0.85],
+    motion: 'pulsing',
+    themes: ['graphic', 'paper'],
+    pairs: ['precast', 'ridgeline-press', 'contours', 'orbit-board'],
+    clashes: ['datamosh', 'kaleido-candy'],
+  },
+
   /* ───────── water, gardens and graphic posters (second wave) ───────── */
   laminar: {
     name: 'Laminar',
