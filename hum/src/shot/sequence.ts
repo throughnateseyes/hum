@@ -16,6 +16,7 @@
  */
 import type { TrackAnalysis } from '../core/types';
 import type { Colour } from './kit';
+import { RECIPES, type MomentId } from '../moments';
 import { isMotion, type MotionId } from './motion';
 import { styleForPart, type StyleId } from './styles';
 import { treatmentForShot, type TreatmentId } from './treatments';
@@ -62,6 +63,8 @@ export interface Shot {
   extra?: number[];
   /** what a video clip does in time (motion.ts); missing: plays */
   motion?: MotionId;
+  /** what the shot is meant to feel like (src/moments): its speed and camera; missing: as ever */
+  moment?: MomentId;
 }
 
 export interface Sequence {
@@ -293,9 +296,20 @@ function speedOf(shot: Shot, seq: Sequence, freeze: number) {
   return (t: number): number => {
     if (shot.kind !== 'footage') return 0.5;
     const tau = t - shot.start - freeze;
+    if (shot.arrive === 'hit' && tau < 0) return 0;
+    const m = shot.moment ? RECIPES[shot.moment] : null;
+    if (m) {
+      const run = Math.max(1e-3, shot.end - shot.start - freeze);
+      let s = m.speed({ u: clamp01(tau / run), tau: Math.max(0, tau), left: shot.end - t, beat });
+      // a held breath stays held: the kick and the burst are the moment's own, and may be nothing
+      s += m.kick * Math.exp(-since(kicks, t) / (beat * 0.22));
+      if (shot.arrive === 'hit') s += m.burst * Math.exp(-tau / (beat * 3));
+      if (shot.leave === 'ramp') s += (m.peak - s) * easeInCubic(clamp01((t - (shot.end - shot.rampBeats * beat)) / (shot.rampBeats * beat)));
+      if (shot.leave === 'settle') s *= 1 - 0.75 * smooth(shot.end - beat * 3, shot.end, t);
+      return s;
+    }
     let v = HOLD;
     if (shot.arrive === 'hit') {
-      if (tau < 0) return 0;
       // the burst off the hit, and a small push on every kick
       v = 1 + 2.4 * Math.exp(-tau / (beat * 3)) + 0.45 * Math.exp(-since(kicks, t) / (beat * 0.22));
     }

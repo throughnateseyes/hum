@@ -27,8 +27,10 @@ import { num, str } from '../core/uniforms';
 import { PRESETS } from '../presets';
 import { useStudio } from '../state/store';
 import type { Colour } from './kit';
+import { isMoment } from '../moments';
 import { isMotion } from './motion';
 import { footageNeed, hatsIn, layoutOf, type Sequence, type Shot } from './sequence';
+import { shotOfPart } from './partShots';
 import { styleForShot, type StyleId } from './styles';
 import { treatmentForShot, type TreatmentId } from './treatments';
 import { feltBeat } from './time';
@@ -49,6 +51,10 @@ export interface RunPart {
    * automatically). The first is the picture; Split's second panel and Collage's fragments take the rest.
    */
   media?: number[];
+  /** the second of its first clip the part starts on (missing: carries on from where that clip stopped) */
+  from?: number;
+  /** what the part is meant to feel like (src/moments) */
+  moment?: string;
 }
 
 export interface RunInput {
@@ -104,9 +110,15 @@ export function footageRun(o: RunInput): Run {
   // where each clip has got to (s): a clip used again carries on from here
   const cursor = o.clips.map(() => 0.05);
   const usableOf = (c: number) => Math.max(0.5, (o.clips[c] ?? 1e6) - 0.25);
-  /** take `need` seconds of clip c from where it stopped (round to its start when it runs out) */
-  const take = (c: number, need: number): { from: number; k: number } => {
+  /** take `need` seconds of clip c from where it stopped (round to its start when it runs out), or from second `at` */
+  const take = (c: number, need: number, at?: number): { from: number; k: number } => {
     const usable = usableOf(c);
+    if (at !== undefined && need < usable - 0.05) {
+      // a chosen start is kept as near as the clip's length allows; a clip used again carries on from its end
+      const from = Math.max(0.05, Math.min(at, usable - need));
+      cursor[c] = from + need;
+      return { from, k: 1 };
+    }
     if (need >= usable - 0.05) {
       cursor[c] = 0.05;
       return { from: 0.05, k: Math.min(1, (usable - 0.05) / need) };
@@ -127,11 +139,12 @@ export function footageRun(o: RunInput): Run {
     // the shot's place in its section (the first shot of a section is 0)
     let k = 0;
     while (i - k > 0 && o.parents[i - k - 1] === o.parents[i]) k++;
-    const style = styleForShot(sec, k, o2.style, o2.seed, prevStyle);
+    const moment = isMoment(o2.moment) ? o2.moment : undefined;
+    const style = styleForShot(sec, k, o2.style, o2.seed, prevStyle, moment);
     prevStyle = style;
     // the part's own pictures, when it has a choice of them (places that are still in the deck)
     const mine = o2.media?.filter((m) => m >= 0 && m < count) ?? [];
-    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count, mine.length > 1);
+    const treatment = treatmentForShot(sec, k, o2.treatment, o2.seed, prevTreat, mine.length || count, mine.length > 1, moment);
     prevTreat = treatment;
     const loud = sec.energy > 0.55 && style !== 'caption';
     const hitIn = lands(i);
@@ -180,12 +193,14 @@ export function footageRun(o: RunInput): Run {
         word: o.words.length ? o.words[ordinal % o.words.length] : '',
         treatment,
         motion,
+        ...(moment ? { moment } : {}),
       };
       // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
       const c = mine.length ? mine[j % mine.length] : ordinal % count;
       shot.footageIndex = c;
       const need = footageNeed(seq, shot);
-      const own = take(c, need);
+      // the part's chosen second is for its first shot; the ones after carry on
+      const own = take(c, need, j === 0 && mine.length ? o2.from : undefined);
       shot.clipFrom = own.from;
       shot.clipRate = own.k;
       if (style === 'split') {
@@ -255,7 +270,7 @@ export function runPartOf(p: ParamValues): RunPart {
   };
 }
 
-/** a part's own choices (store.partShot, or soloShot for a look playing on its own) laid over its look's */
+/** a part's own choices (partShots.ts, or soloShot for a look playing on its own) laid over its look's */
 export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds: string[]): RunPart {
   if (!own) return look;
   const media = (own.media ?? []).map((id) => deckIds.indexOf(id)).filter((x) => x >= 0);
@@ -266,6 +281,9 @@ export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds
     ...(own.treatment ? { treatment: own.treatment } : {}),
     ...(own.motion ? { motion: own.motion } : {}),
     ...(media.length ? { media } : {}),
+    // a start belongs to the first picture of the list it was chosen with: gone if that picture is
+    ...(typeof own.from === 'number' && media.length && deckIds[media[0]] === own.media?.[0] ? { from: own.from } : {}),
+    ...(isMoment(own.moment) ? { moment: own.moment } : {}),
   };
 }
 
@@ -291,7 +309,7 @@ export function planParts(a: TrackAnalysis, deckIds: string[]): { parts: (RunPar
     }
     const look = runPartOf({ ...(p.sceneParams ?? {}), ...(s.tweaks[p.id]?.sceneParams ?? {}) });
     sigs.push(sigOf(look));
-    return withOwn(look, s.partShot?.[i], deckIds);
+    return withOwn(look, shotOfPart(i, s), deckIds);
   });
   return { parts, sigs };
 }

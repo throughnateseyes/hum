@@ -25,7 +25,7 @@
  * Cells, Readout, Collage, Trace; src/shot/treatments). Motion says what a video clip does in time
  * (Play, Stutter, Echo, Reverse, Slices; src/shot/motion.ts); a photo ignores it.
  *
- * Per part (store.partShot, one entry per part of the flattened plan) a part can have its own style,
+ * Per part (store.partShot over the plan's own shots, one entry per part of the flattened plan) a part can have its own style,
  * arrangement, treatment, motion, pictures (ids of clips and photos: the first is the picture; Split's
  * second panel, Collage's fragments and Trace's tiles take the rest) and framing (focusX, focusY,
  * zoom), each laid over the look's own setting. With no video plan, store.soloShot does the same for
@@ -43,6 +43,7 @@ import { bool, num } from '../../core/uniforms';
 import { Footage } from '../../shot/footage';
 import { MOTION_HINT, MOTION_IDS, MOTION_NAMES } from '../../shot/motion';
 import { paletteFromPixels } from '../../shot/palette';
+import { shotOfPart } from '../../shot/partShots';
 import { MAX_OPEN, MAX_STILLS, addedAt, footageRun, planParts, runPartOf, sigOf, withOwn, type Run, type RunPart } from '../../shot/run';
 import { footageNeed, partSequence, type PartOptions, type Sequence } from '../../shot/sequence';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
@@ -108,7 +109,7 @@ const params: ParamDef[] = [
 ];
 
 /** the run's key for a part: its settings and its own pictures */
-const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}`;
+const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}`;
 
 /**
  * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video
@@ -215,10 +216,8 @@ function clipStill(c: ClipAsset): ClipStill {
 }
 
 
-/** a part's own choices, when the Part panel has made any (the store keeps one per part of the plan) */
-function partShotAt(i: number): PartShot | null {
-  return useStudio.getState().partShot?.[i] ?? null;
-}
+/** a part's own choices: the director's, with the person's over them (src/shot/partShots.ts) */
+const partShotAt = (i: number): PartShot | null => shotOfPart(i);
 
 /* ───────── players, shared by the pictures on one renderer ───────── */
 

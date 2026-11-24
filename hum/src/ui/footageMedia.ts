@@ -16,6 +16,7 @@ import { getScene } from '../scenes';
 import { planPlaying, setPartsLook, setPartsShot, setSoloShot } from '../state/partEdit';
 import { findLook, listNames, partNames, sectionIndexAt, validPlan } from '../state/plan';
 import { useStudio, type StudioState } from '../state/store';
+import { plannedShot, shotOfPart } from '../shot/partShots';
 import { mediaForPart } from '../shot/run';
 
 /** one clip or photo, as the picker and the framing preview need it */
@@ -101,7 +102,7 @@ export function shownMedia(s: StudioState, i: number, media: MediaItem[]): Media
   if (!a || !validPlan(s.plan, a)) return null;
   const kind = pictureKind(findLook(s.plan.looks[i])?.sceneId);
   if (!kind) return null;
-  const own = s.partShot?.length === a.sections.length ? s.partShot[i]?.media : undefined;
+  const own = shotOfPart(i, s)?.media;
   const fits = media.filter((m) => canShow(kind, m));
   const mine = own?.map((id) => fits.find((m) => m.id === id)).find((m) => !!m);
   if (mine) return mine;
@@ -221,6 +222,8 @@ export interface ShotTarget {
   /** remount key: which parts, or 'solo' */
   key: string;
   shots: (PartShot | null)[];
+  /** what the director chose for each (what a shot with no choice of the person's plays) */
+  planned: (PartShot | null)[];
   set: (patch: Partial<PartShot> | null) => void;
   /** the look's own value of one of its scene's settings (what a shot with no choice follows) */
   lookValue: (k: string) => ParamValue | undefined;
@@ -235,11 +238,16 @@ export function usePartsTarget(parts: number[], look: Preset): ShotTarget {
   const n = useStudio((s) => s.analysis?.sections.length ?? -1);
   const partShot = useStudio((s) => s.partShot);
   const tweak = useStudio((s) => s.tweaks[look.id]);
+  const plan = useStudio((s) => s.plan);
+  const planned = parts.map((j) => plannedShot(plan, j));
+  // a setting the director chose for this shot stands in for the look's
+  const own = (k: string) => (planned.length === 1 ? (planned[0] as Record<string, unknown> | null)?.[k] : undefined) as ParamValue | undefined;
   return {
     key: parts.join(','),
     shots: parts.map((j) => (partShot?.length === n ? (partShot[j] ?? null) : null)),
+    planned,
     set: (patch) => setPartsShot(parts, patch),
-    lookValue: (k) => lookParam(look, tweak, k),
+    lookValue: (k) => own(k) ?? lookParam(look, tweak, k),
     sceneId: look.sceneId,
     scope: parts.length > 1 ? 'these shots' : 'this shot',
     solo: false,
@@ -254,6 +262,7 @@ export function useSoloTarget(): ShotTarget {
   return {
     key: 'solo',
     shots: [soloShot],
+    planned: [null],
     set: (patch) => setSoloShot(patch),
     lookValue: (k) => sceneParams[k] ?? getScene(sceneId)?.params.find((d) => d.id === k)?.default,
     sceneId,

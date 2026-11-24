@@ -29,7 +29,10 @@ import { boundsOf, cutAnalysis, cutOfSections, originalOf, parentsOf, planKey, s
 import { carryEdits, putOn, skipPlayingPart } from './flatPlan';
 import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
-import { clipCount, mayPlan, playsClips } from '../director/footage';
+import { clipCount, mayPlan, mediaReady, photoCount, playsClips } from '../director/footage';
+import { withMoments } from '../director/footageShots';
+import { momentsFor, type MomentId } from '../moments';
+import { withoutStart, type ShotCue } from '../shot/partShots';
 import type { LyricMedium } from './lyricPlan';
 
 export interface VideoPlan {
@@ -77,6 +80,16 @@ export interface VideoPlan {
    * planner made it (a look per section with its rotation), kept so a new Pace can cut it again.
    */
   flat?: FlatInfo;
+  /**
+   * What the director chose for each stretch of the song where footage plays (src/shot/partShots.ts): on
+   * the planner's plan, by time; dealt to the parts as `shots` when the plan is flattened (flatPlan.ts).
+   */
+  cues?: ShotCue[];
+  shots?: (PartShot | null)[];
+  /** the moment each section is meant to feel like (src/moments; null: not said) */
+  moments?: (MomentId | null)[];
+  /** the idea of the whole video, one sentence (Claude, when it has seen the person's media) */
+  idea?: string;
   /** parts the person liked (K): a later skip or a remake that keeps changes leaves them alone */
   liked?: boolean[];
 }
@@ -936,7 +949,7 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
   // the person's clips (director/footage.ts): with some, footage carries most parts (footageCut, below)
   // and the roles here become the cutaways; without, footage looks don't exist for the plan. Either way
   // no role is ever a footage look.
-  const footage = clipCount() > 0 ? planLooks().filter(playsClips) : [];
+  const footage = mediaReady() ? planLooks().filter(playsClips) : [];
   const ok = (p: Preset) => !playsClips(p) && (!allow || allow(p));
   // rotations may also reach the footage, whatever the mood (plannerWorld)
   const world = allow ? (p: Preset) => allow(p) || footage.includes(p) : undefined;
@@ -1014,11 +1027,12 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     usedRoles.has(bridge.id) && bridge.id !== main.id ? `the bridge on “${familyOf(bridge).name}”` : '',
   ].filter(Boolean);
   const leanText = lean.length ? `${lean.join(', ').replace(/^./, (c) => c.toUpperCase())}, each picked for the part it plays and rotating through a few looks that sit with it.` : '';
-  const n = clipCount();
+  const n = clipCount() || photoCount();
+  const what = clipCount() ? 'clip' : 'photo';
   const clipText = cut.footageParts
-    ? `Your ${n === 1 ? 'clip carries' : `${n} clips carry`} ${cut.footageParts} of ${looks.length} parts${cut.cutaways.length ? `, and ${listNames(cut.cutaways.map((i) => names[i]))} cut${cut.cutaways.length === 1 ? 's' : ''} away to a graphic look` : ''}.`
+    ? `Your ${n === 1 ? `${what} carries` : `${n} ${what}s carry`} ${cut.footageParts} of ${looks.length} parts${cut.cutaways.length ? `, and ${listNames(cut.cutaways.map((i) => names[i]))} cut${cut.cutaways.length === 1 ? 's' : ''} away to a graphic look` : ''}.`
     : '';
-  return ensureDropCuts({
+  const planned = ensureDropCuts({
     title: mood && allow ? `${mood.name} song map` : 'Song map',
     ...(mood && allow ? { mood: mood.id } : {}),
     note: `${clipText ? `${clipText} ` : ''}${leanText} Parts that sound alike share their looks.${
@@ -1033,6 +1047,8 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     interludes,
     rotate,
   }, a);
+  // footage cuts and moves by what each section feels like (src/moments); no footage, nothing changes
+  return footage.length ? withMoments(planned, a, momentsFor(a), (id) => findLook(id)) : planned;
 }
 
 /**
@@ -1480,6 +1496,9 @@ export function recutParts(s: Pick<StudioState, 'analysis' | 'plan' | 'partPops'
       ...(p.shotBars ? { shotBars: pick(p.shotBars, null) } : {}),
       ...(p.transitions ? { transitions: pick(p.transitions, null) } : {}),
       ...(p.liked ? { liked: pick(p.liked, false) } : {}),
+      // a part that starts inside an old one carries its picture on rather than starting it again
+      ...(p.shots ? { shots: from.map((j, k) => (p.shots![j] ? (sameStart[k] ? p.shots![j] : withoutStart(p.shots![j]!)) : null)) } : {}),
+      ...(p.moments ? { moments: pick(p.moments, null) } : {}),
       ...(lp ? { lyricPlan: { ...lp, parts: now.map((_, k) => lp.parts[firstSung(k)] ?? null) } } : {}),
       ...(base
         ? {

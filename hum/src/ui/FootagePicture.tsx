@@ -162,6 +162,8 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const [frameOpen, setFrameOpen] = useState(openRows.frame);
   const footage = kind === 'footage';
   const shots = t.shots;
+  const planned = t.planned.some(Boolean);
+  const asLook = planned ? 'As planned' : 'As the look';
 
   // media: the shots' common choice (null: automatic)
   const chosen = common(shots.map((r) => r?.media ?? null));
@@ -175,7 +177,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const ownTreat = common(shots.map((r) => r?.treatment ?? null));
   const treat = common(shots.map((r) => r?.treatment ?? lookTreat));
   const treatName = treat === MIXED ? 'Mixed' : (treats.find((o) => o.v === treat)?.label ?? treat);
-  const treatNote = hover !== null ? (treats.find((o) => o.v === hover)?.tip ?? '') : ownTreat === null ? 'Follows the look.' : ownTreat === MIXED ? 'Different in each part.' : `Set for ${t.scope}.`;
+  const treatNote = hover !== null ? (treats.find((o) => o.v === hover)?.tip ?? '') : ownTreat === null ? (planned ? 'As planned.' : 'Follows the look.') : ownTreat === MIXED ? 'Different in each part.' : `Set for ${t.scope}.`;
 
   // motion: the scene's own setting, when it has one (clips only)
   const motions = selectOptions(t.sceneId, 'motion', MOTION_TIPS);
@@ -191,13 +193,15 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const lookFx = Number(t.lookValue('focusX') ?? 0.5);
   const lookFy = Number(t.lookValue('focusY') ?? 0.55);
   const first = shots[0];
-  const framing = { focusX: first?.focusX ?? lookFx, focusY: first?.focusY ?? lookFy, zoom: first?.zoom ?? 1 };
+  const framing = { focusX: first?.focusX ?? lookFx, focusY: first?.focusY ?? lookFy, zoom: first?.zoom ?? t.planned[0]?.zoom ?? 1 };
   const framed = shots.some((r) => r?.focusX !== undefined || r?.focusY !== undefined || r?.zoom !== undefined);
   const frameSame = common(shots.map((r) => [r?.focusX, r?.focusY, r?.zoom])) !== MIXED;
-  const preview = media.find((m) => m.id === live[0]) ?? media[0];
-  const frameSub = !frameSame ? 'Different in each part' : framed ? `${framing.zoom > 1.001 ? `${framing.zoom.toFixed(1)}× · ` : ''}${placeName(framing.focusX, framing.focusY)}` : 'As the look';
+  // with nothing picked by hand, the director's picture (Claude's, or the offline plan's), when it chose one
+  const directed = t.planned.length === 1 ? media.find((m) => m.id === t.planned[0]?.media?.[0]) : undefined;
+  const preview = media.find((m) => m.id === live[0]) ?? directed ?? media[0];
+  const frameSub = !frameSame ? 'Different in each part' : framed ? `${framing.zoom > 1.001 ? `${framing.zoom.toFixed(1)}× · ` : ''}${placeName(framing.focusX, framing.focusY)}` : asLook;
 
-  const sub = chosen === MIXED ? 'Different in each part' : !chosenIds.length ? 'Automatic' : gone ? 'Not found' : live.length > 1 ? `${live.length} ${footage ? 'pictures' : 'photos'}` : 'Your pick';
+  const sub = chosen === MIXED ? 'Different in each part' : !chosenIds.length ? (directed ? `Automatic: ${directed.name}` : 'Automatic') : gone ? 'Not found' : live.length > 1 ? `${live.length} ${footage ? 'pictures' : 'photos'}` : 'Your pick';
 
   return (
     <section className="pp-sec pp-picture" id="pp-picture" aria-labelledby={`${headingId}-pic`}>
@@ -217,7 +221,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
         <>
           <div className="pp-sub-h pp-gap">
             <span>Style</span>
-            <span>{shots.some((r) => r?.style || r?.seed) ? `Set for ${t.scope}` : 'As the look'}</span>
+            <span>{shots.some((r) => r?.style || r?.seed) ? `Set for ${t.scope}` : asLook}</span>
           </div>
           <ShotStyle t={t} busy={busy} />
 
@@ -225,7 +229,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
             <>
               <div className="pp-sub-h pp-gap">
                 <span>Motion</span>
-                <span>{motion === MIXED ? 'Mixed' : shots.some((r) => r?.motion) ? `Set for ${t.scope}` : 'As the look'}</span>
+                <span>{motion === MIXED ? 'Mixed' : shots.some((r) => r?.motion) ? `Set for ${t.scope}` : asLook}</span>
               </div>
               <Seg value={motion} options={motions} cols={Math.min(5, motions.length)} disabled={busy} label={`What the clip does in ${t.scope}`} onChange={(v) => t.set({ motion: v })} />
             </>
@@ -255,7 +259,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
                     <>
                       {' '}
                       <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ treatment: undefined })}>
-                        Follow the look
+                        {planned ? 'As planned' : 'Follow the look'}
                       </button>
                     </>
                   )}
@@ -301,7 +305,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
         </>
       )}
 
-      <p className="pp-note">{t.solo ? 'For this look while it plays on its own.' : `For ${t.scope} only. Shots without their own choice follow the look.`}</p>
+      <p className="pp-note">{t.solo ? 'For this look while it plays on its own.' : `For ${t.scope} only. Shots without their own choice follow the ${planned ? 'plan' : 'look'}.`}</p>
     </section>
   );
 }

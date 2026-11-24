@@ -19,6 +19,7 @@
  *
  * All of it is a pure function of song time.
  */
+import type { Serves } from '../moments';
 import type { Sequence, Shot, ShotCurve } from './sequence';
 import { unit } from './treatments/common';
 
@@ -31,6 +32,15 @@ export const MOTION_NAMES: Record<MotionId, string> = {
   echo: 'Echo',
   reverse: 'Reverse',
   slices: 'Slices',
+};
+
+/** the moments each motion serves (src/moments): 3 made for it, 2 good, 1 now and then */
+export const MOTION_SERVES: Record<MotionId, Serves> = {
+  play: { ache: 3, hush: 3, held: 3, lift: 3, rush: 3, release: 3, float: 3, glow: 3, drift: 3, reveal: 3, aftermath: 3, fury: 2 },
+  stutter: { fury: 3, rush: 2, release: 1 },
+  echo: { float: 2, ache: 2, aftermath: 2, glow: 1 },
+  reverse: { held: 1, aftermath: 1, ache: 1 },
+  slices: { fury: 2, lift: 1, rush: 1 },
 };
 
 export const MOTION_HINT = 'What a video clip does in time: plays, repeats the last beat on hits (Stutter), trails ghosts of its last frames (Echo), runs backwards (Reverse), or shows strips of itself a moment apart (Slices). Photos ignore it.';

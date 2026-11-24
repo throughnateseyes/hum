@@ -18,6 +18,7 @@ import type { Footage, FootageState } from './footage';
 import { FootagePass } from './footage';
 import { frameGrid } from './grid';
 import { CAM_Z, FOV, frameSize, toneOf, type Bed, type Labels, type StyleContext, type StyleShot } from './kit';
+import { cameraOf } from '../moments';
 import { LookPlayer } from './lookPlayer';
 import { schemeFor, type Scheme, type ShotPalette } from './palette';
 import { usesRing, withMotion, type MotionCurve, type MotionId } from './motion';
@@ -385,7 +386,7 @@ export class ShotStage {
     return this.ring.compose(rig.motion!, this.ringFrame(rig, t, zoom), clip.texture, key) ?? clip.texture;
   }
 
-  private footageState(rig: Rig, t: number): FootageState {
+  private footageState(rig: Rig, t: number, focusX: number, zoom: number): FootageState {
     const { shot, curve } = rig;
     const tau = t - shot.start;
     const beat = this.seq!.beat;
@@ -401,17 +402,29 @@ export class ShotStage {
       // a full white-out only where the part lands; the cuts on the beat inside a loud part get a glint
       flash: hit ? (tau < 1 / 30 ? 1 : 0.5 * Math.exp(-(tau - 1 / 30) / 0.05)) * (Math.abs(shot.start - this.seq!.hit) < 1e-3 ? 1 : 0.3) : 0,
       flip: curve.flip,
-      ...this.stillMotion(rig, t),
+      ...this.pictureMotion(rig, t, focusX, zoom),
     };
   }
 
   /**
-   * A still never stands frozen: it pushes in slowly and drifts, faster where the shot speeds up (the
+   * The picture's own movement under the graphics: the shot's moment's camera (src/moments), or, for a
+   * photo with none, its own. A still never stands frozen: it pushes in slowly and drifts, faster where the shot speeds up (the
    * curve's clip seconds, which run with the speed), in a direction its arrangement picks.
    */
-  private stillMotion(rig: Rig, t: number): { grow: number; drift: [number, number] } {
-    if (!rig.clip || rig.clip.footage) return { grow: 1, drift: [0, 0] };
+  private pictureMotion(rig: Rig, t: number, focusX: number, zoom: number): { grow: number; drift: [number, number] } {
     const { shot, curve } = rig;
+    if (shot.moment) {
+      // a shot with a moment has that moment's camera, whether it's a clip or a photo (a photo a little more of it)
+      const beat = this.seq!.beat;
+      const tau = Math.max(0, t - shot.start);
+      const cam = cameraOf(shot.moment, { u: clamp01(tau / Math.max(1e-3, shot.end - shot.start)), tau, left: shot.end - t, beat });
+      const still = !!rig.clip && !rig.clip.footage;
+      const grow = Math.max(1, still ? 1 + (cam.zoom - 1) * 1.25 + Math.min(0.06, tau * 0.006) : cam.zoom);
+      // the slide stays inside the room the push-in leaves on that side of the focus, so the picture never runs off its edge
+      const room = (1 - 1 / (grow * zoom)) * (cam.x > 0 ? 1 - focusX : focusX);
+      return { grow, drift: [cam.x * room * 0.9, 0] };
+    }
+    if (!rig.clip || rig.clip.footage) return { grow: 1, drift: [0, 0] };
     const run = Math.max(0, curve.footage(t) - curve.footage(shot.start)) + Math.max(0, t - shot.start) * 0.25;
     const grow = 1 + Math.min(0.22, run * 0.016);
     const a = unit(shot.layout, 17) * Math.PI * 2;
@@ -491,7 +504,7 @@ export class ShotStage {
     r.clear(true, true, false);
     if (shot.kind === 'footage' && rig.treatment !== 'none' && this.treat) {
       // a treated shot: the bed goes to the treatment, which breaks it down into the target
-      const state = this.footageState(rig, t);
+      const state = this.footageState(rig, t, focus.x, zoom);
       const flash = state.flash;
       state.flash = 0;
       r.setRenderTarget(this.treat.bedTarget());
@@ -503,7 +516,7 @@ export class ShotStage {
       this.treat.render(rig.treatment, this.treatFrame(rig, t, focus, flash), target, { still: !rig.clip?.footage, pictures });
       r.setRenderTarget(target);
     } else if (shot.kind === 'footage') {
-      this.pass.render(r, this.width, this.height, focus, this.footageState(rig, t), bed, mask, { zoom, alpha: false, raw: false });
+      this.pass.render(r, this.width, this.height, focus, this.footageState(rig, t, focus.x, zoom), bed, mask, { zoom, alpha: false, raw: false });
     } else if (shot.kind === 'look' && rig.look) {
       this.copy(rig.look.texture, target, tau < 1 / 30 ? 0.6 : 0);
     }

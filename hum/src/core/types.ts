@@ -402,6 +402,10 @@ export interface PartShot {
   focusY?: number;
   /** how far it is pushed in: 1 fits the frame, up to 3 */
   zoom?: number;
+  /** the second of the first clip the part starts on (missing: carries on from where that clip stopped) */
+  from?: number;
+  /** what the part is meant to feel like (a moment id, src/moments): how the picture runs and the camera moves */
+  moment?: string;
 }
 
 /* ───────────────────────── Scenes ───────────────────────── */

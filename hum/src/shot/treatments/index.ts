@@ -17,6 +17,7 @@
  * re-worked from a fixed point whenever the time jumps, so it too is a function of song time).
  */
 import type { TrackSection } from '../../core/types';
+import { rank, type MomentId, type Serves } from '../../moments';
 
 export const TREATMENT_IDS = ['none', 'mosh', 'sort', 'cells', 'readout', 'collage', 'trace'] as const;
 export type TreatmentId = (typeof TREATMENT_IDS)[number];
@@ -32,6 +33,17 @@ export const TREATMENT_NAMES: Record<TreatmentId, string> = {
 };
 
 export const isTreatment = (s: string | undefined): s is TreatmentId => !!s && (TREATMENT_IDS as readonly string[]).includes(s);
+
+/** the moments each treatment serves (src/moments): 3 made for it, 2 good, 1 now and then */
+export const TREATMENT_SERVES: Record<TreatmentId, Serves> = {
+  none: { ache: 3, hush: 3, held: 3, lift: 3, rush: 3, release: 3, float: 3, glow: 3, drift: 3, reveal: 3, aftermath: 3, fury: 1 },
+  mosh: { fury: 3, release: 2, float: 1, aftermath: 1 },
+  sort: { rush: 2, fury: 2, lift: 1 },
+  cells: { lift: 1, fury: 1 },
+  readout: { held: 1, hush: 1 },
+  collage: { release: 1, rush: 1 },
+  trace: { lift: 1, drift: 1 },
+};
 
 /**
  * The treatments that suit a part, best first (Auto). Trace leads when the part has several pictures
@@ -65,11 +77,13 @@ function suits(sec: TrackSection, pictures: number, chosen: boolean): TreatmentI
  * picture; with only one they are still drawn, from crops of the one). 'auto' picks from what suits
  * the section, from its group and the shot's place in it, never the treatment of the footage shot
  * before unless it is None. `chosen`: the part's pictures were picked by hand (not dealt).
+ * `moment`: what the part is meant to feel like; its own treatments are then drawn from.
  */
-export function treatmentForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: TreatmentId | '', pictures: number, chosen = false): TreatmentId {
+export function treatmentForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: TreatmentId | '', pictures: number, chosen = false, moment?: MomentId): TreatmentId {
   if (isTreatment(choice)) return choice;
   if (choice !== 'auto') return 'none';
-  const list = suits(sec, pictures, chosen).filter((s) => s === 'none' || s !== prev);
+  const enough = (t: TreatmentId) => (t !== 'collage' || pictures >= 3) && (t !== 'trace' || pictures >= 2);
+  const list = (moment ? rank(TREATMENT_SERVES, moment, TREATMENT_IDS).filter(enough).slice(0, 3) : suits(sec, pictures, chosen)).filter((s) => s === 'none' || s !== prev);
   if (!list.length) return 'none';
   let h = (Math.floor(seed) * 2654435761 + sec.group * 40503 + k * 97) >>> 0;
   h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0;
