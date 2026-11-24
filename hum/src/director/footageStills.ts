@@ -6,6 +6,7 @@
  * page breathes between stills, and everything is let go of at the end. Lyrics and the video's finish
  * are not drawn. A video that can't have a second context simply isn't checked.
  */
+import { curvesFor } from './feeling';
 import * as THREE from 'three';
 import type { ClipAsset, PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import { dryRun } from '../render/warmup';
@@ -121,7 +122,7 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
       return withOwn(runPartOf({ ...(look.sceneParams ?? {}), ...(s.tweaks[look.id]?.sceneParams ?? {}) }), cut.shotAt(i), deckIds);
     });
     const orig = originalOf(cut.analysis);
-    const run = footageRun({ analysis: cut.analysis, sections: orig.sections, parents: parentsOf(cut.analysis), parts: all, clips: deck.map((c) => Math.round(c.duration * 100) / 100), words: titleWords() });
+    const run = footageRun({ analysis: cut.analysis, sections: orig.sections, parents: parentsOf(cut.analysis), parts: all, clips: deck.map((c) => Math.round(c.duration * 100) / 100), words: titleWords(), feel: curvesFor(cut.plan, cut.analysis, useStudio.getState().lyrics) });
     const title = songTitle().toUpperCase();
 
     // two players at the most: the one used longest ago is closed first

@@ -92,3 +92,13 @@ If you see "the claude CLI isn't signed in", run `claude` once in Terminal and s
 - **Access code.** Set `HUM_ACCESS_CODE` for private demos. The UI should ask for the code and pass it as `direct(req, { accessCode })`. Don't bake the code into the bundle.
 - **Input caps.** The server cuts prompts to 600 characters, the catalog to 20 kB and request bodies to 64 kB. Output is capped at 8k tokens for presets and 16k for shaders.
 - **Spend limit.** Set a monthly spend limit on the API key in the Anthropic Console as a backstop.
+
+## The feeling step
+
+A video made from the person's footage first asks one more small question (`server/steps/feel.ts`, main model, low effort), at the same time as the footage is watched: the song's distinct lyric lines go up, and each comes back with an emotion, a tone from dark to bright, a weight, the place of the word that carries it, and whether the song turns there. The answer is kept in the browser by the words alone (`src/director/feeling.ts`), so a remake or a re-timed lyric asks nothing.
+
+`src/feeling` puts it against the clock with the sound (key, brightness, harmonic tension, never tempo) and finds the wind-up to every landing. From there it decides the moments when Claude doesn't, is told to the story and shots steps in a few words per section and part, keeps a soft line that matters on one picture, cuts closer into a big landing, and bends each shot's speed and camera (`bend` and `lean`). A plan keeps the feeling it was made with; plans made before it have none and play as they did.
+
+## The mix
+
+`Your footage` (`src/director/mix.ts`) is told to the story and plan steps, and then enforced by code: `dealMix` takes the sections a planner gave to footage and moves as few as it must to keep footage inside its share of the time.

@@ -37,6 +37,7 @@
  * player. A render has its own renderer, so its own players. Live, a clip follows its speed curve by
  * playback rate; in a frame-by-frame render, prepare() puts it on the exact frame first.
  */
+import { curvesFor } from '../../director/feeling';
 import * as THREE from 'three';
 import type { ClipAsset, FrameContext, ParamDef, ParamValues, PartShot, PhotoAsset, PrepareContext, SceneDef, SceneInit, SceneInstance, TrackAnalysis } from '../../core/types';
 import { bool, num, str } from '../../core/uniforms';
@@ -357,11 +358,13 @@ function flatRun(a: TrackAnalysis, deck: StageClip[], deckIds: string[], words: 
   const fp = planParts(a, deckIds);
   if (!fp) return null;
   const durations = deck.map((c) => Math.round(c.duration * 100) / 100);
-  const key = `${fp.parts.map((p) => (p ? partKey(p) : '-')).join(',')}|${durations.join(',')}|${deckIds.join(',')}|${words.join(' ')}`;
+  const s = useStudio.getState();
+  const feel = curvesFor(s.plan, a, s.lyrics);
+  const key = `${feel?.id ?? 0}|${fp.parts.map((p) => (p ? partKey(p) : '-')).join(',')}|${durations.join(',')}|${deckIds.join(',')}|${words.join(' ')}`;
   const had = runs.get(a);
   if (had?.key === key) return had.flat;
   const orig = originalOf(a);
-  const run = footageRun({ analysis: a, sections: orig.sections, parents: parentsOf(a), parts: fp.parts, clips: durations, words });
+  const run = footageRun({ analysis: a, sections: orig.sections, parents: parentsOf(a), parts: fp.parts, clips: durations, words, feel });
   const flat = { run, key, parts: fp.parts, sigs: fp.sigs };
   runs.set(a, { key, flat });
   return flat;

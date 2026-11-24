@@ -1,3 +1,4 @@
+import { isMix, type Mix } from '../director/mix';
 import { create } from 'zustand';
 import type {
   ClipAsset,
@@ -181,6 +182,8 @@ export interface StudioState extends LookState {
   songColors: SongColors;
   /** shot pacing for video plans */
   pace: Pace;
+  /** how much of a video is the person's own footage (director/mix.ts) */
+  mix: Mix;
   /** how looks change: picked from the song (auto), one transition always, or 'cut' */
   transition: 'auto' | TransitionId;
   /** transition length in beats (0 = picked from the song) */
@@ -283,6 +286,7 @@ function loadPersisted(): Partial<StudioState> {
       windowKind: j.windowKind === 'instruments' || j.windowKind === 'looks' || j.windowKind === 'both' ? (j.windowKind as WindowKind) : undefined,
       songColors: j.songColors === 'off' || j.songColors === 'blend' || j.songColors === 'match' ? (j.songColors as SongColors) : undefined,
       pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
+      mix: isMix(j.mix) ? j.mix : undefined,
       transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
       transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
       // a finish only sticks once the person has picked one (an old saved Auto doesn't count)
@@ -332,6 +336,7 @@ function persist(s: StudioState) {
         windowKind: s.windowKind,
         songColors: s.songColors,
         pace: s.pace,
+        mix: s.mix,
         transition: s.transition,
         transitionBeats: s.transitionBeats,
         finish: s.finish,
@@ -485,6 +490,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   windowKind: persisted.windowKind ?? 'both',
   songColors: persisted.songColors ?? 'blend',
   pace: persisted.pace ?? 'song',
+  mix: persisted.mix ?? 'most',
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
   // Hand-drawn is the house look: a plan's own finish only shows once the person picks Auto
@@ -642,7 +648,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch) persist(get());
   },
   setPartPops: (i, level) => {
     const a = get().analysis;

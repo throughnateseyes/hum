@@ -15,6 +15,7 @@ import { harmonize } from '../core/songPalette';
 import { lookStyle } from '../core/styles';
 import type { AudioFrame, Lyrics, PartShot, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
+import type { SongFeeling } from '../feeling';
 import { familyIdOf, familyOf, fitScore, neighbourScore, rememberTake, takeFit, takeName } from '../presets/fit';
 import { live } from './live';
 import { useStudio, type Pace, type StudioState } from './store';
@@ -30,7 +31,9 @@ import { carryEdits, putOn, skipPlayingPart } from './flatPlan';
 import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, mediaReady, photoCount, playsClips } from '../director/footage';
+import { curvesFor, curvesNow, feelingNow } from '../director/feeling';
 import { framesNoted } from '../director/footageNotice';
+import { dealMix, type Mix } from '../director/mix';
 import { withMoments } from '../director/footageShots';
 import { momentsFor, type MomentId } from '../moments';
 import { withoutStart, type ShotCue } from '../shot/partShots';
@@ -89,6 +92,10 @@ export interface VideoPlan {
   shots?: (PartShot | null)[];
   /** the colours footage's Inside shots are painted in, one set for the whole video (src/inside/palettes.ts); missing on plans made before it */
   paint?: string;
+  /** how much of it is the person's own footage, when that was asked for (director/mix.ts); missing: footage carries it, with a cutaway or two */
+  mix?: Mix;
+  /** what the song's words feel like, as it was known when the plan was made (src/feeling); a flat plan's is on `flat.src` */
+  feeling?: SongFeeling;
   /** the moment each section is meant to feel like (src/moments; null: not said) */
   moments?: (MomentId | null)[];
   /** the idea of the whole video, one sentence (Claude, when it has seen the person's media) */
@@ -181,6 +188,11 @@ export function plannerWorld(mood: MoodId | undefined): ((p: Preset) => boolean)
   return f ? (p: Preset) => f(p) || (playsClips(p) && mayPlan(p)) : undefined;
 }
 
+/** the looks a playing plan may reach for: its mood's world, and only footage when only footage was asked for */
+export function worldOf(plan: Pick<VideoPlan, 'mood' | 'mix'>): ((p: Preset) => boolean) | undefined {
+  return plan.mix === 'only' && mediaReady() ? (p: Preset) => playsClips(p) && mayPlan(p) : plannerWorld(plan.mood);
+}
+
 export function sectionIndexAt(sections: TrackSection[], t: number): number {
   for (let i = sections.length - 1; i >= 0; i--) if (t >= sections[i].start) return i;
   return 0;
@@ -246,7 +258,7 @@ export function ensureDropCuts(plan: VideoPlan, a: TrackAnalysis, keep: number |
     // (pop-ups the person set by hand live in store.partPops and win over this)
     pops[i] = Math.max(pops[i] ?? 0, d.strength >= 0.75 ? 3 : 2);
     if (kept.has(i) || !looks[i] || looks[i] !== looks[i - 1]) continue;
-    const pick = dropLook(looks, a, i, looks[i - 1], plannerWorld(plan.mood));
+    const pick = dropLook(looks, a, i, looks[i - 1], worldOf(plan));
     if (!pick) continue;
     looks[i] = pick.id;
     rotate[i] = null;
@@ -473,9 +485,10 @@ function poolFor(plan: VideoPlan, a: TrackAnalysis, i: number, pace: Pace, drive
   const next = plan.looks[i + 1];
   // taste memory: looks the person skipped in this kind of part don't come back in its rotation
   const aff = affinityIn(contextFor(a.sections[i].label));
-  const ok = (id: string) => id !== main && id !== next && !!findLook(id) && !findLook(id)!.sceneId.startsWith('board-') && mayPlan(findLook(id)) && aff(id) > -0.4;
+  const only = plan.mix === 'only' && mediaReady();
+  const ok = (id: string) => id !== main && id !== next && !!findLook(id) && (!only || playsClips(findLook(id))) && !findLook(id)!.sceneId.startsWith('board-') && mayPlan(findLook(id)) && aff(id) > -0.4;
   const extras: string[] = [];
-  for (const id of [...(given ?? []), ...relatedLooks(main, a, plan.looks, undefined, { label: a.sections[i].label, energy: partEnergy(a, i) }, plannerWorld(plan.mood))]) {
+  for (const id of [...(given ?? []), ...relatedLooks(main, a, plan.looks, undefined, { label: a.sections[i].label, energy: partEnergy(a, i) }, worldOf(plan))]) {
     if (extras.length >= want - 1) break;
     if (ok(id) && !extras.includes(id)) extras.push(id);
   }
@@ -503,6 +516,8 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   // chord changes: phrase cuts slide onto one when it's within a beat, so the picture turns with the harmony
   const chordChanges = a.harmony?.changes ?? [];
   const resolutions = a.harmony?.resolutions ?? [];
+  // what the words and the sound feel like (only for a plan made with it)
+  const feel = curvesFor(plan, a, lyrics);
   // the look on screen and when it came on, so a look carried over from the last section still counts
   let lastLook = '';
   let lastChange = 0;
@@ -597,10 +612,20 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     }
     // where the harmony comes home: a natural place for the picture to change or settle
     for (const r of resolutions) if (r.t > s0 && r.t < s1 && r.strength >= 0.5) events.push({ t: r.t, on: 'resolve', pri: 2 });
+    // where the words turn, the picture turns with them
+    if (feel) for (const l of feel.lines) if (l.turn && l.t > s0 && l.t < s1) events.push({ t: snapBeat(l.t), on: 'lyric', pri: 3 });
     // the phrase grid, nudged onto a lyric line when one starts nearby, else onto a chord change
     for (let t = s0 + P.shotLen; t < s1 - 0.5; t += P.shotLen) {
       const line = lines.find((l) => Math.abs(l.t - t) < Math.min(bar * 0.5, P.shotLen * 0.25));
       events.push({ t: line ? snapBeat(line.t) : snapToChord(t, chordChanges, beat), on: line ? 'lyric' : 'phrase', pri: 1 });
+    }
+    // a line that matters, sung softly, is left on one picture from its first word until just after its last
+    if (feel && sec.energy < 0.7) {
+      const whole = feel.held.filter((l) => l.tone < 0.35 && l.end - l.t < P.cap);
+      for (let k = events.length - 1; k >= 0; k--) {
+        const e = events[k];
+        if (e.pri < 3 && whole.some((l) => e.t > l.t + 0.15 && e.t < l.end + 0.2)) events.splice(k, 1);
+      }
     }
     // keep the most meaningful cuts that are far enough apart
     events.sort((x, y) => y.pri - x.pri || x.t - y.t);
@@ -611,6 +636,17 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       if (cuts.some((c) => Math.abs(c.t - e.t) < P.minGap)) continue;
       cuts.push(e);
     }
+    // footage winding up to a big landing cuts closer and closer: two bars out, then one, then half of one
+    const wind = feel && playsClips(findLook(main)) && sec.energy > 0.12 ? feel.winds.find((w) => Math.abs(w.to - s1) < 0.4 && w.strength >= 0.55) : undefined;
+    const soft = plan.moments?.[i] === 'held' || plan.moments?.[i] === 'hush' || plan.moments?.[i] === 'ache' || plan.moments?.[i] === 'float';
+    if (wind && !soft)
+      for (const back of [8, 4, 2]) {
+        const t = snapBeat(s1 - back * beat);
+        const room = Math.max(0.55, beat * back * 0.3);
+        // not through the middle of a line being sung
+        if (lines.some((l) => t > l.t + 0.2 && t < l.end - 0.2)) continue;
+        if (t - s0 > 1.2 && s1 - t > 0.6 && back * beat < (s1 - s0) * 0.7 && !cuts.some((c) => Math.abs(c.t - t) < room)) cuts.push({ t, on: 'hit' });
+      }
     cuts.sort((x, y) => x.t - y.t);
     // no look holds longer than the cap (counting time it was already on before this section)
     const filled: { t: number; on: Shot['on']; drop?: number }[] = [];
@@ -978,7 +1014,9 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     if (!groupLook.has(s.group)) groupLook.set(s.group, id);
     return id;
   });
-  const cut = footageCut(a, roleLooks, footage);
+  const moments = footage.length ? momentsFor(a, curvesNow(a, useStudio.getState().lyrics)) : [];
+  const mix = footage.length ? useStudio.getState().mix : 'most';
+  const cut = footageCut(a, roleLooks, footage, dealMix(a, mix, moments));
   const looks = cut.looks;
   const pops = a.sections.map((s) => POPS_BY_LABEL[s.label]);
   // one busy instrument-board interlude: at the top of the bridge or break (else the second verse)
@@ -994,7 +1032,7 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
   const boardScore = (p: Preset) =>
     (suggested.includes(p) ? 1 : 0) + (at > 0 ? fitScore(p, a.sections[at].label, partEnergy(a, at)) : 0) + (host ? 0.5 * neighbourScore(p, host) : 0) + ((Math.floor(a.duration) + boards.indexOf(p)) % 5) * 0.05;
   const boardPick = [...boards].sort((x, y) => boardScore(y) - boardScore(x))[0];
-  if (boardPick && at > 0 && a.sections.length >= 4) interludes[at] = boardPick.id;
+  if (boardPick && at > 0 && a.sections.length >= 4 && mix !== 'only') interludes[at] = boardPick.id;
   // each part rotates through related looks: 2 in calm parts, up to 4 in loud busy ones (sections
   // that share a main look share the rotation, so a returning chorus looks like itself)
   const pools = new Map<string, string[]>();
@@ -1014,7 +1052,7 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
           : footage.length
             ? related.filter((x) => !playsClips(findLook(x)))
             : related;
-      pools.set(key, pool.slice(0, want));
+      pools.set(key, (mix === 'only' ? pool.filter((x) => playsClips(findLook(x))) : pool).slice(0, want));
     }
     return pools.get(key)!;
   });
@@ -1049,9 +1087,10 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     pops,
     interludes,
     rotate,
+    ...(mix !== 'most' ? { mix } : {}),
   }, a);
   // footage cuts and moves by what each section feels like (src/moments); no footage, nothing changes
-  return footage.length ? withMoments(planned, a, momentsFor(a), (id) => findLook(id)) : planned;
+  return footage.length ? withMoments(planned, a, moments, (id) => findLook(id), feelingNow(useStudio.getState().lyrics)) : planned;
 }
 
 /**
@@ -1063,8 +1102,9 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
  * that part (calm takes for intros, verses and breaks, the busier ones for peaks and builds); peaks
  * choose first so a build never takes the drop's look, a second peak group leans to another take than
  * the first, and parts that sound alike share their take. No footage: the looks come back as they were.
+ * `carry` (the mix, director/mix.ts) says which sections are footage instead, when it was asked for.
  */
-export function footageCut(a: TrackAnalysis, looks: string[], footage: Preset[]): { looks: string[]; cutaways: number[]; footageParts: number } {
+export function footageCut(a: TrackAnalysis, looks: string[], footage: Preset[], carry?: boolean[] | null): { looks: string[]; cutaways: number[]; footageParts: number } {
   const secs = a.sections;
   if (!footage.length || !secs.length) return { looks, cutaways: [], footageParts: 0 };
   const groupSize = (g: number) => secs.filter((x) => x.group === g).length;
@@ -1083,14 +1123,15 @@ export function footageCut(a: TrackAnalysis, looks: string[], footage: Preset[])
   const budget = Math.max(1, Math.floor(secs.length / 3));
   const cutGroups = new Set<number>();
   let cutParts = 0;
-  for (const i of cand) {
+  for (const i of carry ? [] : cand) {
     if (i <= 0 || i >= secs.length || cutGroups.size >= (secs.length >= 6 ? 2 : 1)) continue;
     const g = secs[i].group;
     if (cutGroups.has(g) || strongDropAt(a, i) || cutParts + groupSize(g) > budget) continue;
     cutGroups.add(g);
     cutParts += groupSize(g);
   }
-  const out: (string | null)[] = secs.map((x, i) => (cutGroups.has(x.group) ? looks[i] : null));
+  const away = secs.map((x, i) => (carry ? !carry[i] : cutGroups.has(x.group)));
+  const out: (string | null)[] = secs.map((_, i) => (away[i] ? looks[i] : null));
   const isPeak = (i: number) => secs[i].label === 'chorus' || secs[i].label === 'drop';
   const order = secs.map((_, i) => i).sort((x, y) => Number(isPeak(y)) - Number(isPeak(x)) || x - y);
   const byGroup = new Map<number, string>();
@@ -1120,7 +1161,7 @@ export function footageCut(a: TrackAnalysis, looks: string[], footage: Preset[])
     byGroup.set(g, pick.id);
     if (isPeak(i)) peakTakes.add(pick.id);
   }
-  const cutaways = secs.map((x, i) => (cutGroups.has(x.group) ? i : -1)).filter((i) => i >= 0);
+  const cutaways = secs.map((_, i) => (away[i] ? i : -1)).filter((i) => i >= 0);
   return { looks: out.map((id, i) => id ?? looks[i]), cutaways, footageParts: secs.length - cutaways.length };
 }
 
@@ -1153,7 +1194,8 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   if (cacheKey && !wish.trim() && !opts.fresh && !mood) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     // a video saved before Claude had watched the footage is made again, from it
-    if (saved && (!directed || saved.cues || saved.flat?.src.cues)) {
+    // (nor does a video made at another mix come back when the mix was changed since)
+    if (saved && (!directed || saved.cues || saved.flat?.src.cues) && (!mediaReady() || (saved.mix ?? 'most') === s.mix)) {
       void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim(), { restore: true });
       const on = useStudio.getState();
       if (on.plan && on.analysis) watchPlan(cacheKey, on.plan, on.analysis);
@@ -1274,6 +1316,18 @@ export async function offlineVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, pla
   return withLyricPlan(plan, a, lyr, null, getScene, (Math.random() * 2 ** 31) | 0);
 }
 
+/** a graphic look for a section the mix keeps free of footage: what its look-alikes play, else the one that suits it best */
+function graphicFor(a: TrackAnalysis, i: number, picked: (string | null)[], carry: boolean[], inWorld: (p: Preset) => boolean): string | undefined {
+  const graphic = (id: string | null) => (id && !playsClips(findLook(id)) ? id : undefined);
+  const alike = a.sections.findIndex((x, j) => j !== i && x.group === a.sections[i].group && !carry[j] && !!graphic(picked[j]));
+  if (alike >= 0) return picked[alike]!;
+  const near = new Set([picked[i - 1], picked[i + 1]]);
+  const score = (p: Preset) => fitScore(p, a.sections[i].label, partEnergy(a, i)) + (a.suggestedPresets.includes(p.id) ? 0.6 : 0) - (near.has(p.id) ? 2 : 0);
+  return planLooks()
+    .filter((p) => !playsClips(p) && !p.custom && !p.sceneId.startsWith('board-') && inWorld(p))
+    .sort((x, y) => score(y) - score(x) || (x.id < y.id ? -1 : 1))[0]?.id;
+}
+
 interface RequestOpts {
   wish?: string;
   quiet?: boolean;
@@ -1301,6 +1355,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
   const clips = clipCount();
   const photos = clips ? 0 : photoCount();
   const footage = mediaReady();
+  const mix = footage ? useStudio.getState().mix : 'most';
   const inWorld = (p: Preset) => inMood(p, mood) || (playsClips(p) && footage);
   // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
   // cost: the families that suit this song (all of them when there's a wish), each family on one
@@ -1363,6 +1418,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
         // the person's clips: the server tells Claude most parts should play them (footage looks)
         ...(clips ? { clips } : {}),
         ...(photos >= 2 ? { photos } : {}),
+        ...(footage ? { mix } : {}),
         ...(opts.story ? { story: opts.story } : {}),
       },
       // the saved access code is sent by the client; a missing or wrong one opens the access gate,
@@ -1379,7 +1435,13 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
       };
       const picked = r.looks.map((id, i) => (fits(id) ? id : offline.looks[i]));
       // a section the treatment gave to the footage plays a footage look, whatever was planned
-      const wanted = picked.map((id, i) => !!opts.story?.sections[i]?.footage && !playsClips(id ? findLook(id) : undefined));
+      // (at a mix that was asked for, which sections those are is settled here, whatever was planned)
+      const carry = dealMix(a, mix, opts.moments ?? momentsFor(a, curvesNow(a, lyr)), opts.story ? opts.story.sections.map((x) => x.footage) : picked.map((id) => playsClips(id ? findLook(id) : undefined)));
+      const wanted = picked.map((id, i) => (carry ? carry[i] : !!opts.story?.sections[i]?.footage) && !playsClips(id ? findLook(id) : undefined));
+      if (carry)
+        picked.forEach((id, i) => {
+          if (!carry[i] && playsClips(id ? findLook(id) : undefined)) picked[i] = graphicFor(a, i, picked, carry, inWorld) ?? id;
+        });
       const clipLooks = wanted.some(Boolean) ? planLooks().filter(playsClips) : [];
       if (clipLooks.length)
         picked.forEach((_, i) => {
@@ -1395,7 +1457,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
         via: r.via,
         duration: a.duration,
         pops: r.pops.map((v, i) => v ?? offline.pops?.[i] ?? 1),
-        interludes: r.interludes.map((id, i) => (swapped(i) || (mood && !fits(id)) ? null : id)),
+        interludes: r.interludes.map((id, i) => (swapped(i) || mix === 'only' || (mood && !fits(id)) ? null : id)),
         // Claude's rotation where it gave one, else picked around its main look
         rotate: r.rotate.map((ids, i) => (swapped(i) ? null : mood && ids ? ids.filter(fits) : ids)),
         shotBars: r.shotBars,
@@ -1405,6 +1467,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
           ? moodDirection(a, mood, picked.map((id) => findLook(id)), r.direction?.type)
           : (r.direction ?? localDirection(a, r.looks.map((id, i) => findLook(id ?? offline.looks[i])), lyricSeed)),
         ...(mood ? { mood: mood.id } : {}),
+        ...(mix !== 'most' ? { mix } : {}),
       }, a);
     } else reason = r.reason;
   } catch (e) {
@@ -1414,7 +1477,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
   // an offline plan already carries its lyric plan
   if (plan !== offline || !offline.lyricPlan) plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
   // footage cuts and moves by what each section feels like (src/moments)
-  if (footage) plan = withMoments(plan, a, opts.moments ?? momentsFor(a), (id) => findLook(id));
+  if (footage) plan = withMoments(plan, a, opts.moments ?? momentsFor(a, curvesNow(a, lyr)), (id) => findLook(id), feelingNow(lyr));
   return { plan, reason };
 }
 
@@ -1773,12 +1836,12 @@ export function skipLook(): boolean {
   if (interludes?.[i] === id) interludes[i] = null;
   if (looks[i] === id) {
     // a new main look: the best liked related look that isn't the skipped one
-    const pool = relatedLooks(id, a!, looks, (x) => 1.5 * aff(x), undefined, plannerWorld(plan.mood)).filter((x) => x !== id && x !== looks[i + 1]);
+    const pool = relatedLooks(id, a!, looks, (x) => 1.5 * aff(x), undefined, worldOf(plan)).filter((x) => x !== id && x !== looks[i + 1]);
     const next = pool[0];
     if (!next) return false;
     // its rotation is picked around the new look, without the skipped one
     const want = Math.max(1, (plan.rotate?.[i] ?? []).length || 2);
-    const rot = relatedLooks(next, a!, looks, (x) => 1.5 * aff(x), undefined, plannerWorld(plan.mood)).filter((x) => x !== id && x !== next).slice(0, want);
+    const rot = relatedLooks(next, a!, looks, (x) => 1.5 * aff(x), undefined, worldOf(plan)).filter((x) => x !== id && x !== next).slice(0, want);
     same.forEach((on, j) => {
       if (on && looks[j] === id) {
         looks[j] = next;
@@ -1789,7 +1852,7 @@ export function skipLook(): boolean {
     // drop it from this part's rotation (and its look-alikes'), with a fresh pick in its place
     const shown = planShots(plan, a!, s.pace, s.lyrics).filter((sh) => sh.section === i).map((sh) => sh.lookId);
     const cur = [...new Set(shown)].filter((x) => x !== looks[i]);
-    const extra = relatedLooks(looks[i]!, a!, looks, (x) => 1.5 * aff(x), undefined, plannerWorld(plan.mood)).find((x) => x !== id && !cur.includes(x) && x !== looks[i + 1]);
+    const extra = relatedLooks(looks[i]!, a!, looks, (x) => 1.5 * aff(x), undefined, worldOf(plan)).find((x) => x !== id && !cur.includes(x) && x !== looks[i + 1]);
     const nextRot = [...cur.filter((x) => x !== id), ...(extra ? [extra] : [])].slice(0, 3);
     same.forEach((on, j) => {
       if (on) rotate[j] = nextRot.length ? nextRot : null;

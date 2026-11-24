@@ -18,6 +18,7 @@ import type { Footage, FootageState } from './footage';
 import { FootagePass } from './footage';
 import { frameGrid } from './grid';
 import { CAM_Z, FOV, frameSize, toneOf, type Bed, type Labels, type StyleContext, type StyleShot } from './kit';
+import { lean } from '../feeling';
 import { cameraOf } from '../moments';
 import { LookPlayer } from './lookPlayer';
 import { schemeFor, type Scheme, type ShotPalette } from './palette';
@@ -77,7 +78,7 @@ export interface StageOptions {
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
   /** Inside: the colours of the whole video, and the words that stand in a shot */
-  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean } };
+  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean } };
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -429,6 +430,7 @@ export class ShotStage {
       cuts: rig.scheme.cuts,
       words: set.words,
       sung: set.sung,
+      hush: 'hush' in set && !!set.hush,
       clipAt: (t) => curve.footage(t),
       focus: { ...focus },
       zoom,
@@ -495,6 +497,8 @@ export class ShotStage {
       const beat = this.seq!.beat;
       const tau = Math.max(0, t - shot.start);
       const cam = cameraOf(shot.moment, { u: clamp01(tau / Math.max(1e-3, shot.end - shot.start)), tau, left: shot.end - t, beat });
+      const feel = this.seq!.feel;
+      if (feel) cam.zoom += lean(feel, t, shot.moment);
       const still = !!rig.clip && !rig.clip.footage;
       const grow = Math.max(1, still ? 1 + (cam.zoom - 1) * 1.25 + Math.min(0.06, tau * 0.006) : cam.zoom);
       // the slide stays inside the room the push-in leaves on that side of the focus, so the picture never runs off its edge
@@ -616,7 +620,7 @@ export class ShotStage {
     const state = this.footageState(rig, t, focus.x, zoom);
     inside.render(t, { footage: this.source(rig, t, zoom) ?? rig.clip!.texture, grow: state.grow, flash: state.flash, speed: rig.curve.speed(t), target });
     r.autoClear = autoClear;
-    if (inside.spec.sung) noteInside();
+    if (inside.spec.sung || inside.spec.hush) noteInside();
   }
 
   private treatFrame(rig: Rig, t: number, focus: { x: number; y: number }, flash: number): TreatFrame {

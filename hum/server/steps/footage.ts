@@ -212,9 +212,9 @@ Work like a director with limited material:
 - idea: one plain sentence a friend would understand, at most 24 words, concrete ("The drive out to the coast that never quite arrives, until the drop puts us in the water"). No film jargon.
 - arc: how it moves from start to end, at most 45 words.
 - sections: one entry for every section.
-  - moment: what the section should feel like, one id from the list. Follow the music first. Let the moments make a shape: do not use one moment for everything, save release and fury for what earns them, and let sections that come back be recognisable while the last one goes further.
+  - moment: what the section should feel like, one id from the list. Follow the feeling first, then the music: what the words mean outweighs a bright sound over them, and a section that winds up must lead somewhere. Let the moments make a shape: do not use one moment for everything, save release and fury for what earns them, and let sections that come back be recognisable while the last one goes further.
   - media: one to three keys whose pictures belong there, the most important first. Give strong pictures a place to be seen for the first time (a first sight matters more than a fifth), hold a strong one back for the biggest moment (bright, full of shape or movement: a nearly black or nearly empty picture is never the peak), let a key return where the song returns, and use every good picture somewhere. Leave a weak one out.
-  - footage: true when the person's footage should carry the section. The video opens on footage and ends on it, so the first and last sections are always true. In a longer song one or two sections in between (a break, a bridge, the breath after a peak) may be false, and go to a graphic look as a cutaway; with fewer than six sections, usually none.
+  - footage: true when the person's footage should carry the section, false when it goes to a graphic look instead. The request says how much of each the person wants.
   - note: what we see and why it is here, at most 16 words.
 - paint: the set of colours the whole video is painted in, one id from the list. Words and flat colour stand inside the footage in these colours, so choose the set that suits the song first and sits well with the pictures second.
 
@@ -252,6 +252,13 @@ const STORY_TOOL = {
   },
 };
 
+const MIX_STORY: Record<string, string> = {
+  only: 'How much footage: all of it. Every section is true.',
+  most: 'How much footage: the footage carries the video. It opens on footage and ends on it, so the first and last sections are always true. In a longer song one or two sections in between (a break, a bridge, the breath after a peak) may be false, and go to a graphic look as a cutaway; with fewer than six sections, usually none.',
+  mixed: 'How much footage: about half of the song by time, graphic looks the rest. Footage where a section is human, close or about the idea, or lands somewhere we know; a graphic look where the music is abstract, weightless or overwhelming. Let the two answer each other, and keep sections that come back the same kind.',
+  hum: 'How much footage: about a quarter of the song by time. Graphic looks carry the video, and the footage is the few moments a real picture is worth more than anything drawn: the first true sight, the line that matters, the last image.',
+};
+
 const story: Step = {
   maxImages: 0,
   prepare(body) {
@@ -263,7 +270,7 @@ const story: Step = {
       const words = line(x.lyrics, 260);
       const hint = line(x.hint, 12);
       const drop = num(x.drop, 0, 1, 0);
-      return `#${i} ${clock(num(x.start, 0, 36000, 0))} to ${clock(num(x.end, 0, 36000, 0))} ${line(x.label, 12) || 'section'}, group ${String.fromCharCode(65 + (Math.round(num(x.group, 0, 25, 0)) % 26))}, energy ${round(num(x.energy, 0, 1, 0.5))}${drop > 0 ? `, starts on a drop (${round(drop)})` : ''}${hint ? `, the sound suggests ${hint}` : ''}${words ? `. Words: "${words}"` : ''}`;
+      return `#${i} ${clock(num(x.start, 0, 36000, 0))} to ${clock(num(x.end, 0, 36000, 0))} ${line(x.label, 12) || 'section'}, group ${String.fromCharCode(65 + (Math.round(num(x.group, 0, 25, 0)) % 26))}, energy ${round(num(x.energy, 0, 1, 0.5))}${drop > 0 ? `, starts on a drop (${round(drop)})` : ''}${line(x.felt, 180) ? `, ${line(x.felt, 180)}` : ''}${hint ? `, suggests ${hint}` : ''}${words ? `. Words: "${words}"` : ''}`;
     });
     const plain = line(body.lyrics, 1500);
     const paints = readChoices(body.paints);
@@ -271,7 +278,7 @@ const story: Step = {
       tier: 'main',
       effort: 'low',
       system: STORY_SYSTEM,
-      prompt: [wishLine(body), `The song:\n${describeSong(body)}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', paints.lines ? `Colour sets:\n${paints.lines}` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
+      prompt: [wishLine(body), Object.hasOwn(MIX_STORY, line(body.mix, 8)) ? MIX_STORY[line(body.mix, 8)] : MIX_STORY.most, `The song:\n${describeSong(body)}${line(body.about, 200) ? `\nWhat it is about: ${line(body.about, 200)}` : ''}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', paints.lines ? `Colour sets:\n${paints.lines}` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
       tool: STORY_TOOL,
       maxTokens: 4000 + secs.length * 130,
       finish(output) {
@@ -349,6 +356,7 @@ const SHOT_PROPS = {
 
 const SHOT_RULES = `How the shots work:
 - A moment sets how the picture runs and how the camera moves (code works out the exact speed, ramps and timing). The section's moment is where it starts and what it returns to, but a section of many parts needs a shape of its own: a drop can land on release, run on rush, peak on fury and breathe once on glow. The last part before a drop can be held, a first sight can be reveal. Never give more than three parts in a row the same moment when the section is loud.
+- Where a part says a line matters, the picture is there to carry that line: give it a face, a held look or the one picture that means it, let it run, no treatment, no trick of motion, and code slows it on the word. Where parts wind up to a landing, let each come closer or carry more movement than the last (size, zoom, energy), and keep the strongest picture for the landing itself. Where the song turns, change the kind of picture.
 - style is how the words and graphics meet the picture. treatment is how the picture itself is broken down. inside is what this video is made of: the words live in the footage, the place changes colour with the song, and its moment decides how much (a hush only darkens the picture behind one line, a release floods everything behind the people). Most parts are inside, about seven in ten, always with treatment none: every part with words unless there is a reason, every part that lands, the first and the last. The rest are exceptions placed on purpose: plain for a face or a first sight that should be looked at undisturbed, one other style, treatment or motion as an accent in a loud section (each kind seen once before one is repeated). Never two exceptions in a row, and never a heavy style and a heavy treatment together. inside needs room: prefer pictures with depth (a street, a view, people in front of something) and zoom 1 for it.
 - say: in an inside part with no words, you may have one to three words stand in the picture, when the idea has a word worth seeing there (a place, the title, one word of the idea). In a song with lyrics at most three parts of the whole video, in one without at most one part in three. Plain words, no slogans, never words from the pictures.
 - from: choose the second that makes the shot. Prefer the good starts in the notes, or continue a clip by leaving it out. Do not start two shots of a clip on the same second.
@@ -402,7 +410,7 @@ function readParts(raw: unknown): Parts {
     if (sung) words.add(x.i);
     const now = isObj(x.now) ? describeShot(x.now) : '';
     lines.push(
-      `part ${x.i}: section ${Math.round(num(x.section, 0, 99, 0))}, ${round(len, 10)} s, energy ${round(num(x.energy, 0, 1, 0.5))}, ${kind}${line(x.look, 60) ? ` (${line(x.look, 60)})` : ''}${x.lands === true ? ', lands on a hit' : ''}${x.leads === true ? ', ends on a drop' : ''}${now ? `, now: ${now}` : ''}${sung ? `, words: "${sung}"` : ''}`,
+      `part ${x.i}: section ${Math.round(num(x.section, 0, 99, 0))}, ${round(len, 10)} s, energy ${round(num(x.energy, 0, 1, 0.5))}, ${kind}${line(x.look, 60) ? ` (${line(x.look, 60)})` : ''}${x.lands === true ? ', lands on a hit' : ''}${x.leads === true ? ', ends on a drop' : ''}${now ? `, now: ${now}` : ''}${line(x.felt, 180) ? `, ${line(x.felt, 180)}` : ''}${sung ? `, words: "${sung}"` : ''}`,
     );
   }
   return { lines, open, words };

@@ -39,6 +39,8 @@ export interface InsideSpec {
   words: SungWord[];
   /** the words are being sung (they appear on time), rather than set for the whole shot */
   sung: boolean;
+  /** nothing is sung here, and the line before is over: no subtitle either */
+  hush?: boolean;
   /** which second of the clip is on screen at song time t */
   clipAt: (t: number) => number;
   focus: { x: number; y: number };

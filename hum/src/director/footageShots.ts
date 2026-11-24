@@ -7,6 +7,7 @@
  */
 import type { MediaNotes, PartShot, Preset, TrackAnalysis } from '../core/types';
 import type { PlanTransition } from '../core/transitionList';
+import type { Curves, SongFeeling } from '../feeling';
 import { INSIDE_PALETTES } from '../inside/palettes';
 import { RECIPES, momentOfPart, rank, type MomentId } from '../moments';
 import { MOTION_IDS, MOTION_SERVES } from '../shot/motion';
@@ -27,7 +28,7 @@ const hash = (...n: number[]) => {
  * The plan with its sections' moments, and, in its footage sections, the cutting and the changes the
  * moment asks for wherever the planner didn't choose them itself. A strong drop still always cuts.
  */
-export function withMoments(plan: VideoPlan, a: TrackAnalysis, moments: (MomentId | null)[], lookOf: (id: string) => Preset | undefined): VideoPlan {
+export function withMoments(plan: VideoPlan, a: TrackAnalysis, moments: (MomentId | null)[], lookOf: (id: string) => Preset | undefined, feeling?: SongFeeling): VideoPlan {
   const footage = plan.looks.map((id) => !!id && playsClips(lookOf(id)));
   if (!footage.some(Boolean)) return plan;
   const seed = Math.round(a.duration * 10);
@@ -43,7 +44,7 @@ export function withMoments(plan: VideoPlan, a: TrackAnalysis, moments: (MomentI
   });
   // a new footage video stands its words in the footage, in one set of colours (videos made before have none, and keep their looks)
   const paint = plan.paint ?? INSIDE_PALETTES[hash(seed, 7) % INSIDE_PALETTES.length].id;
-  return { ...plan, paint, moments: plan.looks.map((_, i) => moments[i] ?? null), shotBars, transitions };
+  return { ...plan, paint, ...(feeling ? { feeling } : {}), moments: plan.looks.map((_, i) => moments[i] ?? null), shotBars, transitions };
 }
 
 /** how well a picture suits a moment, from what Claude saw in it */
@@ -69,7 +70,7 @@ function fits(n: MediaNotes, m: MomentId): number {
  * (never the one just shown), starting on one of its good seconds. Without notes the pictures are dealt
  * as ever. `parts` is the song cut at the plan's parts.
  */
-export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (string | null)[], lookOf: (id: string) => Preset | undefined): (PartShot | null)[] {
+export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (string | null)[], lookOf: (id: string) => Preset | undefined, feel: Curves | null = null): (PartShot | null)[] {
   const parents = parentsOf(parts);
   const media = ownMedia();
   const seen = media.flatMap((m) => notesOf(m.id) ?? []);
@@ -87,7 +88,7 @@ export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (strin
     let k = 0;
     while (i - k > 0 && parents[i - k - 1] === parents[i]) k++;
     const lastOf = i === parts.sections.length - 1 || parents[i + 1] !== parents[i];
-    const m = momentOfPart(sm, { start: sec.start, end: sec.end, k, last: lastOf }, parts);
+    const m = momentOfPart(sm, { start: sec.start, end: sec.end, k, last: lastOf }, parts, feel);
     const shot: PartShot = { moment: m };
     const h = hash(sec.group, parents[i], Math.round(sec.start * 100));
     const own = String(look?.sceneParams?.treatment ?? 'none');

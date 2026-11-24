@@ -28,16 +28,17 @@ import {
   partEdits,
   planBase,
   planShots,
-  plannerWorld,
   recutParts,
   relatedLooks,
   releaseHold,
   sectionIndexAt,
   validPlan,
   withBase,
+  worldOf,
   type Shot,
   type VideoPlan,
 } from './plan';
+import { curvesFor } from '../director/feeling';
 import { momentShots } from '../director/footageShots';
 import { cueAt, shotsFromCues, type ShotCue } from '../shot/partShots';
 import { useStudio, type Pace } from './store';
@@ -80,7 +81,14 @@ export function flattenPlan(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyric
   const cut = r.analysis;
   const fp = r.plan;
   const from = r.from;
-  const looks = parts.map((x) => x.shot?.lookId ?? null);
+  // only the person's footage was asked for: whatever the planning let through, no other look fills a part
+  const only = p.mix === 'only' ? worldOf(p) : undefined;
+  const stand = only ? p.looks.find((id) => !!id && !!findLook(id) && only(findLook(id)!)) : undefined;
+  const looks = parts.map((x) => {
+    const id = x.shot?.lookId ?? null;
+    const look = id && stand ? findLook(id) : undefined;
+    return look && !only!(look) ? stand! : id;
+  });
   const base = p.base!;
   // a section the person had already changed (a plan made before flattening) stays marked as changed
   const baseLooks = looks.map((id, k) => (base.looks[from[k]] !== p.looks[from[k]] ? base.looks[from[k]] : id));
@@ -93,11 +101,13 @@ export function flattenPlan(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyric
     base: { looks: baseLooks, rotate: looks.map(() => null), lyric: fp.base?.lyric ?? planBase(fp, cut).lyric },
     flat: { src: p, pace },
     // what each footage part shows: the director's choices, or what its moment asks for
-    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook) } : {}),
+    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook, curvesFor(p, a, lyrics)) } : {}),
   };
   if (p.cues) underCues(flat, p.cues, bounds);
   // the cues stay with the planner's plan, where a new Pace finds them
   delete flat.cues;
+  // (and so does what the words feel like)
+  delete flat.feeling;
   delete flat.interludes;
   delete flat.shotBars;
   if (!flat.lyricPlan) delete flat.lyricPlan;
@@ -308,7 +318,7 @@ export function replacementFor(plan: VideoPlan, a: TrackAnalysis, i: number): Pr
   if (!id) return undefined;
   const aff = affinityIn(contextFor(a.sections[i].label));
   const avoid = new Set([id, plan.looks[i - 1], plan.looks[i + 1]].filter((x): x is string => !!x));
-  const ranked = relatedLooks(id, a, plan.looks, (x) => 1.5 * aff(x), undefined, plannerWorld(plan.mood));
+  const ranked = relatedLooks(id, a, plan.looks, (x) => 1.5 * aff(x), undefined, worldOf(plan));
   const pick = ranked.find((x) => !avoid.has(x) && aff(x) > -0.4) ?? ranked.find((x) => x !== id);
   return findLook(pick);
 }

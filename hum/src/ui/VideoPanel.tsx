@@ -9,6 +9,7 @@ import { FINISHES, finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
 import { ownMedia } from '../director/media';
+import type { Mix } from '../director/mix';
 import { framesNoteShown, framesSentBefore } from '../director/footageNotice';
 import { forgetAccessCode, learnCan, learnNeed, openAccessGate, useAccessGate } from '../director/access';
 import { quality as governor } from '../render/quality';
@@ -54,6 +55,7 @@ function MakeBlock() {
   const making = useStudio((s) => s.making);
   const makeNote = useStudio((s) => s.makeNote);
   const hasPlan = validPlan(plan, analysis);
+  const about = plan?.feeling?.about || plan?.flat?.src.feeling?.about;
   const parts = analysis?.sections.length ?? 0;
   // without a code on a site that wants one, the button wears a lock (it still works: it asks first)
   const locked = useAccessGate((s) => s.need === 'code' && !s.saved);
@@ -98,6 +100,11 @@ function MakeBlock() {
           {plan!.idea}
         </p>
       )}
+      {!planning && hasPlan && about && (
+        <p className="field-note" title="What Claude hears in the words. The Breakdown (B) shows the feeling line by line.">
+          {about}
+        </p>
+      )}
       {!planning && makeNote && <p className="field-note">{makeNote}</p>}
       {!parts && (
         <p className="field-note">
@@ -105,6 +112,7 @@ function MakeBlock() {
         </p>
       )}
       <MoodRow />
+      <MixField />
       {hasPlan && (
         <SwitchRow
           label="Play the video plan"
@@ -114,6 +122,28 @@ function MakeBlock() {
         />
       )}
     </div>
+  );
+}
+
+const MIXES: { v: Mix; label: string; tip: string }[] = [
+  { v: 'only', label: 'Only mine', tip: 'Every part plays your clips and photos, with nothing else filling the frame' },
+  { v: 'most', label: 'Mostly mine', tip: 'Your footage carries the video, and a part or two cut away to one of Hum’s looks' },
+  { v: 'mixed', label: 'Mixed', tip: 'About half your footage and half Hum’s looks, each where the song suits it' },
+  { v: 'hum', label: 'Mostly Hum', tip: 'Hum’s looks carry the video, and your footage comes in where it counts most' },
+];
+
+/** how much of the video is the person's own footage; only once there is some */
+function MixField() {
+  const ready = useStudio((s) => s.clips.length > 0 || s.photos.filter((p) => !p.builtin).length >= 2);
+  const mix = useStudio((s) => s.mix);
+  const plan = useStudio((s) => s.plan);
+  const analysis = useStudio((s) => s.analysis);
+  const stale = validPlan(plan, analysis) && (plan.mix ?? 'most') !== mix;
+  if (!ready) return null;
+  return (
+    <Field label="Your footage" value={stale ? 'Remake to use it' : ''} tip="How much of the video is your own clips and photos, and how much is Hum’s looks.">
+      <Seg value={mix} cols={2} options={MIXES} onChange={(v) => useStudio.getState().set({ mix: v })} label="How much of the video is your footage" />
+    </Field>
   );
 }
 

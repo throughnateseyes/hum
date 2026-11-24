@@ -4,6 +4,7 @@
  * this browser: nothing is sent anywhere). It waits a minute at the most; what is missing then is read
  * while the video plays.
  */
+import { curvesFor } from './feeling';
 import { readingOf } from '../inside/readings';
 import { insideRanges, titleWords } from '../scenes/footage';
 import { deckIdsOf, footageRun, runPartOf, withOwn } from '../shot/run';
@@ -31,7 +32,7 @@ function rangesOf(cut: Cut): { id: string; range: [number, number] }[] {
   });
   const clips = deckIds.map((id) => s.clips.find((c) => c.id === id)?.duration ?? 1e6).map((d) => Math.round(d * 100) / 100);
   if (!clips.length) return [];
-  const run = footageRun({ analysis: cut.analysis, sections: originalOf(cut.analysis).sections, parents: parentsOf(cut.analysis), parts, clips, words: titleWords() });
+  const run = footageRun({ analysis: cut.analysis, sections: originalOf(cut.analysis).sections, parents: parentsOf(cut.analysis), parts, clips, words: titleWords(), feel: curvesFor(cut.plan, cut.analysis, useStudio.getState().lyrics) });
   return run.seqs.flatMap((seq) => (seq ? insideRanges(seq).map((x) => ({ id: deckIds[x.clip % deckIds.length], range: x.range })) : []));
 }
 

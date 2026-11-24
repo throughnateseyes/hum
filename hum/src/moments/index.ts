@@ -11,6 +11,7 @@
  * itself; nothing here lists them.
  */
 import type { TrackAnalysis, TrackSection } from '../core/types';
+import { feltIn, type Curves } from '../feeling';
 import { MOMENT_IDS, type MomentId } from './list';
 import { RECIPES } from './recipes';
 
@@ -68,8 +69,8 @@ function pull(a: TrackAnalysis, sec: TrackSection): number {
   return n ? s / n : 0.4;
 }
 
-/** How well each moment suits section i (higher is better), from what Hum heard alone */
-export function momentScores(i: number, a: TrackAnalysis): Record<MomentId, number> {
+/** How well each moment suits section i (higher is better), from what Hum heard, and what the words feel like when that is known */
+export function momentScores(i: number, a: TrackAnalysis, feel: Curves | null = null): Record<MomentId, number> {
   const sec = a.sections[i];
   const prev = a.sections[i - 1];
   const next = a.sections[i + 1];
@@ -79,7 +80,9 @@ export function momentScores(i: number, a: TrackAnalysis): Record<MomentId, numb
   const leads = next ? dropAt(a, next.start) || (next.label === 'drop' ? 0.6 : 0) : 0;
   const up = slope(a, sec);
   const tense = pull(a, sec);
-  const bright = a.mood?.valence ?? 0.5;
+  // the feeling here, or the whole song's mood
+  const felt = feel ? feltIn(feel, sec.start, sec.end) : null;
+  const bright = felt ? felt.tone : (a.mood?.valence ?? 0.5);
   const dense = a.mood?.density ?? 0.5;
   const peak = sec.label === 'chorus' || sec.label === 'drop';
   const first = i === 0;
@@ -104,15 +107,16 @@ export function momentScores(i: number, a: TrackAnalysis): Record<MomentId, numb
   out.drift += 0.95 * is('verse') + 0.2 * is('bridge') + 0.15 * bright;
   out.reveal += (first ? 0.75 : 0) + (i === 1 && is('verse') ? 0.3 : 0) + 0.5 * is('bridge') + (lands ? 0.1 : 0) - (last ? 1 : 0);
   out.aftermath += (last ? 1.2 : 0) + 0.8 * is('outro') + (after && rise < -0.1 ? 0.9 : 0) + 0.4 * Math.max(0, -up) - (first ? 2 : 0);
+  if (felt) for (const [m, v] of Object.entries(felt.lean) as [MomentId, number][]) out[m] += 0.9 * v;
   return out;
 }
 
 /** the moment each section of the song asks for: sections that sound alike share one, neighbours differ */
-export function momentsFor(a: TrackAnalysis): MomentId[] {
+export function momentsFor(a: TrackAnalysis, feel: Curves | null = null): MomentId[] {
   const out: MomentId[] = [];
   const byGroup = new Map<number, MomentId>();
   a.sections.forEach((sec, i) => {
-    const s = momentScores(i, a);
+    const s = momentScores(i, a, feel);
     const order = [...MOMENT_IDS].sort((x, y) => s[y] - s[x]);
     const had = byGroup.get(sec.group);
     // a section that comes back is itself again, unless it now does another job (it clearly suits another)
@@ -131,10 +135,19 @@ export const momentFor = (i: number, a: TrackAnalysis): MomentId => momentsFor(a
  * section's own, the ones between turn to its companions; the last part before a strong drop holds
  * its breath when it is short, and a part that lands on a drop of its own releases.
  */
-export function momentOfPart(section: MomentId, part: { start: number; end: number; k: number; last: boolean }, a: TrackAnalysis): MomentId {
+export function momentOfPart(section: MomentId, part: { start: number; end: number; k: number; last: boolean }, a: TrackAnalysis, feel: Curves | null = null): MomentId {
   const beat = 60 / Math.max(50, Math.min(200, a.bpm || 120));
   if (part.k > 0 && dropAt(a, part.start) >= STRONG) return 'release';
   if (part.last && dropAt(a, part.end) >= STRONG && part.end - part.start <= beat * 10 && section !== 'fury') return 'held';
+  // a line that matters has its own say over its part, where the part is loud or quiet enough for it
+  if (feel && part.k > 0) {
+    const f = feltIn(feel, part.start, part.end);
+    if (f.line && f.line.weight >= 0.65) {
+      const e = a.sections.find((x) => part.start >= x.start - 0.05 && part.start < x.end)?.energy ?? 0.5;
+      const m = (Object.entries(f.lean) as [MomentId, number][]).sort((x, y) => y[1] - x[1]).find(([id]) => e > RECIPES[id].energy[0] - 0.1 && e < RECIPES[id].energy[1] + 0.12);
+      if (m) return m[0];
+    }
+  }
   const next = RECIPES[section].next;
   return part.k % 2 ? next[Math.floor(part.k / 2) % next.length] : section;
 }

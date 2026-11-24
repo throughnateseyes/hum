@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import { audioEngine } from '../audio/engine';
 import { chordPace } from '../audio/harmony';
 import type { TrackAnalysis, TrackHarmony, TrackNote } from '../core/types';
+import { curvesFor, curvesNow } from '../director/feeling';
+import type { Curves } from '../feeling';
 import { onFrame } from '../state/live';
 import { sectionNames } from '../state/plan';
 import { originalOf } from '../state/planCache';
@@ -34,7 +36,7 @@ const C = {
   vocal: '#c94040',
 };
 
-type LaneId = 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'chords' | 'tension' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
+type LaneId = 'feel' | 'ruler' | 'parts' | 'drops' | 'wave' | 'energy' | 'chords' | 'tension' | 'low' | 'mid' | 'high' | 'kick' | 'snare' | 'hat' | 'bass' | 'lead' | 'vocal';
 interface Lane {
   id: LaneId;
   label: string;
@@ -113,6 +115,11 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
   const hover = useRef<number | null>(null);
   const viewRef = useRef<[number, number]>([0, a.duration]);
   const L = a.layers;
+  // the feeling the playing video was made with, else what is known now
+  const lyrics = useStudio((s) => s.lyrics);
+  const plan = useStudio((s) => s.plan);
+  const making = useStudio((s) => !!s.making);
+  const feel = useMemo(() => (making ? null : curvesFor(plan, a, lyrics)) ?? curvesNow(a, lyrics), [plan, a, lyrics, making]);
   const drops = dropList(a);
   const names = useMemo(() => sectionNames(a.sections), [a]);
   const harm = a.harmony;
@@ -124,6 +131,7 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
       { id: 'ruler', label: '', h: 16 },
       { id: 'parts', label: 'Parts', sub: 'alike = same colour', h: 30 },
       { id: 'drops', label: 'Drops', sub: 'size = how big', h: 24 },
+      { id: 'feel', label: 'Feeling', sub: 'bright up, dark down', h: 52 },
       { id: 'wave', label: 'Waveform', sub: 'loudness', h: 64 },
       { id: 'energy', label: 'Energy', sub: 'intensity', h: 38 },
       { id: 'low', label: 'Low', sub: 'sub, bass, kick', h: 26 },
@@ -176,9 +184,9 @@ function BreakdownBody({ a, name }: { a: TrackAnalysis; name: string }) {
           v1 = Math.min(d, v0 + win);
         }
         viewRef.current = [v0, v1];
-        draw(canvas.current, a, lanes, H, v0, v1, t, hover.current, names);
+        draw(canvas.current, a, lanes, H, v0, v1, t, hover.current, names, feel);
       }),
-    [a, lanes, H, view, names],
+    [a, lanes, H, view, names, feel],
   );
 
   const toTime = (e: React.PointerEvent) => {
@@ -340,6 +348,7 @@ function draw(
   t: number,
   hover: number | null,
   names: string[],
+  feel: Curves,
 ) {
   if (!c) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -472,6 +481,8 @@ function draw(
     curve(g, HM.tension, lane('tension')!, C.vocal, v0, span, d, w);
   }
 
+  feeling(g, feel, lane('feel')!, X, v0, v1, span, t, w);
+
   const L = a.layers;
   if (L) {
     ticks(g, L.kick, lane('kick')!, C.ink, 1, X, v0, v1, t);
@@ -539,6 +550,52 @@ function harmonyWords(H: TrackHarmony, a: TrackAnalysis, names: string[]): strin
 function niceStep(raw: number) {
   for (const s of [0.5, 1, 2, 5, 10, 15, 30, 60, 120]) if (s >= raw) return s;
   return 300;
+}
+
+/** bright above the line and dark below it, the wind-ups to each landing, and the words the picture waits for */
+function feeling(g: CanvasRenderingContext2D, c: Curves, l: Lane, X: (s: number) => number, v0: number, v1: number, span: number, t: number, w: number) {
+  const mid = l.y + l.h / 2;
+  const reach = l.h / 2 - 3;
+  const y = (x: number) => mid - Math.max(-1, Math.min(1, (c.tone(v0 + (x / w) * span) - 0.5) * 2.4)) * reach;
+  for (const k of c.winds) {
+    if (k.to < v0 || k.from > v1) continue;
+    g.fillStyle = C.accent;
+    g.globalAlpha = 0.1 + 0.1 * k.strength;
+    g.beginPath();
+    g.moveTo(X(k.from), l.y + l.h);
+    g.lineTo(X(k.to), l.y + l.h);
+    g.lineTo(X(k.to), l.y + l.h - (l.h - 2) * (0.4 + 0.6 * k.strength));
+    g.fill();
+  }
+  for (const up of [true, false]) {
+    g.save();
+    g.beginPath();
+    g.rect(0, up ? l.y : mid, w, l.h / 2);
+    g.clip();
+    g.beginPath();
+    g.moveTo(0, mid);
+    for (let x = 0; x <= w; x += 2) g.lineTo(x, y(x));
+    g.lineTo(w, mid);
+    g.closePath();
+    g.fillStyle = up ? C.low : C.accent;
+    g.globalAlpha = 0.5;
+    g.fill();
+    g.restore();
+  }
+  g.globalAlpha = 1;
+  let free = -1e9;
+  for (const h of c.held) {
+    if (h.at < v0 || h.at > v1) continue;
+    const x = X(h.at);
+    const on = t >= h.t && t < h.end;
+    g.fillStyle = on ? C.head : C.ink;
+    g.fillRect(x - 0.5, l.y + 2, 1, l.h - 4);
+    const wide = g.measureText(h.word).width;
+    if (x > free && x + wide + 4 < w) {
+      g.fillText(h.word, x + 4, h.tone < 0 ? l.y + 9 : l.y + l.h - 9);
+      free = x + wide + 10;
+    }
+  }
 }
 
 function curve(g: CanvasRenderingContext2D, arr: Float32Array, l: Lane, color: string, v0: number, span: number, d: number, w: number) {
