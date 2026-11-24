@@ -364,6 +364,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   light changing) on this computer, and a Make lands them on the song: on a drop, a word, a cut or a
   beat, with the speed bent round them. The Part tab says what a part lands on and can let the clip
   just play; the Breakdown marks them all (`src/timing`).
+- **Slow motion** (*Smooth slow motion* in the Video tab, on by default): where a shot runs a clip slowly, Hum draws the moments between
+  the clip's frames, so it glides instead of holding each frame and stepping. On the graphics chip it
+  works out how everything moved from one frame to the next, both ways, and moves both frames to the
+  moment in between; where it can't tell (a crowd that jumps, a sign that changes) it melts softly from
+  one to the other, and across a cut inside the clip it cuts. On a clip's own frame you see that frame.
+  Plain playing at 0.8 of real time or slower glides, 0.9 and up plays as it always did, and Echo,
+  Slices, Stutter and Reverse are left alone. The picture in a render depends only on the second of the
+  song. On the lowest quality step it melts between frames instead (`src/shot/slowmo.ts`, `src/shot/flow.ts`).
 - **Inside** (a footage style) reads how deep each clip is (Depth Anything V2 Small, run in a worker on
   this computer: about 50 MB the first time, kept by the browser), finds its horizon and how the camera
   moves, and stands the words being sung and the part's shapes in the place: behind the skyline, between
