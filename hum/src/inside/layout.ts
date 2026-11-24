@@ -344,8 +344,10 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
       if (fallback && best) return;
       for (const [i, c] of candidates(words, kind, o).entries()) {
         const r = reading(o, c, o.lens, o.times[0]);
-        if (r.inside < 0.985 || r.least < 0.05 || r.slim < (kind === 'wall' ? 0.3 : 0.2)) continue;
+        if (r.inside < 0.985 || r.least < (kind === 'ground' ? 0.075 : 0.05) || r.slim < (kind === 'wall' ? 0.3 : 0.2)) continue;
         if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.42 - ease * 0.14) continue;
+        // on the ground it is seen at a slant already: it has to be clear
+        if (kind === 'ground' && (r.shown < 0.86 || r.worst < 0.6)) continue;
         let shown = r.shown;
         let worst = r.worst;
         let inside = r.inside;

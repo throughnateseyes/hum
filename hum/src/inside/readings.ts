@@ -11,25 +11,28 @@ import type { Reading } from './reading';
 
 class One implements Reading {
   private reader: ClipReader | null = null;
+  private photo: ClipScene | null = null;
   private opening: Promise<ClipReader | null> | null = null;
+  private readonly stop = new AbortController();
   private readonly asset: ClipAsset | PhotoAsset;
   constructor(asset: ClipAsset | PhotoAsset) {
     this.asset = asset;
   }
   get scene(): ClipScene | null {
-    return this.reader?.scene ?? null;
+    return this.reader?.scene ?? this.photo;
   }
   open(): Promise<ClipReader | null> {
-    return (this.opening ??= import('../depth').then(
-      async (d) => {
-        this.reader = d.readClip(this.asset);
-        await this.reader.ready;
-        return this.reader;
-      },
-    ).catch((err) => {
-      console.warn('[hum] a clip could not be read for depth', err);
+    return (this.opening ??= this.look().catch((err) => {
+      if (!this.stop.signal.aborted) console.warn('[hum] a clip could not be read for depth', err);
       return null;
     }));
+  }
+  private async look(): Promise<ClipReader | null> {
+    const d = await import('../depth');
+    const opts = { signal: this.stop.signal };
+    if ('url' in this.asset) this.reader = await d.readClip(this.asset, opts);
+    else this.photo = await d.readPhoto(this.asset, opts);
+    return this.reader;
   }
   async need(ranges: [number, number][]): Promise<void> {
     const r = await this.open();
@@ -40,6 +43,7 @@ class One implements Reading {
     }
   }
   close() {
+    this.stop.abort();
     this.reader?.cancel();
   }
 }

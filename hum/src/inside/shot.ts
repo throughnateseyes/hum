@@ -426,6 +426,7 @@ export class InsideShot {
 
   /** a word's colour against what it stands in front of: the step's own on its field, else light on the picture */
   private wordColor(st: Standing, amount: number, now: { field: string; word: string }, p: InsidePalette): string {
+    if (st.put.kind === 'ground' && amount >= 0.5 && this.recipe.ground && lum(now.field) > 0.5) return p.ink;
     if (st.put.kind === 'ground' || amount < 0.5) return p.paper;
     const onField = this.paintKind !== 'figure' && st.far > 0.45;
     if (onField) return now.word;

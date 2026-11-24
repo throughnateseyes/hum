@@ -7,6 +7,7 @@
  */
 import '../index.css';
 import * as THREE from 'three';
+import { sceneFromDump } from '../depth';
 import type { ClipScene } from '../depth/types';
 import { InsidePass } from '../inside/pass';
 import { insidePalette } from '../inside/palettes';
@@ -24,9 +25,6 @@ renderer.debug.onShaderError = (gl, program, vs, fs) => {
   const log = (s: WebGLShader) => gl.getShaderInfoLog(s) || '';
   errors.push((log(fs) || log(vs) || gl.getProgramInfoLog(program) || 'shader').trim().slice(0, 600));
 };
-
-// maps concatenated, in order
-const sceneFromDump = (j: Omit<ClipScene, 'maps'>, b: ArrayBuffer): ClipScene => ({ ...j, maps: j.times.map((_, i) => new Uint8Array(b, i * j.width * j.height, j.width * j.height)) });
 
 interface Clip {
   video: HTMLVideoElement;
