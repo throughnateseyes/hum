@@ -25,7 +25,7 @@ export interface Landing {
   /** what happens, as Claude named it or as Hum measured it ('' when nothing is known of it any more) */
   what: string;
   /** what of the song it lands on */
-  on: 'drop' | 'word' | 'cut' | 'beat';
+  on: 'drop' | 'word' | 'cut' | 'out' | 'beat';
 }
 
 /** every landing of the video that plays now, in time order */
@@ -54,7 +54,7 @@ export function landingsNow(): Landing[] {
         from: shot.clipFrom ?? 0,
         ramp,
         what: e ? (e.what ?? sawOf(e)) : '',
-        on: drops.some((d) => Math.abs(d.t - at) < 0.12) ? 'drop' : Math.abs(at - a.sections[part].start) < 0.05 ? 'cut' : words.some((w) => Math.abs(w.t - at) < 0.04) ? 'word' : 'beat',
+        on: drops.some((d) => Math.abs(d.t - at) < 0.12) ? 'drop' : Math.abs(at - a.sections[part].start) < 0.05 ? 'cut' : Math.abs(at - a.sections[part].end) < 0.05 ? 'out' : words.some((w) => Math.abs(w.t - at) < 0.04) ? 'word' : 'beat',
       });
     }
   });

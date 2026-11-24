@@ -143,7 +143,7 @@ export function ShotStyle({ t, busy }: { t: ShotTarget; busy: boolean }) {
   );
 }
 
-const LANDS_ON: Record<Landing['on'], string> = { drop: 'on the drop', cut: 'right on the cut', word: 'on a word', beat: 'on the beat' };
+const LANDS_ON: Record<Landing['on'], string> = { drop: 'on the drop', cut: 'right on the cut', out: 'right before the next cut', word: 'on a word', beat: 'on the beat' };
 const LANDS_HOW: Record<Landing['ramp'], string> = {
   land: 'The clip rushes up to it and all but stops on it.',
   sink: 'The clip eases into it and hangs there.',
