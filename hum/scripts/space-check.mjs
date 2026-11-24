@@ -8,7 +8,8 @@
  *   node scripts/space-check.mjs --port 5198 --out /path/dir --label before
  *   node scripts/space-check.mjs --port 5198 --out dir --kits print --mediums big --shapes 16x9 --all
  *
- * Shapes: 9x16 (1080x1920), 4x5 (1080x1350), 1x1 (1080x1080), 16x9 (1920x1080).
+ * Shapes: 9x16 (1080x1920), 4x5 (1080x1350), 1x1 (1080x1080), 16x9 (1920x1080), and what Fill makes of a
+ * whole screen: 9x19 (a phone), 16x10 (a laptop), 5x4 (a window), 21x9 (a wide monitor).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 
@@ -22,7 +23,7 @@ const port = opt('port', '5198');
 const out = opt('out', `${process.cwd()}/space`);
 const label = opt('label', 'run');
 const list = (k) => (opt(k) ? opt(k).split(',') : undefined);
-const SHAPES = { '9x16': [1080, 1920], '4x5': [1080, 1350], '1x1': [1080, 1080], '16x9': [1920, 1080] };
+const SHAPES = { '9x16': [1080, 1920], '4x5': [1080, 1350], '1x1': [1080, 1080], '16x9': [1920, 1080], '9x19': [1080, 2340], '16x10': [1920, 1200], '5x4': [1350, 1080], '21x9': [2520, 1080] };
 const shapes = list('shapes') ?? Object.keys(SHAPES);
 mkdirSync(out, { recursive: true });
 

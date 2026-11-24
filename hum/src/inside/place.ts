@@ -93,6 +93,9 @@ export interface Lens {
   vp: { x: number; y: number };
 }
 
+/** the point the finish pushes the picture in about */
+export const pushCentre = (l: Lens) => ({ x: Math.min(1.2, Math.max(-0.2, l.vp.x)), y: Math.min(1.2, Math.max(-0.2, l.vp.y)) });
+
 const NO_VIEW: View = { u: 0.5, v: 0.5, roll: 0 };
 
 /** does the place move past the camera (driving, walking ahead), rather than slide or shake? */

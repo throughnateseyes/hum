@@ -27,6 +27,7 @@ import { chosenPhotosAt } from '../state/partEdit';
 import { PopupLayer } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
+import { takePush } from '../inside/reading';
 import { live as liveState } from '../state/live';
 import type { HandStyle } from '../core/types';
 import { FULL, quality, type QualityRung } from './quality';
@@ -51,13 +52,13 @@ const IMPACT_FRAG = /* glsl */ `
 precision highp float;
 varying vec2 vUv;
 uniform sampler2D tMap;
-uniform float uKick, uSnare, uDrop, uBuild, uTime, uAmt, uAspect;
+uniform float uKick, uSnare, uDrop, uBuild, uTime, uAmt, uAspect, uMost;
 float h(float x){ return fract(sin(x * 91.17) * 43758.5453); }
 void main(){
   float a = min(uAmt, 1.6);
   float hit = smoothstep(0.62, 1.0, uDrop);            // strongest in the first ~0.4 s of a drop
   vec2 c = vUv - 0.5;
-  float zoom = (0.028 * uKick + 0.07 * hit + 0.025 * uBuild) * a;
+  float zoom = min((0.028 * uKick + 0.07 * hit + 0.025 * uBuild) * a, uMost); // words in the picture stay in the frame
   float f = floor(uTime * 30.0);
   vec2 shake = (vec2(h(f), h(f + 7.31)) - 0.5) * (0.005 * uBuild + 0.012 * hit) * a;
   vec2 uv = c * (1.0 - zoom) + 0.5 + shake;
@@ -259,6 +260,7 @@ export class Stage {
         uTime: { value: 0 },
         uAmt: { value: 1 },
         uAspect: { value: 1 },
+        uMost: { value: 1 },
       },
       vertexShader: FULLSCREEN_VERT,
       fragmentShader: IMPACT_FRAG,
@@ -568,6 +570,7 @@ export class Stage {
     u.uTime.value = time;
     u.uAmt.value = amt;
     u.uAspect.value = aspect;
+    u.uMost.value = Math.max(0, 1 - 1 / takePush());
   }
 
   /**
@@ -883,6 +886,8 @@ export class Stage {
     this.lastDrawing = time;
     if (!handOn && s.hand.fps >= 60) this.holdReady = false;
 
+    // (what a window or a warm-up noted since the last frame isn't this picture's)
+    takePush();
     if (!this.placeholder) this.placeholder = createPlaceholderPhoto();
     // the photos the person chose for the part playing (or the look on its own), in their order: one
     // keeps the look on it, several rotate among just those; nothing chosen, every photo as before

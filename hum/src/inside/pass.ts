@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { EYE, type ClipScene } from '../depth/types';
-import { at, type Crop, type Lens } from './place';
+import { at, pushCentre, type Crop, type Lens } from './place';
 import { BED, FINISH, FULLSCREEN_VERT, NEARNESS, OVER } from './shaders';
 
 /** everything that says how the clip is painted this frame */
@@ -232,7 +232,8 @@ export class InsidePass {
     this.draw(this.over, this.outRT);
 
     const f = this.finish.uniforms;
-    f.uVp.value.set(Math.min(1.2, Math.max(-0.2, l.vp.x)), Math.min(1.2, Math.max(-0.2, l.vp.y)));
+    const centre = pushCentre(l);
+    f.uVp.value.set(centre.x, centre.y);
     f.uSmear.value = o.finish.smear;
     f.uZoom.value = o.finish.zoom;
     f.uFlash.value = o.finish.flash;

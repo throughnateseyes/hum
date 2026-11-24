@@ -12,10 +12,11 @@ import { clamp01, dice, since, smooth } from '../shot/time';
 import { DrawnInPlace, seats, seatsAt, type Drawn, type Seat, type SeatWhere } from './drawn';
 import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type Room } from './drawnIds';
 import { noteSeat } from './seated';
-import { chunksOf, place, standing, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
+import { chunksOf, keepFor, place, standing, type Keep, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
 import type { InsidePalette } from './palettes';
 import type { Finish, InsidePass, Paint } from './pass';
-import { cropOf, goesAhead, lens, mapAt, nearnessAt, project, unproject, type Crop, type Lens } from './place';
+import { notePush } from './reading';
+import { cropOf, goesAhead, lens, mapAt, nearnessAt, project, pushCentre, unproject, type Crop, type Lens } from './place';
 import { insideFor, type ExtraId, type InsideRecipe, type PaintId, type PutId } from './recipes';
 import { FLAT_FRAG, FLAT_VERT, MAX_LETTERS, RAYS_FRAG, RIBBON_FRAG, RIBBON_VERT, WORD_FRAG, WORD_VERT, FULLSCREEN_VERT } from './shaders';
 import { advance, setWord } from './words';
@@ -50,6 +51,8 @@ export interface InsideSpec {
   focus: { x: number; y: number };
   zoom: number;
   flip: boolean;
+  /** how far the shot's camera has pushed in at song time t (1: not at all) */
+  growAt?: (t: number) => number;
   /** the director's choices over the recipe's */
   paint?: PaintId;
   put?: PutId;
@@ -121,6 +124,9 @@ export class InsideShot {
   private readonly bare: boolean;
   private readonly rnd: () => number;
   private readonly crop: Crop;
+  private readonly keep: Keep;
+  /** the frame room the words that are up take, before the push */
+  private readonly boxes: FrameBox[] = [];
   private readonly clip0: number;
   private readonly standing: Standing[] = [];
   private readonly mats: THREE.Material[] = [];
@@ -151,6 +157,7 @@ export class InsideShot {
     this.paintKind = s.paint && this.can(s.paint) ? s.paint : (paints[(s.layout >> 3) % Math.max(1, paints.length)] ?? 'none');
     this.extras = new Set(s.extras ?? (bare ? (['ribbons'] as ExtraId[]) : this.recipe.with));
     this.crop = cropOf(s.clipAspect, s.aspect, s.focus, s.zoom, s.flip);
+    this.keep = keepFor(s.aspect);
     this.clip0 = s.clipAt(s.start);
     const st = standing(s.scene);
     this.span = Math.min(60, Math.max(8, st.between[0] ?? st.far * 0.3));
@@ -171,6 +178,12 @@ export class InsideShot {
 
   private lensAt(t: number): Lens {
     return lens(this.spec.scene, this.spec.clipAspect, this.spec.clipAt(t), this.clip0, this.crop);
+  }
+
+  /** how far the picture is pushed in at song time t, before any kick or cut adds to it */
+  private steady(t: number, grow = this.spec.growAt?.(t) ?? 1): number {
+    const s = this.spec;
+    return 1 + (Math.max(1, grow) - 1) * 0.3 + (s.kicks.length && this.recipe.jump > 0.3 ? 0 : 0.05 * smooth(0, Math.max(3, s.end - s.start), t - s.start));
   }
 
   /** stand everything in the place (on the first frame drawn: it needs the clip's depth) */
@@ -268,16 +281,16 @@ export class InsideShot {
   /** where each block of words stands, round what a drawing has taken (`seat`) */
   private placeBlocks(chunks: Chunk[], seat: Seat | null): Put[] {
     const s = this.spec;
-    const portrait = s.aspect < 0.9;
     let last: PutId | undefined;
     const out: Put[] = [];
     for (const [i, chunk] of chunks.entries()) {
       const mid = chunk.from + (chunk.to - chunk.from) * 0.35;
-      const times = [mid, chunk.from + 0.02, chunk.from + (chunk.to - chunk.from) * 0.7, chunk.to - 0.02];
+      const at = (k: number) => chunk.from + (chunk.to - chunk.from) * k;
+      const times = [mid, chunk.to - 0.02, chunk.from + 0.02, at(0.7), at(0.18), at(0.52), at(0.86)];
       const put = place(
         chunk.words.map((w) => w.text),
         s.put ? [s.put, ...this.recipe.put.filter((p) => p !== s.put)] : this.recipe.put,
-        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.075 : 0.055, ...(seat ? { taken: times.map((t) => this.seatBox(seat, t)) } : {}) },
+        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, keep: this.keep, zooms: times.map((t) => this.steady(t)), ...(seat ? { taken: times.map((t) => this.seatBox(seat, t)) } : {}) },
       );
       last = put.kind;
       out.push(put);
@@ -539,18 +552,78 @@ export class InsideShot {
       if (st && st.far < 0.6) paint.grade = Math.max(paint.grade, 0.6);
     }
     this.placeWords(t, amount, now, p);
+    const steady = this.steady(t, o.grow);
+    const most = this.hold(t, l, steady);
     this.placeExtras(t, beats, l, now);
     this.drawing?.update(t, 1 - amount * 0.75, gone);
 
     const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
     const ramp = s.leave === 'ramp' ? clamp01(1 - (s.end - t) / (s.beat * 2)) : 0;
     const finish: Finish = {
-      zoom: 1 + (Math.max(1, o.grow) - 1) * 0.3 + (s.kicks.length && this.recipe.jump > 0.3 ? 0 : 0.05 * smooth(0, Math.max(3, s.end - s.start), tau)) + bump + 0.1 * ramp ** 3,
+      // a kick or a cut pushes in no further than the words have room for
+      zoom: Math.min(steady + bump + 0.1 * ramp ** 3, Math.max(steady, most)),
       smear: Math.min(0.2, (s.arrive === 'hit' ? 0.2 * Math.exp(-tau / 0.09) : 0) + 0.16 * ramp ** 4 + Math.max(0, o.speed - 2) * 0.02),
       flash: black ? 1 : o.flash * 0.85,
       flashColor: black ? '#08090b' : p.paper,
     };
+    const c = pushCentre(l);
+    // and what is left for whatever pushes the finished frame in about its middle
+    for (const b of this.boxes) for (const [at, mid] of [[b.x0, c.x], [b.x1, c.x], [b.y0, c.y], [b.y1, c.y]]) notePush(0.478 / Math.max(1e-3, Math.abs(mid + (at - mid) * finish.zoom - 0.5)));
     this.pass.render({ scene: s.scene, t: s.clipAt(t), footage: o.footage, clipAspect: s.clipAspect, crop: this.crop, lens: l, paint, finish, place: this.place, target: o.target });
+  }
+
+  /**
+   * The words that are up stay in the frame whatever the place does: one that the picture's own movement
+   * would carry over the edge is held at it. Says how far the picture can be pushed in with them all still in.
+   */
+  private hold(t: number, l: Lens, steady: number): number {
+    const c = pushCentre(l);
+    const k = this.keep;
+    // what is kept clear while the picture jumps: a little less than where they stand
+    const lim = { x0: k.side * 0.5, x1: 1 - k.side * 0.5, y0: k.foot * 0.6, y1: 1 - k.head * 0.6 };
+    let most = Infinity;
+    this.boxes.length = 0;
+    for (const st of this.standing) {
+      if (!st.group.visible) continue;
+      const g = st.group;
+      const b = this.boxOf(st.put, t);
+      // the room there is before the push
+      const r = { x0: c.x + (lim.x0 - c.x) / steady, x1: c.x + (lim.x1 - c.x) / steady, y0: c.y + (lim.y0 - c.y) / steady, y1: c.y + (lim.y1 - c.y) / steady };
+      g.position.set(0, 0, 0);
+      g.scale.setScalar(1);
+      if (st.put.kind === 'far' || st.put.kind === 'between') {
+        const fit = Math.min(1, (r.x1 - r.x0) / (b.x1 - b.x0), (r.y1 - r.y0) / (b.y1 - b.y0));
+        const cx = (b.x0 + b.x1) / 2;
+        const cy = (b.y0 + b.y1) / 2;
+        const hw = ((b.x1 - b.x0) / 2) * fit;
+        const hh = ((b.y1 - b.y0) / 2) * fit;
+        const x = Math.min(r.x1 - hw, Math.max(r.x0 + hw, cx));
+        const y = Math.min(r.y1 - hh, Math.max(r.y0 + hh, cy));
+        if (fit < 1 || Math.abs(x - cx) > 1e-5 || Math.abs(y - cy) > 1e-5) {
+          // the same move in the place, at the distance they stand
+          const { o } = st.put;
+          const w = -(o[2] + l.ahead);
+          const from = unproject(l, cx, cy, w);
+          const to = unproject(l, x, y, w);
+          g.scale.set(fit, fit, 1);
+          g.position.set(to.x - from.x * fit, to.y - from.y * fit, 0);
+        }
+        b.x0 = x - hw;
+        b.x1 = x + hw;
+        b.y0 = y - hh;
+        b.y1 = y + hh;
+      }
+      this.boxes.push(b);
+      for (const [edge, at, mid] of [
+        [lim.x0, b.x0, c.x],
+        [lim.x1, b.x1, c.x],
+        [lim.y0, b.y0, c.y],
+        [lim.y1, b.y1, c.y],
+      ])
+        // only an edge on the far side of the words from the point it pushes about
+        if ((at - mid) * (edge - mid) > 0 && Math.abs(at - mid) > 1e-4) most = Math.min(most, (edge - mid) / (at - mid));
+    }
+    return most;
   }
 
   private placeWords(t: number, amount: number, now: { field: string; word: string }, p: InsidePalette) {

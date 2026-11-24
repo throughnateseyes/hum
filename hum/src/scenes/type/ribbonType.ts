@@ -837,7 +837,8 @@ export const ribbonType: SceneDef = {
       // a new poster every 8 bars, every 4 when the song is running hot
       const phrase = Math.floor((tSong * bps) / 16);
       const turn = phrase !== lastPhrase && (energy > 0.62 || phrase % 2 === 0 || Math.abs(phrase - lastPhrase) > 1);
-      const base = Math.max(0.05, 0.103 * Math.sqrt(4 * frame.aspect));
+      // a tall frame's ribbons are narrower still, so a few words of the line are in the frame at once
+      const base = Math.max(0.05, 0.103 * Math.sqrt(4 * frame.aspect) * (frame.aspect < 0.9 ? 0.72 : 1));
       const key = `${frame.aspect.toFixed(3)}`;
       const seedBase = hashStr(songInfo().title) ^ Math.imul(phrase + 3, 0x9e3779b1) ^ Math.imul(sec + 5, 0x85ebca6b);
       const dropped = isDrop(frame);

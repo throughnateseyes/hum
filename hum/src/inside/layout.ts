@@ -6,8 +6,9 @@
  * place), being hidden counts against it, and no letter may be lost.
  */
 import type { ClipScene } from '../depth/types';
-import { hides, mapAt, nearnessAt, project, unproject, type Crop, type Lens } from './place';
+import { hides, mapAt, nearnessAt, project, pushCentre, unproject, type Crop, type Lens } from './place';
 import type { PutId } from './recipes';
+import { TALL_BOTTOM, TALL_TOP } from '../render/lyricSpace';
 import { advance, chooseWidth, type Stretch } from './words';
 
 /** a box in the frame, 0..1 from the bottom-left */
@@ -23,6 +24,29 @@ export interface SungWord {
   t: number;
   end: number;
 }
+
+/** the room kept clear at the frame's edges, as shares of its width (the sides) and its height */
+export interface Keep {
+  side: number;
+  head: number;
+  foot: number;
+}
+
+/**
+ * A phone-tall frame keeps more at the top and bottom clear, where Reels and TikTok lay their own bars,
+ * captions and buttons: the same room the lyric overlay keeps (render/lyricSpace.ts).
+ */
+export function keepFor(aspect: number): Keep {
+  if (aspect < 1 / 1.5) return { side: 0.075, head: TALL_TOP, foot: TALL_BOTTOM };
+  if (aspect < 0.9) return { side: 0.075, head: 0.075, foot: 0.09 };
+  return { side: 0.055, head: 0.066, foot: 0.066 };
+}
+
+/** a frame point once the picture is pushed in by `zoom` about the vanishing point (the finish pass does it) */
+export const pushed = (l: Lens, zoom: number, q: { x: number; y: number }) => {
+  const c = pushCentre(l);
+  return { x: c.x + (q.x - c.x) * zoom, y: c.y + (q.y - c.y) * zoom };
+};
 
 /** words that stand together, from when the first is sung until the next block takes over */
 export interface Chunk {
@@ -156,8 +180,10 @@ export interface Where {
   dice: number;
   /** where the last block stood */
   last?: PutId;
-  /** the frame's edge kept clear, as a share of its width and height */
-  margin: number;
+  /** the room kept clear at the frame's edges */
+  keep: Keep;
+  /** how far the picture is pushed in at each of `times`, about the vanishing point: the words go with it */
+  zooms: number[];
   /** room something else has already taken at each of `times` (a drawing the shot is about): no word stands there */
   taken?: FrameBox[];
 }
@@ -167,15 +193,19 @@ const rnd = (n: number) => {
   return x - Math.floor(x);
 };
 
+/** a block set right up to the margin is inside it */
+const EPS = 1e-4;
 const COLS = 26;
 const ROWS = 5;
 
 /**
  * How much of a block shows (its least readable line counts), the worst stretch about a letter wide, how
- * much of it is in the frame, and how big it is there
+ * much of it is in the frame, how big it is there, and its least room at an edge (1: all that is kept clear)
  */
 function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, k: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number; edge: number; onto: number } {
   const t = o.times[k];
+  const { side, head, foot } = o.keep;
+  const zoom = o.zooms[k] ?? 1;
   const taken = o.taken?.[k];
   let onto = 0;
   const map = o.scene ? mapAt(o.scene, t) : null;
@@ -215,11 +245,12 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, k: number): { show
         const q = project(lens, p.o[0] + p.across[0] * a + p.up[0] * b, p.o[1] + p.across[1] * a + p.up[1] * b, p.o[2] + p.across[2] * a + p.up[2] * b);
         all++;
         if (q.w < 0.4) continue;
-        x0 = Math.min(x0, q.x);
-        x1 = Math.max(x1, q.x);
-        y0 = Math.min(y0, q.y);
-        y1 = Math.max(y1, q.y);
-        if (q.x < o.margin || q.x > 1 - o.margin || q.y < o.margin * 1.2 || q.y > 1 - o.margin * 1.2) continue;
+        const f = pushed(lens, zoom, q);
+        x0 = Math.min(x0, f.x);
+        x1 = Math.max(x1, f.x);
+        y0 = Math.min(y0, f.y);
+        y1 = Math.max(y1, f.y);
+        if (f.x < side - EPS || f.x > 1 - side + EPS || f.y < foot - EPS || f.y > 1 - head + EPS) continue;
         inside++;
         if (taken && q.x > taken.x0 && q.x < taken.x1 && q.y > taken.y0 && q.y < taken.y1) onto++;
         let part = 1;
@@ -242,7 +273,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, k: number): { show
       worst = Math.min(worst, s / span);
     }
   });
-  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim, edge: Math.min(x0, 1 - x1, y0, 1 - y1), onto: onto / all };
+  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim, edge: Math.min(x0 / side, (1 - x1) / side, y0 / foot, (1 - y1) / head), onto: onto / all };
 }
 
 /** the distances a word can stand at to have something in front of it and something behind, far to near */
@@ -264,11 +295,11 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
     const zs = kind === 'far' ? [st.far] : st.between;
     for (const w of zs)
       for (const n of lineChoices)
-        for (const W of portrait ? [0.88, 0.76, 0.64, 0.54] : [0.88, 0.74, 0.6, 0.46]) {
+        for (const W of portrait ? [0.82, 0.74, 0.64, 0.54] : [0.85, 0.74, 0.6, 0.46]) {
           const block = setBlock(words, n, portrait ? 0.3 : 0.34 / n ** 0.4);
           const h = W * block.height * o.aspect;
-          if (h > 0.82) continue;
-          for (const cx of W < 0.7 ? [0.5, 0.36, 0.64, 0.29, 0.71] : [0.5, 0.36, 0.64])
+          if (h > 1 - o.keep.head - o.keep.foot) continue;
+          for (const cx of W < 0.7 ? [0.5, 0.36, 0.64, 0.29, 0.71] : [0.5, 0.45, 0.55])
             for (const cy of [0.5, 0.62, 0.72, 0.4, 0.3]) {
               const a = unproject(lens, cx - W / 2, cy - h / 2, w);
               const b = unproject(lens, cx + W / 2, cy - h / 2, w);
@@ -284,7 +315,7 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
   if (kind === 'wall') {
     if (vp.x < -0.2 || vp.x > 1.2 || (scene && scene.sure.horizon < 0.3)) return out;
     for (const side of [1, -1]) {
-      const edge = side > 0 ? 1 - o.margin * 1.2 : o.margin * 1.2;
+      const edge = side > 0 ? 1 - o.keep.side * 1.2 : o.keep.side * 1.2;
       const room = (edge - vp.x) * side;
       if (room < 0.3) continue;
       for (const X of [2.4, 4, 7, 12])
@@ -292,19 +323,21 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
           const block = setBlock(words, n, 0.16);
           // the near end at the frame's edge, the far end a share of the way back to the vanishing point
           for (const back of [0.3, 0.4, 0.22]) {
-            const zAt = (fx: number) => {
+            const zAt = (fx: number, l = lens, push = 1) => {
               // the distance at which a point `X` to the side lands on fx
               let lo = 0.5;
               let hi = 4000;
               for (let k = 0; k < 40; k++) {
                 const m = Math.sqrt(lo * hi);
-                const q = project(lens, side * X, 1.5, -m - lens.ahead);
+                const q = pushed(l, push, project(l, side * X, 1.5, -m - l.ahead));
                 if ((q.x - fx) * side > 0) lo = m;
                 else hi = m;
               }
-              return Math.sqrt(lo * hi);
+              // how far that is from where the camera is when it is sung
+              return Math.sqrt(lo * hi) + l.ahead - lens.ahead;
             };
-            const zn = zAt(edge);
+            // the near end is still in the frame when the place has moved past
+            const zn = Math.max(zAt(edge, lens, o.zooms[0]), ...o.around.map((l, k) => zAt(edge, l, o.zooms[k + 1])));
             let zf = zAt(vp.x + side * room * back);
             // the near end may stand at most this tall
             const unit = project(lens, side * X, 2.5, -zn - lens.ahead).y - project(lens, side * X, 1.5, -zn - lens.ahead).y;
@@ -325,24 +358,30 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
   }
   // the ground: the block lies flat, its lines running away, stretched the way road lettering is
   if (!scene || scene.ground < 0.07 || scene.sure.horizon < 0.35 || vp.y < 0.2) return out;
+  const f = o.keep.foot;
   for (const n of lineChoices)
     for (const stretch of [2.2, 3.2, 1.5])
-      for (const near of [0.07, 0.14, 0.22]) {
+      for (const near of [f + 0.01, f + 0.07, f + 0.15]) {
         const block = setBlock(words, n, 0.3);
         if (near > vp.y - 0.08) continue;
-        // the distance whose ground lands on `near`
-        let lo = 0.5;
-        let hi = 2000;
-        for (let k = 0; k < 40; k++) {
-          const m = Math.sqrt(lo * hi);
-          if (project(lens, 0, 0, -m - lens.ahead).y < near) lo = m;
-          else hi = m;
-        }
-        const zn = Math.sqrt(lo * hi);
-        for (const W of [0.86, 0.66, 0.5])
+        // the distance whose ground lands on `near` (now, or once the place has moved past)
+        const zAt = (l: Lens, push: number) => {
+          let lo = 0.5;
+          let hi = 2000;
+          for (let k = 0; k < 40; k++) {
+            const m = Math.sqrt(lo * hi);
+            if (pushed(l, push, project(l, 0, 0, -m - l.ahead)).y < near) lo = m;
+            else hi = m;
+          }
+          return Math.sqrt(lo * hi) + l.ahead - lens.ahead;
+        };
+        const zn = Math.max(zAt(lens, o.zooms[0]), ...o.around.map((l, k) => zAt(l, o.zooms[k + 1])));
+        // as wide as it gets: what it measures at its near edge when it is nearest
+        const fy = project(lens, 0, 0, -zn - lens.ahead).y;
+        for (const W of [0.84, 0.66, 0.5])
           for (const cx of [0.5, vp.x, 0.4, 0.6]) {
-            const a = unproject(lens, cx - W / 2, near, zn);
-            const b = unproject(lens, cx + W / 2, near, zn);
+            const a = unproject(lens, cx - W / 2, fy, zn);
+            const b = unproject(lens, cx + W / 2, fy, zn);
             const len = Math.hypot(b.x - a.x, b.y - a.y);
             out.push({ kind, block, o: [a.x, 0.02, -zn - lens.ahead], across: [len, 0, 0], up: [0, 0, -len * stretch], w: zn * 1.4 });
           }
@@ -386,6 +425,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
         let edge = r.edge;
         let onto = 0;
         o.around.forEach((l, k) => {
+          if (inside < 0.96) return;
           const s = reading(o, c, l, k + 1);
           shown = Math.min(shown, s.shown + 0.08);
           worst = Math.min(worst, s.worst + 0.08);
@@ -394,9 +434,9 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
           onto = Math.max(onto, s.onto);
         });
         if (onto > 0.06) continue;
-        if (inside < (kind === 'far' || kind === 'between' ? 0.96 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
-        // a word that stands facing the camera keeps its margin while the place moves
-        if ((kind === 'far' || kind === 'between') && edge < o.margin * (ease ? 0.5 : 0.85)) continue;
+        if (inside < 0.96 || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
+        // it keeps its margin while the place moves, whichever way it faces
+        if (edge < (ease ? 0.5 : 0.85)) continue;
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it
@@ -406,9 +446,9 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
     });
     if (best) return best;
   }
-  // nothing read well enough: the words full width in front of everything
+  // nothing read well enough: the words in front of everything
   const block = setBlock(words, Math.min(words.length, o.aspect < 0.9 ? 3 : 2), 0.26);
-  const W = Math.min(0.8, 0.6 / (block.height * o.aspect));
+  const W = Math.min(0.8, 0.5 / (block.height * o.aspect));
   // far off, so the place moving past leaves it where it is; it is drawn over everything
   const w = 900;
   const y = 0.5 - (W * block.height * o.aspect) / 2;

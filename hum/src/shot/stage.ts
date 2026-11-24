@@ -449,6 +449,7 @@ export class ShotStage {
       focus: { ...focus },
       zoom,
       flip: curve.flip,
+      growAt: (t) => this.pictureMotion(rig, t, focus.x, zoom).grow,
       drawn,
     });
     rig.inside = { shot: made, key };

@@ -36,3 +36,15 @@ export function takeInside(): boolean {
   noted = false;
   return was;
 }
+
+let push = Infinity;
+/** how much more the picture may be pushed in this frame before its words leave the frame (1: not at all) */
+export const notePush = (k: number) => {
+  push = Math.min(push, k);
+};
+/** asked once a frame by what pushes the finished picture in (the stage's impact pass) */
+export function takePush(): number {
+  const was = push;
+  push = Infinity;
+  return was;
+}
