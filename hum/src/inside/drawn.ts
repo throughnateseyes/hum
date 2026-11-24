@@ -16,7 +16,7 @@ import { kindOf } from '../draw/kinds';
 import { VARIANTS } from '../draw/pen';
 import { EYE } from '../depth/types';
 import { clamp01, since } from '../shot/time';
-import { standing } from './layout';
+import { standing, type FrameBox } from './layout';
 import { hides, mapAt, nearnessAt, project, unproject, type Crop, type Lens } from './place';
 import type { InsidePalette } from './palettes';
 import { DRAWN_FRAG, SHADOW_FRAG, WORD_VERT } from './shaders';
@@ -32,14 +32,6 @@ export interface Drawn {
   arrives: boolean;
 }
 
-/** a box in the frame, 0..1 from the bottom-left */
-export interface FrameBox {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
 /** where it stands: its bottom-left corner, what its width runs along and what its height does */
 export interface Seat {
   put: DrawnPut;
@@ -47,10 +39,14 @@ export interface Seat {
   across: [number, number, number];
   up: [number, number, number];
   w: number;
+  size: DrawnSize;
   score: number;
   /** how much of it shows */
   shown: number;
 }
+
+/** one being tried */
+type Try = Omit<Seat, 'score' | 'shown' | 'size'>;
 
 export interface SeatWhere {
   scene: ClipScene | null;
@@ -66,7 +62,10 @@ export interface SeatWhere {
 }
 
 /** its height as a share of the frame's, before the place has its say */
-const TALL: Record<DrawnSize, number> = { small: 0.2, medium: 0.34, large: 0.54 };
+const TALL: Record<DrawnSize, number> = { small: 0.27, medium: 0.4, large: 0.58 };
+/** shorter than this it is a speck, and says nothing */
+const LEAST_TALL = 0.23;
+const BY_SIZE: DrawnSize[] = ['large', 'medium', 'small'];
 /** tried in this order when the place asked for has no room */
 const ELSE: Record<DrawnPut, DrawnPut[]> = {
   ground: ['ground', 'between', 'far'],
@@ -84,13 +83,14 @@ const roll = (n: number) => {
 /** where the drawing's silhouette is, roughly: the corners of its box are usually bare */
 const weight = (a: number, b: number) => (Math.hypot((a - 0.5) * 2, (b - 0.5) * 2) < 1.08 ? 1 : 0.25);
 
-function measure(o: SeatWhere, s: Omit<Seat, 'score' | 'shown'>, lens: Lens, t: number) {
+function measure(o: SeatWhere, s: Try, lens: Lens, t: number) {
   const map = o.scene ? mapAt(o.scene, t) : null;
   let all = 0;
   let inside = 0;
   let shown = 0;
   let onWords = 0;
   let foot = 0;
+  let against = 0;
   let foots = 0;
   const hid = [0, 0, 0];
   const all3 = [0, 0, 0];
@@ -114,7 +114,11 @@ function measure(o: SeatWhere, s: Omit<Seat, 'score' | 'shown'>, lens: Lens, t: 
       inside += k;
       if (o.words.some((w) => q.x > w.x0 - 0.02 && q.x < w.x1 + 0.02 && q.y > w.y0 - 0.02 && q.y < w.y1 + 0.02)) onWords += k;
       const open = !(o.scene && map && hides(o.scene, nearnessAt(o.scene, map, o.crop, q.x, q.y), q.w));
-      if (open) shown += k;
+      if (open) {
+        shown += k;
+        // it stands right in front of somebody: near enough to be read as laid over them
+        if (j >= 3 && o.scene && map && o.scene.zScale / Math.max(0.001, nearnessAt(o.scene, map, o.crop, q.x, q.y)) < q.w * 1.7) against += k;
+      }
       if (j < 2) {
         foots++;
         const third = Math.min(2, Math.floor(a * 3));
@@ -123,7 +127,7 @@ function measure(o: SeatWhere, s: Omit<Seat, 'score' | 'shown'>, lens: Lens, t: 
         else hid[third]++;
       }
     }
-  return { inside: inside / all, shown: shown / all, onWords: onWords / all, foot: foots ? foot / foots : 0, held: hid.filter((n, k) => all3[k] && n / all3[k] > 0.4).length >= 2, box: { x0, y0, x1, y1 } };
+  return { inside: inside / all, shown: shown / all, against: against / all, onWords: onWords / all, foot: foots ? foot / foots : 0, held: hid.filter((n, k) => all3[k] && n / all3[k] > 0.4).length >= 2, box: { x0, y0, x1, y1 } };
 }
 
 /** the distance at which flat ground lands on frame height fy */
@@ -139,7 +143,7 @@ function groundAt(l: Lens, fx: number, fy: number): number {
   return Math.sqrt(lo * hi);
 }
 
-function facing(o: SeatWhere, put: DrawnPut, w: number, fx: number, fy: number, W: number, H: number): Omit<Seat, 'score' | 'shown'> {
+function facing(o: SeatWhere, put: DrawnPut, w: number, fx: number, fy: number, W: number, H: number): Try {
   const a = unproject(o.lens, fx - W / 2, fy, w);
   const b = unproject(o.lens, fx + W / 2, fy, w);
   const len = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
@@ -150,22 +154,25 @@ function facing(o: SeatWhere, put: DrawnPut, w: number, fx: number, fy: number, 
   return { put, o: [a.x, a.y, a.z], across: [ux * len, uy * len, 0], up: [-uy * tall, ux * tall, 0], w };
 }
 
-function candidates(o: SeatWhere, put: DrawnPut, ratio: number, size: DrawnSize): Omit<Seat, 'score' | 'shown'>[] {
-  const out: Omit<Seat, 'score' | 'shown'>[] = [];
+function candidates(o: SeatWhere, put: DrawnPut, ratio: number, size: DrawnSize): Try[] {
+  const out: Try[] = [];
   const { scene, lens } = o;
   if (!scene) return out;
   const portrait = o.aspect < 0.9;
   const st = standing(scene);
   // in a tall frame a height is worth less width
-  const want = TALL[size] * (portrait ? 0.78 : 1);
+  // and a thin thing needs more height to be as much of a thing
+  const want = Math.min(0.72, TALL[size] * (portrait ? 0.78 : 1) * Math.max(1, (0.62 / ratio) ** 0.35));
   const widest = portrait ? 0.84 : 0.6;
-  for (const k of [1, 0.84, 0.7, 1.16]) {
+  for (const k of [1, 0.88, 0.78, 1.14]) {
     let H = want * k;
     let W = (H * ratio) / o.aspect;
     if (W > widest) {
       H *= widest / W;
       W = widest;
     }
+    // (a wide thing is as big as it is wide)
+    if (H < LEAST_TALL * (portrait ? 0.75 : 1) && W < 0.3) continue;
     if (put === 'ground') {
       if (scene.ground < 0.06 || scene.sure.horizon < 0.3 || lens.vp.y < 0.18) return out;
       const top = lens.vp.y;
@@ -213,14 +220,33 @@ function candidates(o: SeatWhere, put: DrawnPut, ratio: number, size: DrawnSize)
   return out;
 }
 
-/** the best standing for a drawing of this shape, or null when the place has none */
-export function seat(put: DrawnPut, ratio: number, size: DrawnSize, o: SeatWhere): Seat | null {
-  if (!o.scene || !mapAt(o.scene, o.times[0])) return null;
-  for (const kind of ELSE[put].filter((p) => DRAWN_PUTS.includes(p))) {
-    let best: Seat | null = null;
+/**
+ * The standings worth trying for a drawing of this shape, best first (none: the place has none): where and
+ * as big as it was asked for, then smaller there, then elsewhere. A few of each, apart from one another, so
+ * words that can't live with one may with the next.
+ */
+export function seats(put: DrawnPut, ratio: number, size: DrawnSize, o: SeatWhere): Seat[] {
+  if (!o.scene || !mapAt(o.scene, o.times[0])) return [];
+  const out: Seat[] = [];
+  for (const kind of ELSE[put].filter((p) => DRAWN_PUTS.includes(p)))
+    for (const s of BY_SIZE.slice(BY_SIZE.indexOf(size))) {
+      out.push(...seatsAt(kind, ratio, s, o));
+      if (out.length > 6) return out;
+    }
+  return out;
+}
+
+/** where the middle of a seat is across the frame, about */
+const middle = (b: FrameBox) => (b.x0 + b.x1) / 2;
+
+/** the best of one kind and size: the best there is, and the best well to its side */
+export function seatsAt(kind: DrawnPut, ratio: number, size: DrawnSize, o: SeatWhere): Seat[] {
+  if (!o.scene || !mapAt(o.scene, o.times[0])) return [];
+  const found: { seat: Seat; at: number }[] = [];
+  {
     candidates(o, kind, ratio, size).forEach((c, i) => {
       const r = measure(o, c, o.lens, o.times[0]);
-      if (r.inside < 0.97 || r.shown < 0.56 || r.onWords > 0.06) return;
+      if (r.inside < 0.97 || r.shown < 0.64 || r.onWords > 0.06) return;
       // what stands on the ground is seen to stand on it, and not through somebody
       if (kind === 'ground' && (r.foot < 0.75 || r.shown < 0.72)) return;
       // on a wall it is seen side on: never so side on that it is a sliver
@@ -239,18 +265,21 @@ export function seat(put: DrawnPut, ratio: number, size: DrawnSize, o: SeatWhere
         inside = Math.min(inside, s.inside);
         onWords = Math.max(onWords, s.onWords);
       });
-      if (shown < 0.42 || inside < (kind === 'wall' || kind === 'ground' ? 0.6 : 0.85) || onWords > 0.12) return;
+      if (shown < 0.52 || inside < (kind === 'wall' || kind === 'ground' ? 0.6 : 0.85) || onWords > 0.12) return;
       const { box } = r;
       const cx = (box.x0 + box.x1) / 2;
       const area = Math.max(0, box.x1 - box.x0) * Math.max(0, box.y1 - box.y0);
       const behind = 1 - r.shown;
       // something crossing in front of it is what puts it in the place; off the middle sits better
-      const score = r.shown * 0.5 + (behind > 0.05 && behind < 0.4 ? 0.5 : 0) + Math.min(0.4, area) * 1.1 + (Math.abs(Math.abs(cx - 0.5) - 0.17) < 0.08 ? 0.14 : 0) - r.onWords * 2 + (shown - r.shown) * 0.5 + (inside - 1) * 0.6 + roll(o.dice * 13 + i) * 0.1;
-      if (!best || score > best.score) best = { ...c, score, shown: r.shown };
+      const score = r.shown * 0.5 + (behind > 0.05 && behind < 0.4 ? 0.5 : 0) + Math.min(0.4, area) * 1.1 + (Math.abs(Math.abs(cx - 0.5) - 0.17) < 0.08 ? 0.14 : 0) - r.onWords * 2 - (kind === 'wall' ? 0 : r.against * 0.8) + (shown - r.shown) * 0.5 + (inside - 1) * 0.6 + roll(o.dice * 13 + i) * 0.1;
+      found.push({ seat: { ...c, size, score, shown: r.shown }, at: middle(box) });
     });
-    if (best) return best;
   }
-  return null;
+  found.sort((a, b) => b.seat.score - a.seat.score);
+  const best = found[0];
+  if (!best) return [];
+  const aside = found.find((f) => Math.abs(f.at - best.at) > 0.2);
+  return aside ? [best.seat, aside.seat] : [best.seat];
 }
 
 const lum = (hex: string) => {

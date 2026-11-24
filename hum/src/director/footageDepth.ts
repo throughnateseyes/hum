@@ -36,9 +36,15 @@ function rangesOf(cut: Cut): { id: string; range: [number, number] }[] {
   return run.seqs.flatMap((seq) => (seq ? insideRanges(seq).map((x) => ({ id: deckIds[x.clip % deckIds.length], range: x.range })) : []));
 }
 
+/** the first two (they play at once), then every fifth, and the ones between: what time allows is from all over the song */
+function spread<T>(xs: T[]): T[] {
+  const rest = xs.slice(2);
+  return [...xs.slice(0, 2), ...[2, 0, 3, 1, 4].flatMap((k) => rest.filter((_, i) => i % 5 === k))];
+}
+
 export async function readDepth(cut: Cut, o: { signal: AbortSignal; say: (text: string, n?: number, of?: number) => void }) {
   const s = useStudio.getState();
-  const all = rangesOf(cut);
+  const all = spread(rangesOf(cut));
   if (!all.length) return;
   o.say('Reading the depth of your footage');
   const until = performance.now() + MOST_MS;

@@ -963,15 +963,17 @@ export class Stage {
     // how busy each kind of pop-up window is right now, split by the "Windows show" setting
     // (none over the footage looks: their graphics are bare shapes in the picture, and windows would bury the clips)
     // Each part's windows are dealt from its own level (the same every time it plays); what's on screen now
-    // only limits how many of them show: none over footage or drawings, the odd one over a board look
+    // only limits how many of them show: none over footage, drawings or a look that is its own words (they
+    // would land on its text), the odd one over a board look
     const kind = s.windowKind;
     const board = this.current.def.category === 'board';
     const clips = !!this.current.def.usesClips || !!this.current.def.usesDrawings || !!this.current.def.usesFigures;
+    const wordy = !board && !!this.current.def.showsLyrics;
     const pops = {
       instruments: (t: number) => windowLevels(popLevelAt(t), kind, false).instruments,
       looks: (t: number) => windowLevels(popLevelAt(t), kind, false).looks,
-      showInstruments: clips ? 0 : board ? 2 : 4,
-      showLooks: clips ? 0 : board ? 1 : 3,
+      showInstruments: clips || wordy ? 0 : board ? 1 : 4,
+      showLooks: clips || wordy ? 0 : board ? 1 : 3,
     };
     const winOpts = { level: pops.looks, show: pops.showLooks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
@@ -1029,7 +1031,7 @@ export class Stage {
       o?.phase?.('windows');
       this.sceneWindows.render(r, base, held ? { ...winOpts, target: held, keep } : { ...winOpts, keep });
       o?.phase?.('popups');
-      this.popups.render(r, base, held, pops.instruments, keep);
+      this.popups.render(r, base, held, pops.instruments, keep, pops.showInstruments);
       if (held) {
         this.holdReady = true;
         this.shared.blit(held.texture, null);

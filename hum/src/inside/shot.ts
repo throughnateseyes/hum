@@ -9,8 +9,10 @@ import type { ClipScene } from '../depth/types';
 import type { MomentId } from '../moments';
 import { kindOf } from '../draw/kinds';
 import { clamp01, dice, since, smooth } from '../shot/time';
-import { DrawnInPlace, seat, type Drawn, type FrameBox } from './drawn';
-import { chunksOf, place, standing, type Chunk, type Put, type SungWord } from './layout';
+import { DrawnInPlace, seats, seatsAt, type Drawn, type Seat, type SeatWhere } from './drawn';
+import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type Room } from './drawnIds';
+import { noteSeat } from './seated';
+import { chunksOf, place, standing, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
 import type { InsidePalette } from './palettes';
 import type { Finish, InsidePass, Paint } from './pass';
 import { cropOf, goesAhead, lens, mapAt, nearnessAt, project, unproject, type Crop, type Lens } from './place';
@@ -97,6 +99,15 @@ function lightFor(s: { field: string; light: string; word: string }): string {
 }
 /** 1 for a colour whose word is darker than it: everything it paints stays light behind the word */
 const airyOf = (s: { field: string; word: string }) => (lum(s.field) - lum(s.word) > 0.18 ? 1 : 0);
+/** whether words that make room for a drawing (`round`) still read well: plainly, or about as they did without it (`alone`) */
+function stillRead(round: Put[], alone: Put[]): boolean {
+  return round.length === alone.length && round.every((p, i) => p.score > Math.min(1, alone[i].score * 0.68));
+}
+/** how wide a drawing is for its height */
+export function ratioOf(d: Pick<Drawn, 'asset'>): number {
+  const size = kindOf(d.asset.kind)?.size(d.asset.data) ?? { w: 1, h: 1 };
+  return Math.min(2.6, Math.max(0.35, size.w / size.h));
+}
 const unit = new THREE.PlaneGeometry(1, 1);
 const post = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
 const blend = { transparent: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, side: THREE.DoubleSide } as const;
@@ -166,22 +177,11 @@ export class InsideShot {
   private build() {
     this.built = true;
     const s = this.spec;
-    const portrait = s.aspect < 0.9;
-    // sung words come in blocks; words that aren't sung stand for the whole shot
-    const chunks: Chunk[] = s.sung ? chunksOf(s.words, s.start, s.end, portrait, s.beat) : s.words.length ? [{ words: s.words, from: s.start, to: s.end }] : [];
-    let last: PutId | undefined;
-    chunks.forEach((chunk, i) => {
-      const mid = chunk.from + (chunk.to - chunk.from) * 0.35;
-      const times = [mid, chunk.from + 0.02, chunk.from + (chunk.to - chunk.from) * 0.7, chunk.to - 0.02];
-      const put = place(
-        chunk.words.map((w) => w.text),
-        s.put ? [s.put, ...this.recipe.put.filter((p) => p !== s.put)] : this.recipe.put,
-        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.075 : 0.055 },
-      );
-      last = put.kind;
-      this.standing.push(this.stand(chunk, put));
-    });
-    if (s.drawn) this.addDrawing(s.drawn);
+    const chunks = this.chunks();
+    const { puts, seat } = this.arrange(chunks, s.drawn ? { put: s.drawn.put, size: s.drawn.size, ratio: ratioOf(s.drawn) } : null);
+    chunks.forEach((chunk, i) => this.standing.push(this.stand(chunk, puts[i])));
+    if (s.drawn && seat) this.addDrawing(s.drawn, seat);
+    if (s.drawn && s.scene) noteSeat(s.partStart, s.drawn.put, s.drawn.size, !!seat);
     if (this.extras.has('rays')) this.addRays();
     if (this.extras.has('lines')) this.addLines();
     if (this.extras.has('posts')) this.addPosts();
@@ -242,9 +242,9 @@ export class InsideShot {
   }
 
   /** the frame room a block of words takes at song time t */
-  private boxOf(st: Standing, t: number): FrameBox {
+  private boxOf(put: Put, t: number): FrameBox {
     const l = this.lensAt(t);
-    const { o, across, up, block } = st.put;
+    const { o, across, up, block } = put;
     const b = { x0: 9, y0: 9, x1: -9, y1: -9 };
     for (const a of [0, 1])
       for (const h of [0, block.height]) {
@@ -257,24 +257,99 @@ export class InsideShot {
     return b;
   }
 
-  /** stand a drawing in the room the words leave, where the place holds it (nowhere: there is none) */
-  private addDrawing(d: Drawn) {
+  /** where a drawing may be tried: what the lens and the clip are at a few times of the shot */
+  private seatWhere(): SeatWhere {
     const s = this.spec;
-    const kind = kindOf(d.asset.kind);
-    if (!kind) return;
-    const size = kind.size(d.asset.data);
-    const ratio = Math.min(2.6, Math.max(0.35, size.w / size.h));
-    const portrait = s.aspect < 0.9;
     const len = s.end - s.start;
     const times = [0.4, 0.02, 0.2, 0.7, 0.96].map((k) => s.start + len * k);
-    const words = this.standing.flatMap((st) => [0.05, 0.5, 0.95].map((k) => this.boxOf(st, st.chunk.from + (st.chunk.to - st.chunk.from) * k)));
-    const at = seat(d.put, ratio, d.size, { scene: s.scene, lens: this.lensAt(times[0]), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, margin: portrait ? 0.075 : 0.055, dice: s.layout + 5, words });
-    if (!at) return;
-    const l = this.lensAt(times[0]);
+    return { scene: s.scene, lens: this.lensAt(times[0]), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, margin: s.aspect < 0.9 ? 0.075 : 0.055, dice: s.layout + 5, words: [] };
+  }
+
+  /** where each block of words stands, round what a drawing has taken (`seat`) */
+  private placeBlocks(chunks: Chunk[], seat: Seat | null): Put[] {
+    const s = this.spec;
+    const portrait = s.aspect < 0.9;
+    let last: PutId | undefined;
+    const out: Put[] = [];
+    for (const [i, chunk] of chunks.entries()) {
+      const mid = chunk.from + (chunk.to - chunk.from) * 0.35;
+      const times = [mid, chunk.from + 0.02, chunk.from + (chunk.to - chunk.from) * 0.7, chunk.to - 0.02];
+      const put = place(
+        chunk.words.map((w) => w.text),
+        s.put ? [s.put, ...this.recipe.put.filter((p) => p !== s.put)] : this.recipe.put,
+        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.075 : 0.055, ...(seat ? { taken: times.map((t) => this.seatBox(seat, t)) } : {}) },
+      );
+      last = put.kind;
+      out.push(put);
+      // these words have nowhere left to stand: no use going on
+      if (seat && put.score <= 0) break;
+    }
+    return out;
+  }
+
+  /** the frame room a drawing takes at song time t, and a little air round it */
+  private seatBox(at: Seat, t: number): FrameBox {
+    const l = this.lensAt(t);
+    const b = { x0: 9, y0: 9, x1: -9, y1: -9 };
+    for (const u of [0, 1])
+      for (const v of [0, 1]) {
+        const q = project(l, at.o[0] + at.across[0] * u + at.up[0] * v, at.o[1] + at.across[1] * u + at.up[1] * v, at.o[2] + at.across[2] * u + at.up[2] * v);
+        b.x0 = Math.min(b.x0, q.x);
+        b.x1 = Math.max(b.x1, q.x);
+        b.y0 = Math.min(b.y0, q.y);
+        b.y1 = Math.max(b.y1, q.y);
+      }
+    return { x0: b.x0 - 0.012, x1: b.x1 + 0.012, y0: b.y0, y1: b.y1 + 0.012 };
+  }
+
+  /**
+   * Where the words and the drawing stand. A shot with a drawing is about it, so it is seated first and the
+   * words stand round it; where they can't be read that way the next seat is tried, and in the end the words
+   * come first and the drawing has what they leave.
+   */
+  private arrange(chunks: Chunk[], d: { put: DrawnPut; size: DrawnSize; ratio: number } | null): { puts: Put[]; seat: Seat | null } {
+    if (!d) return { puts: this.placeBlocks(chunks, null), seat: null };
+    const where = this.seatWhere();
+    const tries = seats(d.put, d.ratio, d.size, where);
+    if (!chunks.length) return { puts: [], seat: tries[0] ?? null };
+    const puts = this.placeBlocks(chunks, null);
+    for (const seat of tries.slice(0, 5)) {
+      const round = this.placeBlocks(chunks, seat);
+      if (stillRead(round, puts)) return { puts: round, seat };
+    }
+    const words = chunks.flatMap((chunk, i) => [0.05, 0.5, 0.95].map((k) => this.boxOf(puts[i], chunk.from + (chunk.to - chunk.from) * k)));
+    return { puts, seat: seats(d.put, d.ratio, d.size, { ...where, words })[0] ?? null };
+  }
+
+  private chunks(): Chunk[] {
+    const s = this.spec;
+    // sung words come in blocks; words that aren't sung stand for the whole shot
+    return s.sung ? chunksOf(s.words, s.start, s.end, s.aspect < 0.9, s.beat) : s.words.length ? [{ words: s.words, from: s.start, to: s.end }] : [];
+  }
+
+  /** for the art director: the places a drawing could stand here with the words still read, and the biggest size each holds */
+  room(ratio = 1): Room {
+    const chunks = this.chunks();
+    const where = this.seatWhere();
+    const alone = this.placeBlocks(chunks, null);
+    const out: Room = {};
+    for (const put of DRAWN_PUTS)
+      for (const size of [...DRAWN_SIZES].reverse()) {
+        const fits = seatsAt(put, ratio, size, where).some((at) => stillRead(this.placeBlocks(chunks, at), alone));
+        if (!fits) continue;
+        out[put] = size;
+        break;
+      }
+    return out;
+  }
+
+  private addDrawing(d: Drawn, at: Seat) {
+    const s = this.spec;
+    const l = this.lensAt(s.start + (s.end - s.start) * 0.4);
     const foot = project(l, at.o[0], at.o[1], at.o[2]);
     const head = project(l, at.o[0] + at.up[0], at.o[1] + at.up[1], at.o[2] + at.up[2]);
     const px = Math.hypot((head.x - foot.x) * this.pass.width, (head.y - foot.y) * this.pass.height);
-    this.drawing = new DrawnInPlace(d, at, s.palette, (v, f, u) => this.material(v, f, u), { start: s.start, beat: s.beat, kicks: s.kicks, jump: this.recipe.jump, px, ratio });
+    this.drawing = new DrawnInPlace(d, at, s.palette, (v, f, u) => this.material(v, f, u), { start: s.start, beat: s.beat, kicks: s.kicks, jump: this.recipe.jump, px, ratio: ratioOf(d) });
     this.place.add(this.drawing.group);
   }
 
@@ -589,7 +664,7 @@ export class InsideShot {
   seated() {
     if (!this.built) this.build();
     const at = this.drawing?.seat;
-    return at ? { id: this.drawing!.drawn.asset.id, put: at.put, shown: Math.round(at.shown * 100) / 100, score: Math.round(at.score * 100) / 100 } : null;
+    return at ? { id: this.drawing!.drawn.asset.id, put: at.put, size: at.size, shown: Math.round(at.shown * 100) / 100, score: Math.round(at.score * 100) / 100 } : null;
   }
 
   dispose() {

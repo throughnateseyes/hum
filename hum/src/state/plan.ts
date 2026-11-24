@@ -1281,21 +1281,23 @@ async function directVideo(
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
     let art: Art | null = null;
+    let stills: { sheets: string[]; parts: number[] } | null = null;
     if (chosen) {
       const { artOpen, directArt } = await import('../director/footageArt');
+      // what can be drawn where depends on the depth of the shots; the stills of the cut need no drawings
+      await d.depthFor(chosen, run);
+      const checking = d.stillsFor(chosen, run);
       if (artOpen()) run.say('Deciding what to draw');
-      // both take a while and neither needs the other
-      [art] = await Promise.all([
+      [art, stills] = await Promise.all([
         directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint }, run).catch((err: unknown) => {
           if (!run.signal.aborted) console.warn('no drawings were chosen', err);
           return null;
         }),
-        d.depthFor(chosen, run),
+        checking,
       ]);
       if (art) chosen.cues = plan.cues = art.cues;
     }
     if (art) plan.art = art.art;
-    const stills = chosen ? await d.stillsFor(chosen, run) : null;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const look = art;
     return {

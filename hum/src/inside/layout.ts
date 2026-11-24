@@ -10,6 +10,14 @@ import { hides, mapAt, nearnessAt, project, unproject, type Crop, type Lens } fr
 import type { PutId } from './recipes';
 import { advance, chooseWidth, type Stretch } from './words';
 
+/** a box in the frame, 0..1 from the bottom-left */
+export interface FrameBox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 export interface SungWord {
   text: string;
   t: number;
@@ -150,6 +158,8 @@ export interface Where {
   last?: PutId;
   /** the frame's edge kept clear, as a share of its width and height */
   margin: number;
+  /** room something else has already taken at each of `times` (a drawing the shot is about): no word stands there */
+  taken?: FrameBox[];
 }
 
 const rnd = (n: number) => {
@@ -164,7 +174,10 @@ const ROWS = 5;
  * How much of a block shows (its least readable line counts), the worst stretch about a letter wide, how
  * much of it is in the frame, and how big it is there
  */
-function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number; edge: number } {
+function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, k: number): { shown: number; worst: number; inside: number; size: number; least: number; slim: number; edge: number; onto: number } {
+  const t = o.times[k];
+  const taken = o.taken?.[k];
+  let onto = 0;
   const map = o.scene ? mapAt(o.scene, t) : null;
   let inside = 0;
   let all = 0;
@@ -208,6 +221,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
         y1 = Math.max(y1, q.y);
         if (q.x < o.margin || q.x > 1 - o.margin || q.y < o.margin * 1.2 || q.y > 1 - o.margin * 1.2) continue;
         inside++;
+        if (taken && q.x > taken.x0 && q.x < taken.x1 && q.y > taken.y0 && q.y < taken.y1) onto++;
         let part = 1;
         if (o.scene && map && hides(o.scene, nearnessAt(o.scene, map, o.crop, q.x, q.y), q.w)) {
           // something thin (a cable, a pole) takes less than the small map says: both sides of it are clear
@@ -228,7 +242,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
       worst = Math.min(worst, s / span);
     }
   });
-  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim, edge: Math.min(x0, 1 - x1, y0, 1 - y1) };
+  return { shown, worst, inside: inside / all, size: Math.max(0, x1 - x0) * Math.max(0, y1 - y0), least, slim, edge: Math.min(x0, 1 - x1, y0, 1 - y1), onto: onto / all };
 }
 
 /** the distances a word can stand at to have something in front of it and something behind, far to near */
@@ -336,6 +350,19 @@ function candidates(words: string[], kind: PutId, o: Where): Omit<Put, 'score'>[
   return out;
 }
 
+/** a quick look at whether a block stands on room that is taken */
+function onBox(p: Omit<Put, 'score'>, l: Lens, b: FrameBox): boolean {
+  let hit = 0;
+  for (let i = 0; i < 8; i++)
+    for (const h of [0.12, 0.5, 0.88]) {
+      const a = (i + 0.5) / 8;
+      const k = h * p.block.height;
+      const q = project(l, p.o[0] + p.across[0] * a + p.up[0] * k, p.o[1] + p.across[1] * a + p.up[1] * k, p.o[2] + p.across[2] * a + p.up[2] * k);
+      if (q.x > b.x0 && q.x < b.x1 && q.y > b.y0 && q.y < b.y1 && ++hit > 2) return true;
+    }
+  return false;
+}
+
 /** the best standing for these words (with nowhere that can be read: in front of everything, score 0) */
 export function place(words: string[], puts: PutId[], o: Where): Put {
   let best: Put | null = null;
@@ -346,7 +373,9 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
       const fallback = rank >= puts.length;
       if (fallback && best) return;
       for (const [i, c] of candidates(words, kind, o).entries()) {
-        const r = reading(o, c, o.lens, o.times[0]);
+        if (o.taken?.[0] && onBox(c, o.lens, o.taken[0])) continue;
+        const r = reading(o, c, o.lens, 0);
+        if (r.onto > 0.02) continue;
         if (r.inside < 0.985 || r.least < (kind === 'ground' ? 0.12 : 0.05) || r.slim < (kind === 'wall' ? 0.3 : kind === 'ground' ? 0.45 : 0.2)) continue;
         if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.52 - ease * 0.12) continue;
         // on the ground it is seen at a slant already: it has to be clear
@@ -355,21 +384,24 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
         let worst = r.worst;
         let inside = r.inside;
         let edge = r.edge;
+        let onto = 0;
         o.around.forEach((l, k) => {
-          const s = reading(o, c, l, o.times[k + 1]);
+          const s = reading(o, c, l, k + 1);
           shown = Math.min(shown, s.shown + 0.08);
           worst = Math.min(worst, s.worst + 0.08);
           inside = Math.min(inside, s.inside);
           edge = Math.min(edge, s.edge);
+          onto = Math.max(onto, s.onto);
         });
+        if (onto > 0.06) continue;
         if (inside < (kind === 'far' || kind === 'between' ? 0.96 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
         // a word that stands facing the camera keeps its margin while the place moves
         if ((kind === 'far' || kind === 'between') && edge < o.margin * (ease ? 0.5 : 0.85)) continue;
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it
-        const score = size * 2.1 + shown * 0.5 + Math.min(0.6, worst) * 0.55 + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07;
-        if (!best || score > best.score) best = { ...c, score };
+        const score = size * 2.1 + shown * 0.5 + Math.min(0.6, worst) * 0.55 + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07 - ease * 0.35;
+        if (!best || score > best.score) best = { ...c, score: Math.max(0.01, score) };
       }
     });
     if (best) return best;

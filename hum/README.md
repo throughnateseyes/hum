@@ -252,7 +252,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   first four bars. **Pop-ups keep clear of the words:** the lyric line is laid out before any window
   draws, so windows open away from it (and from where the next line will land), and one already open
   where a line arrives glides out of the way on a spring. With no room to move (small phone frames,
-  lots of windows) it shrinks a little and stays, and the words over it get the halo.
+  big words) it shrinks until there is, and shuts until the words have gone where even a small one would
+  cover them. A part's instruments never cover more than a quarter of the frame, and none open over clips,
+  drawings or a look that is its own words.
   **Per part:** the Part tab's Pop-ups (Auto / Off / Few / Lots, or the timeline's right-click menu)
   sets how busy they get in that part, and its **Shuffle** deals that part a different set of windows,
   which then stays the same every time it plays (`src/state/popSeed.ts`). In code,
@@ -369,7 +371,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   made from your footage an art direction: one idea, a few rules, one hand, and up to five drawings with a
   job. Yours are used where they fit and Claude draws what is missing. Each stands in Inside shots, hidden
   by whoever passes in front and in the video's colours, and is found nowhere if nothing in the picture can
-  hold it. **In this video** lists where each stands and why: go there, move it or take it out
+  hold it. The shot's words stand round its drawing, and the drawing
+  gets smaller before it is left out. **In this video** lists where each stands and why, and says when a
+  shot had no room: go there, move it or take it out
   (`src/inside/drawn.ts`, `src/director/footageArt.ts`).
 - **Impact** (Video tab → Movement) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and

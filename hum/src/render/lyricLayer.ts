@@ -181,6 +181,8 @@ interface LineState {
   holdTo?: number;
   /** normalized box around the text, probed for legibility */
   rect: Rect;
+  /** with everything the kit draws round it (its plate, frame and small lines): what windows keep clear of */
+  room?: Rect;
   ladder: Backing[];
   target: number;
   inks: 'look' | 'light' | 'dark';
@@ -360,7 +362,7 @@ export class LyricLayer {
     const f = this.facts(o);
     if (f.cur) this.ensureLine(f, o);
     const L = this.line;
-    const now = f.cur && this.bridged(f) && L && !quiet(L.medium) && this.standDown < 0.5 ? L.rect : null;
+    const now = f.cur && this.bridged(f) && L && !quiet(L.medium) && this.standDown < 0.5 ? (L.room ?? L.rect) : null;
     if (now) this.lastRect = now;
     // the next showing, once it's close: lines in a part mostly come back to the same place
     const nx = f.shows[f.cur ? f.cur.i + 1 : f.i + 1];
@@ -778,6 +780,8 @@ export class LyricLayer {
         L.target = role === 'caption' ? 4.5 : role === 'aside' ? 4 : 3;
       }
       L.rect = (L.turn ? turnedRect(L.type.rows, L.turn.cx, L.turn.cy, W, H, 0.015) : rectOf(L.type.rows, W, H, 0.015)) ?? L.rect;
+      L.room = withReach(L.rect, kit.reach(L.type, kitMedium, W, H), W, H, !!L.turn);
+      if (!L.turn && kit.spans?.(L.type.role, kitMedium)) L.room = { ...L.room, x0: 0, x1: 1 };
       // a kit medium with its own plate (the LED sign, the ink band, the paper panel) is its own
       // backing: the guard has nothing to add under it
       if (kit.ownPlate?.(role, kitMedium)) L.ladder = ['none'];
@@ -924,6 +928,12 @@ function haloSpans(L: TypeLayout, t: number): { x: number; y: number; w: number;
 /** row boxes of a laid-out line that have a word up (scrims grow with the line) */
 function rowsUp(L: TypeLayout, t: number): TypeLayout['rows'] {
   return L.rows.filter((_, ri) => L.words.some((w) => w.t <= t && w.row === ri));
+}
+
+/** a line's box with what its kit draws round it; `turned`: it is set up a side column, a quarter anticlockwise */
+function withReach(r: Rect, rc: { l: number; t: number; r: number; b: number }, W: number, H: number, turned: boolean): Rect {
+  const o = turned ? { l: rc.t, t: rc.r, r: rc.b, b: rc.l } : rc;
+  return { x0: Math.max(0, r.x0 - o.l / W), y0: Math.max(0, r.y0 - o.t / H), x1: Math.min(1, r.x1 + o.r / W), y1: Math.min(1, r.y1 + o.b / H) };
 }
 
 /**

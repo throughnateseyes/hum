@@ -9,7 +9,7 @@
  * out against the picture's depth by the app (src/inside/drawn.ts).
  */
 import { HAND_IDS, isHandId } from '../../src/draw/format.js';
-import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, PUT_LINES } from '../../src/inside/drawnIds.js';
+import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, PUT_LINES, type Room } from '../../src/inside/drawnIds.js';
 import { DATA_RULE, describeSong, readMedia, readParts, wishLine } from './footage.js';
 import type { Step, StepTool } from './types';
 
@@ -26,6 +26,15 @@ const MOST_NEW = 4;
 const MOST_THINGS = 3;
 
 const PUTS = DRAWN_PUTS.map((p) => `  - ${p}: ${PUT_LINES[p]}`).join('\n');
+
+/** the room a part has for a drawing, as the app worked it out (null: it didn't) */
+function readRoom(v: unknown): Room | null {
+  if (!isObj(v)) return null;
+  const out: Room = {};
+  for (const p of DRAWN_PUTS) if ((DRAWN_SIZES as readonly unknown[]).includes(v[p])) out[p] = v[p] as Room[typeof p];
+  return out;
+}
+const roomLine = (r: Room) => DRAWN_PUTS.filter((p) => r[p]).map((p) => `${p} up to ${r[p]}`).join(', ') || 'none';
 
 /* ───────────────────────── art ───────────────────────── */
 
@@ -52,7 +61,7 @@ Work like an art director with one idea and a small budget. A viewer should feel
 ${PUTS}
     Choose by what the picture is of: ground needs a visible floor, road or field and some empty space; between needs people or things near the camera to stand behind; far needs a skyline, hills or sky; wall needs a street or corridor seen along its length. Close-ups of faces and pictures without depth take none.
   - size: small, medium or large. enter: draw (it draws itself over the first beat or two: for a first sight, or a quiet moment), rise (it springs up on the cut: for a hit or a loud part), there (already standing: for a return).
-  - A part with many words has little room, so prefer parts with few or no words, or a small size. Never two different things in one part, and not in neighbouring parts unless it is the same thing carrying on.
+  - Where the room in a part is listed, it was measured in the picture with the part's words standing round the drawing: use only the puts listed, and no bigger than the size given. A part with none listed was not measured: it may have none, so prefer measured ones where they serve as well. Let the moments that matter most fall on parts with the most room, and spread the sizes: at least one large if any part holds one. Never two different things in one part, and not in neighbouring parts unless it is the same thing carrying on.
 
 Write plainly, sentence case, no exclamation marks, no dashes used as punctuation. ${DATA_RULE}`;
 
@@ -115,6 +124,11 @@ const art: Step = {
     const parts = readParts(body.parts);
     const offered = new Set(list(body.offer, 120).map(int).filter((i) => parts.open.has(i)));
     if (!offered.size) return 'There is no shot to draw into.';
+    const room = new Map<number, Room>();
+    for (const x of list(body.room, 120)) {
+      const r = isObj(x) && offered.has(int(x.part)) ? readRoom(x.room) : null;
+      if (r) room.set(int((x as Obj).part), r);
+    }
     const have = new Map<string, string>();
     for (const x of list(body.have, 14)) {
       if (!isObj(x)) continue;
@@ -141,6 +155,7 @@ const art: Step = {
         `The person's media:\n${media.lines.join('\n')}`,
         `Parts:\n${parts.lines.join('\n')}`,
         `Parts offered for drawings: ${[...offered].join(', ')}`,
+        room.size ? `The room in them:\n${[...room].map(([i, r]) => `part ${i}: ${roomLine(r)}`).join('\n')}` : '',
         have.size ? `Drawings the person already has for this song:\n${[...have.values()].join('\n')}` : 'The person has no drawings for this song yet.',
         last.length ? `The last video of this song drew: ${last.join(', ')}. Come at it from somewhere else this time.` : '',
       ]
@@ -181,13 +196,17 @@ const art: Step = {
           const part = int(x.part);
           const thing = int(x.thing);
           if (!offered.has(part) || seen.has(part) || !things[thing]) continue;
+          const put = oneOf(x.put, DRAWN_PUTS, 'between');
+          const size = oneOf(x.size, DRAWN_SIZES, 'medium');
+          const held = room.get(part);
+          const fits = held ? inRoom(held, put, size) : { put, size };
+          if (!fits) continue;
           seen.add(part);
           places.push({
             part,
             thing,
             stage: x.stage === 'end' && things[thing].end ? 'end' : 'start',
-            put: oneOf(x.put, DRAWN_PUTS, 'between'),
-            size: oneOf(x.size, DRAWN_SIZES, 'medium'),
+            ...fits,
             enter: oneOf(x.enter, DRAWN_ENTERS, 'draw'),
             why: text(x.why, 110),
           });
@@ -215,7 +234,7 @@ Answer only for the parts where something is wrong:
 - move: another place or size would fix it. Give put and size.
 - remove: no place in this shot will hold it, or it fights what the shot is about. A cut with fewer, better drawings is the better cut, so do not be shy with this.
 - redraw: the drawing itself reads as something else, or is a tangle, wherever it stands. Give note, one sentence to the illustrator. At most two in the whole video.
-problem: what is wrong, at most 10 plain words. A still with no drawing to be seen in it found no room: leave it out unless another put from the list clearly has room there, then move.
+problem: what is wrong, at most 10 plain words. A still with no drawing to be seen in it found no room: leave it out unless its room lists another put, then move it there. Where room is listed, move only to a put and size it holds.
 
 put is one of:
 ${PUTS}
@@ -258,7 +277,7 @@ const artReview: Step = {
     for (const x of list(body.places, 12)) {
       if (!isObj(x) || int(x.part) < 0 || placed.has(int(x.part)) || !text(x.name, 40)) continue;
       placed.set(int(x.part), x);
-      lines.push(`part ${int(x.part)}: ${text(x.name, 40)}, ${oneOf(x.put, DRAWN_PUTS, 'between')}, ${oneOf(x.size, DRAWN_SIZES, 'medium')}${text(x.why, 110) ? `. ${text(x.why, 110)}` : ''}`);
+      lines.push(`part ${int(x.part)}: ${text(x.name, 40)}, ${oneOf(x.put, DRAWN_PUTS, 'between')}, ${oneOf(x.size, DRAWN_SIZES, 'medium')}${text(x.why, 110) ? `. ${text(x.why, 110)}` : ''}${readRoom(x.room) ? `. Room: ${roomLine(readRoom(x.room)!)}` : ''}`);
     }
     if (!placed.size) return 'There is nothing to check.';
     return {

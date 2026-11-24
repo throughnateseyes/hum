@@ -261,6 +261,8 @@ const IN_STEP = 0.045;
 const IN_SCALES = [0.35, 1.14, 0.95, 1];
 const OUT_TIME = 0.16;
 const MAX_OPEN = [0, 2, 3, 4];
+/** the most of the frame a part's open windows may cover between them */
+const MOST_COVER = [0, 0.12, 0.18, 0.24];
 const BAR_CHANCE = [0, 0.1, 0.22, 0.42];
 /** deals kept (the part playing, the one before and a few recent), so moving around doesn't re-deal */
 const KEEP_DEALS = 6;
@@ -459,7 +461,7 @@ export class PopupLayer {
   private chrome(w: Win, sf: SF, ink: Ink): { cr: Rect; tb: number } {
     const { s } = sf;
     const tb = Math.round(Math.max(14, 24 * s));
-    const pad = Math.round(Math.max(5, 9 * s));
+    const pad = Math.round(Math.max(7, 21 * s));
     const key = `${w.w}x${w.h}|${sf.ink.key}|${w.style}`;
     const cr: Rect = { x: pad, y: tb + pad, w: w.w - pad * 2, h: w.h - tb - pad * 2 };
     if (w.cacheKey === key && w.cache) return { cr, tb };
@@ -624,8 +626,18 @@ function dealPopups(part: PopPart, level: number, a: TrackAnalysis | null | unde
     // lyric windows come up more often when there are words
     const weighted = pool.flatMap((k) => (k.needs === 'words' ? [k, k] : [k]));
     const kind = weighted[Math.floor(pick() * weighted.length)];
-    const w = Math.round(Math.min(W * 0.62, kind.w * U));
-    const h = Math.round(Math.min(H * 0.62, kind.h * U + U * 0.1));
+    let w = Math.round(Math.min(W * 0.5, kind.w * U));
+    let h = Math.round(Math.min(H * 0.42, kind.h * U + U * 0.1));
+    // together the windows leave the picture and the words their room: the oldest makes way, then this one is smaller
+    const most = MOST_COVER[level] * W * H;
+    const taken = () => open.reduce((n, o) => n + o.w * o.h, 0);
+    while (open.length && taken() + w * h > most) {
+      open[0].until = at;
+      open.shift();
+    }
+    const k0 = Math.min(1, Math.max(0.72, Math.sqrt(most / (w * h))));
+    w = Math.round(w * k0);
+    h = Math.round(h * k0);
     let best: { x: number; y: number; cost: number } | null = null;
     for (let k = 0; k < 24; k++) {
       const x = m + pick() * Math.max(1, W - w - 2 * m);

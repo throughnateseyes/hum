@@ -9,6 +9,7 @@ import { cancelJob, retryJob, useDrawJobs, type DrawJob } from '../draw/jobs';
 import { drawingNow } from '../draw/session';
 import type { DrawingAsset } from '../draw/types';
 import { DRAWN_PUTS, type DrawnPut, type DrawnShot } from '../inside/drawnIds';
+import { seatedAt, useSeated } from '../inside/seated';
 import { shotOfPart } from '../shot/partShots';
 import { setPartsShot } from '../state/partEdit';
 import { partNames, validPlan } from '../state/plan';
@@ -64,7 +65,7 @@ export function DrawnHere({ thumb }: { thumb: (d: DrawingAsset) => React.ReactNo
             <b>{g.name}</b>
             {!g.asset && <State job={g.job} />}
             {g.shots.map((p) => (
-              <Shot key={p.i} p={p} />
+              <Shot key={p.i} p={p} ready={!!g.asset} />
             ))}
           </div>
         </div>
@@ -94,13 +95,15 @@ function State({ job }: { job?: DrawJob }) {
   );
 }
 
-function Shot({ p }: { p: Placed }) {
+function Shot({ p, ready }: { p: Placed; ready: boolean }) {
+  const seated = useSeated((s) => seatedAt(s.seats, p.at, p.drawn.put, p.drawn.size));
   return (
     <div className="dr-shot">
       <button type="button" className="dr-go" onClick={() => audioEngine.seek(p.at + 0.02)} title={`Go to ${p.name}`}>
         <span className="dr-time">{clock(p.at)}</span>
         <span>{p.drawn.why || p.name}</span>
       </button>
+      <div className="dr-how">
       <select className="dr-put" aria-label={`Where it stands at ${clock(p.at)}`} value={p.drawn.put} onChange={(e) => setPartsShot([p.i], { drawn: { ...p.drawn, put: e.target.value as DrawnPut } })}>
         {DRAWN_PUTS.map((x) => (
           <option key={x} value={x}>
@@ -111,6 +114,8 @@ function Shot({ p }: { p: Placed }) {
       <button type="button" className="dr-out" onClick={() => setPartsShot([p.i], { drawn: null })} aria-label={`Take it out of the shot at ${clock(p.at)}`} title="Take it out of this shot">
         <X width={11} height={11} aria-hidden />
       </button>
+      </div>
+      {ready && seated === false && <p className="dr-none">No room here, so this shot is without it. Try another place.</p>}
     </div>
   );
 }

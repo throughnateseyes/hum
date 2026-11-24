@@ -39,6 +39,7 @@ import { hasRange, noteInside, type Reading } from '../inside/reading';
 import { InsideShot } from '../inside/shot';
 import type { SungWord } from '../inside/layout';
 import type { Drawn } from '../inside/drawn';
+import type { Room } from '../inside/drawnIds';
 
 export interface StageClip {
   /** the video behind it; null for a still stand-in picture */
@@ -400,6 +401,14 @@ export class ShotStage {
   /** the seconds of each clip the inside shots of this run show */
   insideNeeds(): { clip: StageClip; range: [number, number] }[] {
     return this.rigs.filter((r) => r.shot.style === 'inside' && r.clip).map((r) => ({ clip: r.clip!, range: this.clipRange(r) }));
+  }
+
+  /** the room for a drawing in the longest inside shot of this run (null: none, or its depth isn't read) */
+  room(focus: { x: number; y: number }, zoom: number, ratio?: number): Room | null {
+    const rig = this.rigs.filter((r) => r.shot.style === 'inside' && r.clip).sort((a, b) => b.shot.end - b.shot.start - (a.shot.end - a.shot.start))[0];
+    if (!rig) return null;
+    const made = this.insideShot(rig, focus, zoom);
+    return made.spec.scene ? made.room(ratio) : null;
   }
 
   /** the shot's place, made again when its clip's depth has come in or the framing changed */

@@ -15,6 +15,8 @@ import { Footage } from '../shot/footage';
 import { deckIdsOf, footageRun, runPartOf, withOwn } from '../shot/run';
 import { wordsIn } from '../inside/lines';
 import { drawnIn } from '../inside/cast';
+import { bothRooms, type Room } from '../inside/drawnIds';
+import type { Shot } from '../shot/sequence';
 import { insidePalette } from '../inside/palettes';
 import { readingOf } from '../inside/readings';
 import { ShotStage, type StageClip } from '../shot/stage';
@@ -73,14 +75,98 @@ const thumbOf = (c: ClipAsset) =>
     img.src = c.thumb;
   });
 
+/**
+ * The room each of these parts has for a drawing, worked out the way the shot itself will be, without drawing
+ * anything: room that is there both in the frame on screen and in the one a render takes by default. A part whose
+ * depth isn't read has no entry. `ratio`: how wide the drawing is for its height.
+ */
+export async function roomFor(cut: Cut, parts: { part: number; ratio?: number }[], signal: AbortSignal): Promise<Map<number, Room>> {
+  const now = frameAspect();
+  const here = await roomAtShape(now, cut, parts, signal);
+  const wide = now >= 1 ? 16 / 9 : 9 / 16;
+  if (useStudio.getState().aspect !== 'fill' || Math.abs(now - wide) < 0.06) return here;
+  const there = await roomAtShape(wide, cut, parts, signal);
+  for (const [i, r] of here) if (there.has(i)) here.set(i, bothRooms(r, there.get(i)!));
+  return here;
+}
+
+async function roomAtShape(aspect: number, cut: Cut, parts: { part: number; ratio?: number }[], signal: AbortSignal): Promise<Map<number, Room>> {
+  const out = new Map<number, Room>();
+  const s = useStudio.getState();
+  const deckIds = deckIdsOf(s.clips, s.photos);
+  const h = 64;
+  const w = Math.max(16, Math.round(h * aspect));
+  const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'low-power' });
+  renderer.setPixelRatio(1);
+  renderer.setSize(w, h, false);
+  const stage = new ShotStage(renderer, w, h);
+  const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  blank.needsUpdate = true;
+  try {
+    const deck: StageClip[] = deckIds.flatMap((id) => {
+      const m = s.clips.find((c) => c.id === id) ?? s.photos.find((p) => p.id === id);
+      if (!m) return [];
+      if ('thumb' in m && 'duration' in m) return [{ footage: null, texture: blank, aspect: m.width / Math.max(1, m.height), duration: m.duration, palette: m.palette, still: blank, name: m.name, reading: readOnly(m) }];
+      return [{ ...stillClip(m as PhotoAsset), texture: blank, reading: readOnly(m) }];
+    });
+    if (!deck.length) return out;
+    const run = runOf(cut, deckIds, deck);
+    for (const { part, ratio } of parts) {
+      const seq = run.seqs[part];
+      if (!seq) continue;
+      stage.build({ seq, analysis: cut.analysis, clips: deck, title: '', lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, 0), words: wordsFor(seq) } });
+      const own = cut.shotAt(part);
+      const room = stage.room({ x: own?.focusX ?? 0.5, y: own?.focusY ?? 0.55 }, own?.zoom ?? 1, ratio);
+      if (room) out.set(part, room);
+      await breathe();
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    }
+    return out;
+  } finally {
+    stage.dispose();
+    stage.release();
+    blank.dispose();
+    renderer.dispose();
+    renderer.forceContextLoss();
+  }
+}
+
+/** the shape of the frame the video is in */
+function frameAspect(): number {
+  const canvas = document.querySelector<HTMLCanvasElement>('.stage canvas, canvas');
+  return canvas && canvas.height ? Math.min(2.2, Math.max(0.45, canvas.width / canvas.height)) : 16 / 9;
+}
+
+/** what is already read of a picture's depth is used; nothing waits for more */
+const readOnly = (m: ClipAsset | PhotoAsset) => {
+  const r = readingOf(m);
+  return {
+    get scene() {
+      return r.scene;
+    },
+    need: () => Promise.resolve(),
+  };
+};
+
+function runOf(cut: Cut, deckIds: string[], deck: StageClip[]) {
+  const s = useStudio.getState();
+  const all = cut.analysis.sections.map((_, i) => {
+    const look = cut.plan.looks[i] ? findLook(cut.plan.looks[i]!) : undefined;
+    if (!look || look.sceneId !== 'footage') return null;
+    return withOwn(runPartOf({ ...(look.sceneParams ?? {}), ...(s.tweaks[look.id]?.sceneParams ?? {}) }), cut.shotAt(i), deckIds);
+  });
+  return footageRun({ analysis: cut.analysis, sections: originalOf(cut.analysis).sections, parents: parentsOf(cut.analysis), parts: all, clips: deck.map((c) => Math.round(c.duration * 100) / 100), words: titleWords(), feel: curvesFor(cut.plan, cut.analysis, s.lyrics) });
+}
+
+const wordsFor = (seq: { partStart: number }) => (sh: Shot) => wordsIn(sh, titleWords(true), Math.abs(sh.start - seq.partStart) < 0.05);
+
 /** sheets of stills (base64 JPEGs), each still labelled with its part's number. Throws when cancelled, or when they can't be made. */
 export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal): Promise<string[]> {
   const s = useStudio.getState();
   const deckIds = deckIdsOf(s.clips, s.photos);
   const media: (ClipAsset | PhotoAsset | undefined)[] = deckIds.map((id) => s.clips.find((c) => c.id === id) ?? s.photos.find((p) => p.id === id));
   const isClip = (m: ClipAsset | PhotoAsset | undefined): m is ClipAsset => !!m && 'url' in m && 'thumb' in m && 'duration' in m;
-  const canvas = document.querySelector<HTMLCanvasElement>('.stage canvas, canvas');
-  const aspect = canvas && canvas.height ? Math.min(2.2, Math.max(0.45, canvas.width / canvas.height)) : 16 / 9;
+  const aspect = frameAspect();
   const w = Math.round(aspect >= 1 ? CELL : CELL * aspect);
   const h = Math.round(w / aspect);
 
@@ -97,33 +183,22 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
   };
   try {
     const deck: StageClip[] = [];
-    // what is already read of a picture's depth is used; nothing waits for more
-    const read = (m: ClipAsset | PhotoAsset) => {
-      const r = readingOf(m);
-      return { get scene() { return r.scene; }, need: () => Promise.resolve() };
-    };
     for (const m of media) {
       if (isClip(m)) {
         const t = await thumbOf(m);
         thumbs.push(t);
-        deck.push({ footage: null, texture: t, aspect: m.width / Math.max(1, m.height), duration: m.duration, palette: m.palette, still: t, name: m.name, reading: read(m) });
+        deck.push({ footage: null, texture: t, aspect: m.width / Math.max(1, m.height), duration: m.duration, palette: m.palette, still: t, name: m.name, reading: readOnly(m) });
       } else if (m) {
         // a texture of its own, so this small picture leaves nothing hanging on the photo when it goes
         const t = m.texture.clone();
         t.needsUpdate = true;
         thumbs.push(t);
-        deck.push({ ...stillClip(m), texture: t, reading: read(m) });
+        deck.push({ ...stillClip(m), texture: t, reading: readOnly(m) });
       }
     }
     if (!deck.length) return [];
     stop();
-    const all = cut.analysis.sections.map((_, i) => {
-      const look = cut.plan.looks[i] ? findLook(cut.plan.looks[i]!) : undefined;
-      if (!look || look.sceneId !== 'footage') return null;
-      return withOwn(runPartOf({ ...(look.sceneParams ?? {}), ...(s.tweaks[look.id]?.sceneParams ?? {}) }), cut.shotAt(i), deckIds);
-    });
-    const orig = originalOf(cut.analysis);
-    const run = footageRun({ analysis: cut.analysis, sections: orig.sections, parents: parentsOf(cut.analysis), parts: all, clips: deck.map((c) => Math.round(c.duration * 100) / 100), words: titleWords(), feel: curvesFor(cut.plan, cut.analysis, useStudio.getState().lyrics) });
+    const run = runOf(cut, deckIds, deck);
     const title = songTitle().toUpperCase();
 
     // two players at the most: the one used longest ago is closed first
@@ -159,7 +234,7 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
         if (f) here[c % deck.length] = { ...deck[c % deck.length], footage: f, texture: f.texture, aspect: f.aspect, duration: f.duration };
       }
       stop();
-      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, Math.round(cut.analysis.duration * 10)), words: (sh) => wordsIn(sh, titleWords(true), Math.abs(sh.start - seq.partStart) < 0.05), drawn: drawnIn } });
+      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, Math.round(cut.analysis.duration * 10)), words: wordsFor(seq), drawn: drawnIn } });
       await stage.settle(t);
       const own = cut.shotAt(i);
       const focus = { x: own?.focusX ?? 0.5, y: own?.focusY ?? 0.55 };

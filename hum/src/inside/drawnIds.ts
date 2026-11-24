@@ -16,6 +16,25 @@ export const PUT_LINES: Record<DrawnPut, string> = {
   wall: 'lies flat along a side wall or a row of buildings, in perspective',
 };
 
+/** the places a shot has for a drawing, and the biggest size each holds */
+export type Room = Partial<Record<DrawnPut, DrawnSize>>;
+
+/** what two frames of different shapes both have room for */
+export function bothRooms(a: Room, b: Room): Room {
+  const out: Room = {};
+  for (const p of DRAWN_PUTS) if (a[p] && b[p]) out[p] = DRAWN_SIZES[Math.min(DRAWN_SIZES.indexOf(a[p]!), DRAWN_SIZES.indexOf(b[p]!))];
+  return out;
+}
+
+/** a place and size the shot has room for: as asked where it can be, else the nearest thing to it (null: none) */
+export function inRoom(room: Room, put: DrawnPut, size: DrawnSize): { put: DrawnPut; size: DrawnSize } | null {
+  const order: Record<DrawnPut, DrawnPut[]> = { ground: ['between', 'far', 'wall'], between: ['ground', 'far', 'wall'], far: ['between', 'ground', 'wall'], wall: ['between', 'ground', 'far'] };
+  const at = [put, ...order[put]].find((p) => room[p]);
+  if (!at) return null;
+  const n = Math.min(DRAWN_SIZES.indexOf(size), DRAWN_SIZES.indexOf(room[at]!));
+  return { put: at, size: DRAWN_SIZES[Math.max(0, n)] };
+}
+
 /** a part's drawing, as the part keeps it (PartShot.drawn) */
 export interface DrawnShot {
   /** the drawing's id (src/draw); one redrawn since stands in for it */

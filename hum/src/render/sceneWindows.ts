@@ -16,7 +16,7 @@ import { useStudio, type WindowKind } from '../state/store';
 import { withTweak } from '../state/tweaks';
 import { moodFilter } from '../presets/moods';
 import { FxChain } from './fxChain';
-import { newGlide, toPx, toRect, type Glide, type PxBox } from './keepClear';
+import { newGlide, overlap, toPx, toRect, type Glide, type PxBox } from './keepClear';
 import { NO_KEEP_OUT, type KeepOut, type Rect } from './legibility';
 import { barsIn, dealer, dropsIn, hash01, keepGlide, lastAt, paperInk, popPartAt, prevPopPart, refSize, songGrid, type PopLevel, type PopPart } from './popups';
 import { dryRun } from './warmup';
@@ -590,6 +590,7 @@ export class SceneWindows {
     const s = Math.min(W, H) / 1080;
     // the tremble steps 60 times a song-second (not per drawn frame, so a render trembles the same way)
     const shake = Math.floor(t * 60);
+    const words = toPx(this.keep.now, W, H, Math.min(W, H) * 0.01);
     const ac = r.autoClear;
     r.autoClear = false;
     this.wins.forEach((w) => {
@@ -636,7 +637,11 @@ export class SceneWindows {
         const life = (t - st.born) / (spb * 2);
         u.uAlpha.value = 1 - smooth(0.25, 1, life);
         u.uFlash.value = 0;
-        u.uBox.value.set(cx + w.dir[0] * st.k * sp.step * sx, cy + w.dir[1] * st.k * sp.step * sy, sp.w, sp.h);
+        const bx = cx + w.dir[0] * st.k * sp.step * sx;
+        const by = cy + w.dir[1] * st.k * sp.step * sy;
+        // never a copy on the words
+        if (words && overlap({ x: bx - (sp.w * sx) / 2, y: by - (sp.h * sy) / 2, w: sp.w * sx, h: sp.h * sy }, words) > 0) continue;
+        u.uBox.value.set(bx, by, sp.w, sp.h);
         this.quad.render(r, target);
       }
       u.uAlpha.value = 1;
@@ -780,7 +785,7 @@ function specOf(sh: Shape, W: number, H: number): Spec {
   const U = Math.min(W, H) * (0.4 + sh.size * 0.08);
   let w = U * Math.sqrt(aspect);
   let h = U / Math.sqrt(aspect);
-  const k = Math.min(1, (W * 0.45) / w, (H * 0.45) / h);
+  const k = Math.min(1, (W * 0.42) / w, (H * 0.4) / h);
   w = Math.max(16, Math.round(w * k));
   h = Math.max(16, Math.round(h * k));
   if (circle) w = h = Math.min(w, h);

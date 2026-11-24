@@ -12,7 +12,10 @@ import type { Lyrics, TrackAnalysis } from '../core/types';
 import { makeDrawings, newDrawingId, redraw, songLines, useDrawJobs } from '../draw/jobs';
 import { cleanStyle, drawingNow, drawingsHere, drawOpen, songName } from '../draw/session';
 import type { DrawIdea, DrawStyle } from '../draw/types';
-import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, type DrawnShot } from '../inside/drawnIds';
+import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, type DrawnShot, type Room } from '../inside/drawnIds';
+import { forgetSeats } from '../inside/seated';
+import { ratioOf } from '../inside/shot';
+import type { Cut } from './footageStills';
 import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
 import { layShot, type ShotCue } from '../shot/partShots';
 import { findLook, validPlan, type VideoPlan } from '../state/plan';
@@ -51,6 +54,18 @@ export const artOpen = () => drawOpen() && useStudio.getState().drawInScene;
 
 const cueOf = (cues: ShotCue[], at: number) => cues.find((c) => Math.abs(c.at - at) < 0.06);
 
+/** the room each part has (empty where it couldn't be worked out: then nothing is held back) */
+async function roomIn(cut: Cut, parts: { part: number; ratio?: number }[], signal: AbortSignal): Promise<Map<number, Room>> {
+  try {
+    const { roomFor } = await import('./footageStills');
+    return await roomFor(cut, parts, signal);
+  } catch (err) {
+    if (signal.aborted) throw err;
+    console.warn('the room for drawings could not be worked out', err);
+    return new Map();
+  }
+}
+
 /** the drawings of the video about to go on. Null when there are to be none. */
 export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: Story | null; lyrics: Lyrics | null; wish: string; paint?: string }, run: MakeRun): Promise<Art | null> {
   if (!artOpen()) return null;
@@ -61,6 +76,11 @@ export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: St
     return shot?.style === 'inside' && shot.drawn === undefined && secs[i].end - secs[i].start >= LEAST;
   });
   if (!offer.length) return null;
+  // only shots a drawing really has room in, words and all, and what each holds
+  const room = await roomIn({ ...chosen.cut, shotAt: (i) => layShot(cueOf(chosen.cues, secs[i].start)?.shot, chosen.cut.hand?.[i]) }, offer.map((part) => ({ part })), run.signal);
+  // (a shot whose depth isn't read yet may have room or not: a drawing that has none there is moved later, rehouse)
+  const open = offer.filter((i) => !room.has(i) || Object.keys(room.get(i)!).length);
+  if (!open.length) return null;
   const { body } = cutBody(chosen.cut, o.story, o.lyrics, o.wish, (i) => cueOf(chosen.cues, secs[i].start)?.shot ?? null);
   const have = drawingsHere(s)
     .filter((d) => d.kind === 'pen')
@@ -80,7 +100,8 @@ export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: St
       lyrics: songLines(s),
       media: body.media,
       parts: body.parts,
-      offer,
+      offer: open,
+      room: open.filter((i) => room.has(i)).map((part) => ({ part, room: room.get(part) })),
       ...(paint ? { paint: PALETTE_LINES[paint.id] ?? paint.name } : {}),
       have: have.map(({ key, d }) => ({ key, name: d.name, why: d.why, wide: d.wide })),
       last,
@@ -91,13 +112,13 @@ export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: St
     if (!r.closed) run.note('Claude couldn’t choose drawings for this video, so it has none.');
     return null;
   }
-  return readArt(r.json, { offer, secs, cues: chosen.cues, have });
+  return readArt(r.json, { offer: open, secs, cues: chosen.cues, have, room });
 }
 
 /** Claude's answer, checked again: the drawings that exist, the ones to make, and the shots they stand in */
 export function readArt(
   json: Record<string, unknown>,
-  o: { offer: number[]; secs: { start: number; end: number }[]; cues: ShotCue[]; have: { key: string; d: { id: string; name: string } }[] },
+  o: { offer: number[]; secs: { start: number; end: number }[]; cues: ShotCue[]; have: { key: string; d: { id: string; name: string } }[]; room?: Map<number, Room> },
 ): Art | null {
   const style: DrawStyle = cleanStyle(json.style);
   const things = (Array.isArray(json.things) ? json.things : []).slice(0, 3);
@@ -134,7 +155,12 @@ export function readArt(
     const id = of.get(`${String(p.thing)}|${p.stage === 'end' ? 'end' : 'start'}`) ?? of.get(`${String(p.thing)}|start`);
     if (!id) continue;
     const why = text(p.why, 110);
-    at.set(p.part, { id, put: oneOf(p.put, DRAWN_PUTS, 'between'), size: oneOf(p.size, DRAWN_SIZES, 'medium'), enter: oneOf(p.enter, DRAWN_ENTERS, 'draw'), ...(why ? { why } : {}) });
+    const put = oneOf(p.put, DRAWN_PUTS, 'between');
+    const size = oneOf(p.size, DRAWN_SIZES, 'medium');
+    const held = o.room?.get(p.part);
+    const fits = held ? inRoom(held, put, size) : { put, size };
+    if (!fits) continue;
+    at.set(p.part, { id, ...fits, enter: oneOf(p.enter, DRAWN_ENTERS, 'draw'), ...(why ? { why } : {}) });
   }
   if (!at.size) return null;
   const cues = o.cues.map((c) => {
@@ -146,6 +172,7 @@ export function readArt(
     cues,
     art: { thread, rules: (Array.isArray(json.rules) ? json.rules : []).map((x) => text(x, 120)).filter(Boolean).slice(0, 3), drawings },
     begin: () => {
+      forgetSeats();
       // the drawings are in the picture now, so they no longer come up beside the words as well
       if (useStudio.getState().drawOverlay) useStudio.getState().set({ drawOverlay: false });
       if (make.length) makeDrawings(make, style);
@@ -186,13 +213,15 @@ export async function reviewArt(art: VideoArt): Promise<void> {
     return ok;
   };
   if (!(await drawn(art, mine))) return;
+  await rehouse(mine, gone.signal).catch(() => {});
+  if (!mine()) return;
   const s = useStudio.getState();
   const plan = s.plan!;
   const here = drawingsHere(s);
   const parts = s.analysis!.sections.flatMap((_, i) => {
     const d = layShot(plan.shots?.[i], s.partShot?.[i])?.drawn;
     const asset = d ? drawingNow(d.id, here) : null;
-    return d && asset && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put, size: d.size, why: d.why ?? '', id: d.id }] : [];
+    return d && asset && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put, size: d.size, why: d.why ?? '', id: d.id, ratio: ratioOf({ asset }) }] : [];
   });
   if (!parts.length) return;
   const some = parts.slice(0, MOST_STILLS);
@@ -202,9 +231,11 @@ export async function reviewArt(art: VideoArt): Promise<void> {
   const { stillSheets } = await import('./footageStills');
   const off = useStudio.subscribe(() => void mine());
   try {
-    const sheets = await stillSheets({ plan, analysis: s.analysis!, shotAt: (i) => layShot(plan.shots?.[i], s.partShot?.[i]) }, some.map((p) => p.part), gone.signal);
+    const cut: Cut = { plan, analysis: s.analysis!, shotAt: (i) => layShot(plan.shots?.[i], s.partShot?.[i]) };
+    const room = await roomIn(cut, some.map(({ part, ratio }) => ({ part, ratio })), gone.signal);
+    const sheets = await stillSheets(cut, some.map((p) => p.part), gone.signal);
     if (!sheets.length) return;
-    const r = await requestStep('artReview', { thread: art.thread, places: some.map(({ id: _id, ...p }) => p), images: sheets }, { signal: gone.signal, quiet: true });
+    const r = await requestStep('artReview', { thread: art.thread, places: some.map(({ id: _id, ratio: _r, ...p }) => ({ ...p, ...(room.has(p.part) ? { room: room.get(p.part) } : {}) })), images: sheets }, { signal: gone.signal, quiet: true });
     if (!r.ok || !mine()) return;
     const changes = (Array.isArray(r.json.changes) ? r.json.changes : []).filter(isObj);
     const starts = useStudio.getState().analysis!.sections;
@@ -221,15 +252,17 @@ export async function reviewArt(art: VideoArt): Promise<void> {
       }
       const was = placedIn(plan, p.part);
       if (!was) continue;
-      todo.set(p.part, { at: starts[p.part].start, end: starts[p.part].end, id: p.id, next: c.do === 'remove' ? null : { ...was, put: oneOf(c.put, DRAWN_PUTS, was.put), size: oneOf(c.size, DRAWN_SIZES, was.size) } });
+      // never moved to where there is no room for it
+      const held = room.get(p.part);
+      const put = oneOf(c.put, DRAWN_PUTS, was.put);
+      const size = oneOf(c.size, DRAWN_SIZES, was.size);
+      const fits = held ? inRoom(held, put, size) : { put, size };
+      if (c.do !== 'remove' && fits && fits.put === was.put && fits.size === was.size) continue;
+      todo.set(p.part, { at: starts[p.part].start, end: starts[p.part].end, id: p.id, next: c.do === 'remove' || !fits ? null : { ...was, ...fits } });
     }
     if (!todo.size) return;
     const spans = [...todo.values()];
-    for (let k = 0; k < 150; k++) {
-      const t = audioEngine.currentTime;
-      if (!audioEngine.playing || !spans.some((x) => t > x.at - 1.2 && t < x.end + 0.6)) break;
-      await new Promise((res) => setTimeout(res, 200));
-    }
+    await offScreen(spans);
     if (!mine()) return;
     applyArt(spans);
   } catch (err) {
@@ -239,11 +272,71 @@ export async function reviewArt(art: VideoArt): Promise<void> {
   }
 }
 
-function applyArt(spans: { at: number; id: string; next: DrawnShot | null }[]) {
+/** resolves once none of these shots is on screen (or after half a minute) */
+async function offScreen(spans: { at: number; end: number }[]) {
+  for (let k = 0; k < 150; k++) {
+    const t = audioEngine.currentTime;
+    if (!audioEngine.playing || !spans.some((x) => t > x.at - 1.2 && t < x.end + 0.6)) return;
+    await new Promise((res) => setTimeout(res, 200));
+  }
+}
+
+/**
+ * A drawing that turns out to have no room where it was put (its real shape is known now, and all the depth)
+ * moves to the nearest shot that has some, so nothing is drawn for nothing.
+ */
+async function rehouse(mine: () => boolean, signal: AbortSignal) {
+  const s = useStudio.getState();
+  const plan = s.plan!;
+  const a = s.analysis!;
+  const here = drawingsHere(s);
+  const shotAt = (i: number) => layShot(plan.shots?.[i], s.partShot?.[i]);
+  const inside = a.sections.map((_, i) => i).filter((i) => shotAt(i)?.style === 'inside' && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined));
+  const placed = inside.flatMap((part) => {
+    const d = shotAt(part)!.drawn;
+    const asset = d && drawingNow(d.id, here);
+    return d && asset ? [{ part, d, ratio: ratioOf({ asset }) }] : [];
+  });
+  const cut: Cut = { plan, analysis: a, shotAt };
+  if (!placed.length) return;
+  // by now nothing hurries: the shots' depth is read to the end, so what is measured is what will be seen
+  const { readDepth } = await import('./footageDepth');
+  await readDepth(cut, { signal, say: () => {} });
+  if (!mine()) return;
+  const room = await roomIn(cut, placed.map(({ part, ratio }) => ({ part, ratio })), signal);
+  const lost = placed.filter((p) => room.has(p.part) && !Object.keys(room.get(p.part)!).length);
+  if (!lost.length || !mine()) return;
+  const free = new Set(inside.filter((i) => shotAt(i)!.drawn === undefined && a.sections[i].end - a.sections[i].start >= LEAST));
+  const spans: Span[] = [];
+  for (const p of lost) {
+    const taken = new Map(placed.filter((x) => !lost.includes(x)).map((x) => [x.part, x.d.id]));
+    const near = [...free].filter((i) => [i - 1, i + 1].every((n) => !taken.has(n) || taken.get(n) === p.d.id)).sort((x, y) => Math.abs(x - p.part) - Math.abs(y - p.part)).slice(0, 6);
+    const there = await roomIn(cut, near.map((part) => ({ part, ratio: p.ratio })), signal);
+    const to = near.find((i) => Object.keys(there.get(i) ?? {}).length);
+    const span = (i: number) => ({ at: a.sections[i].start, end: a.sections[i].end, id: p.d.id });
+    if (to === undefined) continue;
+    free.delete(to);
+    spans.push({ ...span(p.part), next: null }, { ...span(to), next: { ...p.d, ...inRoom(there.get(to)!, p.d.put, p.d.size)! }, fresh: true });
+  }
+  if (!spans.length) return;
+  await offScreen(spans);
+  if (mine()) applyArt(spans);
+}
+
+interface Span {
+  at: number;
+  end: number;
+  id: string;
+  next: DrawnShot | null;
+  /** the shot had none until now */
+  fresh?: boolean;
+}
+
+function applyArt(spans: Span[]) {
   const s = useStudio.getState();
   const plan = s.plan!;
   const fix = <T extends { drawn?: DrawnShot | null }>(shot: T, at: number): T => {
-    const hit = shot.drawn ? spans.find((x) => Math.abs(x.at - at) < 0.06 && x.id === shot.drawn!.id) : undefined;
+    const hit = spans.find((x) => Math.abs(x.at - at) < 0.06 && (x.fresh ? shot.drawn === undefined : x.id === shot.drawn?.id));
     if (!hit) return shot;
     const { drawn: _was, ...rest } = shot;
     return hit.next ? { ...shot, drawn: hit.next } : (rest as T);

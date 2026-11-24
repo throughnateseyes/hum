@@ -11,8 +11,8 @@ import type { KeepOut, Rect } from './legibility';
  *   gliding   a window already open where a line arrives eases out of the way: up, down or to the
  *             side, whichever is the shortest trip that clears the words and covers other windows
  *             least, on a critically damped spring (no jump, no overshoot). With no room for that
- *             (small phone frames, lots of windows) it moves to where it covers the words least
- *             and shrinks a little; the words over it then get the halo (lyricLayer.ladderNow).
+ *             (small phone frames, big words) it shrinks until there is, and where even a small one
+ *             would still cover the words it shuts until they have gone: the words always win.
  *
  * A window that has moved stays where it went: nothing slides back when the line ends.
  */
@@ -42,10 +42,10 @@ export interface Glide {
 
 export const newGlide = (x: number, y: number): Glide => ({ gx: x, gy: y, vx: 0, vy: 0, fit: 1, fitTo: 1, keepKey: '' });
 
-/** the shrink a window settles at when there's nowhere to go */
-const NO_ROOM_FIT = 0.82;
-/** spring stiffness (1/s²): settles in about 0.6 s */
-const K = 70;
+/** the sizes a window tries when there's nowhere to go at its own; smaller than the last it isn't worth showing */
+const FITS = [1, 0.84, 0.7, 0.58];
+/** spring stiffness (1/s²): settles in about 0.4 s */
+const K = 150;
 
 export const overlap = (a: PxBox, b: PxBox) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
@@ -112,10 +112,18 @@ export function glide(pos: { x: number; y: number }, g: Glide, w: number, h: num
     if (key !== g.keepKey) {
       g.keepKey = key;
       if (overlap(goal, keep) > w * h * 0.02) {
-        const d = dodge(g.gx, g.gy, w, h, keep, W, H, m, others);
-        g.gx = d.x;
-        g.gy = d.y;
-        g.fitTo = d.clear ? 1 : NO_ROOM_FIT;
+        g.fitTo = 0;
+        for (const f of FITS) {
+          // (a smaller window stays centred in its own box)
+          const dx = (w * (1 - f)) / 2;
+          const dy = (h * (1 - f)) / 2;
+          const d = dodge(g.gx + dx, g.gy + dy, w * f, h * f, keep, W, H, m, others);
+          if (!d.clear) continue;
+          g.gx = d.x - dx;
+          g.gy = d.y - dy;
+          g.fitTo = f;
+          break;
+        }
       } else g.fitTo = 1;
     }
   } else g.fitTo = 1;
@@ -130,6 +138,6 @@ export function glide(pos: { x: number; y: number }, g: Glide, w: number, h: num
     pos.x += g.vx * s;
     pos.y += g.vy * s;
   }
-  g.fit += (g.fitTo - g.fit) * (1 - Math.exp(-Math.max(0, dt) * 5));
+  g.fit += (g.fitTo - g.fit) * (1 - Math.exp(-Math.max(0, dt) * 9));
   return Math.abs(g.gx - pos.x) + Math.abs(g.gy - pos.y) > 0.5 || Math.abs(g.fitTo - g.fit) > 0.005;
 }

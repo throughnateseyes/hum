@@ -68,6 +68,8 @@ export interface TypeKit {
    * (lyricLayer fitType, lyricSpace.ts), so a kit that forgets it would spill: every kit says.
    */
   reach(L: TypeLayout, medium: KitLine['medium'], W: number, H: number): Insets;
+  /** its plate runs the whole width of the frame, whatever the words' own (nothing fits beside it) */
+  spans?(role: Role, medium: KitLine['medium']): boolean;
   /** the knockout face (a family key knockout.ts knows) */
   knockFace?: string;
   /** how knockout's solid words are inked */
@@ -139,6 +141,7 @@ const PRINT: TypeKit = {
   draw: drawPrint,
   reach: printReach,
   ownPlate: (role, medium) => role === 'caption' || (role === 'display' && medium === 'big'),
+  spans: (role, medium) => role === 'display' && medium === 'big',
   knockFace: 'kit-print',
   knockInks: (base, light, pal) => {
     const inks = printInks(pal);
