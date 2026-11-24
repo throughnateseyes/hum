@@ -15,6 +15,7 @@ import { harmonize } from '../core/songPalette';
 import { lookStyle } from '../core/styles';
 import type { AudioFrame, Lyrics, PartShot, Preset, TrackAnalysis, TrackDrop, TrackSection } from '../core/types';
 import { PRESETS } from '../presets';
+import type { SongFeeling } from '../feeling';
 import { familyIdOf, familyOf, fitScore, neighbourScore, rememberTake, takeFit, takeName } from '../presets/fit';
 import { live } from './live';
 import { useStudio, type Pace, type StudioState } from './store';
@@ -30,6 +31,7 @@ import { carryEdits, putOn, skipPlayingPart } from './flatPlan';
 import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, mediaReady, photoCount, playsClips } from '../director/footage';
+import { curvesFor, curvesNow, feelingNow } from '../director/feeling';
 import { framesNoted } from '../director/footageNotice';
 import { dealMix, type Mix } from '../director/mix';
 import { withMoments } from '../director/footageShots';
@@ -92,6 +94,8 @@ export interface VideoPlan {
   paint?: string;
   /** how much of it is the person's own footage, when that was asked for (director/mix.ts); missing: footage carries it, with a cutaway or two */
   mix?: Mix;
+  /** what the song's words feel like, as it was known when the plan was made (src/feeling); a flat plan's is on `flat.src` */
+  feeling?: SongFeeling;
   /** the moment each section is meant to feel like (src/moments; null: not said) */
   moments?: (MomentId | null)[];
   /** the idea of the whole video, one sentence (Claude, when it has seen the person's media) */
@@ -512,6 +516,8 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
   // chord changes: phrase cuts slide onto one when it's within a beat, so the picture turns with the harmony
   const chordChanges = a.harmony?.changes ?? [];
   const resolutions = a.harmony?.resolutions ?? [];
+  // what the words and the sound feel like (only for a plan made with it)
+  const feel = curvesFor(plan, a, lyrics);
   // the look on screen and when it came on, so a look carried over from the last section still counts
   let lastLook = '';
   let lastChange = 0;
@@ -606,10 +612,20 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
     }
     // where the harmony comes home: a natural place for the picture to change or settle
     for (const r of resolutions) if (r.t > s0 && r.t < s1 && r.strength >= 0.5) events.push({ t: r.t, on: 'resolve', pri: 2 });
+    // where the words turn, the picture turns with them
+    if (feel) for (const l of feel.lines) if (l.turn && l.t > s0 && l.t < s1) events.push({ t: snapBeat(l.t), on: 'lyric', pri: 3 });
     // the phrase grid, nudged onto a lyric line when one starts nearby, else onto a chord change
     for (let t = s0 + P.shotLen; t < s1 - 0.5; t += P.shotLen) {
       const line = lines.find((l) => Math.abs(l.t - t) < Math.min(bar * 0.5, P.shotLen * 0.25));
       events.push({ t: line ? snapBeat(line.t) : snapToChord(t, chordChanges, beat), on: line ? 'lyric' : 'phrase', pri: 1 });
+    }
+    // a line that matters, sung softly, is left on one picture from its first word until just after its last
+    if (feel && sec.energy < 0.7) {
+      const whole = feel.held.filter((l) => l.tone < 0.35 && l.end - l.t < P.cap);
+      for (let k = events.length - 1; k >= 0; k--) {
+        const e = events[k];
+        if (e.pri < 3 && whole.some((l) => e.t > l.t + 0.15 && e.t < l.end + 0.2)) events.splice(k, 1);
+      }
     }
     // keep the most meaningful cuts that are far enough apart
     events.sort((x, y) => y.pri - x.pri || x.t - y.t);
@@ -620,6 +636,15 @@ function buildShots(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyrics: Lyric
       if (cuts.some((c) => Math.abs(c.t - e.t) < P.minGap)) continue;
       cuts.push(e);
     }
+    // footage winding up to a big landing cuts closer and closer: two bars out, then one, then half of one
+    const wind = feel && playsClips(findLook(main)) && sec.energy > 0.3 ? feel.winds.find((w) => Math.abs(w.to - s1) < 0.4 && w.strength >= 0.55) : undefined;
+    const soft = plan.moments?.[i] === 'held' || plan.moments?.[i] === 'hush' || plan.moments?.[i] === 'ache' || plan.moments?.[i] === 'float';
+    if (wind && !soft)
+      for (const back of [8, 4, 2]) {
+        const t = snapBeat(s1 - back * beat);
+        const room = Math.max(0.55, beat * back * 0.3);
+        if (t - s0 > 1.2 && s1 - t > 0.6 && back * beat < (s1 - s0) * 0.7 && !cuts.some((c) => Math.abs(c.t - t) < room)) cuts.push({ t, on: 'hit' });
+      }
     cuts.sort((x, y) => x.t - y.t);
     // no look holds longer than the cap (counting time it was already on before this section)
     const filled: { t: number; on: Shot['on']; drop?: number }[] = [];
@@ -987,7 +1012,7 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     if (!groupLook.has(s.group)) groupLook.set(s.group, id);
     return id;
   });
-  const moments = footage.length ? momentsFor(a) : [];
+  const moments = footage.length ? momentsFor(a, curvesNow(a, useStudio.getState().lyrics)) : [];
   const mix = footage.length ? useStudio.getState().mix : 'most';
   const cut = footageCut(a, roleLooks, footage, dealMix(a, mix, moments));
   const looks = cut.looks;
@@ -1063,7 +1088,7 @@ export function localPlan(a: TrackAnalysis, opts: { seed?: number; mood?: MoodId
     ...(mix !== 'most' ? { mix } : {}),
   }, a);
   // footage cuts and moves by what each section feels like (src/moments); no footage, nothing changes
-  return footage.length ? withMoments(planned, a, moments, (id) => findLook(id)) : planned;
+  return footage.length ? withMoments(planned, a, moments, (id) => findLook(id), feelingNow(useStudio.getState().lyrics)) : planned;
 }
 
 /**
@@ -1409,7 +1434,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
       const picked = r.looks.map((id, i) => (fits(id) ? id : offline.looks[i]));
       // a section the treatment gave to the footage plays a footage look, whatever was planned
       // (at a mix that was asked for, which sections those are is settled here, whatever was planned)
-      const carry = dealMix(a, mix, opts.moments ?? momentsFor(a), opts.story ? opts.story.sections.map((x) => x.footage) : picked.map((id) => playsClips(id ? findLook(id) : undefined)));
+      const carry = dealMix(a, mix, opts.moments ?? momentsFor(a, curvesNow(a, lyr)), opts.story ? opts.story.sections.map((x) => x.footage) : picked.map((id) => playsClips(id ? findLook(id) : undefined)));
       const wanted = picked.map((id, i) => (carry ? carry[i] : !!opts.story?.sections[i]?.footage) && !playsClips(id ? findLook(id) : undefined));
       if (carry)
         picked.forEach((id, i) => {
@@ -1450,7 +1475,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
   // an offline plan already carries its lyric plan
   if (plan !== offline || !offline.lyricPlan) plan = withLyricPlan(plan, a, lyr, claudeLyric, getScene, lyricSeed);
   // footage cuts and moves by what each section feels like (src/moments)
-  if (footage) plan = withMoments(plan, a, opts.moments ?? momentsFor(a), (id) => findLook(id));
+  if (footage) plan = withMoments(plan, a, opts.moments ?? momentsFor(a, curvesNow(a, lyr)), (id) => findLook(id), feelingNow(lyr));
   return { plan, reason };
 }
 

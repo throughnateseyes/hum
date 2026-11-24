@@ -23,6 +23,7 @@
  * function of song time: seeking anywhere, or rendering frame by frame, gives the same picture.
  */
 import type { ClipAsset, ParamValues, PartShot, PhotoAsset, TrackAnalysis, TrackSection } from '../core/types';
+import type { Curves } from '../feeling';
 import { num, str } from '../core/uniforms';
 import { PRESETS } from '../presets';
 import { useStudio } from '../state/store';
@@ -71,6 +72,8 @@ export interface RunInput {
   clips: number[];
   /** words to set in type, dealt to the shots in turn */
   words: string[];
+  /** what the song feels like as it goes (src/feeling); missing: the moments alone */
+  feel?: Curves | null;
 }
 
 export interface Run {
@@ -177,6 +180,7 @@ export function footageRun(o: RunInput): Run {
       partStart: sec.start,
       energy: sec.energy,
       words: o.words,
+      ...(o.feel ? { feel: o.feel } : {}),
     };
     for (let j = 0; j < cuts.length - 1; j++) {
       const lastShot = j === cuts.length - 2;

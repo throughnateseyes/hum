@@ -14,6 +14,7 @@
  */
 import { textBetween } from '../audio/lyrics';
 import type { Lyrics, MediaNotes, PartShot, TrackAnalysis } from '../core/types';
+import { feltLine } from '../feeling';
 import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
 import { MOTION_IDS, MOTION_SERVES, isMotion } from '../shot/motion';
 import { STYLE_IDS, STYLE_SERVES, isStyle } from '../shot/styles';
@@ -28,6 +29,7 @@ import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { requestStep } from './client';
 import { playsClips } from './footage';
+import { curvesFor, curvesNow, readFeeling } from './feeling';
 import { framesSent } from './footageNotice';
 import { dealMix } from './mix';
 import { momentShots } from './footageShots';
@@ -186,6 +188,8 @@ const vocabulary = (lyr: Lyrics | null) => ({
  */
 export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: string, run: MakeRun): Promise<{ story: Story | null; closed: boolean }> {
   void import('./footageDepth').then((m) => m.beginDepth());
+  // what the words mean is read while the pictures are watched
+  const reading = readFeeling(a, lyr, run.signal).catch(() => false);
   await recallNotes();
   const todo = unwatched();
   if (todo) {
@@ -204,15 +208,20 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   }
   const seen = seenMedia();
   if (!seen.length) return { story: null, closed: false };
+  run.say('Feeling the song');
+  await reading;
+  if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+  const feel = curvesNow(a, lyr);
   run.say('Finding the story');
   const mix = useStudio.getState().mix;
-  const hints = momentsFor(a);
+  const hints = momentsFor(a, feel);
   const r = await requestStep(
     'story',
     {
       wish,
       mix,
       track: { summary: a.summary, bpm: a.bpm, tags: a.tags },
+      ...(feel.about ? { about: feel.about } : {}),
       ...(a.character ? { character: { genre: a.character.genre, mood: a.character.mood } } : {}),
       sections: a.sections.map((x, i) => ({
         label: x.label,
@@ -222,6 +231,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
         energy: r2(x.energy),
         drop: i ? r2(dropAt(a, x.start)) : 0,
         hint: hints[i],
+        felt: feltLine(feel, x.start, x.end),
         ...(lyr?.synced ? { lyrics: textBetween(lyr.lines, x.start, x.end).slice(0, 260) } : {}),
       })),
       ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
@@ -307,6 +317,7 @@ export function cutBody(cut: { plan: VideoPlan; analysis: TrackAnalysis; hand: (
     ...(s.focusX !== undefined && s.focusY !== undefined ? { focusX: r2(s.focusX), focusY: r2(1 - s.focusY) } : {}),
   });
   const lines: PartLine[] = [];
+  const feel = curvesFor(cut.plan, pa, lyr);
   const parts = pa.sections.slice(0, 120).map((sec, i) => {
     const look = cut.plan.looks[i] ? findLook(cut.plan.looks[i]!) : undefined;
     const footage = playsClips(look);
@@ -325,6 +336,7 @@ export function cutBody(cut: { plan: VideoPlan; analysis: TrackAnalysis; hand: (
       ...(i && dropAt(pa, sec.start) ? { lands: true } : {}),
       ...(next && dropAt(pa, next.start) ? { leads: true } : {}),
       ...(lyr?.synced ? { words: textBetween(lyr.lines, sec.start, sec.end).slice(0, 120) } : {}),
+      ...(feel && footage ? { felt: feltLine(feel, sec.start, sec.end) } : {}),
       ...(now ? { now: brief(now) } : {}),
     };
   });
@@ -439,7 +451,7 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
     return alone;
   }
   fewerPlain(got, cut.analysis, o.lyrics, told.paint);
-  const rest = momentShots(cut.plan.flat?.src ?? told, cut.analysis, cut.plan.looks, findLook);
+  const rest = momentShots(cut.plan.flat?.src ?? told, cut.analysis, cut.plan.looks, findLook, curvesFor(told, a, o.lyrics));
   const cues: ShotCue[] = cut.analysis.sections.flatMap((sec, i) => {
     const g = got.get(i);
     const shot = g?.shot ?? rest[i];

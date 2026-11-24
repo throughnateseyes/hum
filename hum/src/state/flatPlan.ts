@@ -38,6 +38,7 @@ import {
   type Shot,
   type VideoPlan,
 } from './plan';
+import { curvesFor } from '../director/feeling';
 import { momentShots } from '../director/footageShots';
 import { cueAt, shotsFromCues, type ShotCue } from '../shot/partShots';
 import { useStudio, type Pace } from './store';
@@ -100,11 +101,13 @@ export function flattenPlan(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyric
     base: { looks: baseLooks, rotate: looks.map(() => null), lyric: fp.base?.lyric ?? planBase(fp, cut).lyric },
     flat: { src: p, pace },
     // what each footage part shows: the director's choices, or what its moment asks for
-    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook) } : {}),
+    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook, curvesFor(p, a, lyrics)) } : {}),
   };
   if (p.cues) underCues(flat, p.cues, bounds);
   // the cues stay with the planner's plan, where a new Pace finds them
   delete flat.cues;
+  // (and so does what the words feel like)
+  delete flat.feeling;
   delete flat.interludes;
   delete flat.shotBars;
   if (!flat.lyricPlan) delete flat.lyricPlan;

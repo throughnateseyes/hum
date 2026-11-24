@@ -55,6 +55,7 @@ function MakeBlock() {
   const making = useStudio((s) => s.making);
   const makeNote = useStudio((s) => s.makeNote);
   const hasPlan = validPlan(plan, analysis);
+  const about = plan?.feeling?.about || plan?.flat?.src.feeling?.about;
   const parts = analysis?.sections.length ?? 0;
   // without a code on a site that wants one, the button wears a lock (it still works: it asks first)
   const locked = useAccessGate((s) => s.need === 'code' && !s.saved);
@@ -99,6 +100,11 @@ function MakeBlock() {
           {plan!.idea}
         </p>
       )}
+      {!planning && hasPlan && about && (
+        <p className="field-note" title="What Claude hears in the words. The Breakdown (B) shows the feeling line by line.">
+          {about}
+        </p>
+      )}
       {!planning && makeNote && <p className="field-note">{makeNote}</p>}
       {!parts && (
         <p className="field-note">
@@ -136,7 +142,7 @@ function MixField() {
   if (!ready) return null;
   return (
     <Field label="Your footage" value={stale ? 'Remake to use it' : ''} tip="How much of the video is your own clips and photos, and how much is Hum’s looks.">
-      <Seg value={mix} options={MIXES} onChange={(v) => useStudio.getState().set({ mix: v })} label="How much of the video is your footage" />
+      <Seg value={mix} cols={2} options={MIXES} onChange={(v) => useStudio.getState().set({ mix: v })} label="How much of the video is your footage" />
     </Field>
   );
 }

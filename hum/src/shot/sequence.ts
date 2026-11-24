@@ -16,6 +16,7 @@
  */
 import type { TrackAnalysis } from '../core/types';
 import type { Colour } from './kit';
+import { bend, type Curves } from '../feeling';
 import { RECIPES, type MomentId } from '../moments';
 import { isMotion, type MotionId } from './motion';
 import { styleForPart, type StyleId } from './styles';
@@ -85,6 +86,8 @@ export interface Sequence {
   energy: number;
   /** the words the shots set, in order */
   words: string[];
+  /** what the song feels like as it goes (src/feeling): bends the moments' speeds and cameras */
+  feel?: Curves;
 }
 
 /** beats before the hit, and after it */
@@ -303,6 +306,7 @@ function speedOf(shot: Shot, seq: Sequence, freeze: number) {
     if (m) {
       const run = Math.max(1e-3, shot.end - shot.start - freeze);
       let s = m.speed({ u: clamp01(tau / run), tau: Math.max(0, tau), left: shot.end - t, beat });
+      if (seq.feel) s *= bend(seq.feel, t, shot.moment!);
       // a held breath stays held: the kick and the burst are the moment's own, and may be nothing
       s += m.kick * Math.exp(-since(kicks, t) / (beat * 0.22));
       if (shot.arrive === 'hit') s += m.burst * Math.exp(-tau / (beat * 3));

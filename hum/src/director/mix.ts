@@ -40,24 +40,36 @@ export function dealMix(a: TrackAnalysis, mix: Mix, moments: (MomentId | null)[]
     const alike = secs.flatMap((x, j) => (x.group === s.group ? [own[j]] : []));
     return 0.65 * (alike.reduce((t, x) => t + x, 0) / alike.length) + 0.35 * own[i];
   });
-  const out = wanted?.length === secs.length ? [...wanted] : secs.map(() => false);
-  const share = () => out.reduce((s, on, i) => s + (on ? len[i] : 0), 0) / total;
-  const order = secs.map((_, i) => i).sort((x, y) => lean[y] - lean[x] || x - y);
-  // too little: the sections that ask for it most come in, as long as that doesn't overshoot by more
-  for (const i of order) {
-    if (share() >= lo) break;
-    if (out[i]) continue;
-    out[i] = true;
-    if (share() > hi + 0.12 && out.filter(Boolean).length > 1) out[i] = false;
+  const given = wanted?.length === secs.length ? wanted : null;
+  // what a deal costs: footage outside its share of the time, then sections on the wrong side of their
+  // lean, then every section taken from where the planner put it
+  const cost = (on: boolean[]) => {
+    let share = 0;
+    let wrong = 0;
+    on.forEach((x, i) => {
+      const w = len[i] / total;
+      if (x) share += w;
+      wrong += w * (x ? 1 - lean[i] : lean[i]) + (given && given[i] !== x ? 0.7 * w : 0);
+    });
+    const all = on.every(Boolean) || !on.some(Boolean) ? 50 : 0;
+    return 12 * Math.max(0, lo - share, share - hi) + wrong + all;
+  };
+  let out = given ? [...given] : secs.map(() => false);
+  let best = cost(out);
+  // turn one section, or two at once, as long as it helps
+  for (let round = 0; round < 60; round++) {
+    let next: boolean[] | null = null;
+    for (let i = 0; i < secs.length; i++)
+      for (let j = i; j < secs.length; j++) {
+        const on = out.map((x, k) => (k === i || k === j ? !x : x));
+        const c = cost(on);
+        if (c < best - 1e-9) {
+          best = c;
+          next = on;
+        }
+      }
+    if (!next) break;
+    out = next;
   }
-  // too much: the ones that ask for it least go, but one always stays
-  for (const i of [...order].reverse()) {
-    if (share() <= hi || out.filter(Boolean).length <= 1) break;
-    if (!out[i]) continue;
-    out[i] = false;
-    if (share() < lo * 0.7) out[i] = true;
-  }
-  if (!out.some(Boolean)) out[order[0]] = true;
-  if (out.every(Boolean)) out[order[order.length - 1]] = false;
   return out;
 }
