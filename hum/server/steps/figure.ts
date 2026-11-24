@@ -46,8 +46,9 @@ HOW TO BUILD WELL
 
 MOVING
 Give 2 to 5 motions: parts of the real thing doing what they do, on the music. groups: [{id, parent}] and a solid's group let several parts move as one (hub and spokes, lid and its knob); "of" names solids or groups.
-- lift (up, units, up to 12), slide (axis, units, up to 10), hinge (axis, pivot on the hinge line, degrees up to 60; signs as for tilt), spin (axis, pivot or its middle; amt = turns a bar, 0.25 to 1), spread (parts move apart along axis or "out", units up to 10), ripple (lifts one after another from the first named, units up to 5, lag in beats), stack (parts lift in steps into an exploded view, units for the last one, up to 30), breathe (grows about its foot, 0.02 to 0.06). lag = beats between one named part and the next.
+- lift (up, units, up to 12), slide (axis, units, up to 10), hinge (axis, pivot on the hinge line, degrees up to 60; signs as for tilt), spin (axis, pivot or its middle; amt = turns a bar, 0.25 to 1), spread (parts move apart along axis or "out", units up to 10), ripple (lifts one after another from the first named, units up to 8, lag in beats), stack (parts lift in steps into an exploded view, units for the last one, up to 30), breathe (grows about its foot, 0.02 to 0.06). lag = beats between one named part and the next.
 Drivers ("by"): kick, snare, hat (each hit, a quick knock that settles), beat (every beat, softer), bass, energy (how loud the part of the song is: slow), build (rises into a drop), drop (opens on the drop and slowly closes).
+Be bold: on a phone, anything under 4 units or 10 degrees can't be seen. Lifts on a hit 5 to 9, ripples 4 to 7, slides 5 to 10, hinges 15 to 40, unless the part's real travel is smaller (a key dips 4 degrees) and then move many of them in a ripple. At least one motion should change the silhouette.
 Good pairs: ripple by beat or hat, hinge by bass or energy, spin by beat or kick, stack or spread by drop or build, slide by kick. Moving parts must not pass through others: leave them room. Something must move on the beat, and something must open on the drop or with the energy.
 
 EXAMPLE (a portable radio; make something different, with its own structure)
@@ -103,7 +104,7 @@ export const FIGURE_STEPS: Record<string, Step> = {
       if (now.length > 60_000) return 'This figure is too large to fix.';
       const notes = (Array.isArray(body.notes) ? body.notes : []).map((n) => clip(n, 200)).filter(Boolean).slice(0, 6);
       return call(
-        `You drew this figure. The picture shows how it came out: at rest on the left, with every motion at its far end on the right.\n${brief}\n<figure>\n${now}\n</figure>\n${notes.length ? `The checker changed: ${notes.join(' ')}\n` : ''}Look at it hard, as a stranger would. Does it read as the object at once? What is out of proportion, floating, sunk in, missing, crowded, cut through, or facing away? Do the moving parts stay attached and clear of the others? Fix all of it, add what the real thing has and this lacks, remove what is mush, and answer with the whole figure again. Keep what works.`,
+        `You drew this figure. The picture shows how it came out: at rest on the left, with every motion at its far end on the right.\n${brief}\n<figure>\n${now}\n</figure>\n${notes.length ? `The checker changed: ${notes.join(' ')}\n` : ''}Look at it hard, as a stranger would. Does it read as the object at once? What is out of proportion, floating, sunk in, missing, crowded, cut through, or facing away? Do the moving parts stay attached and clear of the others, and is the difference between the two pictures plain at a glance? Fix all of it, add what the real thing has and this lacks, remove what is mush, and answer with the whole figure again. Keep what works.`,
       );
     },
   },

@@ -191,6 +191,7 @@ precision highp float;
 uniform sampler2D uFill;
 uniform sampler2D uDepth;
 uniform vec2 uRes;
+uniform vec2 uAB;   // depth = A + B / distance
 varying vec2 vP;
 varying vec2 vA;
 varying vec2 vB;
@@ -210,10 +211,24 @@ void main() {
   vec4 f = texture2D(uFill, uv);
   if (f.a > 0.0) {
     float id = floor(f.r * 255.0 + 0.5) + floor(f.g * 255.0 + 0.5) * 256.0;
-    bool own = vC.w < 0.0 && abs(id - vC.z) < 0.5;
-    if (!own) {
-      float z = mix(vZa, vZb, h) * 0.5 + 0.5;
-      if (z > texture2D(uDepth, uv).r) discard;
+    bool mine = abs(id - vC.z) < 0.5;
+    if (!mine || vC.w >= 0.0) {
+      float z = mix(vZa, vZb, h);
+      float s = texture2D(uDepth, uv).r * 2.0 - 1.0;
+      if (z > s) {
+        // on its own solid's rim the surface falls away under the line: if what's just past the rim
+        // is another solid or nothing, and no nearer, this is the rim and the line shows
+        if (!mine) discard;
+        float rr = vR + 2.0;
+        bool rim = false;
+        for (int i = 0; i < 4; i++) {
+          vec2 o = (i == 0 ? vec2(1.0, 0.0) : i == 1 ? vec2(-1.0, 0.0) : i == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0)) * rr / uRes;
+          vec4 g = texture2D(uFill, uv + o);
+          if (abs(floor(g.r * 255.0 + 0.5) + floor(g.g * 255.0 + 0.5) * 256.0 - vC.z) > 0.5 && texture2D(uDepth, uv + o).r * 2.0 - 1.0 >= s) rim = true;
+        }
+        // (and only just behind: a line on the far side of a thick solid stays hidden)
+        if (!rim || z > uAB.x + uAB.y / (uAB.y / (s - uAB.x) + 2.5)) discard;
+      }
     }
   }
   float v = cov * abs(vC.w);
@@ -317,7 +332,7 @@ export class FigureRenderer {
     this.lineMat = new THREE.ShaderMaterial({
       vertexShader: LINE_VERT,
       fragmentShader: LINE_FRAG,
-      uniforms: { uFill: { value: this.fillRT.texture }, uDepth: { value: depth }, uRes: { value: new THREE.Vector2(1, 1) } },
+      uniforms: { uFill: { value: this.fillRT.texture }, uDepth: { value: depth }, uRes: { value: new THREE.Vector2(1, 1) }, uAB: { value: new THREE.Vector2() } },
       depthTest: false,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -402,7 +417,7 @@ export class FigureRenderer {
 
   /** buffers for this set of figures (the triangle list only changes when the set does) */
   private layout(list: Placed[]) {
-    const sig = list.map((p) => `${p.figure.fig.name}/${p.figure.verts}/${p.figure.tris}`).join('|');
+    const sig = list.map((p) => setId(p.figure)).join('|');
     if (sig === this.signature) return;
     this.signature = sig;
     let verts = 0;
@@ -449,7 +464,7 @@ export class FigureRenderer {
     let id = 1;
     let solids = 0;
     for (const p of list) {
-      const { mats, lifted } = pose(p.figure, p.drive, ink.motion);
+      const { mats, lifted } = pose(p.figure, p.drive, ink.motion, p.build >= 1 ? p.drive.apart() * ink.motion : 0);
       const place = identity();
       place[0] = place[5] = place[10] = p.scale;
       place[3] = p.at[0];
@@ -491,6 +506,9 @@ export class FigureRenderer {
     renderer.setRenderTarget(this.lineRT);
     renderer.clear(true, false, false);
     (this.lineMat.uniforms.uRes.value as THREE.Vector2).set(width, height);
+    const near = Math.max(1, cam.dist * 0.08);
+    const far = cam.dist * 4 + 600;
+    (this.lineMat.uniforms.uAB.value as THREE.Vector2).set((far + near) / (far - near), (-2 * far * near) / (far - near));
     if (this.segs) renderer.render(this.lineScene, this.cam);
     renderer.setClearColor(clear, alpha);
     renderer.autoClear = auto;
@@ -883,6 +901,14 @@ export class FigureRenderer {
     this.compMat.dispose();
     this.quad.dispose();
   }
+}
+
+const setIds = new WeakMap<BuiltFigure, number>();
+let setNo = 0;
+function setId(f: BuiltFigure): number {
+  let n = setIds.get(f);
+  if (!n) setIds.set(f, (n = ++setNo));
+  return n;
 }
 
 /** 0..1 per solid: when it starts in the build-in: the big parts first, then what stands on them, low before high */

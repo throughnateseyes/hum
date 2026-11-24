@@ -24,7 +24,7 @@ const has = (text: string, list: string[]) => {
 export function figureScore(b: FigureBrief): number {
   const built = has(b.object, BUILT);
   const living = has(b.object, LIVING);
-  if (built !== living) return built > living ? 0.9 : 0.1;
+  if (!!built !== !!living) return built ? 0.9 : 0.1;
   if (built) {
     // "a car in the rain": the thing named first is the subject
     const at = (list: string[]) => b.object.toLowerCase().split(/[^\p{L}]+/u).findIndex((w) => list.includes(w) || list.includes(w.replace(/s$/, '')));

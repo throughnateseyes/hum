@@ -197,7 +197,7 @@ const unit = (a: V3): V3 => {
 /** light from above and a little from the front: tops are clean, the right side is the darkest */
 const shadeOf = (n: V3) => Math.max(0, Math.min(1, 0.36 * (1 - n[2]) + 0.34 * Math.max(0, n[0])));
 
-function buildSolid(s: FigureSolid): BuiltSolid {
+function buildSolid(s: FigureSolid, coarse: boolean): BuiltSolid {
   const k = axisIndex(s.axis);
   const [ia, ib] = crossAxes(s.axis);
   const a0 = s.from[ia];
@@ -264,8 +264,8 @@ function buildSolid(s: FigureSolid): BuiltSolid {
   if (s.shape === 'tube') {
     out.kind = 'tube';
     const r = s.r ?? 1.5;
-    const path = tubePath(s);
-    const ring = 10;
+    const path = tubePath(s, coarse ? 3 : 6);
+    const ring = coarse ? 6 : 10;
     const n = path.length;
     // a frame carried along the path so the skin doesn't twist
     let up: V3 = [0, 0, 1];
@@ -367,22 +367,22 @@ function buildSolid(s: FigureSolid): BuiltSolid {
     }
   } else {
     const disc = s.shape !== 'box';
-    const steps = Math.max(3, Math.min(10, Math.round(2 + 1.5 * Math.sqrt(Math.min(s.round, halfMin)))));
-    const around = Math.max(28, Math.min(72, Math.round(26 + halfMin * 2.2)));
+    const steps = coarse ? Math.max(2, Math.min(4, Math.round(1 + Math.sqrt(Math.min(s.round, halfMin))))) : Math.max(3, Math.min(10, Math.round(2 + 1.5 * Math.sqrt(Math.min(s.round, halfMin)))));
+    const around = coarse ? Math.max(16, Math.min(32, Math.round(14 + halfMin))) : Math.max(28, Math.min(72, Math.round(26 + halfMin * 2.2)));
     const ringAt = (inset: number) => (disc ? oval(a0, b0, a1, b1, inset, around) : rrect(a0, b0, a1, b1, s.round, Math.min(inset, halfMin - 0.02), steps));
     const rings: { samples: Sample[]; f: number; nk: number; ns: number }[] = [];
     if (s.shape === 'ball') {
-      const lat = 10;
+      const lat = coarse ? 6 : 10;
       for (let i = 0; i <= lat; i++) {
         const t = -Math.PI / 2 + (Math.PI * i) / lat;
         // an oval footprint shrunk toward the poles
         const c = Math.max(0.004, Math.cos(t));
-        rings.push({ samples: oval(ca + (a0 - ca) * c, cb + (b0 - cb) * c, ca + (a1 - ca) * c, cb + (b1 - cb) * c, 0, 32), f: (Math.sin(t) + 1) / 2, nk: Math.sin(t), ns: Math.cos(t) });
+        rings.push({ samples: oval(ca + (a0 - ca) * c, cb + (b0 - cb) * c, ca + (a1 - ca) * c, cb + (b1 - cb) * c, 0, coarse ? 18 : 32), f: (Math.sin(t) + 1) / 2, nk: Math.sin(t), ns: Math.cos(t) });
       }
     } else {
       const e = Math.min(s.edge, H * 0.96, halfMin * 0.98);
       rings.push({ samples: ringAt(0), f: 0, nk: 0, ns: 1 });
-      const bend = e < 0.05 ? 0 : e < 2 ? 2 : 4;
+      const bend = e < 0.05 ? 0 : coarse ? (e < 2 ? 1 : 2) : e < 2 ? 2 : 4;
       for (let i = 0; i <= bend; i++) {
         const t = bend ? (Math.PI / 2) * (i / bend) : 0;
         rings.push({ samples: ringAt(e * (1 - Math.cos(t))), f: (H - e + e * Math.sin(t)) / H, nk: Math.sin(t), ns: Math.cos(t) });
@@ -489,7 +489,7 @@ function buildSolid(s: FigureSolid): BuiltSolid {
 }
 
 /** the tube's path, sampled: a Catmull-Rom curve through its points, or straight runs with rounded bends */
-function tubePath(s: FigureSolid): V3[] {
+function tubePath(s: FigureSolid, steps: number): V3[] {
   const pts = s.path!;
   const n = pts.length;
   const out: V3[] = [];
@@ -498,8 +498,8 @@ function tubePath(s: FigureSolid): V3[] {
     const spans = s.closed ? n : n - 1;
     for (let i = 0; i < spans; i++) {
       const [p0, p1, p2, p3] = [at(i - 1), at(i), at(i + 1), at(i + 2)];
-      for (let k = 0; k < 10; k++) {
-        const t = k / 10;
+      for (let k = 0; k < steps + 4; k++) {
+        const t = k / (steps + 4);
         out.push([0, 1, 2].map((q) => 0.5 * (2 * p1[q] + (p2[q] - p0[q]) * t + (2 * p0[q] - 5 * p1[q] + 4 * p2[q] - p3[q]) * t * t + (3 * p1[q] - p0[q] - 3 * p2[q] + p3[q]) * t * t * t)) as V3);
       }
     }
@@ -520,8 +520,8 @@ function tubePath(s: FigureSolid): V3[] {
     const la = Math.hypot(...sub(a, p)) || 1;
     const lb = Math.hypot(...sub(b, p)) || 1;
     const t = Math.min(rad, la / 2, lb / 2);
-    for (let k = 0; k <= 6; k++) {
-      const f = k / 6;
+    for (let k = 0; k <= steps; k++) {
+      const f = k / steps;
       const w = 1 - f;
       out.push([0, 1, 2].map((q) => w * w * (p[q] + ((a[q] - p[q]) / la) * t) + 2 * w * f * p[q] + f * f * (p[q] + ((b[q] - p[q]) / lb) * t)) as V3);
     }
@@ -530,10 +530,13 @@ function tubePath(s: FigureSolid): V3[] {
 }
 
 const cache = new WeakMap<Figure, BuiltFigure>();
-export function buildFigure(fig: Figure): BuiltFigure {
-  let b = cache.get(fig);
+const coarseCache = new WeakMap<Figure, BuiltFigure>();
+/** `coarse`: a third of the points, for figures shown small and many at once */
+export function buildFigure(fig: Figure, coarse = false): BuiltFigure {
+  const kept = coarse ? coarseCache : cache;
+  let b = kept.get(fig);
   if (b) return b;
-  const solids = fig.solids.map(buildSolid);
+  const solids = fig.solids.map((x) => buildSolid(x, coarse));
   const lo: V3 = [1e9, 1e9, 1e9];
   const hi: V3 = [-1e9, -1e9, -1e9];
   for (const s of solids)
@@ -542,6 +545,6 @@ export function buildFigure(fig: Figure): BuiltFigure {
       hi[k] = Math.max(hi[k], s.hi[k]);
     }
   b = { fig, solids, verts: solids.reduce((n, s) => n + s.verts.length / 3, 0), tris: solids.reduce((n, s) => n + s.tris.length, 0), lo, hi, mid: [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] };
-  cache.set(fig, b);
+  kept.set(fig, b);
   return b;
 }

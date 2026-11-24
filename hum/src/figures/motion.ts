@@ -193,6 +193,20 @@ export class Drive {
     }
   }
 
+  /** how far a figure's parts are thrown apart just now: right open on a drop, closing over a bar or so,
+      and a small knock on each kick of a loud part */
+  apart(): number {
+    if (this.held !== null) return 0;
+    const a = this.a;
+    let v = Math.max(0, this.value('kick')) * 0.055 * smooth(this.value('energy') * 1.5 - 0.25);
+    if (a)
+      for (const d of a.drops) {
+        const s = this.t - d.t;
+        if (s >= 0 && s < this.beat * 12) v = Math.max(v, 0.3 * d.s * (1 - Math.exp(-s * 26)) * Math.exp(-s / (this.beat * 1.7)));
+      }
+    return v;
+  }
+
   /** bars' worth of turning a spin has done by now */
   turns(by: Driver, lagBeats = 0): number {
     if (this.held !== null) return this.heldTurns;
@@ -223,6 +237,7 @@ export class Drive {
     const base = this as Drive;
     d.value = (by, lag = 0) => base.value(by, lag + beats);
     d.turns = (by, lag = 0) => base.turns(by, lag + beats);
+    d.apart = () => Object.assign(Object.create(base), { t: base.t - beats * base.beat }).apart();
     return d;
   }
 }
@@ -329,8 +344,9 @@ export interface Posed {
   lifted: { solid: number; by: number }[];
 }
 
-/** where every solid is, `amount` 0..1.5 scaling all motion */
-export function pose(b: BuiltFigure, d: Drive, amount: number): Posed {
+/** where every solid is, `amount` 0..1.5 scaling all motion; `apart` 0..0.4 pulls every part away from the
+    middle of the figure, as far as it already is from it (an exploded view) */
+export function pose(b: BuiltFigure, d: Drive, amount: number, apart = 0): Posed {
   const plan = planOf(b);
   const local = new Map<string, Mat>();
   const raised = new Map<string, number>();
@@ -388,6 +404,10 @@ export function pose(b: BuiltFigure, d: Drive, amount: number): Posed {
     }
     return m ?? identity();
   });
+  if (apart > 0.001)
+    b.solids.forEach((s, i) => {
+      mats[i] = multiply(move((s.mid[0] - b.mid[0]) * apart, (s.mid[1] - b.mid[1]) * apart, (s.mid[2] - b.lo[2]) * apart), mats[i]);
+    });
   for (const [id, by] of raised) {
     // the widest part of what rose drops the guides
     let best = -1;

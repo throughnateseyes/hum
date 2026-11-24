@@ -15,7 +15,7 @@
 import type * as THREE from 'three';
 import type { FrameContext, ParamDef, SceneDef, SceneInstance, TrackAnalysis } from '../../core/types';
 import { num } from '../../core/uniforms';
-import { FigureRenderer, fitCamera, reachOf, type Camera, type FrameBox, type Placed } from '../../figures/engine';
+import { basisOf, FigureRenderer, fitCamera, reachOf, type Camera, type FrameBox, type Placed } from '../../figures/engine';
 import { validateFigure, type Figure, type V3 } from '../../figures/format';
 import { buildFigure, type BuiltFigure } from '../../figures/geometry';
 import { Drive } from '../../figures/motion';
@@ -85,13 +85,13 @@ const hash = (a: number, b: number, c: number) => {
 
 let sample: Figure | null = null;
 /** the figures to draw: the person's, or the built-in one */
-function figures(which: number): BuiltFigure[] {
+function figures(which: number, coarse: boolean): BuiltFigure[] {
   const mine = listFigures();
   if (!mine.length) {
     sample ??= validateFigure(SAMPLE_FIGURE)!.figure;
-    return [buildFigure(sample)];
+    return [buildFigure(sample, coarse)];
   }
-  const all = mine.map((f) => buildFigure(f.figure));
+  const all = mine.map((f) => buildFigure(f.figure, coarse));
   return which > 0 ? [all[(which - 1) % all.length]] : all;
 }
 
@@ -124,6 +124,9 @@ export function figureFit(f: BuiltFigure, aspect: number, box: FrameBox, lens: n
   return c;
 }
 
+/** every figure in the row is about as large as the next */
+const sizeOf = (f: BuiltFigure) => 96 / Math.max(f.hi[0] - f.lo[0], f.hi[1] - f.lo[1], (f.hi[2] - f.lo[2]) * 1.15);
+
 const LENS = 6.2;
 
 class FigureScene implements SceneInstance {
@@ -137,13 +140,13 @@ class FigureScene implements SceneInstance {
     const p = ctx.params;
     const t = ctx.audio.time;
     const drive = new Drive(ctx.analysis, ctx.audio);
-    const list = figures(Math.round(num(p, 'which', 0)));
     const layout = String(p.layout ?? 'one');
+    const list = figures(Math.round(num(p, 'which', 0)), layout === 'field');
     const seed = Math.round(num(p, 'seed', 1));
     const motion = num(p, 'motion', 1);
     const base = { weight: num(p, 'weight', 2.5), shade: num(p, 'shade', 0.22), motion, floor: num(p, 'floor', 0.6) };
     const set = layout === 'field' ? this.field(ctx, drive, list, seed, t) : layout === 'past' ? this.past(ctx, drive, list, seed, t) : this.one(ctx, drive, list, seed, t);
-    this.engine.draw(ctx.renderer, target, ctx.width, ctx.height, set.cam, set.placed, { ...base, ...set.ink, weight: base.weight * set.thin }, ctx.palette);
+    this.engine.draw(ctx.renderer, target, ctx.width, ctx.height, set.cam, set.placed, { ...base, ...set.ink, weight: base.weight * set.thin * (1 + 0.28 * motion * Math.max(0, drive.value('snare')) * drive.value('energy')) }, ctx.palette);
   }
 
   /** where in the song's own blocks of `hold` bars we are, restarted at each part of the song */
@@ -201,8 +204,9 @@ class FigureScene implements SceneInstance {
     const creep = clamp01(b.since / Math.max(1, b.end - b.start));
     cam.az = 45 + swing * side * (0.65 * Math.sin((bars / 8) * Math.PI * 2 + b.k) + 0.35 * (creep * 2 - 1));
     cam.el = 30 + drift * (2.6 * Math.sin((bars / 13) * Math.PI * 2 + 1) - 3 * drive.value('build'));
-    const land = b.cue.drop && b.k === 0 ? Math.exp(-b.since / (b.bar * 0.4)) : 0;
-    cam.dist *= 1.03 - 0.05 * drift * drive.value('build') + 0.05 * drift * (1 - creep) - 0.1 * land - 0.012 * Math.max(0, drive.value('kick')) * drift;
+    cam.dist *= 1.03 - 0.05 * drift * drive.value('build') + 0.05 * drift * (1 - creep) - 0.02 * Math.max(0, drive.value('kick')) * drift;
+    // thrown apart on a drop, it needs the room
+    cam.dist *= 1 + 0.85 * drive.apart() * num(ctx.params, 'motion', 1);
     const placed: Placed[] = [{ figure: f, at: [0, 0, 0], scale: 1, drive, build: this.built(b, energy), strength: 1, lit: true }];
     const span = Math.max(f.hi[0] - f.lo[0], f.hi[1] - f.lo[1], 40);
     return { cam, placed, thin: 1, ink: { grid: span / 9, reach: span * 1.35, floorZ: f.lo[2], floorAt: [f.mid[0], f.mid[1]] as [number, number] } };
@@ -233,6 +237,7 @@ class FigureScene implements SceneInstance {
     const litI = Math.round(at[0] / PITCH + (hash(turn, 1, seed) - 0.5) * 2.4);
     const litJ = Math.round(at[1] / PITCH + (hash(turn, 2, seed) - 0.5) * 2.4);
     const placed: Placed[] = [];
+    const eye = basisOf(cam);
     const ci = Math.round(at[0] / PITCH);
     const cj = Math.round(at[1] / PITCH);
     const R = a < 0.9 ? 5 : 4;
@@ -249,8 +254,16 @@ class FigureScene implements SceneInstance {
         if (dist > R + 0.3) continue;
         const strength = 1 - smooth((dist - 1.6) / (R - 1.4)) * 0.97;
         if (strength < 0.04) continue;
-        const cell = this.built({ ...b, since: b.since - dist * drive.beat * 0.4 }, energy);
-        placed.push({ figure: f, at: [x - f.mid[0] * k, y - f.mid[1] * k, -f.lo[2] * k], scale: k, drive: drive.behind(dist * 0.25), build: b.since - dist * drive.beat * 0.4 < 0 ? 0.16 : cell, strength, lit: i === litI && j === litJ });
+        // off the frame altogether (its floor spot, a figure's reach away from every edge)
+        const v: V3 = [x - eye.eye[0], y - eye.eye[1], 34 - eye.eye[2]];
+        const d = Math.max(1, v[0] * eye.fwd[0] + v[1] * eye.fwd[1] + v[2] * eye.fwd[2]);
+        const px = ((v[0] * eye.right[0] + v[1] * eye.right[1] + v[2] * eye.right[2]) * cam.lens) / d;
+        const py = ((v[0] * eye.up[0] + v[1] * eye.up[1] + v[2] * eye.up[2]) * cam.lens) / d;
+        const pr = (92 * cam.lens) / d;
+        if (Math.abs(px) > a + pr || Math.abs(py) > 1 + pr) continue;
+        // the floor is drawn in when a part of the song opens, then stays
+        const cell = b.k > 0 ? 1 : this.built({ ...b, since: Math.max(0, b.since - dist * drive.beat * 0.4) }, energy);
+        placed.push({ figure: f, at: [x - f.mid[0] * k, y - f.mid[1] * k, -f.lo[2] * k], scale: k, drive: drive.behind(dist * 0.25), build: cell, strength, lit: i === litI && j === litJ });
       }
     // farther figures first in the list never matters (depth sorts them); cap the work
     placed.sort((p, q) => q.strength - p.strength);
@@ -258,7 +271,7 @@ class FigureScene implements SceneInstance {
     let solids = 0;
     for (const x of placed) {
       solids += x.figure.solids.length;
-      if (solids > 900) break;
+      if (solids > 800) break;
       kept.push(x);
     }
     return { cam, placed: kept, thin: 0.8, ink: { grid: PITCH / 8, reach: PITCH * (R + 1), floorZ: 0, floorAt: [at[0], at[1]] as [number, number] } };
@@ -281,21 +294,26 @@ class FigureScene implements SceneInstance {
     const go = Math.min(0.5, 6 / hold);
     const pos = k + 0.1 * f + 0.9 * easeInOut((f - (1 - go)) / go);
     const kick = Math.max(0, drive.value('kick'));
+    // how high the middle of what we look at is, as we go from one to the next
+    const n = list.length;
+    const high = (i: number) => {
+      const g = list[(((i + seed - 1) % n) + n) % n];
+      return ((g.hi[2] - g.lo[2]) / 2) * sizeOf(g);
+    };
+    const go1 = smooth(pos - k);
     const cam: Camera = {
       az: 45 + drift * (8 * Math.sin((drive.beats / 32) * Math.PI * 2) + 10 * (smooth((f - (1 - go)) / go) - 0.5) * Math.sin(k * 2.3)),
       el: 27 + drift * 3 * Math.sin((drive.beats / 44) * Math.PI * 2),
-      target: [pos * STEP * way[0], pos * STEP * way[1], 24],
-      dist: (tall ? 560 : 420) * (1 + 0.08 * Math.sin(Math.PI * smooth((f - (1 - go)) / go)) - 0.012 * kick * drift - 0.05 * drift * drive.value('build')),
+      target: [pos * STEP * way[0], pos * STEP * way[1], high(k) * (1 - go1) + high(k + 1) * go1],
+      dist: (tall ? 540 : 385) * (1 + 0.08 * Math.sin(Math.PI * smooth((f - (1 - go)) / go)) - 0.012 * kick * drift - 0.05 * drift * drive.value('build')),
       lens: tall ? 4.1 : 4.6,
       ox: 0,
-      oy: String(ctx.params.room ?? 'below') === 'below' ? (tall ? 0.2 : 0.14) : 0,
+      oy: String(ctx.params.room ?? 'below') === 'below' ? (tall ? 0.18 : 0.1) : 0,
     };
     const placed: Placed[] = [];
-    const n = list.length;
     for (let i = k - 2; i <= k + 3; i++) {
       const fig = list[(((i + seed - 1) % n) + n) % n];
-      const size = Math.max(fig.hi[0] - fig.lo[0], fig.hi[1] - fig.lo[1], (fig.hi[2] - fig.lo[2]) * 0.9);
-      const s = 92 / size;
+      const s = sizeOf(fig);
       const far = Math.abs(i - pos);
       const strength = 1 - 0.72 * smooth((far - 0.35) / 1.5);
       // each is built as the camera comes to it, and stays built behind it
