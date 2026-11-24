@@ -346,6 +346,41 @@ export interface ClipAsset {
   palette: ClipPalette;
 }
 
+/** what the app measured in a clip or photo by itself, before Claude looked */
+export interface MediaMeasure {
+  /** the seconds of the clip that were measured, and how much the picture moves there (0 still .. 1 a lot) */
+  at: number[];
+  motion: number[];
+  /** 0..1: how bright the picture is on the whole */
+  bright: number;
+  /** 0..1: how much the camera shakes (0: steady, or a photo) */
+  shake: number;
+}
+
+/** What Claude saw in one clip or photo (director/media.ts). Kept by media id, so each is watched once. */
+export interface MediaNotes {
+  id: string;
+  /** the shape of these notes; older ones are watched again */
+  v: number;
+  kind: 'clip' | 'photo';
+  /** what it shows, a few words */
+  subject: string;
+  /** where the subject sits, 0..1 from the left and from the bottom */
+  focusX: number;
+  focusY: number;
+  mood: string[];
+  /** 0 still and quiet .. 1 frantic */
+  energy: number;
+  /** how the camera moves, and how close it is */
+  camera: string;
+  size: string;
+  /** good seconds to start a shot on, best first, and why */
+  ins: { at: number; why: string }[];
+  faces: boolean;
+  text: boolean;
+  measure: MediaMeasure;
+}
+
 /**
  * What one part of the video does with the person's media, when its look is a footage look. Every
  * field is optional: a missing one falls back to the look's own setting (or, for media, to the
@@ -367,6 +402,10 @@ export interface PartShot {
   focusY?: number;
   /** how far it is pushed in: 1 fits the frame, up to 3 */
   zoom?: number;
+  /** the second of the first clip the part starts on (missing: carries on from where that clip stopped) */
+  from?: number;
+  /** what the part is meant to feel like (a moment id, src/moments): how the picture runs and the camera moves */
+  moment?: string;
 }
 
 /* ───────────────────────── Scenes ───────────────────────── */

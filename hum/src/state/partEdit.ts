@@ -21,6 +21,7 @@
 import { audioEngine } from '../audio/engine';
 import type { PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
+import { shotOfPart } from '../shot/partShots';
 import { localLyricPlan, type LyricMedium } from './lyricPlan';
 import { assignLook, ensureDropCuts, findLook, listNames, partEdits, partNames, recutParts, releaseHold, sectionIndexAt, snapToBeat, validPlan, withBase, type Recut, type VideoPlan } from './plan';
 import { replacementFor, shotEdits } from './flatPlan';
@@ -190,7 +191,7 @@ export function setPartsWords(is: number[], text: string | null) {
 
 /* ───────── a footage part's own picture (store.partShot) ───────── */
 
-const SHOT_KEYS = ['style', 'seed', 'treatment', 'motion', 'media', 'focusX', 'focusY', 'zoom'] as const satisfies readonly (keyof PartShot)[];
+const SHOT_KEYS = ['style', 'seed', 'treatment', 'motion', 'media', 'focusX', 'focusY', 'zoom', 'from', 'moment'] as const satisfies readonly (keyof PartShot)[];
 
 /** a record with only the fields that say something, in one order, or null when none is left */
 function tidyShot(r: PartShot): PartShot | null {
@@ -301,7 +302,7 @@ export function chosenPhotosAt(s: StudioState, t: number): PhotoAsset[] | null {
   let ids: string[] | undefined;
   if (planPlaying(s)) {
     const i = sectionIndexAt(s.analysis!.sections, t);
-    ids = s.partShot?.length === s.analysis!.sections.length ? s.partShot[i]?.media : undefined;
+    ids = shotOfPart(i, s)?.media;
   } else ids = s.sceneId === soloScene ? s.soloShot?.media : undefined;
   if (!ids?.length) return null;
   const out = ids.map((id) => s.photos.find((p) => p.id === id)).filter((p) => !!p);

@@ -4,7 +4,7 @@
  * A look whose scene has `usesClips` plays the person's own video clips as its picture. Without clips
  * it shows nothing worth watching, so for every planner (Claude's plan request, the offline plan, gap
  * filling, rotations, interludes, taste picks, skip and quick-replace, the single-look director) such a
- * look simply doesn't exist until a clip is added. A person can still pick one by hand from the library.
+ * look simply doesn't exist until a clip, or two photos (they play as moving stills), are added. A person can still pick one by hand from the library.
  *
  * With clips, footage carries the video (see `footageCut` in state/plan.ts). Footage looks are told
  * apart by their scene's flag, never by their ids, so new footage looks join in on their own.
@@ -20,14 +20,22 @@ export function clipCount(): number {
   return useStudio.getState().clips?.length ?? 0;
 }
 
+/** how many photos of their own the person has added */
+export function photoCount(): number {
+  return useStudio.getState().photos?.filter((p) => !p.builtin).length ?? 0;
+}
+
+/** there is something for footage looks to show: a clip, or two photos */
+export const mediaReady = () => clipCount() > 0 || photoCount() >= 2;
+
 /** the look plays the person's clips (its scene is built on them) */
 export function playsClips(p: Pick<Preset, 'sceneId'> | undefined): boolean {
   return !!p && !!getScene(p.sceneId)?.usesClips;
 }
 
-/** may a planner use this scene right now? (a clip scene only once there are clips, a drawing scene only once the song has drawings) */
+/** may a planner use this scene right now? (a clip scene only once there is media, a drawing scene only once the song has drawings) */
 export function sceneMayPlan(s: Pick<SceneDef, 'usesClips' | 'usesDrawings' | 'usesFigures'> | undefined): boolean {
-  return (!s?.usesClips || clipCount() > 0) && sceneShows(s);
+  return (!s?.usesClips || mediaReady()) && sceneShows(s);
 }
 
 /**

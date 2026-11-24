@@ -38,6 +38,8 @@ import {
   type Shot,
   type VideoPlan,
 } from './plan';
+import { momentShots } from '../director/footageShots';
+import { cueAt, shotsFromCues, type ShotCue } from '../shot/partShots';
 import { useStudio, type Pace } from './store';
 import { affinityIn, contextFor, onKeep, record } from './taste';
 import type { LyricPlan } from './lyricPlan';
@@ -90,11 +92,28 @@ export function flattenPlan(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyric
     lyricPlan: fp.lyricPlan ? momentsOnce(fp.lyricPlan, p.lyricPlan!, aP, cut, from, lyrics) : undefined,
     base: { looks: baseLooks, rotate: looks.map(() => null), lyric: fp.base?.lyric ?? planBase(fp, cut).lyric },
     flat: { src: p, pace },
+    // what each footage part shows: the director's choices, or what its moment asks for
+    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook) } : {}),
   };
+  if (p.cues) underCues(flat, p.cues, bounds);
+  // the cues stay with the planner's plan, where a new Pace finds them
+  delete flat.cues;
   delete flat.interludes;
   delete flat.shotBars;
   if (!flat.lyricPlan) delete flat.lyricPlan;
   return { plan: flat, analysis: cut };
+}
+
+/** the reasons and the way the words appear that came with the director's shots, put on the flat plan's parts */
+function underCues(flat: VideoPlan, cues: ShotCue[], bounds: number[]) {
+  const at = bounds.map((b) => cueAt(cues, b));
+  flat.why = flat.why.map((w, k) => at[k]?.why || w);
+  const lp = flat.lyricPlan;
+  if (!lp) return;
+  const changes = (k: number) => !!at[k]?.lyric && !!lp.parts[k] && lp.parts[k]!.medium !== 'own' && lp.parts[k]!.medium !== at[k]!.lyric;
+  flat.lyricPlan = { ...lp, parts: lp.parts.map((part, k) => (changes(k) ? { ...part!, medium: at[k]!.lyric!, moment: null, why: 'planned by Claude' } : part)) };
+  // the planner's choice, so it is the base a change by hand is told by
+  if (flat.base) flat.base = { ...flat.base, lyric: flat.base.lyric.map((m, k) => (changes(k) ? at[k]!.lyric! : m)) };
 }
 
 /**
@@ -168,27 +187,32 @@ export function carryEdits(next: { plan: VideoPlan; analysis: TrackAnalysis }, p
   const looks = [...plan.looks];
   const likedNext = plan.looks.map((_, k) => !!plan.liked?.[k]);
   const lp = plan.lyricPlan ? { ...plan.lyricPlan, parts: [...plan.lyricPlan.parts] } : undefined;
+  const shots = plan.shots || pp.shots ? plan.looks.map((_, k) => plan.shots?.[k] ?? null) : null;
   let kept = 0;
   for (const sp of spans) {
     // the new part that starts where the kept one does
     let k = 0;
     for (let j = 0; j < bounds.length; j++) if (Math.abs(bounds[j] - sp.s0) < Math.abs(bounds[k] - sp.s0)) k = j;
     const { x } = sp;
-    if (x.look && pp.looks[x.k] && findLook(pp.looks[x.k])) looks[k] = pp.looks[x.k];
+    if (x.look && pp.looks[x.k] && findLook(pp.looks[x.k])) {
+      looks[k] = pp.looks[x.k];
+      // a kept look keeps the picture it had, not the new plan's
+      if (shots) shots[k] = pp.shots?.[x.k] ?? null;
+    }
     const was = pp.lyricPlan?.parts[x.k];
     if (x.lyric && lp && was && lp.parts[k]) lp.parts[k] = { ...lp.parts[k]!, medium: was.medium, why: was.why };
     if (x.liked) likedNext[k] = true;
     kept++;
   }
   return {
-    plan: { ...plan, looks, ...(lp ? { lyricPlan: lp } : {}), ...(likedNext.some(Boolean) ? { liked: likedNext } : {}) },
+    plan: { ...plan, looks, ...(shots ? { shots } : {}), ...(lp ? { lyricPlan: lp } : {}), ...(likedNext.some(Boolean) ? { liked: likedNext } : {}) },
     analysis: r.analysis,
     kept,
   };
 }
 
 /** a per-part setting moved to new parts by time: each new part takes the old part it starts in */
-function carryByTime<T>(arr: (T | null)[] | null, from: TrackAnalysis, to: TrackAnalysis): (T | null)[] | null {
+export function carryByTime<T>(arr: (T | null)[] | null, from: TrackAnalysis, to: TrackAnalysis): (T | null)[] | null {
   if (!arr || arr.length !== from.sections.length) return null;
   const out = to.sections.map((sec) => arr[sectionIndexAt(from.sections, sec.start + 0.001)] ?? null);
   return out.some((v) => v !== null) ? out : null;

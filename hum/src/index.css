@@ -1732,6 +1732,18 @@ div:hover > .card-del {
 .vp-make > .field-note {
   margin: -4px 0 0;
 }
+/* a directed Make: the step it is at, and Cancel */
+.vp-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.vp-make > .field-note.vp-idea {
+  color: var(--ink-2);
+}
 /* the moods wrap in the panel: no sideways scrolling here */
 .vp .moods {
   flex-direction: column;

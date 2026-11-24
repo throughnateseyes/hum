@@ -402,6 +402,16 @@ export const sketchbook: SceneDef = {
 
     /* ───────── a frame ───────── */
 
+    /** no drawings (deleted, or not allowed here): the page carries the words, or the song's name */
+    const blank = (n: Now) => {
+      const st = useStudio.getState();
+      const sung = wordsBy(n) === 'here' ? wordsNow(n) : [];
+      const title = (st.lyrics?.title || st.track?.name || '').replace(/\.\w{2,4}$/, '');
+      const words = sung.length || wordsBy(n) === 'layer' || !bool(n.f.params, 'words', true) ? sung : title.split(/\s+/).filter(Boolean).slice(0, 8).map((text, i) => ({ text, t: n.span.start + i * 0.2 }));
+      const face = FACE_FOR.pen;
+      showWords(setLine(words, safeBox(n.W, n.H), face, Math.min(n.W, n.H) * 0.16, 4, 'center', 'middle'), face, n);
+    };
+
     const nowOf = (f: FrameContext): Now => {
       const st = useStudio.getState();
       const t = Math.max(0, f.audio.time);
@@ -441,7 +451,7 @@ export const sketchbook: SceneDef = {
           if (layout === 'page') page(n);
           else if (layout === 'pinned') pinned(n);
           else one(n);
-        }
+        } else blank(n);
         for (let i = used; i < sprites.length; i++) sprites[i].hide();
         paperMat.uniforms.uBg.value.set(n.paper);
         paperMat.uniforms.uInk.value.set(inkOn(n.paper, f.palette));

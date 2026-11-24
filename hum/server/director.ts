@@ -25,6 +25,7 @@ import { SHADER_AUTHORING_GUIDE } from '../src/scenes/shader/guide.js';
 import { TRANSITIONS, TRANSITION_IDS } from '../src/core/transitionList.js';
 import { DIRECTION_RULE, FINISH_IDS, TRANSITION_SET_IDS } from '../src/core/direction.js';
 import { canDraw, checkLimits, costOf, matchCode, recordSpend, type Usage } from './limits.js';
+import { describeStory } from './steps/footage.js';
 import { runStep, stepFor } from './steps/index.js';
 import type { StepImage } from './steps/images';
 import { DEFAULT_MODEL, modelFor, tierOf, type Task, type Tier } from './models.js';
@@ -448,16 +449,25 @@ export function describeMood(m: unknown): string {
 /** the most clips the app keeps at once (src/state/store.ts), so the most a request can claim */
 const MAX_CLIPS = 12;
 
+const CUTAWAYS = ' Give most parts a footage look, and keep one or two parts (a break, a bridge or the part after the biggest drop) on other looks as graphic cutaways.';
+
 /**
  * clips: how many video clips the person added → a line telling Claude the footage looks play them and
  * should carry the video. Untrusted, so only a whole number from 1 to MAX_CLIPS gets through; anything
  * else (missing, zero, text, a huge number) says nothing or is clamped. Sent in the user turn so the
- * cached system prompt stays the same for every request.
+ * cached system prompt stays the same for every request. `free`: no treatment says which parts are footage.
  */
-export function describeClips(v: unknown): string {
+export function describeClips(v: unknown, free = true): string {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_CLIPS, Math.max(0, Math.floor(v))) : 0;
   if (!n) return '';
-  return `The person added ${n === 1 ? 'a video clip' : `${n} video clips`}, and the footage looks play ${n === 1 ? 'it' : 'them'} as the picture. Give most parts a footage look, and keep one or two parts (a break, a bridge or the part after the biggest drop) on other looks as graphic cutaways.`;
+  return `The person added ${n === 1 ? 'a video clip' : `${n} video clips`}, and the footage looks play ${n === 1 ? 'it' : 'them'} as the picture.${free ? CUTAWAYS : ''}`;
+}
+
+/** photos: how many photos the person added, sent when there are no clips: the footage looks play them as moving stills */
+export function describePhotos(v: unknown, free = true): string {
+  const n = typeof v === 'number' && Number.isFinite(v) ? Math.min(24, Math.max(0, Math.floor(v))) : 0;
+  if (n < 2) return '';
+  return `The person added ${n} photos, and the footage looks play them as slowly moving stills.${free ? CUTAWAYS : ''}`;
 }
 
 /** character: { genre, confidence, instruments, mood } → one line */
@@ -662,8 +672,10 @@ ${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
   if (mode === 'plan') {
     const mood = describeMood(body.mood);
     if (mood) parts.push(mood);
-    const clips = describeClips(body.clips);
+    const story = describeStory(body.story);
+    const clips = describeClips(body.clips, !story) || describePhotos(body.photos, !story);
     if (clips) parts.push(clips);
+    if (story) parts.push(story);
   }
   if (track) parts.push(`Track analysis:\n${track}`);
   if (mode === 'plan') {

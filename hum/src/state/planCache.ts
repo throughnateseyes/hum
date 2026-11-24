@@ -142,7 +142,9 @@ export function songKey(name: string, a: TrackAnalysis): string {
 export function planKey(name: string, a: TrackAnalysis, lyr: Lyrics | null): string {
   const shape = songShape(a);
   const words = lyr?.synced && lyr.lines.length ? `s${hash(lyr.lines.map((l) => `${l.t.toFixed(1)}${l.text}`).join('\n'))}` : lyr?.plain ? `p${hash(lyr.plain)}` : 'n';
-  const clips = (useStudio.getState().clips?.length ?? 0) > 0 ? '|clips' : '';
+  const st = useStudio.getState();
+  // photos alone (two or more) make a footage video too (director/footage.ts)
+  const clips = (st.clips?.length ?? 0) > 0 ? '|clips' : (st.photos?.filter((p) => !p.builtin).length ?? 0) >= 2 ? '|photos' : '';
   return `${name}|${hash(shape)}|${words}${clips}`;
 }
 
@@ -263,7 +265,7 @@ function okShot(v: unknown): boolean {
   const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
   const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= 40);
   const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
-  return text('style') && text('treatment') && text('motion') && media && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
+  return text('style') && text('treatment') && text('motion') && text('moment') && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
 }
 const FIELDS = Object.keys(PART_KEYS) as PartField[];
 

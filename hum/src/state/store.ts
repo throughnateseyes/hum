@@ -151,6 +151,9 @@ export interface StudioState extends LookState {
   /** switch looks along the song map while playing */
   planOn: boolean;
   planning: boolean;
+  /** the step a directed Make is at, in plain words (null: none running), and a short line when a step failed (director/footageDirector.ts) */
+  making: { text: string; n?: number; of?: number } | null;
+  makeNote: string;
   lyrics: Lyrics | null;
   lyricsStatus: LyricsStatus;
   /** why nothing was found, or what was searched */
@@ -462,6 +465,8 @@ export const useStudio = create<StudioState>((set, get) => ({
   partPops: null,
   planOn: false,
   planning: false,
+  making: null,
+  makeNote: '',
   lyrics: null,
   lyricsStatus: 'idle',
   lyricsNote: '',

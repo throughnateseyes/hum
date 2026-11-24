@@ -333,7 +333,8 @@ export const figuresScene: SceneDef = {
   tags: ['minimal', 'graphic', 'editorial', 'calm', 'technical', 'precise', 'clean', 'personal', 'drawn'],
   params,
   usesFigures: true,
-  light: true,
+  // already fine lines: the hand-drawn finish would trace each one twice
+  prefersClean: true,  light: true,
   handInks: 3,
   create: () => new FigureScene(),
 };

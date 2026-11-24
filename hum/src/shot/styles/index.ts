@@ -2,6 +2,7 @@
  * The footage styles: each one idea, built from two or three elements with a clear order of size,
  * placed on the frame's grid and moving on the bar (the contract is in src/shot/kit.ts).
  *
+ *   plain    the footage alone, nothing on it
  *   caption  the footage alone, with a small accent slate on one corner        (quiet parts)
  *   poster   one word enormous on a flat field, the footage inside the letters
  *   window   a flat field with one large opening, the footage inside it
@@ -12,19 +13,22 @@
  * "Auto" picks one per part of the song from its role and energy, and never the same twice running.
  */
 import type { TrackSection } from '../../core/types';
+import { rank, type MomentId, type Serves } from '../../moments';
 import type { StyleFactory } from '../kit';
 import { caption } from './caption';
 import { card } from './card';
 import { grid } from './grid';
+import { plain } from './plain';
 import { poster } from './poster';
 import { slab } from './slab';
 import { split } from './split';
 import { window } from './window';
 
-export const STYLE_IDS = ['caption', 'poster', 'window', 'slab', 'grid', 'split'] as const;
+export const STYLE_IDS = ['plain', 'caption', 'poster', 'window', 'slab', 'grid', 'split'] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 export const STYLE_NAMES: Record<StyleId, string> = {
+  plain: 'Plain',
   caption: 'Caption',
   poster: 'Poster',
   window: 'Window',
@@ -33,9 +37,20 @@ export const STYLE_NAMES: Record<StyleId, string> = {
   split: 'Split',
 };
 
-export const STYLES: Record<StyleId | 'card', StyleFactory> = { caption, poster, window, slab, grid, split, card };
+export const STYLES: Record<StyleId | 'card', StyleFactory> = { plain, caption, poster, window, slab, grid, split, card };
 
 export const isStyle = (s: string): s is StyleId => (STYLE_IDS as readonly string[]).includes(s);
+
+/** the moments each style serves (src/moments): 3 made for it, 2 good, 1 now and then */
+export const STYLE_SERVES: Record<StyleId, Serves> = {
+  plain: { ache: 3, hush: 3, held: 3, float: 3, glow: 3, drift: 3, reveal: 3, aftermath: 3, lift: 3, rush: 2, release: 3, fury: 2 },
+  caption: { reveal: 2, aftermath: 2, hush: 1 },
+  poster: { release: 2, fury: 2 },
+  window: { reveal: 1, float: 2, ache: 1, held: 1, drift: 1 },
+  slab: { release: 2, rush: 1, lift: 2, drift: 1, glow: 1 },
+  grid: { fury: 3, rush: 3, lift: 2 },
+  split: { drift: 2, rush: 2, glow: 1 },
+};
 
 /** the styles that suit a part, best first */
 function suits(sec: TrackSection): StyleId[] {
@@ -63,11 +78,12 @@ function suits(sec: TrackSection): StyleId[] {
  * The style for one shot of a section, when every shot is a part of its own (src/shot/run.ts). A fixed
  * choice is used as it is. 'auto' picks from what suits the section, never the style of the footage
  * shot before (`prev`). The pick comes from the section's group and the shot's place in it, so a chorus
- * that comes back opens on the style it had the first time.
+ * that comes back opens on the style it had the first time. `moment`: what the part is meant to feel like.
  */
-export function styleForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: StyleId | ''): StyleId {
+export function styleForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: StyleId | '', moment?: MomentId): StyleId {
   if (isStyle(choice)) return choice;
-  const list = suits(sec).filter((s) => s !== prev);
+  // a shot with a moment draws from what serves it (the best two or three); else from what suits the section
+  const list = (moment ? rank(STYLE_SERVES, moment, STYLE_IDS).slice(0, 3) : suits(sec)).filter((s) => s !== prev || s === 'plain');
   if (!list.length) return prev === 'caption' ? 'window' : 'caption';
   let h = (Math.floor(seed) * 374761393 + sec.group * 668265263 + k * 2246822519) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;

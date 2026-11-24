@@ -75,7 +75,7 @@ export const caption: StyleFactory = (ctx) => {
 
       // the slate on the top margin, away from the word (a wide frame: on the margin across from it)
       const right = upright ? first : false;
-      const sy = upright || !first ? g.y1 - g.tiny : g.y0;
+      const sy = upright || first ? g.y1 - g.tiny : g.y0;
       const sx = right ? g.x1 : g.x0;
       placeLine(slate, sx, sy, g.tiny, right ? 'right' : 'left');
       const on = a > 0.6 && away < 0.5;
