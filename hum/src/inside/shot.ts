@@ -89,6 +89,8 @@ function lightFor(s: { field: string; light: string; word: string }): string {
   lights.set(key, out);
   return out;
 }
+/** 1 for a colour whose word is darker than it: everything it paints stays light behind the word */
+const airyOf = (s: { field: string; word: string }) => (lum(s.field) - lum(s.word) > 0.18 ? 1 : 0);
 const unit = new THREE.PlaneGeometry(1, 1);
 const post = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
 const blend = { transparent: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, side: THREE.DoubleSide } as const;
@@ -388,6 +390,8 @@ export class InsideShot {
     const amount = painted ? inK * (1 - gone) : 0;
     const farOn = this.paintKind === 'far' || this.paintKind === 'deep' || this.paintKind === 'all';
     const paint: Paint = {
+      airy0: airyOf(was),
+      airy1: airyOf(now),
       field0: was.field,
       light0: lightFor(was),
       field1: now.field,
@@ -456,6 +460,7 @@ export class InsideShot {
     const onField = this.paintKind !== 'figure' && st.far > 0.45;
     if (onField) return now.word;
     const deep = this.paintKind === 'deep' || this.paintKind === 'all';
+    if (deep && airyOf(now)) return lum(now.word) < 0.5 ? now.word : p.ink;
     if (deep && lum(now.field) > 0.6) return lum(now.word) < 0.5 ? now.word : p.ink;
     const behind = deep ? lum(now.field) * 0.55 : 0.28;
     return lum(now.word) - behind > 0.22 ? now.word : p.paper;

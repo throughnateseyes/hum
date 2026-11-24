@@ -24,6 +24,8 @@ export interface Paint {
   near: number;
   farCut: number;
   nearCut: number;
+  airy0: number;
+  airy1: number;
   figureK: number;
   groundK: number;
   grade: number;
@@ -140,7 +142,7 @@ export class InsidePass {
       uFront: { value: 0 }, uEdge: { value: 0 },
       uPaint: { value: new THREE.Vector3() },
       uFarCut: { value: 0 }, uNearCut: { value: 2 },
-      uFigureK: { value: 0 }, uGroundK: { value: 0 }, uGrade: { value: 0 }, uLineK: { value: 0 },
+      uFigureK: { value: 0 }, uAiry0: { value: 0 }, uAiry1: { value: 0 }, uGroundK: { value: 0 }, uGrade: { value: 0 }, uLineK: { value: 0 },
       uGround: { value: new THREE.Vector3() },
     });
     this.over = full(OVER, { tBed: { value: this.bedRT.texture }, tOver: { value: this.overRT.texture } });
@@ -211,6 +213,8 @@ export class InsidePass {
     b.uFigureK.value = p.figureK;
     b.uGroundK.value = scene && scene.ground > 0.06 ? p.groundK : 0;
     b.uGrade.value = p.grade;
+    b.uAiry0.value = p.airy0;
+    b.uAiry1.value = p.airy1;
     b.uLineK.value = u.uHasMap.value ? p.lineK : 0;
     b.uCuts.value.set(p.cuts[0], p.cuts[1]);
     b.uClipTexel.value.set(1 / (720 * o.clipAspect), 1 / 720);

@@ -107,6 +107,8 @@ uniform float uFront, uEdge;
 uniform vec3 uPaint;
 uniform float uFarCut, uNearCut;
 uniform float uFigureK, uGroundK, uGrade, uLineK;
+// each colour's word is darker than it: its shades stay light, so the word reads on all of them
+uniform float uAiry0, uAiry1;
 uniform vec3 uGround;
 float near(vec2 f) { return texture2D(tNear, f).r; }
 void main() {
@@ -131,7 +133,8 @@ void main() {
   vec3 field = mix(uField0, uField1, swept);
   vec3 light = mix(uLight0, uLight1, swept);
   vec3 flatC = mix(field, light, hi);
-  flatC = mix(flatC, mix(field * 0.62, uInk, 0.25), lo);
+  float airy = mix(uAiry0, uAiry1, swept);
+  flatC = mix(flatC, mix(mix(field * 0.62, uInk, 0.25), field * 0.84, airy), lo);
   // the picture as it is, held back when it is quiet
   vec3 nat = mix(f, f * f * (3.0 - 2.0 * f), 0.4);
   vec3 dim = mix(nat, vec3(l) * vec3(0.86, 0.95, 1.1), 0.45) * 0.5;
@@ -140,10 +143,10 @@ void main() {
   float front = smoothstep(uNearCut * 0.94, uNearCut * 1.06, q);
   float mid = clamp(1.0 - far - front, 0.0, 1.0);
   // what stands in front of the far field is the same colour a step darker, so the layers part
-  float down = mix(0.42, 0.68, luma(field));
+  float down = mix(0.42, 0.68, luma(field)) * mix(1.0, 0.36, airy);
   vec3 deepF = mix(field, uInk, down), deepL = mix(field, uInk, down * 0.5);
   vec3 midC = mix(deepF, deepL, hi);
-  midC = mix(midC, mix(field * 0.3, uInk, 0.6), lo);
+  midC = mix(midC, mix(mix(field * 0.3, uInk, 0.6), mix(field * 0.8, uInk, 0.24), airy), lo);
   vec3 c = mix(nat, flatC, clamp(far * uPaint.x, 0.0, 1.0));
   c = mix(c, midC, clamp(mid * uPaint.y + front * uPaint.z, 0.0, 1.0));
   // things close by as one flat shape
