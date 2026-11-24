@@ -47,12 +47,18 @@ async function ask<T>(mode: IDBTransactionMode, make: (s: IDBObjectStore) => IDB
   });
 }
 
+let busy: () => boolean = () => false;
+/** a reading under way stands still while this says so (quiet.ts) */
+export function standAside(when: () => boolean) {
+  busy = when;
+}
+
 const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
 /** go through a clip (see above); throws when it can't be opened, or was cancelled */
 async function read(c: Pick<ClipAsset, 'url'>, signal?: AbortSignal): Promise<ClipMotion> {
-  const r = new FrameReader(signal);
+  const r = new FrameReader(signal, true);
   try {
     await r.open(c.url);
     const duration = r.duration;
@@ -61,6 +67,7 @@ async function read(c: Pick<ClipAsset, 'url'>, signal?: AbortSignal): Promise<Cl
     // a picture every `apart` seconds, each held against the one `apart` before (a long clip is stepped
     // through, but what is compared is never more than a seventh of a second apart)
     const take = async (t: number): Promise<Frame> => {
+      while (busy()) await new Promise((r2) => setTimeout(r2, 300));
       const got = await r.at(t);
       const f = frameOf(shrinker.luma(), shrinker.width, shrinker.height, got);
       await breathe();

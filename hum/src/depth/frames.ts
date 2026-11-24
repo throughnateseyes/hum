@@ -42,11 +42,11 @@ function brightness(g: CanvasRenderingContext2D, w: number, h: number): Float32A
   return out;
 }
 
-const sheet = (w: number, h: number) => {
+const sheet = (w: number, h: number, inMemory = false) => {
   const c = document.createElement('canvas');
   c.width = w;
   c.height = h;
-  const g = c.getContext('2d')!;
+  const g = (inMemory ? c.getContext('2d', { willReadFrequently: true }) : c.getContext('2d'))!;
   g.imageSmoothingQuality = 'high';
   return { c, g };
 };
@@ -58,11 +58,12 @@ export class Shrinker {
   private big: ReturnType<typeof sheet>;
   private small: ReturnType<typeof sheet>;
 
-  constructor(w: number, h: number) {
-    const k = Math.min(1, PICTURE / Math.max(w, h));
-    this.big = sheet(Math.max(2, Math.round(w * k)), Math.max(2, Math.round(h * k)));
+  /** `lightOnly`: only the brightness is wanted, and the canvases stay off the graphics chip */
+  constructor(w: number, h: number, lightOnly = false) {
+    const k = Math.min(1, (lightOnly ? SMALL * 2 : PICTURE) / Math.max(w, h));
+    this.big = sheet(Math.max(2, Math.round(w * k)), Math.max(2, Math.round(h * k)), lightOnly);
     [this.width, this.height] = smallSize(w, h);
-    this.small = sheet(this.width, this.height);
+    this.small = sheet(this.width, this.height, lightOnly);
   }
 
   take(src: CanvasImageSource) {
@@ -96,7 +97,10 @@ export class FrameReader {
   /** what a seek costs lately, ms: clips with few whole frames decode a long run-up for each */
   private cost = 0;
 
-  constructor(private signal?: AbortSignal) {}
+  constructor(
+    private signal?: AbortSignal,
+    private lightOnly = false,
+  ) {}
 
   async open(url: string) {
     const v = this.v;
@@ -108,7 +112,7 @@ export class FrameReader {
     await ready;
     this.duration = v.duration;
     this.aspect = v.videoWidth / Math.max(1, v.videoHeight);
-    this.shrinker = new Shrinker(v.videoWidth, v.videoHeight);
+    this.shrinker = new Shrinker(v.videoWidth, v.videoHeight, this.lightOnly);
   }
 
   /**
