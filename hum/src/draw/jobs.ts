@@ -239,9 +239,10 @@ async function improved(job: DrawJob, object: Record<string, string>, first: Dra
       const look = await step({ mode: 'drawLook', object, images: [picture] }, signal, true);
       const problem = typeof look.problem === 'string' ? look.problem : '';
       const sees = typeof look.sees === 'string' ? look.sees : '';
-      wrong = look.reads === 'no';
-      if (wrong) notes.push(sees ? `Someone who saw it called it: ${sees}.` : 'It does not read as what it should be.');
-      if (problem) notes.push(problem);
+      // almost right is kept: only a drawing that would be misread, or is broken, is worth another minute
+      wrong = look.reads === 'no' || look.redo === true;
+      if (look.reads === 'no') notes.push(sees ? `Someone who saw it called it: ${sees}.` : 'It does not read as what it should be.');
+      if (wrong && problem) notes.push(problem);
     }
     if (!wrong) return first;
     patchJob(job.id, { state: 'fixing' });

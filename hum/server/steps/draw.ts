@@ -267,7 +267,7 @@ const draw: Step = {
 
 /* ───────────────────────── drawLook, drawFix ───────────────────────── */
 
-const LOOK_SYSTEM = `You judge small ink drawings for a music video. You see one drawing. Say what it plainly looks like, then whether it reads as the object it is meant to be. Be strict about things that are wrong (parts not joined, floating, the wrong proportion, unreadable tangles), and relaxed about looseness: wobbly, sketchy lines are wanted. ${DATA_RULE}`;
+const LOOK_SYSTEM = `You judge small ink drawings for a music video. You see one drawing. Say what it plainly looks like, then whether it reads as the object it is meant to be. Be strict about things that are wrong (parts not joined, floating, the wrong proportion, unreadable tangles), and relaxed about looseness: wobbly, sketchy lines are wanted. Drawing it again costs a minute's wait, so ask for that only when it shows. ${DATA_RULE}`;
 
 const LOOK_TOOL: StepTool = {
   name: 'judge',
@@ -279,8 +279,13 @@ const LOOK_TOOL: StepTool = {
       sees: { type: 'string', description: 'what you would call it, a few words' },
       reads: { type: 'string', enum: ['yes', 'almost', 'no'] },
       problem: { type: 'string', description: 'the biggest thing to fix, one sentence; empty when it reads well' },
+      redo: {
+        type: 'boolean',
+        description:
+          'true only when someone seeing it for two seconds would take the main thing for something else, or one of its main parts is missing, shapeless, detached or broken. false for taste, texture, small extras, a shape that could be nicer, or a detail that strays from the brief.',
+      },
     },
-    required: ['sees', 'reads', 'problem'],
+    required: ['sees', 'reads', 'problem', 'redo'],
   },
 };
 
@@ -300,7 +305,7 @@ const drawLook: Step = {
       maxTokens: 800,
       finish: (out) => {
         if (!isObj(out)) return null;
-        return { reads: out.reads === 'yes' || out.reads === 'almost' ? out.reads : 'no', sees: text(out.sees, 80), problem: text(out.problem, 240) };
+        return { reads: out.reads === 'yes' || out.reads === 'almost' ? out.reads : 'no', sees: text(out.sees, 80), problem: text(out.problem, 240), redo: out.redo === true };
       },
     };
   },
