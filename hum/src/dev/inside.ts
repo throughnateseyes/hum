@@ -151,8 +151,20 @@ const api = {
     }
     return { sheet: sheet.toDataURL('image/jpeg', 0.88), info, errors };
   },
-  /** one picture, for a film */
-  film: null as null | ((t: number) => Promise<string>),
+  /** a shot frame by frame, for a film: each picture is handed to `out` */
+  async film(c: Cell, fps: number, w: number, h: number) {
+    const { k, spec, shot } = await shotOf(c, w, h);
+    const n = Math.floor((spec.end - spec.start) * fps);
+    const out = (window as unknown as { __frame: (jpg: string) => Promise<void> }).__frame;
+    for (let i = 0; i < n; i++) {
+      const t = spec.start + i / fps;
+      await seek(k, spec.clipAt(t));
+      shot.render(t, { footage: k.texture, grow: 1, flash: 0, speed: 1, target: null });
+      await out(canvas.toDataURL('image/jpeg', 0.9));
+    }
+    shot.dispose();
+    return n;
+  },
 };
 declare global {
   interface Window {

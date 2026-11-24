@@ -393,7 +393,7 @@ export class InsideShot {
     this.placeWords(t, amount, now, p);
     this.placeExtras(t, beats, l, now);
 
-    const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.16 * Math.exp(-tau / 0.26) : 0);
+    const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
     const ramp = s.leave === 'ramp' ? clamp01(1 - (s.end - t) / (s.beat * 2)) : 0;
     const finish: Finish = {
       zoom: Math.max(1, o.grow) + bump + 0.1 * ramp ** 3,
