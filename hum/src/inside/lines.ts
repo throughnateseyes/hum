@@ -8,7 +8,7 @@ import type { Shot } from '../shot/sequence';
 import { partWordsAt } from '../state/direction';
 import { lyricPlanNow } from '../state/lyricPlan';
 import { useStudio } from '../state/store';
-import type { SungWord } from './layout';
+import { CARRY, type SungWord } from './layout';
 
 /** a word as it is set: capitals, without the punctuation that only helps when reading a line */
 const clean = (w: string) =>
@@ -45,7 +45,7 @@ export function wordsIn(shot: Shot, title: string[], opens: boolean): { words: S
       if (line.end < shot.start - 1 || line.t > shot.end + 1) continue;
       for (const w of wordsOf(line)) {
         const text = clean(w.text);
-        if (text && w.end > shot.start && w.t < shot.end) words.push({ text, t: w.t, end: w.end });
+        if (text && (w.end > shot.start || w.t >= shot.start - CARRY) && w.t < shot.end - CARRY) words.push({ text, t: w.t, end: w.end });
       }
     }
     if (words.length) return { words, sung: true };

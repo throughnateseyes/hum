@@ -24,6 +24,8 @@ export interface Chunk {
 }
 
 const LONGEST = 1.9;
+/** a word sung this close to a cut belongs to the shot after it */
+export const CARRY = 0.3;
 
 /** the words sung in a shot, as blocks of one to four that are read together */
 export function chunksOf(words: SungWord[], start: number, end: number, portrait: boolean, beat: number): Chunk[] {
@@ -35,10 +37,11 @@ export function chunksOf(words: SungWord[], start: number, end: number, portrait
     cur = [];
   };
   for (const w of words) {
-    if (w.end <= start + 0.03 || w.t >= end - 0.06) continue;
+    if ((w.end <= start + 0.03 && w.t < start - CARRY) || w.t >= end - 0.06) continue;
     const letters = cur.reduce((s, x) => s + x.text.length, 0);
     const prev = cur[cur.length - 1];
-    if (cur.length && (letters + w.text.length > most || cur.length >= 4 || w.t - cur[0].t > LONGEST || (prev && w.t - prev.end > Math.max(0.5, beat)))) flush();
+    // a lone letter never stands by itself
+    if (letters > 1 && (letters + w.text.length > most || cur.length >= 4 || w.t - cur[0].t > LONGEST || (prev && w.t - prev.end > Math.max(0.5, beat)))) flush();
     cur.push(w);
   }
   flush();
