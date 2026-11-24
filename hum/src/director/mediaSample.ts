@@ -1,7 +1,8 @@
 /**
  * Small pictures of the person's media for Claude to look at, and what can be measured without Claude.
  *
- *   sampleClip    one contact sheet of a clip (six frames, their seconds written on), and how much it
+ *   sampleClip    one contact sheet of a clip (six frames, their seconds written on; twelve when it has moments
+ *                 worth landing on, each shown just before and as it happens), and how much it
  *                 moves, how bright it is and how much the camera shakes
  *   photoSheet    one sheet with up to six photos on it
  *   toJpeg        a canvas as a JPEG that fits in a request
@@ -11,12 +12,17 @@
  * gets to breathe between frames.
  */
 import type { ClipAsset, MediaMeasure, PhotoAsset } from '../core/types';
+import { sawOf, type ClipMotion } from '../timing';
 
 /** the longest side of a sheet, and the most base64 text one picture may be (the server allows 400k) */
 const SHEET_EDGE = 1280;
 const MAX_CHARS = 380_000;
-/** frames on a clip's sheet */
+/** frames on a clip's sheet; twice as many when it has moments to look at */
 const FRAMES = 6;
+/** the moments of a clip Claude is shown: each the frame just before it, and the frame itself */
+const SHOWN = 4;
+/** how long before a moment the frame before it is (s) */
+const BEFORE = 0.4;
 /** photos on one sheet */
 export const PHOTOS_PER_SHEET = 6;
 /** the size pictures are measured at */
@@ -30,6 +36,8 @@ export interface ClipSample {
   /** the seconds of the frames on the sheet, in order */
   times: number[];
   measure: MediaMeasure;
+  /** the clip's moments on the sheet, in order: the second, and what was measured there */
+  moments: { at: number; saw: string }[];
 }
 
 export const breathe = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -131,8 +139,13 @@ function slide(a: Float32Array, b: Float32Array): [number, number] {
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
 /** A clip's contact sheet and measures. `key` is what the sheet calls it (A, B, …). */
-export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, signal?: AbortSignal): Promise<ClipSample> {
+export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, motion: ClipMotion | null = null, signal?: AbortSignal): Promise<ClipSample> {
   stopIf(signal);
+  const moments = (motion?.events ?? [])
+    .filter((e) => e.kind !== 'cut' && e.strength >= 0.22)
+    .sort((x, y) => y.strength - x.strength)
+    .slice(0, SHOWN)
+    .sort((x, y) => x.at - y.at);
   const v = document.createElement('video');
   v.muted = true;
   v.playsInline = true;
@@ -147,7 +160,8 @@ export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, signal?
     const aspect = v.videoWidth / Math.max(1, v.videoHeight);
     // a wide clip's frames go in two rows of three, a tall one's in one row of six
     const cols = aspect > 1 ? 3 : 6;
-    const rows = FRAMES / cols;
+    const frames = moments.length ? FRAMES * 2 : FRAMES;
+    const rows = frames / cols;
     const cw = Math.floor(SHEET_EDGE / cols);
     const ch = Math.min(Math.floor(SHEET_EDGE / rows), Math.round(cw / aspect));
     sheet.width = cw * cols;
@@ -157,7 +171,18 @@ export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, signal?
     const g = sheet.getContext('2d')!;
     const sg = small.getContext('2d', { willReadFrequently: true })!;
     const n = Math.max(FRAMES, Math.min(9, Math.round(d)));
-    const onSheet = Array.from({ length: FRAMES }, (_, i) => Math.round((i * (n - 1)) / (FRAMES - 1)));
+    const sheetAt = [
+      ...moments.flatMap((e, i) => [
+        { t: Math.max(0, e.at - BEFORE), say: `${key}${i + 1} before` },
+        { t: e.at, say: `${key}${i + 1}` },
+      ]),
+    ];
+    const plain = frames - sheetAt.length;
+    for (let i = 0; i < plain; i++) {
+      const t = Math.max(0, Math.min(d - 0.1, d * (0.03 + (0.92 * i) / Math.max(1, plain - 1))));
+      sheetAt.push({ t, say: `${key} ${t.toFixed(1)}s` });
+    }
+    sheetAt.sort((x, y) => x.t - y.t);
     const times: number[] = [];
     const at: number[] = [];
     const motion: number[] = [];
@@ -167,14 +192,6 @@ export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, signal?
       const t = Math.max(0, Math.min(d - 0.3, d * (0.03 + (0.92 * i) / (n - 1))));
       await seek(v, t, signal);
       const f0 = grey(v, sg);
-      const k = onSheet.indexOf(i);
-      if (k >= 0) {
-        const x = (k % cols) * cw;
-        const y = Math.floor(k / cols) * ch;
-        g.drawImage(v, x, y, cw, ch);
-        label(g, `${key} ${t.toFixed(1)}s`, x, y);
-        times.push(r2(t));
-      }
       await seek(v, t + STEP, signal);
       const f1 = grey(v, sg);
       await seek(v, t + STEP * 2, signal);
@@ -188,7 +205,16 @@ export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, signal?
       bright += f0.reduce((s, x) => s + x, 0) / f0.length;
       await breathe();
     }
-    return { jpeg: await toJpeg(sheet), times, measure: { at, motion, bright: r2(bright / n), shake: r2(Math.min(1, shake / n / 2.5)) } };
+    for (const [k, { t, say }] of sheetAt.entries()) {
+      await seek(v, Math.min(d - 0.05, t), signal);
+      const x = (k % cols) * cw;
+      const y = Math.floor(k / cols) * ch;
+      g.drawImage(v, x, y, cw, ch);
+      label(g, say, x, y);
+      times.push(r2(t));
+      await breathe();
+    }
+    return { jpeg: await toJpeg(sheet), times, moments: moments.map((e) => ({ at: r2(e.at), saw: sawOf(e) })), measure: { at, motion, bright: r2(bright / n), shake: r2(Math.min(1, shake / n / 2.5)) } };
   } finally {
     v.removeAttribute('src');
     v.load();

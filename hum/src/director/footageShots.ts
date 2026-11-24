@@ -48,7 +48,7 @@ export function withMoments(plan: VideoPlan, a: TrackAnalysis, moments: (MomentI
 }
 
 /** how well a picture suits a moment, from what Claude saw in it */
-function fits(n: MediaNotes, m: MomentId): number {
+export function fitsMoment(n: MediaNotes, m: MomentId): number {
   const [lo, hi] = RECIPES[m].energy;
   const still = n.kind === 'photo';
   let s = -2 * Math.max(0, lo - 0.15 - n.energy, n.energy - hi - 0.1);
@@ -113,7 +113,7 @@ export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (strin
       if (list.length && (h >>> 8) % 4 === 0) shot.motion = list[(h >>> 12) % list.length];
     }
     if (seen.length) {
-      const score = (n: MediaNotes) => fits(n, m) - (n.id === last ? 3 : 0) - 0.35 * (used.get(n.id) ?? 0);
+      const score = (n: MediaNotes) => fitsMoment(n, m) - (n.id === last ? 3 : 0) - 0.35 * (used.get(n.id) ?? 0);
       const n = [...seen].sort((x, y) => score(y) - score(x))[0];
       shot.media = [n.id];
       shot.focusX = n.focusX;

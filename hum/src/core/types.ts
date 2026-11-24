@@ -376,6 +376,8 @@ export interface MediaNotes {
   size: string;
   /** good seconds to start a shot on, best first, and why */
   ins: { at: number; why: string }[];
+  /** what happens in it that a cut could land on: the second, what it is, and how hard it hits, 0..1 (missing: not looked for) */
+  hits?: { at: number; what: string; hard: number }[];
   faces: boolean;
   text: boolean;
   measure: MediaMeasure;
@@ -404,6 +406,14 @@ export interface PartShot {
   zoom?: number;
   /** the second of the first clip the part starts on (missing: carries on from where that clip stopped) */
   from?: number;
+  /**
+   * Something that happens in the first clip lands on the song (src/timing): the second of the clip it
+   * happens on, how long after the part starts it lands (s), and what the speed does round it (a ramp
+   * id, src/shot/sequence.ts). With these the clip's start follows from them, and `from` is not used.
+   */
+  hit?: number;
+  on?: number;
+  ramp?: string;
   /** what the part is meant to feel like (a moment id, src/moments): how the picture runs and the camera moves */
   moment?: string;
   /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
