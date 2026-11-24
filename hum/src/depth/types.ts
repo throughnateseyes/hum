@@ -43,6 +43,8 @@ export interface ClipScene {
   times: number[];
   /** the maps, one per entry of times; null for a sample not read yet (see ClipReader.need) */
   maps: (Uint8Array | null)[];
+  /** the straight lines of every other sample (edges.ts); missing or null where they have not been looked for */
+  edges?: (Int16Array | null)[];
   /** seconds of clip a depth map can stand in for when the one wanted has not been read */
   step: number;
   focal: number;

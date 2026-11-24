@@ -12,6 +12,10 @@ export const PUT_IDS: PutId[] = ['far', 'between', 'wall', 'ground'];
 export type ExtraId = 'lines' | 'rays' | 'posts' | 'ribbons' | 'streaks';
 export const EXTRA_IDS: ExtraId[] = ['lines', 'rays', 'posts', 'ribbons', 'streaks'];
 
+/** what the clip's own lines do (sceneLines.ts) */
+export type ActId = 'draw' | 'sweep' | 'hats' | 'run' | 'shoot' | 'lift' | 'knit' | 'scan' | 'gather' | 'floor' | 'trace' | 'fill';
+export const ACT_IDS: ActId[] = ['draw', 'sweep', 'hats', 'run', 'shoot', 'lift', 'knit', 'scan', 'gather', 'floor', 'trace', 'fill'];
+
 /** what turns to flat colour: nothing, what is far off, everything but what is close, the close things themselves, everything */
 export type PaintId = 'none' | 'far' | 'deep' | 'figure' | 'all';
 export const PAINT_IDS: PaintId[] = ['none', 'far', 'deep', 'figure', 'all'];
@@ -24,6 +28,8 @@ export interface InsideRecipe {
   ground: boolean;
   put: PutId[];
   with: ExtraId[];
+  /** what the clip's own lines do, where it has some */
+  acts: ActId[];
   /** how far the bare picture is held back, 0..1 */
   grade: number;
   /** the picture jumps on kicks, 0..1 */
@@ -33,18 +39,18 @@ export interface InsideRecipe {
 }
 
 export const INSIDE: Record<MomentId, InsideRecipe> = {
-  hush: { paint: ['none'], step: 0, ground: false, put: ['far', 'between'], with: [], grade: 0.85, jump: 0 },
-  ache: { paint: ['none'], step: 0, ground: false, put: ['far', 'between', 'wall'], with: [], grade: 0.65, jump: 0 },
-  held: { paint: ['none'], step: 0, ground: false, put: ['far', 'between'], with: ['lines'], grade: 0.8, jump: 0, black: true },
-  aftermath: { paint: ['none'], step: 0, ground: false, put: ['far', 'ground'], with: [], grade: 0.6, jump: 0 },
-  float: { paint: ['far'], step: 16, ground: false, put: ['far', 'between'], with: ['ribbons'], grade: 0.1, jump: 0 },
-  glow: { paint: ['far', 'deep'], step: 8, ground: false, put: ['far', 'wall'], with: ['rays'], grade: 0, jump: 0.15 },
-  drift: { paint: ['far', 'none'], step: 8, ground: false, put: ['wall', 'ground', 'between', 'far'], with: ['ribbons'], grade: 0.15, jump: 0.1 },
-  reveal: { paint: ['deep', 'far'], step: 0, ground: false, put: ['between', 'far'], with: ['lines'], grade: 0.3, jump: 0.2 },
-  lift: { paint: ['far', 'deep'], step: 4, ground: false, put: ['wall', 'between', 'far'], with: ['posts', 'streaks'], grade: 0, jump: 0.4 },
-  release: { paint: ['deep', 'far'], step: 2, ground: true, put: ['wall', 'far', 'between', 'ground'], with: ['ribbons', 'posts', 'rays', 'streaks'], grade: 0, jump: 0.8 },
-  rush: { paint: ['deep', 'figure'], step: 2, ground: true, put: ['ground', 'wall', 'between'], with: ['streaks', 'ribbons'], grade: 0, jump: 0.7 },
-  fury: { paint: ['figure', 'all', 'deep'], step: 1, ground: true, put: ['far', 'between', 'wall'], with: ['rays', 'streaks', 'posts'], grade: 0, jump: 1 },
+  hush: { paint: ['none'], step: 0, ground: false, put: ['far', 'between'], with: [], acts: [], grade: 0.85, jump: 0 },
+  ache: { paint: ['none'], step: 0, ground: false, put: ['far', 'between', 'wall'], with: [], acts: ['knit', 'trace'], grade: 0.65, jump: 0 },
+  held: { paint: ['none'], step: 0, ground: false, put: ['far', 'between'], with: ['lines'], acts: ['gather'], grade: 0.8, jump: 0, black: true },
+  aftermath: { paint: ['none'], step: 0, ground: false, put: ['far', 'ground'], with: [], acts: ['scan'], grade: 0.6, jump: 0 },
+  float: { paint: ['far'], step: 16, ground: false, put: ['far', 'between'], with: ['ribbons'], acts: ['scan', 'knit', 'trace'], grade: 0.1, jump: 0 },
+  glow: { paint: ['far', 'deep'], step: 8, ground: false, put: ['far', 'wall'], with: ['rays'], acts: ['sweep', 'scan', 'fill'], grade: 0, jump: 0.15 },
+  drift: { paint: ['far', 'none'], step: 8, ground: false, put: ['wall', 'ground', 'between', 'far'], with: ['ribbons'], acts: ['run', 'knit', 'draw', 'fill', 'floor'], grade: 0.15, jump: 0.1 },
+  reveal: { paint: ['deep', 'far'], step: 0, ground: false, put: ['between', 'far'], with: ['lines'], acts: ['draw', 'sweep', 'trace'], grade: 0.3, jump: 0.2 },
+  lift: { paint: ['far', 'deep'], step: 4, ground: false, put: ['wall', 'between', 'far'], with: ['posts', 'streaks'], acts: ['run', 'scan', 'fill', 'floor'], grade: 0, jump: 0.4 },
+  release: { paint: ['deep', 'far'], step: 2, ground: true, put: ['wall', 'far', 'between', 'ground'], with: ['ribbons', 'posts', 'rays', 'streaks'], acts: ['sweep', 'fill', 'shoot', 'floor', 'lift', 'run', 'trace'], grade: 0, jump: 0.8 },
+  rush: { paint: ['deep', 'figure'], step: 2, ground: true, put: ['ground', 'wall', 'between'], with: ['streaks', 'ribbons'], acts: ['run', 'fill', 'shoot', 'floor', 'hats'], grade: 0, jump: 0.7 },
+  fury: { paint: ['figure', 'all', 'deep'], step: 1, ground: true, put: ['far', 'between', 'wall'], with: ['rays', 'streaks', 'posts'], acts: ['shoot', 'fill', 'hats', 'lift', 'knit'], grade: 0, jump: 1 },
 };
 
 /** the recipe for a shot with no moment, from how loud its part is */

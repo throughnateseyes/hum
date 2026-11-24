@@ -197,6 +197,8 @@ export interface Line {
   dx: number;
   dy: number;
   len: number;
+  /** how hard an edge it is, on average */
+  strong: number;
 }
 
 /** Straight edges: neighbouring pixels whose edges point the same way, grown into runs */
@@ -279,7 +281,7 @@ export function findLines(luma: ArrayLike<number>, w: number, h: number): Line[]
     const len = hi - lo;
     if (len < 12 || len < wide * 4) continue;
     const mid = (lo + hi) / 2;
-    out.push({ x: (mx + mid * dx + 0.5 - w / 2) / h, y: (my + mid * dy + 0.5 - h / 2) / h, dx, dy, len: len / h });
+    out.push({ strong: sm / run.length, x: (mx + mid * dx + 0.5 - w / 2) / h, y: (my + mid * dy + 0.5 - h / 2) / h, dx, dy, len: len / h });
   }
   return out;
 }

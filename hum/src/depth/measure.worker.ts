@@ -4,12 +4,14 @@
  *
  * in:  { type: 'quick', id, frames, width, height, photo }
  *      · { type: 'open', id, key, width, height, focal, scale, lift, base?, like?, ahead? }
+ *      · { type: 'edges', id, luma, width, height } (the frame's lines: edges.ts)
  *      · { type: 'push', id, key, sample } · { type: 'finish', id, key } · { type: 'drop', key }
  * out: { id, type: 'done', ... } · { id, type: 'error', message }
  *
  * Maps go out as the bytes they are kept as (types.ts). A stretch is fed in order; see stretch.ts.
  */
 import { quickRead, toByte, type QuickIn } from './quick';
+import { edgesOf } from './edges';
 import { lowered, Stretch, type SampleIn, type Scale } from './stretch';
 import type { Slide } from './types';
 
@@ -17,6 +19,7 @@ type Msg =
   | { type: 'quick'; id: number; frames: QuickIn[]; width: number; height: number; photo: boolean }
   | { type: 'open'; id: number; key: number; width: number; height: number; focal: number; scale: Scale; lift: number; base?: Slide; like?: { map: Float32Array; luma: Float32Array }; ahead?: boolean }
   | { type: 'push'; id: number; key: number; sample: SampleIn }
+  | { type: 'edges'; id: number; luma: Float32Array; width: number; height: number }
   | { type: 'finish'; id: number; key: number }
   | { type: 'drop'; key: number }
   | { type: 'cancel'; id: number };
@@ -36,6 +39,9 @@ self.onmessage = (e: MessageEvent<Msg>) => {
     if (m.type === 'quick') {
       const { maps, ...rest } = quickRead(m.frames, m.width, m.height, m.photo);
       post({ id: m.id, type: 'done', quick: { ...rest, maps: maps.map((x) => bytes(x, 0)) } });
+    } else if (m.type === 'edges') {
+      const edges = edgesOf(m.luma, m.width, m.height);
+      post({ id: m.id, type: 'done', edges }, [edges.buffer as ArrayBuffer]);
     } else if (m.type === 'open') {
       open.set(m.key, { s: new Stretch(m.width, m.height, m.focal, m.scale, m.base, m.like ?? null, m.ahead), lift: m.lift });
       post({ id: m.id, type: 'done' });

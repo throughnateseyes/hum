@@ -109,5 +109,7 @@ After the shots are chosen and their depth is read, `roomFor` (`footageStills.ts
 
 The video goes on at once. The missing drawings are made by the usual jobs under those ids and join it as they finish. Where one stands is found by `src/inside/drawn.ts` against the depth maps: on the ground, between two layers, far off, or on a wall. What faces the camera must have its foot hidden by something nearer or stand on the ground, must be mostly seen over the whole shot, and the words are laid out round it (`InsideShot.arrange`): they must still be read about as well as without it. A smaller size is tried before another place, another place before none, and there is a least size. If nowhere will do there is none, and the list says so (`src/inside/seated.ts`).
 
+Lines along the clip's own edges cost no call. `measure.worker.ts` finds them on every second depth sample (up to 220 a frame), `linesOver` follows up to 130 through the seconds a shot plays, and `recipes.ts` gives each moment its acts. A long shot changes act every two bars. `INSIDE[moment].acts` empty means none (hush).
+
 When all are in, `artReview` sees one still per placement and moves, takes out or has redrawn (two at most) whatever looks stuck on: one round, only on the video it was made for, never in a part on screen.
 

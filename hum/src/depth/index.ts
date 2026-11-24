@@ -10,13 +10,13 @@ export { ClipReader, momentAt, pinned, readClip, readPhoto, STEP, type Moment, t
 export { loadDepth, type DepthDevice } from './estimate';
 export { slid, unslid } from './track';
 
-export interface SceneDump extends Omit<ClipScene, 'maps'> {
+export interface SceneDump extends Omit<ClipScene, 'maps' | 'edges'> {
   /** the samples whose maps are in the bytes, in order */
   have: number[];
 }
 
 export function sceneToDump(s: ClipScene): { json: SceneDump; bytes: Uint8Array } {
-  const { maps, ...rest } = s;
+  const { maps, edges: _edges, ...rest } = s;
   const have = maps.map((m, i) => (m ? i : -1)).filter((i) => i >= 0);
   const each = s.width * s.height;
   const bytes = new Uint8Array(each * have.length);

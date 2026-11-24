@@ -367,6 +367,12 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   moves, and stands the words being sung and the part's shapes in the place: behind the skyline, between
   people, along a wall or on the ground. Its colours are one set for the whole video (*Inside colours*).
   The moment of each part picks how it looks (`src/inside`, `src/depth`).
+  Each clip's own straight edges (cables, kerbs, window grids, crossing stripes) are found and followed
+  (`src/depth/edges.ts`), and lines are drawn along them in the place, behind whoever passes. The moment
+  names what they may do and the shot's number which of those it is: they draw on far to near, a wave runs
+  through them, the hi-hats pick groups out, the surfaces between them light up, they shoot past their ends,
+  or the people near by are outlined (`src/inside/sceneLines.ts`). A clip with few edges keeps the made-up
+  lines.
 - **Draw into the scene** (Video tab → Drawings, for people whose access includes drawings) gives a video
   made from your footage an art direction: one idea, a few rules, one hand, and up to five drawings with a
   job. Yours are used where they fit and Claude draws what is missing. Each stands in Inside shots, hidden

@@ -12,6 +12,9 @@ const PICTURE = 1288;
 /** the longest side of the brightness picture and of the maps */
 export const SMALL = 384;
 
+/** the longest side of the picture lines are looked for in */
+const FINE = 704;
+
 const gone = () => new DOMException('Cancelled', 'AbortError');
 
 /** the size kept of a picture of this shape: the longest side is SMALL, both even */
@@ -57,6 +60,7 @@ export class Shrinker {
   readonly height: number;
   private big: ReturnType<typeof sheet>;
   private small: ReturnType<typeof sheet>;
+  private fine: ReturnType<typeof sheet> | null = null;
 
   constructor(w: number, h: number) {
     const k = Math.min(1, PICTURE / Math.max(w, h));
@@ -81,8 +85,19 @@ export class Shrinker {
     return brightness(g, c.width, c.height);
   }
 
+  /** the picture last taken, as a larger brightness picture: thin things (a cable, a kerb) still show in it */
+  fineLuma(): { luma: Float32Array; width: number; height: number } {
+    const { width: W, height: H } = this.big.c;
+    const k = Math.min(1, FINE / Math.max(W, H));
+    const w = Math.max(2, Math.round(W * k));
+    const h = Math.max(2, Math.round(H * k));
+    this.fine ??= sheet(w, h);
+    this.fine.g.drawImage(this.big.c, 0, 0, w, h);
+    return { luma: brightness(this.fine.g, w, h), width: w, height: h };
+  }
+
   close() {
-    for (const s of [this.big, this.small]) s.c.width = s.c.height = 0;
+    for (const s of [this.big, this.small, this.fine]) if (s) s.c.width = s.c.height = 0;
   }
 }
 

@@ -11,6 +11,7 @@
  */
 import type { ClipAsset, PhotoAsset } from '../core/types';
 import { Desk } from './desk';
+import { EDGE_EVERY } from './edges';
 import { depthOf, loadDepth, type DepthDevice } from './estimate';
 import { FrameReader, Shrinker, takeTurn } from './frames';
 import { fromByte, toByte, type QuickIn, type QuickOut } from './quick';
@@ -68,6 +69,14 @@ function reslide(b: Slide, a: Slide, a2: Slide): Slide {
   return { x, y, scale: a2.scale * scale, turn: a2.turn + turn };
 }
 
+/** look for the lines of the picture a reader last took, and keep them as the scene's at sample i */
+async function lookForEdges(scene: ClipScene, i: number, s: Shrinker, signal?: AbortSignal): Promise<void> {
+  const { luma, width, height } = s.fineLuma();
+  const { edges } = await desk.ask<{ edges: Int16Array }>({ type: 'edges', luma, width, height }, [luma.buffer as ArrayBuffer], signal);
+  scene.edges ??= scene.times.map(() => null);
+  scene.edges[i] = edges;
+}
+
 const toView = (v: { x: number; y: number; roll: number }, aspect: number): View => ({ u: v.x / aspect + 0.5, v: v.y + 0.5, roll: v.roll });
 
 function newScene(id: string, aspect: number, duration: number, w: number, h: number, times: number[]): ClipScene {
@@ -104,7 +113,16 @@ function takeQuick(scene: ClipScene, q: Quick) {
 export async function readPhoto(photo: PhotoAsset, opts: ReadOptions = {}): Promise<ClipScene> {
   const key = await keyOfPhoto(photo);
   const kept = await recall(key, photo.id);
-  if (kept) return kept.scene;
+  if (kept) {
+    if (!kept.scene.edges?.[0]) {
+      const s = new Shrinker(photo.width, photo.height);
+      s.take(photo.image);
+      await lookForEdges(kept.scene, 0, s, opts.signal).catch(() => undefined);
+      s.close();
+      void keep(key, kept, []);
+    }
+    return kept.scene;
+  }
   const say = opts.onProgress;
   await loadDepth({ signal: opts.signal, device: opts.device, onDownload: (frac) => say?.({ stage: 'download', frac }) });
   const s = new Shrinker(photo.width, photo.height);
@@ -119,6 +137,7 @@ export async function readPhoto(photo: PhotoAsset, opts: ReadOptions = {}): Prom
     scene.maps[0] = quick.maps[0];
     scene.views[0] = toView(quick.views[0], scene.aspect);
     scene.step = 1e9;
+    await lookForEdges(scene, 0, s, opts.signal);
     void keep(key, { scene, scale: quick.scale, lift: 0, settled: true, done: [true], speed: 0 }, [0]);
     say?.({ stage: 'look', frac: 1 });
     return scene;
@@ -225,7 +244,7 @@ export class ClipReader {
    */
   need(ranges: [number, number][], opts: NeedOptions = {}): Promise<void> {
     const signal = opts.signal ? AbortSignal.any([this.stop.signal, opts.signal]) : this.stop.signal;
-    const mine = this.turn.then(() => this.read(ranges, opts, signal));
+    const mine = this.turn.then(() => this.read(ranges, opts, signal)).then(() => this.edges(ranges, signal));
     this.turn = mine.catch(() => undefined);
     return mine;
   }
@@ -280,6 +299,27 @@ export class ClipReader {
     say?.({ stage: 'read', frac: 1 });
   }
 
+  /** the lines of seconds whose depth was read before lines were looked for */
+  private async edges(ranges: [number, number][], signal: AbortSignal) {
+    const { scene } = this;
+    const want: number[] = [];
+    for (let i = 0; i < scene.times.length; i += EDGE_EVERY) if (!scene.edges?.[i] && ranges.some(([a, b]) => scene.times[i] >= Math.min(a, b) - 0.35 && scene.times[i] <= Math.max(a, b) + 0.35)) want.push(i);
+    if (!want.length) return;
+    await takeTurn(async () => {
+      const fr = new FrameReader(signal);
+      try {
+        await fr.open(this.asset.url);
+        for (const i of want) {
+          await fr.at(i * STEP + NUDGE);
+          await lookForEdges(scene, i, fr.shrinker, signal);
+        }
+      } finally {
+        fr.close();
+        void keep(this.key, this.r, []);
+      }
+    });
+  }
+
   /** read samples from..to as one stretch, joined to what is read on either side */
   private async piece(from: number, to: number, every: number, signal: AbortSignal, tick: (k: number) => void) {
     const { scene, scale, done } = this.r;
@@ -319,6 +359,7 @@ export class ClipReader {
         const t = i > 0 && real <= scene.times[i - 1] ? i * STEP : real;
         if (i >= from && i <= to) scene.times[i] = t;
         const luma = fr.shrinker.luma();
+        if (i % EDGE_EVERY === 0 && i >= from && i <= to && !scene.edges?.[i]) waiting.push(lookForEdges(scene, i, fr.shrinker, signal).catch(() => undefined));
         const pic = want && !placed ? await fr.shrinker.picture() : null;
         let soon: SampleIn['soon'];
         if (ahead) {
@@ -346,6 +387,7 @@ export class ClipReader {
         if (waiting.length > WAITING) await waiting.shift();
       }
       await order;
+      await Promise.all(waiting);
       const { out } = await desk.ask<{ out: StretchOut }>({ type: 'finish', key }, [], signal);
       finished = true;
       this.join(first, from, to, last, out);

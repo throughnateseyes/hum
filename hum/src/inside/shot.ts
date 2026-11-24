@@ -17,8 +17,9 @@ import type { InsidePalette } from './palettes';
 import type { Finish, InsidePass, Paint } from './pass';
 import { notePush } from './reading';
 import { cropOf, goesAhead, lens, mapAt, nearnessAt, project, pushCentre, unproject, type Crop, type Lens } from './place';
-import { insideFor, type ExtraId, type InsideRecipe, type PaintId, type PutId } from './recipes';
+import { insideFor, type ActId, type ExtraId, type InsideRecipe, type PaintId, type PutId } from './recipes';
 import { FLAT_FRAG, FLAT_VERT, MAX_LETTERS, RAYS_FRAG, RIBBON_FRAG, RIBBON_VERT, WORD_FRAG, WORD_VERT, FULLSCREEN_VERT } from './shaders';
+import { SceneLines, strokeMaterial } from './sceneLines';
 import { advance, setWord } from './words';
 
 export interface InsideSpec {
@@ -30,6 +31,7 @@ export interface InsideSpec {
   beat: number;
   kicks: number[];
   snares: number[];
+  hats?: number[];
   /** where bars count from */
   partStart: number;
   energy: number;
@@ -57,6 +59,7 @@ export interface InsideSpec {
   paint?: PaintId;
   put?: PutId;
   extras?: ExtraId[];
+  acts?: ActId[];
   /** a drawing that stands in this shot */
   drawn?: Drawn | null;
 }
@@ -136,6 +139,8 @@ export class InsideShot {
   private readonly ribbons: { m: THREE.Mesh; mat: THREE.ShaderMaterial; i: number; w: number }[] = [];
   private readonly lines: THREE.Mesh[] = [];
   private drawing: DrawnInPlace | null = null;
+  /** lines along what the clip really has */
+  private own: SceneLines | null = null;
   private rays: THREE.ShaderMaterial | null = null;
   /** the size of the place: how far ahead its middle is */
   private readonly span: number;
@@ -195,6 +200,7 @@ export class InsideShot {
     chunks.forEach((chunk, i) => this.standing.push(this.stand(chunk, puts[i])));
     if (s.drawn && seat) this.addDrawing(s.drawn, seat);
     if (s.drawn && s.scene) noteSeat(s.partStart, s.drawn.put, s.drawn.size, !!seat);
+    this.addOwn();
     if (this.extras.has('rays')) this.addRays();
     if (this.extras.has('lines')) this.addLines();
     if (this.extras.has('posts')) this.addPosts();
@@ -386,6 +392,37 @@ export class InsideShot {
     return this.material(FLAT_VERT, FLAT_FRAG, { uColor: { value: new THREE.Color(hex) }, uAlpha: { value: 1 } }, { depthWrite: true });
   }
 
+  /** lines along the clip's own; with them, the made-up ones stay out */
+  private addOwn() {
+    const s = this.spec;
+    const acts = s.acts ?? (this.bare ? (['scan', 'knit', 'draw'] as ActId[]) : this.recipe.acts);
+    if (!s.scene?.edges || !acts.length) return;
+    const own = new SceneLines({ scene: s.scene, crop: this.crop, aspect: s.aspect, layout: s.layout, start: s.start, end: s.end, beat: s.beat, energy: s.energy, acts, kicks: s.kicks, snares: s.snares, hats: s.hats ?? [], clipAt: s.clipAt }, this.lensAt(s.start), this.material(strokeMaterial.vertexShader, strokeMaterial.fragmentShader, {}, { depthTest: false }));
+    if (!own.playing) return own.dispose();
+    this.own = own;
+    this.place.add(own.mesh);
+    this.extras.delete('lines');
+    this.extras.delete('streaks');
+    if ((s.layout >> 4) & 1) this.extras.delete('ribbons');
+    if ((s.layout >> 5) & 1) this.extras.delete('rays');
+    if ((s.layout >> 6) & 1) this.extras.delete('posts');
+  }
+
+  /** the colours its own lines are drawn in: ones that stand out from what they lie on and aren't the words' */
+  private lineColours(amount: number, now: { field: string; word: string }, p: InsidePalette): THREE.Color[] {
+    const painted = amount > 0.5 && this.paintKind !== 'figure';
+    const on = new THREE.Color(painted ? now.field : '#3a3a3c');
+    const word = painted ? now.word : p.paper;
+    const apart = (hex: string) => {
+      const c = new THREE.Color(hex);
+      return Math.hypot((c.r - on.r) * 0.55, c.g - on.g, (c.b - on.b) * 0.4);
+    };
+    const all = [...p.accents, p.paper, p.ink].filter((c) => c !== word && apart(c) > 0.15).sort((a, b) => apart(b) - apart(a));
+    const first = all.find((c) => p.accents.includes(c)) ?? all[0] ?? (lum(now.field) > 0.5 ? p.ink : p.paper);
+    const second = all.find((c) => c !== first) ?? first;
+    return [new THREE.Color(first), new THREE.Color(second)];
+  }
+
   private addRays() {
     const p = this.spec.palette;
     const cut = this.spec.scene ? (this.spec.scene.sky > 0.06 ? 0.0035 : (this.spec.scene.splits[0] ?? 0.02)) : 1;
@@ -555,6 +592,7 @@ export class InsideShot {
     const steady = this.steady(t, o.grow);
     const most = this.hold(t, l, steady);
     this.placeExtras(t, beats, l, now);
+    this.own?.update(t, l, this.lineColours(amount, now, p), this.boxes, (0.25 + 0.75 * inK) * (1 - gone) * (black ? 0 : 1));
     this.drawing?.update(t, 1 - amount * 0.75, gone);
 
     const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
@@ -733,6 +771,12 @@ export class InsideShot {
     return this.standing.map((x) => ({ text: x.chunk.words.map((w) => w.text).join(' '), kind: x.put.kind, score: Math.round(x.put.score * 100) / 100, from: x.chunk.from, to: x.chunk.to }));
   }
 
+  /** what its own lines are, for checks */
+  ownLines() {
+    if (!this.built) this.build();
+    return this.own?.info() ?? null;
+  }
+
   /** where the drawing stands (null: it has none, or nothing here holds it), for checks */
   seated() {
     if (!this.built) this.build();
@@ -742,6 +786,7 @@ export class InsideShot {
 
   dispose() {
     this.drawing?.dispose();
+    this.own?.dispose();
     for (const m of this.mats) m.dispose();
     for (const g of this.geos) g.dispose();
   }

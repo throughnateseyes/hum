@@ -35,6 +35,7 @@ import { TreatPass } from './treatments/pass';
 import { InsidePass } from '../inside/pass';
 import type { InsidePalette } from '../inside/palettes';
 import { insidePalette } from '../inside/palettes';
+import { hasEdges } from '../depth/edges';
 import { hasRange, noteInside, type Reading } from '../inside/reading';
 import { InsideShot } from '../inside/shot';
 import type { SungWord } from '../inside/layout';
@@ -419,7 +420,7 @@ export class ShotStage {
     const [from, to] = this.clipRange(rig);
     const read = hasRange(scene, from, to);
     const drawn = this.insideOf?.drawn?.(shot) ?? null;
-    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}|${drawn ? `${drawn.asset.id}:${drawn.put}:${drawn.size}:${drawn.enter}` : ''}`;
+    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}${hasEdges(scene, from, to) ? '+' : ''}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}|${drawn ? `${drawn.asset.id}:${drawn.put}:${drawn.size}:${drawn.enter}` : ''}`;
     if (rig.inside?.key === key) return rig.inside.shot;
     rig.inside?.shot.dispose();
     const seq = this.seq!;
@@ -434,6 +435,7 @@ export class ShotStage {
       beat: seq.beat,
       kicks: seq.kicks,
       snares: seq.snares,
+      hats: seq.hats,
       partStart: seq.partStart,
       energy: seq.energy,
       moment: shot.moment,

@@ -347,7 +347,7 @@ export class Stretch {
         const n = Math.sin(-s.turn);
         for (const l of k.lines) {
           const [x, yy] = unslid(s, l.x, l.y);
-          lines.push({ x, y: yy, dx: l.dx * c - l.dy * n, dy: l.dx * n + l.dy * c, len: l.len / s.scale });
+          lines.push({ ...l, x, y: yy, dx: l.dx * c - l.dy * n, dy: l.dx * n + l.dy * c, len: l.len / s.scale });
         }
         if (!steady) break;
       }

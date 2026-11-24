@@ -285,6 +285,28 @@ void main() {
 }
 `;
 
+/** lines drawn along what is in the picture (sceneLines.ts): flat, hidden by what is nearer */
+export const STROKE_VERT = /* glsl */ `
+attribute vec4 aColor;
+varying vec4 vColor;
+varying float vW;
+void main() {
+  vColor = aColor;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vW = gl_Position.w;
+}
+`;
+export const STROKE_FRAG = /* glsl */ `
+precision highp float;
+varying vec4 vColor;
+${HIDE}
+void main() {
+  float a = showing() * vColor.a;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vColor.rgb * a, a);
+}
+`;
+
 export const FLAT_VERT = PLACE_VERT;
 export const FLAT_FRAG = /* glsl */ `
 precision highp float;
