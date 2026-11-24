@@ -216,6 +216,7 @@ Work like a director with limited material:
   - media: one to three keys whose pictures belong there, the most important first. Give strong pictures a place to be seen for the first time (a first sight matters more than a fifth), hold a strong one back for the biggest moment (bright, full of shape or movement: a nearly black or nearly empty picture is never the peak), let a key return where the song returns, and use every good picture somewhere. Leave a weak one out.
   - footage: true when the person's footage should carry the section. The video opens on footage and ends on it, so the first and last sections are always true. In a longer song one or two sections in between (a break, a bridge, the breath after a peak) may be false, and go to a graphic look as a cutaway; with fewer than six sections, usually none.
   - note: what we see and why it is here, at most 16 words.
+- paint: the set of colours the whole video is painted in, one id from the list. Words and flat colour stand inside the footage in these colours, so choose the set that suits the song first and sits well with the pictures second.
 
 Moments:
 ${MOMENT_LINES}
@@ -231,6 +232,7 @@ const STORY_TOOL = {
       title: { type: 'string', description: 'Two to five words.' },
       idea: { type: 'string' },
       arc: { type: 'string' },
+      paint: { type: 'string', description: 'A colour set id.' },
       sections: {
         type: 'array',
         items: {
@@ -264,11 +266,12 @@ const story: Step = {
       return `#${i} ${clock(num(x.start, 0, 36000, 0))} to ${clock(num(x.end, 0, 36000, 0))} ${line(x.label, 12) || 'section'}, group ${String.fromCharCode(65 + (Math.round(num(x.group, 0, 25, 0)) % 26))}, energy ${round(num(x.energy, 0, 1, 0.5))}${drop > 0 ? `, starts on a drop (${round(drop)})` : ''}${hint ? `, the sound suggests ${hint}` : ''}${words ? `. Words: "${words}"` : ''}`;
     });
     const plain = line(body.lyrics, 1500);
+    const paints = readChoices(body.paints);
     return {
       tier: 'main',
       effort: 'low',
       system: STORY_SYSTEM,
-      prompt: [wishLine(body), `The song:\n${describeSong(body)}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
+      prompt: [wishLine(body), `The song:\n${describeSong(body)}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', paints.lines ? `Colour sets:\n${paints.lines}` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
       tool: STORY_TOOL,
       maxTokens: 4000 + secs.length * 130,
       finish(output) {
@@ -289,7 +292,8 @@ const story: Step = {
             note: line(x.note, 140),
           });
         }
-        return out.length ? { title: line(output.title, 60), idea, arc: line(output.arc, 320), sections: out } : null;
+        const paint = typeof output.paint === 'string' && paints.ids.includes(output.paint) ? output.paint : '';
+        return out.length ? { title: line(output.title, 60), idea, arc: line(output.arc, 320), ...(paint ? { paint } : {}), sections: out } : null;
       },
     };
   },
@@ -338,13 +342,15 @@ const SHOT_PROPS = {
   focusX: { type: 'number', description: 'Only to look somewhere other than the subject: 0 to 1 from the left.' },
   focusY: { type: 'number', description: 'With focusX: 0 to 1 from the top.' },
   zoom: { type: 'number', description: '1 to 2.2. Leave out for 1.' },
-  lyric: { type: 'string', description: 'Only for a part with words, and only to change how they appear.' },
+  say: { type: 'string', description: 'Style inside only, in a part with no words: one to three words, at most 24 letters, to stand in the picture. Usually left out.' },
+  lyric: { type: 'string', description: 'Only for a part with words that is not inside, and only to change how they appear.' },
   why: { type: 'string' },
 };
 
 const SHOT_RULES = `How the shots work:
 - A moment sets how the picture runs and how the camera moves (code works out the exact speed, ramps and timing). The section's moment is where it starts and what it returns to, but a section of many parts needs a shape of its own: a drop can land on release, run on rush, peak on fury and breathe once on glow. The last part before a drop can be held, a first sight can be reveal. Never give more than three parts in a row the same moment when the section is loud.
-- style is the graphics over the picture. treatment is how the picture itself is broken down. The person's footage is the point, so it stays readable, and graphics and treatments are events. In a quiet section (energy under 0.4) nearly every part is plain with no treatment, with one event at most. In a loud section (energy over 0.5) about half of the parts are plain and the other half each carry one event: a style, a treatment or a motion, placed like accents (where it lands, every second or third cut, the last push), each kind seen at least once before one is repeated. Never a heavy style and a heavy treatment together.
+- style is how the words and graphics meet the picture. treatment is how the picture itself is broken down. inside is what this video is made of: the words live in the footage, the place changes colour with the song, and its moment decides how much (a hush only darkens the picture behind one line, a release floods everything behind the people). Most parts are inside, about seven in ten, always with treatment none: every part with words unless there is a reason, every part that lands, the first and the last. The rest are exceptions placed on purpose: plain for a face or a first sight that should be looked at undisturbed, one other style, treatment or motion as an accent in a loud section (each kind seen once before one is repeated). Never two exceptions in a row, and never a heavy style and a heavy treatment together. inside needs room: prefer pictures with depth (a street, a view, people in front of something) and zoom 1 for it.
+- say: in an inside part with no words, you may have one to three words stand in the picture, when the idea has a word worth seeing there (a place, the title, one word of the idea). In a song with lyrics at most three parts of the whole video, in one without at most one part in three. Plain words, no slogans, never words from the pictures.
 - from: choose the second that makes the shot. Prefer the good starts in the notes, or continue a clip by leaving it out. Do not start two shots of a clip on the same second.
 - Do not put the same picture in neighbouring parts unless it clearly carries on, and do not let two pictures take turns through a whole section: bring the others in, as a second sight or a close detail. Spread pictures out, bring one back when the song returns, and keep the one held back for the big moment until then.
 - Match energy: a still or slow picture in a frantic part needs zoom or a treatment, a shaky one does not belong in a hush. A photo is a still that only drifts, so it suits short or quiet parts, and at most two parts of a section.
@@ -412,6 +418,7 @@ function describeShot(x: Obj): string {
     line(x.style, 24),
     line(x.treatment, 24),
     line(x.motion, 24),
+    line(x.say, 28) ? `says "${line(x.say, 28)}"` : '',
     typeof x.zoom === 'number' ? `zoom ${round(num(x.zoom, 1, 3, 1), 10)}` : '',
     typeof x.focusX === 'number' ? `focus ${round(num(x.focusX, 0, 1, 0.5))},${round(num(x.focusY, 0, 1, 0.5))} from top left` : '',
   ];
@@ -431,13 +438,15 @@ function cleanShot(x: unknown, o: { open: Map<number, number>; words: Set<number
   const motion = pick(x.motion, o.motions);
   const focused = typeof x.focusX === 'number' && typeof x.focusY === 'number';
   const why = line(x.why, 110);
+  const say = style === 'inside' && !o.words.has(x.i) ? line(x.say, 28) : '';
   return {
     i: x.i,
     media,
     ...(seconds > 0 && typeof x.from === 'number' && Number.isFinite(x.from) ? { from: round(num(x.from, 0, Math.max(0, seconds - 0.6), 0)) } : {}),
     moment: x.moment,
     ...(style ? { style } : {}),
-    ...(treatment ? { treatment } : {}),
+    ...(style === 'inside' ? { treatment: 'none' } : treatment ? { treatment } : {}),
+    ...(say ? { say } : {}),
     ...(motion ? { motion } : {}),
     ...(focused ? { focusX: round(num(x.focusX, 0, 1, 0.5)), focusY: round(num(x.focusY, 0, 1, 0.5)) } : {}),
     ...(typeof x.zoom === 'number' && Number.isFinite(x.zoom) ? { zoom: round(num(x.zoom, 1, 2.2, 1)) } : {}),
@@ -512,7 +521,7 @@ const shots: Step = {
 
 const REVIEW_SHEETS = 2;
 
-const REVIEW_SYSTEM = `You check the cut of a music video made from a person's own clips and photos. The sheets show one still from each of some of its parts, labelled with the part's number, in the order they play. Lyrics are not drawn on the stills.
+const REVIEW_SYSTEM = `You check the cut of a music video made from a person's own clips and photos. The sheets show one still from each of some of its parts, labelled with the part's number, in the order they play. Lyrics are not drawn on the stills, except the large words that stand in an inside part.
 
 Look at each still as a viewer would, and flag only shots that are broken in a way a viewer would notice:
 - the crop cuts the subject off, or shows mostly nothing
@@ -520,7 +529,7 @@ Look at each still as a viewer would, and flag only shots that are broken in a w
 - words on it run out of the frame, or sit on top of other words
 - it is the same picture, framed the same way, as the part right before or after it
 
-These are choices, not faults, so leave them alone: streaks, melting, blocks and characters (treatments), flat or few colours (the look's), motion blur, a word broken over two lines, a big graphic shape beside the picture, a still frame that would look better moving. The events are what give the cut its energy: the checked cut must keep as many of them.
+These are choices, not faults, so leave them alone: large words standing in the picture with people or buildings in front of parts of them, whole areas in one flat colour, ribbons, bars and rays (inside), streaks, melting, blocks and characters (treatments), flat or few colours (the look's), motion blur, a word broken over two lines, a big graphic shape beside the picture, a still frame that would look better moving. The events are what give the cut its energy: the checked cut must keep as many of them.
 
 For each flagged shot give the problem in at most 10 plain words, and a complete replacement in the same form as the choices were made: change only what is wrong, and keep its style, treatment, motion and moment unless one of them is the fault. If a shot is fine, leave it out. Most cuts need none or one, and never more than a quarter of the stills.
 

@@ -27,3 +27,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Depth Anything V2 Small
+
+The Inside footage style reads depth with Depth Anything V2 Small, https://github.com/DepthAnything/Depth-Anything-V2,
+as converted at https://huggingface.co/onnx-community/depth-anything-v2-small. The browser downloads it when it is
+first needed; it is not included here. Apache License 2.0.

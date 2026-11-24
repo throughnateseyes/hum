@@ -265,7 +265,7 @@ function okShot(v: unknown): boolean {
   const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
   const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= 40);
   const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
-  return text('style') && text('treatment') && text('motion') && text('moment') && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
+  return text('style') && text('treatment') && text('motion') && text('moment') && text('say') && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
 }
 const FIELDS = Object.keys(PART_KEYS) as PartField[];
 

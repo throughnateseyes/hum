@@ -2,6 +2,8 @@
  * The footage styles: each one idea, built from two or three elements with a clear order of size,
  * placed on the frame's grid and moving on the bar (the contract is in src/shot/kit.ts).
  *
+ *   inside   the clip as a place: words and shapes stand in it, behind what is in front of them, and the
+ *            rest of the picture turns to flat colour on the beat (src/inside; the stage draws it)
  *   plain    the footage alone, nothing on it
  *   caption  the footage alone, with a small accent slate on one corner        (quiet parts)
  *   poster   one word enormous on a flat field, the footage inside the letters
@@ -24,10 +26,11 @@ import { slab } from './slab';
 import { split } from './split';
 import { window } from './window';
 
-export const STYLE_IDS = ['plain', 'caption', 'poster', 'window', 'slab', 'grid', 'split'] as const;
+export const STYLE_IDS = ['inside', 'plain', 'caption', 'poster', 'window', 'slab', 'grid', 'split'] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
 export const STYLE_NAMES: Record<StyleId, string> = {
+  inside: 'Inside',
   plain: 'Plain',
   caption: 'Caption',
   poster: 'Poster',
@@ -37,12 +40,13 @@ export const STYLE_NAMES: Record<StyleId, string> = {
   split: 'Split',
 };
 
-export const STYLES: Record<StyleId | 'card', StyleFactory> = { plain, caption, poster, window, slab, grid, split, card };
+export const STYLES: Record<StyleId | 'card', StyleFactory> = { inside: plain, plain, caption, poster, window, slab, grid, split, card };
 
 export const isStyle = (s: string): s is StyleId => (STYLE_IDS as readonly string[]).includes(s);
 
 /** the moments each style serves (src/moments): 3 made for it, 2 good, 1 now and then */
 export const STYLE_SERVES: Record<StyleId, Serves> = {
+  inside: { ache: 3, hush: 3, held: 3, float: 3, glow: 3, drift: 3, reveal: 3, aftermath: 3, lift: 3, rush: 3, release: 3, fury: 3 },
   plain: { ache: 3, hush: 3, held: 3, float: 3, glow: 3, drift: 3, reveal: 3, aftermath: 3, lift: 3, rush: 2, release: 3, fury: 2 },
   caption: { reveal: 2, aftermath: 2, hush: 1 },
   poster: { release: 2, fury: 2 },
@@ -82,8 +86,9 @@ function suits(sec: TrackSection): StyleId[] {
  */
 export function styleForShot(sec: TrackSection, k: number, choice: string, seed: number, prev: StyleId | '', moment?: MomentId): StyleId {
   if (isStyle(choice)) return choice;
-  // a shot with a moment draws from what serves it (the best two or three); else from what suits the section
-  const list = (moment ? rank(STYLE_SERVES, moment, STYLE_IDS).slice(0, 3) : suits(sec)).filter((s) => s !== prev || s === 'plain');
+  // a shot with a moment draws from what serves it (the best two or three); else from what suits the section.
+  // Inside is never an Auto pick: a plan that wants it says so (videos made before it keep their looks)
+  const list = (moment ? rank(STYLE_SERVES, moment, STYLE_IDS).filter((s) => s !== 'inside').slice(0, 3) : suits(sec)).filter((s) => s !== prev || s === 'plain');
   if (!list.length) return prev === 'caption' ? 'window' : 'caption';
   let h = (Math.floor(seed) * 374761393 + sec.group * 668265263 + k * 2246822519) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;

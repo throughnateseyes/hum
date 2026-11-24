@@ -360,6 +360,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   which lays the same style out another way, with **Previous** to go back one. Style and Shuffle
   belong to the look, so they change every part that plays it (the hint under the button says so),
   they're kept with the video and Undo takes them back (`src/scenes/footage`, `src/shot`).
+- **Inside** (a footage style) reads how deep each clip is (Depth Anything V2 Small, run in a worker on
+  this computer: about 50 MB the first time, kept by the browser), finds its horizon and how the camera
+  moves, and stands the words being sung and the part's shapes in the place: behind the skyline, between
+  people, along a wall or on the ground. Its colours are one set for the whole video (*Inside colours*).
+  The moment of each part picks how it looks (`src/inside`, `src/depth`).
 - **Impact** (Video tab → Movement) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.

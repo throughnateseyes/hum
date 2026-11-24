@@ -65,6 +65,8 @@ export interface Shot {
   motion?: MotionId;
   /** what the shot is meant to feel like (src/moments): its speed and camera; missing: as ever */
   moment?: MomentId;
+  /** Inside: the words that stand in the picture when nothing is sung */
+  say?: string;
 }
 
 export interface Sequence {

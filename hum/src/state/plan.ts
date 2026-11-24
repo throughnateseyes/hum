@@ -87,6 +87,8 @@ export interface VideoPlan {
    */
   cues?: ShotCue[];
   shots?: (PartShot | null)[];
+  /** the colours footage's Inside shots are painted in, one set for the whole video (src/inside/palettes.ts); missing on plans made before it */
+  paint?: string;
   /** the moment each section is meant to feel like (src/moments; null: not said) */
   moments?: (MomentId | null)[];
   /** the idea of the whole video, one sentence (Claude, when it has seen the person's media) */
@@ -1230,6 +1232,7 @@ async function directVideo(
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
+    if (chosen) await d.depthFor(chosen, run);
     const stills = chosen ? await d.stillsFor(chosen, run) : null;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     return { plan, reason: asked.reason, end: run.end, check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null };

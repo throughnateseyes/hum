@@ -7,6 +7,7 @@
  */
 import type { MediaNotes, PartShot, Preset, TrackAnalysis } from '../core/types';
 import type { PlanTransition } from '../core/transitionList';
+import { INSIDE_PALETTES } from '../inside/palettes';
 import { RECIPES, momentOfPart, rank, type MomentId } from '../moments';
 import { MOTION_IDS, MOTION_SERVES } from '../shot/motion';
 import { TREATMENT_IDS, TREATMENT_SERVES, type TreatmentId } from '../shot/treatments';
@@ -40,7 +41,9 @@ export function withMoments(plan: VideoPlan, a: TrackAnalysis, moments: (MomentI
     const pick = <T,>(list: T[], k: number): T => list[Math.max(0, (hash(seed, i, k) % (list.length + 1)) - 1)];
     return { ...had, into: had?.into ?? pick(r.into, 1), within: had?.within ?? pick(r.within, 2) };
   });
-  return { ...plan, moments: plan.looks.map((_, i) => moments[i] ?? null), shotBars, transitions };
+  // a new footage video stands its words in the footage, in one set of colours (videos made before have none, and keep their looks)
+  const paint = plan.paint ?? INSIDE_PALETTES[hash(seed, 7) % INSIDE_PALETTES.length].id;
+  return { ...plan, paint, moments: plan.looks.map((_, i) => moments[i] ?? null), shotBars, transitions };
 }
 
 /** how well a picture suits a moment, from what Claude saw in it */
@@ -88,7 +91,11 @@ export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (strin
     const shot: PartShot = { moment: m };
     const h = hash(sec.group, parents[i], Math.round(sec.start * 100));
     const own = String(look?.sceneParams?.treatment ?? 'none');
-    if (own === 'none' || own === 'auto') {
+    // most parts stand their words in the footage; the rest are the footage with something else done to it, or nothing
+    const ownStyle = String(look?.sceneParams?.style ?? 'auto');
+    const inside = !!plan.paint && (own === 'none' || own === 'auto') && (ownStyle === 'auto' || ownStyle === 'inside' || ownStyle === 'caption') && (k === 0 || (h >>> 4) % 10 < 7);
+    if (inside) shot.style = 'inside';
+    if (!inside && (own === 'none' || own === 'auto')) {
       const list = rank(TREATMENT_SERVES, m, TREATMENT_IDS).filter((t) => (t !== 'collage' || media.length >= 3) && (t !== 'trace' || media.length >= 2));
       // the plain picture most of the time: a treatment is for the moments that want one
       const strong = list.filter((t) => t !== 'none' && (TREATMENT_SERVES[t][m] ?? 0) >= 2 && t !== lastTreat);
@@ -96,7 +103,11 @@ export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (strin
       shot.treatment = pick;
       lastTreat = pick;
     }
-    if (String(look?.sceneParams?.motion ?? 'play') === 'play') {
+    if (inside) {
+      shot.treatment = 'none';
+      lastTreat = 'none';
+    }
+    if (!inside && String(look?.sceneParams?.motion ?? 'play') === 'play') {
       const list = rank(MOTION_SERVES, m, MOTION_IDS).filter((x) => x !== 'play' && (MOTION_SERVES[x][m] ?? 0) >= 2);
       if (list.length && (h >>> 8) % 4 === 0) shot.motion = list[(h >>> 12) % list.length];
     }

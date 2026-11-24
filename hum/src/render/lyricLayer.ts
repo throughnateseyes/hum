@@ -10,6 +10,7 @@ import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
+import { takeInside } from '../inside/reading';
 import { LEAD, showingAt, showings, takeLineWindow, type Showing, type Word } from './lyricTiming';
 import { PlaceMemo, frameHigh, slotCost, slots, turnedBox, turnedRect, type Slot, type SlotId } from './lyricPlace';
 import { kitFontVersion, kitFor, songFacts, typeKit, underFinish, type KitLine, type TypeKit } from './typeKits';
@@ -432,6 +433,8 @@ export class LyricLayer {
 
   /** draw the lyrics for time t over whatever is on the screen */
   render(r: THREE.WebGLRenderer, o: LyricOpts, target: THREE.WebGLRenderTarget | null = null) {
+    // an inside footage shot stands the words in the picture itself (src/inside)
+    const inPicture = takeInside();
     if (o.style === 'off' || !o.lines.length) return;
     // the dev harness steps song time faster than real time: it passes its step and runs on its own clock
     const now = o.dt !== undefined ? (this.devClock += o.dt) : performance.now() / 1000;
@@ -443,7 +446,7 @@ export class LyricLayer {
     const { t, cur, W, H, carries } = f;
     if (cur) this.ensureLine(f, o);
 
-    if (!cur || !this.bridged(f)) {
+    if (!cur || !this.bridged(f) || inPicture) {
       if (!this.empty) {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.empty = true;
