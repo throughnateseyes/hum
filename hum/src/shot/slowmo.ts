@@ -41,6 +41,8 @@ const SMALL_W = 96;
 const SMALL_H = 54;
 /** what nobody has used for this long is let go (ms) */
 const IDLE = 15000;
+/** the real time, also while a render has its own clock (render/timeline.ts) */
+const now = performance.now.bind(performance);
 
 /** 0: the picture glides between source frames, 1: it steps from one to the next as the clip itself does */
 export const stepping = (rate: number) => smooth(EASE[0], EASE[1], rate);
@@ -257,6 +259,7 @@ export class SlowMotion {
 
   private async find(f: Footage, t: number): Promise<boolean> {
     if (!this.works(f)) return false;
+    this.touch();
     const held: Frame[] = [];
     const hold = (x: Frame | null) => {
       if (x) {
@@ -446,9 +449,9 @@ export class SlowMotion {
   /* ───────── keeping and letting go ───────── */
 
   private touch() {
-    this.lastUse = performance.now();
+    this.lastUse = now();
     this.timer ??= setInterval(() => {
-      if (performance.now() - this.lastUse > IDLE && !this.frames.some((x) => x.held)) this.free();
+      if (now() - this.lastUse > IDLE && !this.frames.some((x) => x.held)) this.free();
     }, IDLE / 2);
   }
 
