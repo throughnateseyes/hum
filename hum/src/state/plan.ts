@@ -1232,6 +1232,7 @@ async function directVideo(
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
+    if (chosen) await d.depthFor(chosen, run);
     const stills = chosen ? await d.stillsFor(chosen, run) : null;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     return { plan, reason: asked.reason, end: run.end, check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null };

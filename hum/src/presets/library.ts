@@ -842,6 +842,17 @@ export const PRESETS: Preset[] = [
    * One scene: its Style setting does the work (Auto picks a style for each part, Arrangement lays it
    * out another way). The ids are older than the styles and stay: saved plans refer to them. */
   P({
+    id: 'footage-inside',
+    name: 'Footage · Inside',
+    description: 'Your clips as places the song happens in: the words being sung stand in them at full size, behind people and buildings or along the walls and the road, and everything far off turns to flat colour on the beat, with ribbons, bars and rays in the loud parts.',
+    tags: ['footage', 'video', 'photo', 'energetic', 'euphoric', 'driving', 'cinematic', 'pop', 'hiphop', 'dance', 'bold', 'graphic', 'colorful', 'typography', '3d', 'personal'],
+    sceneId: 'footage',
+    sceneParams: { style: 'inside', colour: 'clean', pace: '8', treatment: 'none' },
+    effects: [],
+    modulations: [],
+    palette: 'paper-blue',
+  }),
+  P({
     id: 'footage-clean',
     name: 'Footage · Clean',
     description: 'Your clips as they are, in long shots, with a small slate naming the song and the part in one corner. They speed up into the next part when it hits.',

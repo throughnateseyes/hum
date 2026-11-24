@@ -29,4 +29,18 @@ export const INSIDE_PALETTES: InsidePalette[] = [
   set('moss', 'Moss', '#0e1a12', '#f4f5e6', [['#3f7d3a', '#9bc48a', '#f4f5e6'], ['#e8d25a', '#f6ecae', '#22421f'], ['#f2a7a0', '#fbd9d4', '#7a1f1a'], ['#bfe0c8', '#e6f4e9', '#1f5a33']], ['#e8d25a', '#f4f5e6', '#f2735f', '#3f7d3a']),
 ];
 
+/** what each set is like, for the director */
+export const PALETTE_LINES: Record<string, string> = {
+  poster: 'orange, cobalt, red, yellow and ice blue, loud and warm like a screen print',
+  citrus: 'acid green, orange and leaf green, fresh and restless',
+  blossom: 'pink, deep red and baby blue, romantic and bright',
+  night: 'violet, hot pink, cyan and acid yellow, a city after dark',
+  rust: 'brick, dusty sky blue and ochre, road trip, nostalgic',
+  signal: 'red, black and white only, severe, hard, urgent',
+  lagoon: 'turquoise, blue, lemon and coral, open air and water',
+  dusk: 'violet, apricot and pale pink, tender, dreamy',
+  bone: 'off white, deep blue and pale grey blue, restrained and cold',
+  moss: 'leaf green, straw and dusty rose, calm, outdoors, handmade',
+};
+
 export const insidePalette = (id: string | undefined, seed: number): InsidePalette => INSIDE_PALETTES.find((p) => p.id === id) ?? INSIDE_PALETTES[Math.abs(Math.floor(seed)) % INSIDE_PALETTES.length];

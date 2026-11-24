@@ -9,8 +9,8 @@ import type { MomentId } from '../moments';
 export type PutId = 'far' | 'between' | 'wall' | 'ground';
 export const PUT_IDS: PutId[] = ['far', 'between', 'wall', 'ground'];
 
-export type ExtraId = 'lines' | 'rays' | 'posts' | 'ribbons' | 'streaks' | 'echo';
-export const EXTRA_IDS: ExtraId[] = ['lines', 'rays', 'posts', 'ribbons', 'streaks', 'echo'];
+export type ExtraId = 'lines' | 'rays' | 'posts' | 'ribbons' | 'streaks';
+export const EXTRA_IDS: ExtraId[] = ['lines', 'rays', 'posts', 'ribbons', 'streaks'];
 
 /** what turns to flat colour: nothing, what is far off, everything but what is close, the close things themselves, everything */
 export type PaintId = 'none' | 'far' | 'deep' | 'figure' | 'all';
@@ -44,7 +44,7 @@ export const INSIDE: Record<MomentId, InsideRecipe> = {
   lift: { paint: ['far', 'deep'], step: 4, ground: false, put: ['wall', 'between', 'far'], with: ['posts', 'streaks'], grade: 0, jump: 0.4 },
   release: { paint: ['deep', 'far'], step: 2, ground: true, put: ['wall', 'far', 'between', 'ground'], with: ['ribbons', 'posts', 'rays', 'streaks'], grade: 0, jump: 0.8 },
   rush: { paint: ['deep', 'figure'], step: 2, ground: true, put: ['ground', 'wall', 'between'], with: ['streaks', 'ribbons'], grade: 0, jump: 0.7 },
-  fury: { paint: ['figure', 'all', 'deep'], step: 1, ground: true, put: ['far', 'between', 'wall'], with: ['rays', 'streaks', 'posts', 'echo'], grade: 0, jump: 1 },
+  fury: { paint: ['figure', 'all', 'deep'], step: 1, ground: true, put: ['far', 'between', 'wall'], with: ['rays', 'streaks', 'posts'], grade: 0, jump: 1 },
 };
 
 /** the recipe for a shot with no moment, from how loud its part is */

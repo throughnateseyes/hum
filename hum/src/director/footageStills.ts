@@ -12,6 +12,9 @@ import { dryRun } from '../render/warmup';
 import { songTitle, stillClip, titleWords } from '../scenes/footage';
 import { Footage } from '../shot/footage';
 import { deckIdsOf, footageRun, runPartOf, withOwn } from '../shot/run';
+import { wordsIn } from '../inside/lines';
+import { insidePalette } from '../inside/palettes';
+import { readingOf } from '../inside/readings';
 import { ShotStage, type StageClip } from '../shot/stage';
 import { findLook, type VideoPlan } from '../state/plan';
 import { originalOf, parentsOf } from '../state/planCache';
@@ -92,17 +95,22 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
   };
   try {
     const deck: StageClip[] = [];
+    // what is already read of a picture's depth is used; nothing waits for more
+    const read = (m: ClipAsset | PhotoAsset) => {
+      const r = readingOf(m);
+      return { get scene() { return r.scene; }, need: () => Promise.resolve() };
+    };
     for (const m of media) {
       if (isClip(m)) {
         const t = await thumbOf(m);
         thumbs.push(t);
-        deck.push({ footage: null, texture: t, aspect: m.width / Math.max(1, m.height), duration: m.duration, palette: m.palette, still: t, name: m.name });
+        deck.push({ footage: null, texture: t, aspect: m.width / Math.max(1, m.height), duration: m.duration, palette: m.palette, still: t, name: m.name, reading: read(m) });
       } else if (m) {
         // a texture of its own, so this small picture leaves nothing hanging on the photo when it goes
         const t = m.texture.clone();
         t.needsUpdate = true;
         thumbs.push(t);
-        deck.push({ ...stillClip(m), texture: t });
+        deck.push({ ...stillClip(m), texture: t, reading: read(m) });
       }
     }
     if (!deck.length) return [];
@@ -149,7 +157,7 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
         if (f) here[c % deck.length] = { ...deck[c % deck.length], footage: f, texture: f.texture, aspect: f.aspect, duration: f.duration };
       }
       stop();
-      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true });
+      stage.build({ seq, analysis: cut.analysis, clips: here, title, lookId: '', tellStore: false, live: true, inside: { palette: insidePalette(cut.plan.paint, Math.round(cut.analysis.duration * 10)), words: (sh) => wordsIn(sh, titleWords(), Math.abs(sh.start - seq.partStart) < 0.05) } });
       await stage.settle(t);
       const own = cut.shotAt(i);
       const focus = { x: own?.focusX ?? 0.5, y: own?.focusY ?? 0.55 };

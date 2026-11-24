@@ -617,6 +617,14 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     themes: ['photo', 'graphic'],
     pairs: ['footage-clean'],
   },
+  'footage-inside': {
+    name: 'Footage · Inside',
+    blurb: 'Your clips as places: the sung words stand in them behind people and buildings, and what is far off turns to flat colour on the beat.',
+    roles: ['peak', 'verse', 'build', 'intro', 'break', 'bridge', 'outro'],
+    energy: [0, 1],
+    motion: 'pulsing',
+    themes: ['photo', 'graphic'],
+  },
   'footage-clean': {
     name: 'Footage · Clean',
     blurb: 'Your own clips as they are, in long shots, with a small slate naming the song in one corner; they speed up into the next part when it hits.',

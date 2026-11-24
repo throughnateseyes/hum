@@ -235,9 +235,7 @@ export class InsideShot {
 
   private addRays() {
     const p = this.spec.palette;
-    const st = standing(this.spec.scene);
     const cut = this.spec.scene ? (this.spec.scene.sky > 0.06 ? 0.0035 : (this.spec.scene.splits[0] ?? 0.02)) : 1;
-    void st;
     this.rays = this.material(FULLSCREEN_VERT, RAYS_FRAG, { uFrom: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: this.spec.aspect }, uReach: { value: 0 }, uTurn: { value: 0 }, uSeed: { value: 1 + (this.spec.layout % 97) }, uCut: { value: cut }, uA: { value: new THREE.Color(p.paper) }, uB: { value: new THREE.Color(p.accents[0]) } }, { depthTest: false });
     const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.rays);
     this.geos.push(m.geometry);
@@ -381,7 +379,7 @@ export class InsideShot {
       ink: p.ink,
       front: step.k >= 1 ? 2 : outCubic(step.k) * 1.06,
       edge: step.k < 1 && painted ? 0.9 : 0,
-      far: farOn ? amount : this.paintKind === 'figure' ? amount * 0 : 0,
+      far: farOn ? amount : 0,
       mid: this.paintKind === 'deep' || this.paintKind === 'all' ? amount : 0,
       near: this.paintKind === 'all' ? amount : 0,
       farCut: this.cuts2.far,

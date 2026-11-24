@@ -14,6 +14,7 @@
  */
 import { textBetween } from '../audio/lyrics';
 import type { Lyrics, MediaNotes, PartShot, TrackAnalysis } from '../core/types';
+import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
 import { MOTION_IDS, MOTION_SERVES, isMotion } from '../shot/motion';
 import { STYLE_IDS, STYLE_SERVES, isStyle } from '../shot/styles';
 import { TREATMENT_IDS, TREATMENT_SERVES, isTreatment } from '../shot/treatments';
@@ -44,6 +45,8 @@ export interface Story {
   title: string;
   idea: string;
   arc: string;
+  /** the colours the whole video is painted in (src/inside/palettes.ts) */
+  paint?: string;
   sections: { moment: MomentId; media: string[]; footage: boolean; note: string }[];
 }
 
@@ -137,6 +140,7 @@ const idsOf = (keys: unknown, seen: Seen[], max: number): string[] => {
 
 /* what each choice is, in a line: the ids and the moments they serve come from the templates themselves */
 const STYLE_LINES: Record<string, string> = {
+  inside: 'the footage as a place: the words being sung stand in it at full size, behind people and buildings, along walls or on the road, and what is far off turns to flat colour on the beat, with ribbons, bars and rays in loud moments',
   plain: 'the footage alone, nothing on it',
   caption: 'the footage with a small slate in one corner',
   poster: 'one enormous word on a flat field, the footage seen only inside its letters',
@@ -167,7 +171,8 @@ const choices = <T extends string>(ids: readonly T[], serves: Record<T, Serves>,
 
 /** with lyrics on screen Poster has no word of its own to set, so it isn't offered */
 const vocabulary = (lyr: Lyrics | null) => ({
-  styles: choices(lyr?.lines.length ? STYLE_IDS.filter((s) => s !== 'poster') : STYLE_IDS, STYLE_SERVES, STYLE_LINES),
+  // Plain serves every moment, so it is told when to come up instead (SHOT_RULES)
+  styles: choices(lyr?.lines.length ? STYLE_IDS.filter((s) => s !== 'poster') : STYLE_IDS, STYLE_SERVES, STYLE_LINES).map((c) => (c.id === 'plain' || c.id === 'inside' ? { ...c, serves: [] } : c)),
   treatments: choices(TREATMENT_IDS, TREATMENT_SERVES, TREATMENT_LINES),
   motions: choices(MOTION_IDS, MOTION_SERVES, MOTION_LINES),
 });
@@ -179,6 +184,7 @@ const vocabulary = (lyr: Lyrics | null) => ({
  * AI here, or no access code, so nothing further should ask).
  */
 export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: string, run: MakeRun): Promise<{ story: Story | null; closed: boolean }> {
+  void import('./footageDepth').then((m) => m.beginDepth());
   await recallNotes();
   const todo = unwatched();
   if (todo) {
@@ -217,6 +223,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
       })),
       ...(lyr && !lyr.synced && lyr.plain ? { lyrics: lyr.plain.slice(0, 1500) } : {}),
       media: mediaBody(seen),
+      paints: INSIDE_PALETTES.map((x) => ({ id: x.id, line: PALETTE_LINES[x.id] ?? x.name })),
     },
     { signal: run.signal },
   );
@@ -225,6 +232,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
     return { story: null, closed: !!r.closed };
   }
   const idea = text(r.json.idea, 220);
+  const paint = INSIDE_PALETTES.find((x) => x.id === r.json.paint)?.id;
   const got = Array.isArray(r.json.sections) ? r.json.sections.filter(isObj) : [];
   if (!idea || !got.length) {
     run.note('Claude couldn’t find a story this time, so the parts follow the song alone.');
@@ -235,6 +243,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
       title: text(r.json.title, 60),
       idea,
       arc: text(r.json.arc, 320),
+      ...(paint ? { paint } : {}),
       sections: a.sections.map((_, i) => {
         const x = got.find((g) => g.index === i);
         const m = text(x?.moment, 20);
@@ -286,6 +295,7 @@ export function cutBody(cut: { plan: VideoPlan; analysis: TrackAnalysis; hand: (
     ...(s.from !== undefined ? { from: r2(s.from) } : {}),
     moment: s.moment ?? '',
     style: s.style ?? '',
+    ...(s.say ? { say: s.say } : {}),
     treatment: s.treatment ?? '',
     motion: s.motion ?? '',
     ...(s.zoom !== undefined ? { zoom: r2(s.zoom) } : {}),
@@ -348,6 +358,7 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
   const fx = n(x.focusX, 0, 1);
   const fy = n(x.focusY, 0, 1);
   const focused = fx !== undefined && fy !== undefined;
+  const say = text(x.say, 28);
   const lyric = text(x.lyric, 12) as LyricMedium;
   return {
     i: x.i,
@@ -355,8 +366,9 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
       media,
       moment,
       style: isStyle(style) ? style : 'plain',
-      treatment: isTreatment(treatment) ? treatment : 'none',
+      treatment: isTreatment(treatment) && style !== 'inside' ? treatment : 'none',
       motion: isMotion(motion) ? motion : 'play',
+      ...(say ? { say } : {}),
       ...(from !== undefined ? { from } : {}),
       // looking where the subject is, unless Claude pointed somewhere else (it counts from the top)
       focusX: focused ? fx : first.notes.focusX,
@@ -382,7 +394,7 @@ export interface Chosen {
  * are dealt by their moments when it goes on.
  */
 export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: VideoPlan | null; story: Story | null; lyrics: Lyrics | null; wish: string }, run: MakeRun): Promise<{ plan: VideoPlan; chosen: Chosen | null }> {
-  const told: VideoPlan = o.story ? { ...plan, idea: o.story.idea } : plan;
+  const told: VideoPlan = o.story ? { ...plan, idea: o.story.idea, ...(o.story.paint ? { paint: o.story.paint } : {}) } : plan;
   const cut = cutNow(told, a, o.keep);
   const alone = { plan: told, chosen: null };
   if (!cut) return alone;
@@ -418,6 +430,16 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
 
 /** the check after a Make; false leaves it out */
 const REVIEW = true;
+
+/** read how far away things are in the seconds the chosen shots show, before the video goes on */
+export async function depthFor(chosen: Chosen, run: MakeRun): Promise<void> {
+  const { readDepth } = await import('./footageDepth');
+  try {
+    await readDepth({ ...chosen.cut, shotAt: (i: number) => layShot(shotAtPart(chosen, i), chosen.cut.hand?.[i]) }, run);
+  } catch (err) {
+    console.warn('depth could not be read ahead', err);
+  }
+}
 
 /** stills of the chosen shots, drawn before the video goes on so nothing playing is disturbed (null: not checked) */
 export async function stillsFor(chosen: Chosen, run: MakeRun): Promise<{ sheets: string[]; parts: number[] } | null> {
