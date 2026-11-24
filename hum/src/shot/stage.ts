@@ -404,7 +404,7 @@ export class ShotStage {
     const scene = clip.reading?.scene ?? null;
     const [from, to] = this.clipRange(rig);
     const read = hasRange(scene, from, to);
-    const key = `${read ? scene!.id : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}`;
+    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}`;
     if (rig.inside?.key === key) return rig.inside.shot;
     rig.inside?.shot.dispose();
     const seq = this.seq!;

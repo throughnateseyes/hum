@@ -368,7 +368,10 @@ export class ClipReader {
       if (out.lift > 0) {
         this.r.lift = out.lift;
         const table = Uint8Array.from({ length: 256 }, (_, b) => toByte(lowered(fromByte(b), out.lift)));
-        for (const m of scene.maps) if (m) for (let i = 0; i < m.length; i++) m[i] = table[m[i]];
+        // new arrays, so whoever keeps a map on the graphics card sees that it changed
+        scene.maps.forEach((m, k) => {
+          if (m) scene.maps[k] = m.map((b) => table[b]);
+        });
         scene.splits = scene.splits.map((s) => lowered(s, out.lift));
         this.relifted = true;
       }

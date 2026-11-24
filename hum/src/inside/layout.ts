@@ -357,7 +357,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
           worst = Math.min(worst, s.worst + 0.08);
           inside = Math.min(inside, s.inside);
         });
-        if (inside < (kind === 'far' || kind === 'between' ? 0.9 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
+        if (inside < (kind === 'far' || kind === 'between' ? 0.96 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it

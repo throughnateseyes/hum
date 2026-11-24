@@ -75,6 +75,20 @@ const lum = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
   return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
 };
+/** the light of a field, kept far enough from the word that stands on it */
+const lights = new Map<string, string>();
+function lightFor(s: { field: string; light: string; word: string }): string {
+  const key = s.field + s.light + s.word;
+  const had = lights.get(key);
+  if (had) return had;
+  const f = new THREE.Color(s.field);
+  const c = new THREE.Color(s.light);
+  const w = lum(s.word);
+  let out = s.light;
+  for (let k = 0; k < 8 && Math.abs(lum(out) - w) < Math.min(0.42, Math.abs(lum(s.field) - w)); k++) out = `#${c.lerp(f, 0.22).getHexString()}`;
+  lights.set(key, out);
+  return out;
+}
 const unit = new THREE.PlaneGeometry(1, 1);
 const post = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
 const blend = { transparent: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor, side: THREE.DoubleSide } as const;
@@ -84,6 +98,8 @@ export class InsideShot {
   private readonly recipe: InsideRecipe;
   private readonly paintKind: PaintId;
   private readonly extras: Set<ExtraId>;
+  /** a quiet shot with nothing sung in it */
+  private readonly bare: boolean;
   private readonly rnd: () => number;
   private readonly crop: Crop;
   private readonly clip0: number;
@@ -108,8 +124,9 @@ export class InsideShot {
     const s = spec;
     this.recipe = insideFor(s.moment, s.energy);
     this.rnd = dice(s.layout + 41);
-    // with no words in it, a quiet shot still has the far field and a ribbon to carry it
-    const bare = !s.words.length && this.recipe.paint[0] === 'none';
+    // with nothing sung in it, a quiet shot still has the far field and a ribbon to carry it
+    const bare = !s.sung && this.recipe.paint[0] === 'none';
+    this.bare = bare;
     const paints = (bare ? (['far', 'deep'] as PaintId[]) : this.recipe.paint).filter((p) => this.can(p));
     this.paintKind = s.paint && this.can(s.paint) ? s.paint : (paints[(s.layout >> 3) % Math.max(1, paints.length)] ?? 'none');
     this.extras = new Set(s.extras ?? (bare ? (['ribbons'] as ExtraId[]) : this.recipe.with));
@@ -150,7 +167,7 @@ export class InsideShot {
       const put = place(
         chunk.words.map((w) => w.text),
         s.put ? [s.put, ...this.recipe.put.filter((p) => p !== s.put)] : this.recipe.put,
-        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.05 : 0.04 },
+        { scene: s.scene, lens: this.lensAt(mid), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, dice: s.layout + i * 7, last, margin: portrait ? 0.075 : 0.055 },
       );
       last = put.kind;
       this.standing.push(this.stand(chunk, put));
@@ -337,7 +354,7 @@ export class InsideShot {
 
   /** which colour step the shot is on at beat b, and how far through the change it is */
   private stepAt(beats: number): { now: number; was: number; k: number } {
-    const every = this.recipe.step;
+    const every = this.recipe.step || (this.bare ? 8 : 0);
     const n = this.spec.palette.steps.length;
     const i = every ? Math.max(0, Math.floor((beats + 1e-3) / every)) : 0;
     const k = every && i > 0 ? (beats - i * every) / Math.min(every, 0.9) : 1;
@@ -372,9 +389,9 @@ export class InsideShot {
     const farOn = this.paintKind === 'far' || this.paintKind === 'deep' || this.paintKind === 'all';
     const paint: Paint = {
       field0: was.field,
-      light0: was.light,
+      light0: lightFor(was),
       field1: now.field,
-      light1: now.light,
+      light1: lightFor(now),
       figure: this.paintKind === 'figure' ? now.field : now.word,
       line: p.paper,
       ink: p.ink,
@@ -387,7 +404,7 @@ export class InsideShot {
       nearCut: this.cuts2.near,
       figureK: this.paintKind === 'figure' ? amount : 0,
       groundK: this.recipe.ground && painted ? amount * 0.85 : 0,
-      grade: this.paintKind === 'figure' ? 0.75 : Math.max(painted ? 0.08 : this.standing.length ? (s.cuts[1] > 0.5 ? 0.8 : 0.55) : 0, this.recipe.grade) * (0.4 + 0.6 * inK) ,
+      grade: this.paintKind === 'figure' ? 0.75 : Math.max(painted ? 0.08 : this.standing.length ? (s.cuts[1] > 0.5 ? 0.8 : 0.55) : 0, this.bare ? 0.4 : this.recipe.grade) * (0.4 + 0.6 * inK) ,
       lineK: painted ? Math.min(0.9, snare * 0.9) : 0,
       cuts: s.cuts,
     };
@@ -403,7 +420,7 @@ export class InsideShot {
     const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
     const ramp = s.leave === 'ramp' ? clamp01(1 - (s.end - t) / (s.beat * 2)) : 0;
     const finish: Finish = {
-      zoom: Math.max(1, o.grow) + bump + 0.1 * ramp ** 3,
+      zoom: 1 + (Math.max(1, o.grow) - 1) * 0.3 + (s.kicks.length && this.recipe.jump > 0.3 ? 0 : 0.05 * smooth(0, Math.max(3, s.end - s.start), tau)) + bump + 0.1 * ramp ** 3,
       smear: Math.min(0.2, (s.arrive === 'hit' ? 0.2 * Math.exp(-tau / 0.09) : 0) + 0.16 * ramp ** 4 + Math.max(0, o.speed - 2) * 0.02),
       flash: black ? 1 : o.flash * 0.85,
       flashColor: black ? '#08090b' : p.paper,
