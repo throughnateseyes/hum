@@ -46,7 +46,8 @@ import { MOTION_HINT, MOTION_IDS, MOTION_NAMES } from '../../shot/motion';
 import { paletteFromPixels } from '../../shot/palette';
 import { shotOfPart } from '../../shot/partShots';
 import { MAX_OPEN, MAX_STILLS, addedAt, footageRun, planParts, runPartOf, sigOf, withOwn, type Run, type RunPart } from '../../shot/run';
-import { footageNeed, partSequence, type PartOptions, type Sequence } from '../../shot/sequence';
+import { footageNeed, partSequence, planFootage, type PartOptions, type Sequence } from '../../shot/sequence';
+import { SLOW } from '../../shot/slowmo';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
@@ -447,6 +448,8 @@ if (import.meta.env.DEV) {
 /* ───────── the look ───────── */
 
 let born = 0;
+/** whether each part opens on a clip running slowly, worked out once */
+const slowOpenings = new WeakMap<Sequence, boolean>();
 
 class FootageLook implements SceneInstance {
   private readonly renderer: THREE.WebGLRenderer;
@@ -663,10 +666,25 @@ class FootageLook implements SceneInstance {
       const c = first.footageIndex % this.deck.length;
       const f = this.deck[c]?.footage ?? null;
       if (inUse.has(c) || !f) return null;
-      f.follow(first.clipFrom ?? 0, 0, false, this.who);
+      this.stage.cue(f, first.clipFrom ?? 0, this.opensSlowly(next));
       return f;
     }
     return null;
+  }
+
+  /** does a part open on a clip running slowly? (its player then waits with the frame after it ready too) */
+  private opensSlowly(seq: Sequence): boolean {
+    let slow = slowOpenings.get(seq);
+    if (slow === undefined) {
+      const first = seq.shots[0];
+      const curve = planFootage(
+        seq,
+        this.deck.map((c) => c.duration),
+      )[0];
+      slow = first.kind === 'footage' && (first.motion ?? 'play') === 'play' && !curve.freeze && curve.rate(first.start) < SLOW;
+      slowOpenings.set(seq, slow);
+    }
+    return slow;
   }
 
   render(ctx: FrameContext, target: THREE.WebGLRenderTarget) {
