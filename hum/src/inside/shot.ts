@@ -431,6 +431,7 @@ export class InsideShot {
     const onField = this.paintKind !== 'figure' && st.far > 0.45;
     if (onField) return now.word;
     const deep = this.paintKind === 'deep' || this.paintKind === 'all';
+    if (deep && lum(now.field) > 0.6) return lum(now.word) < 0.5 ? now.word : p.ink;
     const behind = deep ? lum(now.field) * 0.55 : 0.28;
     return lum(now.word) - behind > 0.22 ? now.word : p.paper;
   }
@@ -456,6 +457,10 @@ export class InsideShot {
     }
     for (const [i, m] of this.lines.entries()) (m.material as THREE.ShaderMaterial).uniforms.uAlpha.value = smooth(i * 0.06, i * 0.06 + 0.7, tau) * 0.8;
     const ahead = goesAhead(s.scene) ? l.ahead : 0;
+    // bars are never the colour of the words beside them
+    const clearOf = p.accents.filter((c) => c !== now.word && Math.abs(lum(c) - lum(p.paper)) > 0.06);
+    const bars = clearOf.length ? clearOf : p.accents;
+    const barOf = (id: number) => bars[((id % bars.length) + bars.length) % bars.length];
     for (const { m, side, i } of this.posts) {
       const gap = S * 0.14;
       const id = i + Math.floor(ahead / gap);
@@ -469,7 +474,7 @@ export class InsideShot {
       m.position.set((side ? 1 : -1) * S * 0.34, 0, -z - l.ahead);
       m.rotation.y = (side ? -1 : 1) * 0.5;
       m.scale.set(S * 0.03, Math.max(1e-3, h), 1);
-      (m.material as THREE.ShaderMaterial).uniforms.uColor.value.set(p.accents[((id % p.accents.length) + p.accents.length) % p.accents.length]);
+      (m.material as THREE.ShaderMaterial).uniforms.uColor.value.set(barOf(id));
     }
     for (const r of this.ribbons) {
       const u = r.mat.uniforms;

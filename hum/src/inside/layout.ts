@@ -208,7 +208,7 @@ function reading(o: Where, p: Omit<Put, 'score'>, lens: Lens, t: number): { show
         let part = 1;
         if (o.scene && map && hides(o.scene, nearnessAt(o.scene, map, o.crop, q.x, q.y), q.w)) {
           // something thin (a cable, a pole) takes less than the small map says: both sides of it are clear
-          const thin = [-1, 1].every((k) => !hides(o.scene!, nearnessAt(o.scene!, map, o.crop, q.x + (k * 0.014) / o.aspect, q.y), q.w));
+          const thin = [-1, 1].every((k) => !hides(o.scene!, nearnessAt(o.scene!, map, o.crop, q.x + (k * 0.008) / o.aspect, q.y), q.w));
           if (!thin) continue;
           part = 0.55;
         }
@@ -345,7 +345,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
       for (const [i, c] of candidates(words, kind, o).entries()) {
         const r = reading(o, c, o.lens, o.times[0]);
         if (r.inside < 0.985 || r.least < (kind === 'ground' ? 0.075 : 0.05) || r.slim < (kind === 'wall' ? 0.3 : 0.2)) continue;
-        if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.42 - ease * 0.14) continue;
+        if (r.shown < 0.73 - ease * 0.13 || r.worst < 0.52 - ease * 0.2) continue;
         // on the ground it is seen at a slant already: it has to be clear
         if (kind === 'ground' && (r.shown < 0.86 || r.worst < 0.6)) continue;
         let shown = r.shown;
@@ -357,7 +357,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
           worst = Math.min(worst, s.worst + 0.08);
           inside = Math.min(inside, s.inside);
         });
-        if (inside < (kind === 'far' || kind === 'between' ? 0.9 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.32 - ease * 0.12) continue;
+        if (inside < (kind === 'far' || kind === 'between' ? 0.9 : 0.6) || shown < 0.68 - ease * 0.14 || worst < 0.36 - ease * 0.14 || (kind === 'ground' && (shown < 0.84 || worst < 0.55))) continue;
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it
