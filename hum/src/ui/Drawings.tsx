@@ -14,12 +14,14 @@ import { drawPartAt } from '../draw/parts';
 import { deleteDrawing, setDrawParts, setInSong, songName } from '../draw/session';
 import type { DrawingAsset } from '../draw/types';
 import { getScene } from '../scenes';
-import { setPartsLook } from '../state/partEdit';
+import { shotOfPart } from '../shot/partShots';
+import { setPartsLook, setPartsShot } from '../state/partEdit';
 import { findLook, listNames, partNames, pickLook, validPlan } from '../state/plan';
 import { undo } from '../state/history';
 import { useStudio } from '../state/store';
 import { Section, SwitchRow } from './controls';
 import './drawings.css';
+import { DrawnHere } from './DrawnHere';
 import { hereTarget, showMediaNote, targetWords } from './footageMedia';
 import { X } from './Icons';
 
@@ -255,9 +257,29 @@ function UseInParts({ d }: { d: DrawingAsset }) {
   const a = useStudio((s) => s.analysis);
   const plan = useStudio((s) => s.plan);
   useStudio((s) => s.planOn);
+  useStudio((s) => s.partShot);
   if (!a || !validPlan(plan, a)) return null;
   const target = hereTarget();
   if (target === 'solo') return null;
+  // a shot the footage is a place in takes it as something standing there
+  const places = target.parts.filter((i) => shotOfPart(i)?.style === 'inside');
+  if (places.length === target.parts.length) {
+    const stands = places.every((i) => shotOfPart(i)?.drawn?.id === d.id);
+    return (
+      <button
+        type="button"
+        className="btn sm"
+        onClick={() => {
+          const t = hereTarget();
+          if (t === 'solo') return;
+          setPartsShot(t.parts, { drawn: stands ? null : { id: d.id, put: 'between', size: 'medium', enter: 'draw' } });
+          if (!stands) showMediaNote(`${d.name} stands in ${t.parts.length > 1 ? `${t.parts.length} shots` : 'this shot'}`);
+        }}
+      >
+        {stands ? `Take out of ${targetWords(target)}` : `Use for ${targetWords(target)}`}
+      </button>
+    );
+  }
   const spans = target.parts.map((i) => a.sections[i]);
   const own = spans.every((p) => drawPartAt(parts, (p.start + p.end) / 2)?.ids?.includes(d.id));
   if (own)
@@ -393,6 +415,7 @@ function Panel() {
   const here = useDrawingsHere();
   const jobs = useJobsHere();
   const overlay = useStudio((s) => s.drawOverlay);
+  const inScene = useStudio((s) => s.drawInScene);
   // the kinds this song has whose own look isn't already up
   const sceneId = useStudio((s) => s.sceneId);
   const sc = getScene(sceneId);
@@ -401,7 +424,14 @@ function Panel() {
     <Section id="video.drawings" title="Drawings" sub="Drawings made for this song. They draw themselves as it plays.">
       <div className="dr-panel">
         <Progress />
+        <DrawnHere thumb={(d) => <DrawThumb d={d} replay={0} />} />
         <Shelf list={here} jobs={jobs} />
+        <SwitchRow
+          label="Draw into the scene"
+          note="When you make a video from your footage, Claude picks a few drawings with a job in the story, uses yours where they fit, and stands them in the shots"
+          on={inScene}
+          onChange={(v) => useStudio.getState().set({ drawInScene: v })}
+        />
         {here.length > 0 && (
           <>
             <SwitchRow label="Beside the words" note="A small one comes up with the line it belongs to" on={overlay} onChange={(v) => useStudio.getState().set({ drawOverlay: v })} />

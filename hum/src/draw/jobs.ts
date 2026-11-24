@@ -39,6 +39,8 @@ export interface DrawJob {
   /** redrawing this one, with these words about how */
   from?: string;
   note?: string;
+  /** the id the finished drawing takes, when something already names it (a shot waiting for it) */
+  as?: string;
 }
 
 interface DrawJobs {
@@ -62,6 +64,8 @@ let thinkingStop: AbortController | null = null;
 
 let count = 0;
 const newId = () => `dr${Date.now().toString(36)}${(count++).toString(36)}`;
+/** an id for a drawing that isn't made yet (makeDrawings) */
+export const newDrawingId = newId;
 
 /* ───────────────────────── asking ───────────────────────── */
 
@@ -89,7 +93,7 @@ const say = (e: unknown) => (e instanceof StepError ? e.message : 'Something wen
 /* ───────────────────────── what Claude hears about the song ───────────────────────── */
 
 /** the sung lines once each, in order: a chorus is only read once */
-function lyricLines(s: StudioState): string[] {
+export function songLines(s: StudioState): string[] {
   const l = s.lyrics;
   if (!l || l.instrumental) return [];
   const all = l.lines.length ? l.lines.map((x) => x.text) : (l.plain ?? '').split('\n');
@@ -135,7 +139,7 @@ export async function drawSong(opts: { count?: number; wish?: string; kind?: str
   const kind = kindFor(opts.kind);
   const song = songName(s);
   const a = s.analysis ? originalOf(s.analysis) : null;
-  const lines = lyricLines(s);
+  const lines = songLines(s);
   const have = drawingsHere(s);
   thinkingStop = new AbortController();
   useDrawJobs.setState({ thinking: true, error: null, ...(useDrawJobs.getState().jobs.some((j) => j.state !== 'failed') ? {} : { jobs: [], done: 0, total: 0 }) });
@@ -160,6 +164,17 @@ export async function drawSong(opts: { count?: number; wish?: string; kind?: str
     thinkingStop = null;
     useDrawJobs.setState({ thinking: false });
   }
+}
+
+/** draw these, each under the id it was promised (a video's shots already name them: director/footageArt.ts) */
+export function makeDrawings(list: { id: string; idea: DrawIdea }[], style: DrawStyle) {
+  const song = songName(useStudio.getState());
+  if (!list.length || !song) return;
+  const jobs: DrawJob[] = list.map(({ id, idea }) => ({ id: newId(), as: id, idea, style, kind: 'pen', song, state: 'waiting' }));
+  // drawings still waiting for a video that has been made again since are not wanted any more
+  const keep = useDrawJobs.getState().jobs.filter((j) => j.state !== 'failed' && !(j.as && j.state === 'waiting' && j.song === song));
+  useDrawJobs.setState((s) => ({ jobs: [...keep, ...jobs], total: Math.max(s.done, s.total - (s.jobs.filter((j) => j.state !== 'failed').length - keep.length)) + jobs.length, error: null }));
+  pump();
 }
 
 /** one object Claude chose, checked: its lines and sections become the song's own words and times */
@@ -299,7 +314,7 @@ function jpegOf(d: Drawing, style: DrawStyle): string | null {
 
 function finish(job: DrawJob, data: unknown) {
   const s = useStudio.getState();
-  const id = newId();
+  const id = job.as ?? newId();
   const old = job.from ? s.drawings.find((d) => d.id === job.from) : undefined;
   const asset: DrawingAsset = { ...job.idea, id, kind: job.kind, songs: old?.songs ?? [job.song], style: job.style, seed: seedOf(id), data, added: old?.added ?? Date.now(), ...(job.from ? { from: job.from } : {}) };
   justDrawn.set(id, performance.now());

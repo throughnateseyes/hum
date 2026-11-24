@@ -32,6 +32,7 @@ import { beatOffset } from '../audio/frameDsp';
 import { inMood, moodById, moodFilter, type Mood, type MoodId } from '../presets/moods';
 import { clipCount, mayPlan, mediaReady, photoCount, playsClips } from '../director/footage';
 import { curvesFor, curvesNow, feelingNow } from '../director/feeling';
+import type { Art, VideoArt } from '../director/footageArt';
 import { framesNoted } from '../director/footageNotice';
 import { dealMix, type Mix } from '../director/mix';
 import { withMoments } from '../director/footageShots';
@@ -92,6 +93,8 @@ export interface VideoPlan {
   shots?: (PartShot | null)[];
   /** the colours footage's Inside shots are painted in, one set for the whole video (src/inside/palettes.ts); missing on plans made before it */
   paint?: string;
+  /** what the drawings standing in its shots are about (director/footageArt.ts); where each stands is on `shots` */
+  art?: VideoArt;
   /** how much of it is the person's own footage, when that was asked for (director/mix.ts); missing: footage carries it, with a cutaway or two */
   mix?: Mix;
   /** what the song's words feel like, as it was known when the plan was made (src/feeling); a flat plan's is on `flat.src` */
@@ -1206,12 +1209,14 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   let asked: { plan: VideoPlan; reason: string };
   let end = () => {};
   let check: (() => Promise<void>) | null = null;
+  let draw: (() => void) | undefined;
   if (directed) {
     const made = await directVideo(a, prev, { wish, mood, keepEdits: opts.keepEdits });
     if (!made) return;
     asked = made;
     end = made.end;
     check = made.check;
+    draw = made.draw;
   } else asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
   const reason = asked.reason;
   const plan = withBase(asked.plan, a);
@@ -1230,6 +1235,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   now.set({ planning: false });
   const idea = plan.idea ? `${plan.idea} ` : '';
   void startPlan(plan, a, plan.source === 'claude' ? `${idea}${plan.note}` : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
+  if (draw) void draw();
   // the check runs while the video plays; its step line goes when it is done
   if (check) void check().then(end, end);
   else end();
@@ -1249,7 +1255,7 @@ async function directVideo(
   a: TrackAnalysis,
   prev: VideoPlan | null,
   o: { wish: string; mood?: Mood; keepEdits?: boolean },
-): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null } | null> {
+): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null; draw?: () => void } | null> {
   const d = await import('../director/footageDirector');
   const run = d.beginMake();
   const sameSong = () => {
@@ -1274,10 +1280,37 @@ async function directVideo(
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
-    if (chosen) await d.depthFor(chosen, run);
+    let art: Art | null = null;
+    if (chosen) {
+      const { artOpen, directArt } = await import('../director/footageArt');
+      if (artOpen()) run.say('Deciding what to draw');
+      // both take a while and neither needs the other
+      [art] = await Promise.all([
+        directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint }, run).catch((err: unknown) => {
+          if (!run.signal.aborted) console.warn('no drawings were chosen', err);
+          return null;
+        }),
+        d.depthFor(chosen, run),
+      ]);
+      if (art) chosen.cues = plan.cues = art.cues;
+    }
+    if (art) plan.art = art.art;
     const stills = chosen ? await d.stillsFor(chosen, run) : null;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    return { plan, reason: asked.reason, end: run.end, check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null };
+    const look = art;
+    return {
+      plan,
+      reason: asked.reason,
+      end: run.end,
+      check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null,
+      // what is missing is drawn while the video plays, and looked at where it stands once it is in
+      draw: look
+        ? () => {
+            look.begin();
+            void import('../director/footageArt').then((m) => m.reviewArt(look.art));
+          }
+        : undefined,
+    };
   } catch (err) {
     if (!run.signal.aborted) {
       // nothing here should throw, but a video must come of it if something does

@@ -537,7 +537,7 @@ Look at each still as a viewer would, and flag only shots that are broken in a w
 - words on it run out of the frame, or sit on top of other words
 - it is the same picture, framed the same way, as the part right before or after it
 
-These are choices, not faults, so leave them alone: large words standing in the picture with people or buildings in front of parts of them, whole areas in one flat colour, ribbons, bars and rays (inside), streaks, melting, blocks and characters (treatments), flat or few colours (the look's), motion blur, a word broken over two lines, a big graphic shape beside the picture, a still frame that would look better moving. The events are what give the cut its energy: the checked cut must keep as many of them.
+These are choices, not faults, so leave them alone: large words standing in the picture with people or buildings in front of parts of them, whole areas in one flat colour, ribbons, bars, rays and cut-out drawings (inside), streaks, melting, blocks and characters (treatments), flat or few colours (the look's), motion blur, a word broken over two lines, a big graphic shape beside the picture, a still frame that would look better moving. The events are what give the cut its energy: the checked cut must keep as many of them.
 
 For each flagged shot give the problem in at most 10 plain words, and a complete replacement in the same form as the choices were made: change only what is wrong, and keep its style, treatment, motion and moment unless one of them is the fault. If a shot is fine, leave it out. Most cuts need none or one, and never more than a quarter of the stills.
 
@@ -585,3 +585,6 @@ const review: Step = {
 };
 
 export const FOOTAGE_STEPS: Record<string, Step> = { watch, story, shots, review };
+
+// the art steps read the same song, media and parts (art.ts)
+export { DATA_RULE, describeSong, readMedia, readParts, wishLine };

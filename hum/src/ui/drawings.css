@@ -150,3 +150,95 @@ button.dr-tile {
   gap: 3px;
   font-size: var(--fs-2);
 }
+/* the drawings standing in the video (DrawnHere.tsx) */
+.dr-here {
+  display: grid;
+  gap: var(--s-2);
+}
+.dr-here > .field-note {
+  margin: 0;
+}
+.dr-used {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.dr-used > .dr-pic {
+  flex: none;
+  width: 44px;
+}
+.dr-used > .dr-grow {
+  white-space: normal;
+}
+.dr-used b {
+  font-size: var(--fs-2);
+  font-weight: 600;
+}
+.dr-used .dr-busy {
+  margin: 0;
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.dr-shot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dr-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-2);
+  line-height: 1.35;
+  text-align: left;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.dr-go:hover {
+  color: var(--ink);
+}
+.dr-time {
+  flex: none;
+  min-width: 2.4em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.dr-put {
+  flex: none;
+  width: 92px;
+  height: 22px;
+  padding: 0 2px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+}
+.dr-shot:hover .dr-put,
+.dr-put:focus {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.dr-out {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.dr-out:hover {
+  color: var(--ink);
+  background: var(--panel-2);
+}

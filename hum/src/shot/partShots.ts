@@ -68,5 +68,6 @@ export function shotsFromCues(cues: ShotCue[], bounds: number[]): (PartShot | nu
 
 export function withoutStart(s: PartShot): PartShot {
   const { from: _from, ...rest } = s;
-  return rest;
+  // its drawing is found standing there, rather than arriving again
+  return rest.drawn ? { ...rest, drawn: { ...rest.drawn, enter: 'there' } } : rest;
 }

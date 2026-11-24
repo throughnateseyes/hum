@@ -523,7 +523,8 @@ export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; part
     const cue = g && stills.parts.includes(g.i) ? chosen.cues.find((c) => Math.abs(c.at - chosen.cut.analysis.sections[g.i].start) < 0.06) : undefined;
     // a shot made Inside stays it
     if (g && cue?.shot.style === 'inside' && g.shot.style === 'plain') g.shot = { ...g.shot, style: 'inside', treatment: 'none' };
-    if (g && cue && !at.has(g.i)) at.set(g.i, { ...cue, shot: g.shot, ...(g.why ? { why: g.why } : {}) });
+    // (and keeps the drawing that stands in it: that has a look of its own, footageArt.ts)
+    if (g && cue && !at.has(g.i)) at.set(g.i, { ...cue, shot: { ...g.shot, ...(cue.shot.drawn && g.shot.style === 'inside' ? { drawn: cue.shot.drawn } : {}) }, ...(g.why ? { why: g.why } : {}) });
   }
   if (!at.size) return;
   const starts = [...at.values()].map((c) => c.at);

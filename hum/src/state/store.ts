@@ -108,6 +108,8 @@ export interface StudioState extends LookState {
   drawParts: DrawPart[];
   /** small drawings beside the lyrics when a word that has one is sung */
   drawOverlay: boolean;
+  /** a video made from the person's footage has drawings standing in some of its shots (director/footageArt.ts) */
+  drawInScene: boolean;
   text: string;
   aspect: Aspect;
   inspectorTab: InspectorTab;
@@ -301,6 +303,7 @@ function loadPersisted(): Partial<StudioState> {
       lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
       oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
       drawOverlay: typeof j.drawOverlay === 'boolean' ? j.drawOverlay : undefined,
+      drawInScene: typeof j.drawInScene === 'boolean' ? j.drawInScene : undefined,
     };
   } catch {
     return {};
@@ -343,6 +346,7 @@ function persist(s: StudioState) {
         finishPicked: s.finishPicked,
         oneTap: s.oneTap,
         drawOverlay: s.drawOverlay,
+        drawInScene: s.drawInScene,
       }),
     );
   } catch {
@@ -501,6 +505,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   drawTrash: [],
   drawParts: [],
   drawOverlay: persisted.drawOverlay ?? true,
+  drawInScene: persisted.drawInScene ?? true,
   tweaks: loadTweaks(''),
   startup: null,
   needsTap: false,
@@ -648,7 +653,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch || 'drawInScene' in patch) persist(get());
   },
   setPartPops: (i, level) => {
     const a = get().analysis;
