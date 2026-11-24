@@ -8,6 +8,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { useStudio, type PopupMode } from '../state/store';
 import { pickLook } from '../state/plan';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { Sheet } from './Sheet';
 import { Library } from './Library';
@@ -89,7 +90,7 @@ function PanelBody({ id }: { id: PanelId }) {
 
 function shuffle() {
   const s = useStudio.getState();
-  const pool = PRESETS.filter((p) => p.id !== s.presetId);
+  const pool = PRESETS.filter((p) => p.id !== s.presetId && lookShows(p));
   if (pool.length) pickLook(pool[Math.floor(Math.random() * pool.length)]);
 }
 

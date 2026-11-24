@@ -1,4 +1,5 @@
 import type { AudioFrame, Preset } from '../core/types';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { useStudio } from './store';
 import { live } from './live';
@@ -29,9 +30,9 @@ export function autopilotTick(a: AudioFrame) {
   const suggested = s.analysis?.suggestedPresets ?? [];
   for (const id of suggested) {
     const p = PRESETS.find((x) => x.id === id);
-    if (p) pool.push(p);
+    if (p && lookShows(p)) pool.push(p);
   }
-  if (pool.length < 4) for (const p of PRESETS) if (!pool.includes(p)) pool.push(p);
+  if (pool.length < 4) for (const p of PRESETS) if (!pool.includes(p) && lookShows(p)) pool.push(p);
   const candidates = pool.slice(0, 8).filter((p) => p.id !== s.presetId);
   if (!candidates.length) return;
   // on a drop, prefer something intense

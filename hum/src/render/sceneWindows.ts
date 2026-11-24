@@ -756,7 +756,7 @@ function pickLook(a: TrackAnalysis | null | undefined, main: MainLook, open: WDe
   const ok = (p: Preset) => {
     const d = getScene(p.sceneId);
     // (not the footage looks: a window would open another set of video players, and a render can't wait for theirs)
-    return !!d && d.category !== 'board' && !d.showsLyrics && !d.usesClips && p.id !== main.mainPresetId && p.sceneId !== main.mainSceneId && !open.some((o) => o.sceneId === p.sceneId) && (!inMood || inMood(p));
+    return !!d && d.category !== 'board' && !d.showsLyrics && !d.usesClips && !d.usesDrawings && p.id !== main.mainPresetId && p.sceneId !== main.mainSceneId && !open.some((o) => o.sceneId === p.sceneId) && (!inMood || inMood(p));
   };
   const m = findLook(main.mainPresetId);
   const related = m && a ? relatedLooks(m.id, a, [], undefined, undefined, inMood).map((id) => findLook(id)).filter((p): p is Preset => !!p && ok(p)) : [];

@@ -5,6 +5,7 @@ import { alignLyrics, cancelListening, ListenCancelled, listenForWords, offsetBy
 import type { LyricLine, Lyrics } from '../core/types';
 import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
@@ -52,7 +53,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
     const analysis = await analyzeTrack(
       buf,
-      [...PRESETS, ...useStudio.getState().customPresets].map((p) => ({ id: p.id, tags: p.tags })),
+      [...PRESETS, ...useStudio.getState().customPresets].filter(lookShows).map((p) => ({ id: p.id, tags: p.tags })),
     );
     if (token !== loadToken) return;
     audioEngine.setAnalysis(analysis);

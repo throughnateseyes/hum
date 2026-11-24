@@ -12,7 +12,8 @@ import { sceneLook, useStudio } from '../state/store';
 import { withTweak, type LookTweak } from '../state/tweaks';
 import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
-import { playsClips } from '../director/footage';
+import { lookShows, playsClips, sceneShows } from '../director/footage';
+import { useDrawingsHere } from '../draw/hooks';
 import { Chevron, Cube, Film, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 import { canShow, giveMedia, hereTarget, MEDIA_MIME, pictureKind, targetWords } from './footageMedia';
@@ -179,7 +180,10 @@ function Looks({ onAddFootage }: { onAddFootage: () => void }) {
   const presetId = useStudio((s) => s.presetId);
   const hasClips = useStudio((s) => s.clips.length > 0);
   const [blocks, setBlocks] = useState(false);
-  const custom = useStudio((s) => s.customPresets);
+  const hasDrawings = useDrawingsHere().length > 0;
+  const ownLooks = useStudio((s) => s.customPresets);
+  // looks made of drawings only exist once this song has some
+  const custom = useMemo(() => ownLooks.filter((p) => hasDrawings || lookShows(p)), [ownLooks, hasDrawings]);
   const analysis = useStudio((s) => s.analysis);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
   const [part, setPart] = useState<PartFilter>('all');
@@ -199,8 +203,8 @@ function Looks({ onAddFootage }: { onAddFootage: () => void }) {
   // footage looks play the person's own clips: with none added they'd show nothing, so they stay out
   // of the list (one quiet row below says how to bring them in)
   const usable = useMemo(
-    () => families.filter((f) => f.takes.some((p) => getScene(p.sceneId)) && (hasClips || !f.takes.every((p) => playsClips(p)))),
-    [families, hasClips],
+    () => families.filter((f) => f.takes.some((p) => getScene(p.sceneId)) && (hasClips || !f.takes.every((p) => playsClips(p))) && (hasDrawings || f.takes.some(lookShows))),
+    [families, hasClips, hasDrawings],
   );
   const footageHidden = !hasClips && families.some((f) => f.takes.length > 0 && f.takes.every((p) => playsClips(p)));
   const filtering = part !== 'all' || theme !== 'all' || !!q;
@@ -505,7 +509,8 @@ function PresetCard({ p, on, suggested, sub, onClick }: { p: Preset; on: boolean
 function Scenes() {
   const sceneId = useStudio((s) => s.sceneId);
   useStudio((s) => s.customShaders.length); // re-render when AI scenes are added
-  const scenes = allScenes();
+  const drawn = useDrawingsHere().length > 0;
+  const scenes = allScenes().filter((s) => drawn || sceneShows(s));
   // by style family; scenes Claude wrote for you come last as their own group
   const groups = [
     ...STYLES.map((st) => ({ key: st.id as string, label: st.label, hint: st.hint, list: scenes.filter((s) => s.category !== 'code' && sceneStyle(s) === st.id) })),

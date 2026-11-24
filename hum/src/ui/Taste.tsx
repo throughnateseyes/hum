@@ -3,6 +3,7 @@
  * says in plain words what Hum has learned, with a learning switch and a reset.
  */
 import { useEffect, useRef, useState } from 'react';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { getScene } from '../scenes';
 import { live } from '../state/live';
@@ -37,7 +38,7 @@ export function skipNow() {
   if (!skipLook()) {
     // no plan playing: pick the next look by taste from the song's suggestions (or everything)
     const suggested = (s.analysis?.suggestedPresets ?? []).map((id) => findLook(id)).filter((p) => !!p);
-    const pool = [...suggested, ...PRESETS].filter((p, i, xs) => xs.indexOf(p) === i && p.id !== look.id && !p.sceneId.startsWith('board-') && getScene(p.sceneId));
+    const pool = [...suggested, ...PRESETS].filter((p, i, xs) => xs.indexOf(p) === i && p.id !== look.id && !p.sceneId.startsWith('board-') && getScene(p.sceneId) && lookShows(p));
     const next = pickByTaste(pool.slice(0, 14));
     if (next) {
       if (live.stage) live.stage.nextTransition = transitionForNow('auto', null);

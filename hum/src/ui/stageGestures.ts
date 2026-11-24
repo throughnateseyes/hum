@@ -18,6 +18,7 @@ import { isScrubbing } from '../state/scrub';
 import { useStudio } from '../state/store';
 import { noteHandPick } from '../state/taste';
 import { allFamilies, bestTake, familyOf, neighbourScore, takeName } from '../presets/fit';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { audioEngine } from '../audio/engine';
 import { closePanel, openPanel, toastLook, toggleStageControls, useLayout, usePhoneUi } from './layout';
@@ -47,7 +48,7 @@ function buildDeck(cur: string | null): string[] {
   const curP = usable(cur);
   const out: string[] = [];
   const add = (id: string | undefined) => {
-    if (id && !out.includes(id) && usable(id)) out.push(id);
+    if (id && !out.includes(id) && lookShows(usable(id)) && usable(id)) out.push(id);
   };
   add(curP?.id);
   // 1. the other takes of the family on screen

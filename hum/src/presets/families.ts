@@ -595,6 +595,17 @@ export const FAMILY_TABLE: Record<string, FamilyDef> = {
     pairs: ['orbit-board'],
   },
 
+  /* ───────── sketchbook: the drawings made for the song ───────── */
+  sketchbook: {
+    name: 'Sketchbook',
+    blurb: 'The drawings made for this song, drawing themselves by hand with the sung words beside them: one at a time, a page that fills, or a board of pinned cards.',
+    takes: { 'sketchbook-page': 'A page', 'sketchbook-pinned': 'Pinned up' },
+    roles: ['verse', 'bridge', 'break', 'intro'],
+    energy: [0.1, 0.7],
+    motion: 'still',
+    themes: ['paper', 'graphic'],
+  },
+
   /* ───────── footage: the person's own clips ───────── */
   footage: {
     name: 'Footage',
