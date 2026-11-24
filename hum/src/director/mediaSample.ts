@@ -21,7 +21,7 @@ const MAX_CHARS = 380_000;
 const FRAMES = 6;
 /** the moments of a clip Claude is shown: each the frame just before it, and the frame itself */
 const SHOWN = 4;
-/** how long before a moment the frame before it is (s) */
+/** how long before a moment the frame before it is, and after one that begins (s) */
 const BEFORE = 0.4;
 /** photos on one sheet */
 export const PHOTOS_PER_SHEET = 6;
@@ -171,18 +171,24 @@ export async function sampleClip(c: Pick<ClipAsset, 'url'>, key: string, motion:
     const g = sheet.getContext('2d')!;
     const sg = small.getContext('2d', { willReadFrequently: true })!;
     const n = Math.max(FRAMES, Math.min(9, Math.round(d)));
-    const sheetAt = [
-      ...moments.flatMap((e, i) => [
-        { t: Math.max(0, e.at - BEFORE), say: `${key}${i + 1} before` },
-        { t: e.at, say: `${key}${i + 1}` },
-      ]),
-    ];
-    const plain = frames - sheetAt.length;
+    // a moment's two frames side by side: what begins is seen a little after it, the rest a little before
+    const pairs = moments.map((e, i) =>
+      e.kind === 'start'
+        ? [
+            { t: e.at, say: `${key}${i + 1}` },
+            { t: Math.min(d - 0.1, e.at + BEFORE), say: `${key}${i + 1} after` },
+          ]
+        : [
+            { t: Math.max(0, e.at - BEFORE), say: `${key}${i + 1} before` },
+            { t: e.at, say: `${key}${i + 1}` },
+          ],
+    );
+    const plain = frames - pairs.length * 2;
     for (let i = 0; i < plain; i++) {
       const t = Math.max(0, Math.min(d - 0.1, d * (0.03 + (0.92 * i) / Math.max(1, plain - 1))));
-      sheetAt.push({ t, say: `${key} ${t.toFixed(1)}s` });
+      pairs.push([{ t, say: `${key} ${t.toFixed(1)}s` }]);
     }
-    sheetAt.sort((x, y) => x.t - y.t);
+    const sheetAt = pairs.sort((x, y) => x[0].t - y[0].t).flat();
     const times: number[] = [];
     const at: number[] = [];
     const motion: number[] = [];

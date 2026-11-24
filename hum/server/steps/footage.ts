@@ -39,7 +39,7 @@ const WATCH_MEDIA = 18;
 
 const WATCH_SYSTEM = `You watch a person's own video clips and photos for the editor of their music video, and write short working notes the editor will cut from without seeing the pictures.
 
-Each sheet holds either six or twelve frames of one clip in order, each labelled with the clip's letter and the second it was taken, or several photos, each labelled with its own key. On a sheet of twelve, frames labelled like A1 before and A1 are a moment the app measured in clip A: a little before it, and as it happens. Under each clip the app gives what it measured: how much the picture moves at each second (0 still, 1 a lot), how bright it is and how much the camera shakes.
+Each sheet holds either six or twelve frames of one clip in order, each labelled with the clip's letter and the second it was taken, or several photos, each labelled with its own key. On a sheet of twelve, frames labelled like A1 before and A1 are a moment the app measured in clip A: a little before it, and as it happens (A1 and A1 after where something begins). Under each clip the app gives what it measured: how much the picture moves at each second (0 still, 1 a lot), how bright it is and how much the camera shakes.
 
 For every clip and photo:
 - subject: what is actually in the picture, concrete and specific, at most 14 words ("an empty two-lane road at noon, seen from a moving car"), never a mood. For an abstract picture, say what shapes and colours it is.
@@ -48,7 +48,7 @@ For every clip and photo:
 - energy: 0 still and quiet, 0.5 steady movement, 1 frantic. Judge the picture's movement and tension, using the measured movement.
 - camera and size: what the camera does, and how close it is.
 - ins: for a clip, up to three seconds a shot could start on, best first, each with why in at most 8 words (something arrives, the light changes, movement picks up, the frame is clean). Use seconds inside the clip, at least a second apart, early enough to leave two seconds of clip after them. If the clip is only good for part of its length, keep to that part. For a photo, none.
-- hits: for a clip with numbered moments, the ones that really happen in the frames, so that a drop or a beat could land on them. n is the moment's number; what says what happens in at most 8 words ("an umbrella leaves and shows the street", "they jump"); hard is 0 to 1: 1 is an impact, a leap, a face turning to us, something suddenly revealed; 0.5 somebody enters, passes or stops; 0.2 a small shift. Compare the two frames. Leave out a moment where nothing you can name changes.
+- hits: for a clip with numbered moments, the ones that really happen in the frames, so that a drop or a beat could land on them. n is the moment's number; what says what happens in at most 8 words ("an umbrella leaves and shows the street", "they jump"); hard is 0 to 1: 1 is an impact, a leap, a face turning to us, something suddenly revealed; 0.5 somebody enters, passes or stops; 0.2 a small shift. Compare the two frames: someone gone from the front of the picture, a view that opens up, a crossing that fills are all moments. Leave out only one where nothing you can name changes, and answer with an empty list for a clip or photo without numbered moments.
 - faces: a person's face is visible and readable. text: words are visible in the picture.
 
 Be honest about a plain or weak picture: say so in the subject rather than making it sound better. ${DATA_RULE}`;
@@ -85,7 +85,7 @@ const WATCH_TOOL = {
             faces: { type: 'boolean' },
             text: { type: 'boolean' },
           },
-          required: ['key', 'subject', 'focusX', 'focusY', 'mood', 'energy', 'camera', 'size', 'ins', 'faces', 'text'],
+          required: ['key', 'subject', 'focusX', 'focusY', 'mood', 'energy', 'camera', 'size', 'ins', 'hits', 'faces', 'text'],
         },
       },
     },

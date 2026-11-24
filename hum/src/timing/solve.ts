@@ -160,7 +160,7 @@ export function eventsOf(m: ClipMotion | null, n?: MediaNotes): (ClipEvent & { w
   return m.events
     .filter((e) => e.kind !== 'cut')
     .map((e) => {
-      const named = n?.hits?.find((h) => Math.abs(h.at - e.at) < 0.4);
+      const named = n?.hits?.find((h) => Math.abs(h.at - e.at) < 0.06);
       // looked at and passed over: it was nothing
       if (n?.hits?.length && !named) return { ...e, strength: e.strength * 0.55 };
       return named ? { ...e, strength: clamp01(0.25 + 0.75 * named.hard), what: named.what } : e;
