@@ -514,14 +514,15 @@ const REVIEW_SHEETS = 2;
 
 const REVIEW_SYSTEM = `You check the cut of a music video made from a person's own clips and photos. The sheets show one still from each of some of its parts, labelled with the part's number, in the order they play. Lyrics are not drawn on the stills.
 
-Look at each still as a viewer would, then flag only shots that are clearly weak and that a different choice would clearly improve:
-- the crop cuts off or misses the subject, or shows mostly nothing
-- the picture is unreadable: a treatment has turned it to noise, or it is nearly black or blank
-- words on it cannot be read, or sit on top of other words
-- it looks the same as a neighbouring still
-- its graphics fight the picture, or it clearly does not suit its moment
+Look at each still as a viewer would, and flag only shots that are broken in a way a viewer would notice:
+- the crop cuts the subject off, or shows mostly nothing
+- the still is blank, nearly black or nearly empty, in a part that is not quiet
+- words on it run out of the frame, or sit on top of other words
+- it is the same picture, framed the same way, as the part right before or after it
 
-For each flagged shot give the problem in at most 10 plain words, and a complete replacement in the same form as the choices were made. A zoom of 1, plain style and no treatment is often the fix. If a shot is fine, leave it out. It is normal to flag none, and never more than a third of them.
+These are choices, not faults, so leave them alone: streaks, melting, blocks and characters (treatments), flat or few colours (the look's), motion blur, a word broken over two lines, a big graphic shape beside the picture, a still frame that would look better moving. The events are what give the cut its energy: the checked cut must keep as many of them.
+
+For each flagged shot give the problem in at most 10 plain words, and a complete replacement in the same form as the choices were made: change only what is wrong, and keep its style, treatment, motion and moment unless one of them is the fault. If a shot is fine, leave it out. Most cuts need none or one, and never more than a quarter of the stills.
 
 ${SHOT_RULES}
 
@@ -558,7 +559,7 @@ const review: Step = {
       finish(output) {
         if (!isObj(output) || !Array.isArray(output.weak)) return null;
         // the app applies one round, to a few shots: a check that wants to redo everything is cut short
-        const most = Math.max(1, Math.ceil(cut.parts.open.size / 3));
+        const most = Math.max(1, Math.ceil(cut.parts.open.size / 4));
         const problems = new Map(list(output.weak, MAX_PARTS).filter(isObj).map((x) => [x.i, line(x.problem, 110)]));
         return { weak: cleanShots(output.weak, cut.allowed).slice(0, most).map((x) => ({ ...x, problem: problems.get(x.i) ?? '' })) };
       },

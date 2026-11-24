@@ -1161,11 +1161,13 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   s.set({ planning: true, makeNote: '' });
   let asked: { plan: VideoPlan; reason: string };
   let end = () => {};
+  let check: (() => Promise<void>) | null = null;
   if (directed) {
     const made = await directVideo(a, prev, { wish, mood, keepEdits: opts.keepEdits });
     if (!made) return;
     asked = made;
     end = made.end;
+    check = made.check;
   } else asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
   const reason = asked.reason;
   const plan = withBase(asked.plan, a);
@@ -1184,7 +1186,9 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   now.set({ planning: false });
   const idea = plan.idea ? `${plan.idea} ` : '';
   void startPlan(plan, a, plan.source === 'claude' ? `${idea}${plan.note}` : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
-  end();
+  // the check runs while the video plays; its step line goes when it is done
+  if (check) void check().then(end, end);
+  else end();
   const on = useStudio.getState();
   if (cacheKey && plan.source === 'claude' && on.plan && on.analysis) {
     savePlan(cacheKey, on.plan);
@@ -1195,13 +1199,13 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
 /**
  * A plan directed from the person's own footage: watched, a story found, the looks planned to it, and a
  * shot chosen for every part (director/footageDirector.ts). Null when it was cancelled, or another song
- * went on: the video playing then simply carries on. `end` is called once the plan is on.
+ * went on: the video playing then simply carries on. `end` is called once the plan is on and `check`, when there is one, is done.
  */
 async function directVideo(
   a: TrackAnalysis,
   prev: VideoPlan | null,
   o: { wish: string; mood?: Mood; keepEdits?: boolean },
-): Promise<{ plan: VideoPlan; reason: string; end: () => void } | null> {
+): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null } | null> {
   const d = await import('../director/footageDirector');
   const run = d.beginMake();
   const sameSong = () => {
@@ -1215,7 +1219,7 @@ async function directVideo(
     const lyrics = useStudio.getState().lyrics;
     const { story, closed } = await d.findStory(a, lyrics, o.wish, run);
     const offline = freshLocalPlan(a, o.mood?.id);
-    if (closed) return { plan: await offlineVideoPlan(a, lyrics, offline), reason: '', end: run.end };
+    if (closed) return { plan: await offlineVideoPlan(a, lyrics, offline), reason: '', end: run.end, check: null };
     run.say('Choosing looks');
     const asked = await requestVideoPlan(a, lyrics, offline, {
       wish: o.wish,
@@ -1225,15 +1229,16 @@ async function directVideo(
     });
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
-    const plan = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
+    const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
+    const stills = chosen ? await d.stillsFor(chosen, run) : null;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    return { plan, reason: asked.reason, end: run.end };
+    return { plan, reason: asked.reason, end: run.end, check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null };
   } catch (err) {
     if (!run.signal.aborted) {
       // nothing here should throw, but a video must come of it if something does
       console.warn('directing from footage failed', err);
       run.note('Directing from your footage failed this time, so Hum planned this one by itself.');
-      return { plan: await offlineVideoPlan(a, useStudio.getState().lyrics, freshLocalPlan(a, o.mood?.id)), reason: '', end: run.end };
+      return { plan: await offlineVideoPlan(a, useStudio.getState().lyrics, freshLocalPlan(a, o.mood?.id)), reason: '', end: run.end, check: null };
     }
     useStudio.getState().set({ planning: false, makeNote: '' });
     run.end();

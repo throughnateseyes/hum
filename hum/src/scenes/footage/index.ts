@@ -134,13 +134,13 @@ function beforeOf(flat: Flat, i: number): { start: number; end: number; layout: 
 }
 
 /** the song's title, without the artist */
-function songTitle(): string {
+export function songTitle(): string {
   const name = useStudio.getState().track?.name ?? '';
   return (name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name).replace(/\.[a-z0-9]{2,4}$/i, '').trim();
 }
 
 /** the song's title as words for the type, when no lyrics are being shown (the lyric layer owns those) */
-function titleWords(): string[] {
+export function titleWords(): string[] {
   if (useStudio.getState().lyrics?.lines.length) return [];
   return songTitle()
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
@@ -152,7 +152,7 @@ function titleWords(): string[] {
 
 /** a photo as a picture of the deck: a still with its own palette, brightness bands and anchors, kept by photo id */
 const stills = new Map<string, { photo: PhotoAsset; clip: StageClip }>();
-function stillClip(p: PhotoAsset): StageClip {
+export function stillClip(p: PhotoAsset): StageClip {
   const had = stills.get(p.id);
   if (had?.photo === p) return had.clip;
   const c = document.createElement('canvas');

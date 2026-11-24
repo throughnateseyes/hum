@@ -5,6 +5,7 @@
  *   story    the idea, a moment per section, which pictures belong where
  *   (plan)   the looks, told the story (state/plan.ts requestVideoPlan)
  *   shots    what each footage part of the cut video shows
+ *   review   small stills of it, once: the weak shots are replaced while it plays
  *
  * Claude only ever chooses: which picture, which second, which moment, which template. The cutting,
  * speeds, cameras and exact times are worked out by code. What it chose is kept on the plan by time
@@ -23,6 +24,7 @@ import { LYRIC_MEDIUMS, type LyricMedium } from '../state/lyricPlan';
 import { findLook, partEdits, sectionIndexAt, validPlan, type VideoPlan } from '../state/plan';
 import { parentsOf } from '../state/planCache';
 import { useStudio } from '../state/store';
+import { audioEngine } from '../audio/engine';
 import { requestStep } from './client';
 import { playsClips } from './footage';
 import { framesSent } from './footageNotice';
@@ -365,23 +367,32 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
   };
 }
 
+/** what the check needs to know about the cut it was made for */
+export interface Chosen {
+  cut: NonNullable<ReturnType<typeof cutNow>>;
+  cues: ShotCue[];
+  /** the footage parts Claude may change */
+  open: number[];
+}
+
 /**
  * The plan with a shot for every footage part: Claude's where it gave one, else what the part's moment
  * asks for (footageShots.ts). Without an answer the plan comes back with its idea alone, and the parts
  * are dealt by their moments when it goes on.
  */
-export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: VideoPlan | null; story: Story | null; lyrics: Lyrics | null; wish: string }, run: MakeRun): Promise<VideoPlan> {
+export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: VideoPlan | null; story: Story | null; lyrics: Lyrics | null; wish: string }, run: MakeRun): Promise<{ plan: VideoPlan; chosen: Chosen | null }> {
   const told: VideoPlan = o.story ? { ...plan, idea: o.story.idea } : plan;
   const cut = cutNow(told, a, o.keep);
-  if (!cut) return told;
+  const alone = { plan: told, chosen: null };
+  if (!cut) return alone;
   const { seen, lines, body } = cutBody(cut, o.story, o.lyrics, o.wish);
   const open = new Set(lines.flatMap((p) => (p.kind === 'footage' ? [p.i] : [])));
-  if (!seen.length || !open.size) return told;
+  if (!seen.length || !open.size) return alone;
   run.say('Choosing shots');
   const r = await requestStep('shots', body, { signal: run.signal });
   if (!r.ok) {
     run.note('Claude couldn’t choose the shots this time, so Hum chose them from its notes.');
-    return told;
+    return alone;
   }
   const got = new Map<number, NonNullable<ReturnType<typeof readShot>>>();
   for (const x of Array.isArray(r.json.shots) ? r.json.shots : []) {
@@ -390,7 +401,7 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
   }
   if (!got.size) {
     run.note('Claude couldn’t choose the shots this time, so Hum chose them from its notes.');
-    return told;
+    return alone;
   }
   const rest = momentShots(cut.plan.flat?.src ?? told, cut.analysis, cut.plan.looks, findLook);
   const cues: ShotCue[] = cut.analysis.sections.flatMap((sec, i) => {
@@ -399,5 +410,85 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
     if (!shot) return [];
     return [{ at: sec.start, end: sec.end, shot, ...(g?.why ? { why: g.why } : {}), ...(g?.lyric ? { lyric: g.lyric } : {}) }];
   });
-  return { ...told, cues };
+  return { plan: { ...told, cues }, chosen: { cut, cues, open: [...open] } };
+}
+
+/* ───────── review ───────── */
+
+/** the check after a Make; false leaves it out */
+const REVIEW = true;
+
+/** stills of the chosen shots, drawn before the video goes on so nothing playing is disturbed (null: not checked) */
+export async function stillsFor(chosen: Chosen, run: MakeRun): Promise<{ sheets: string[]; parts: number[] } | null> {
+  if (!REVIEW) return null;
+  run.say('Checking the cut');
+  const { partsToCheck, stillSheets } = await import('./footageStills');
+  const cut = { ...chosen.cut, shotAt: (i: number) => layShot(shotAtPart(chosen, i), chosen.cut.hand?.[i]) };
+  try {
+    const parts = partsToCheck(cut, chosen.open);
+    // one or two stills tell nothing about a cut
+    if (parts.length < 3) return null;
+    const sheets = await stillSheets(cut, parts, run.signal);
+    return sheets.length ? { sheets, parts } : null;
+  } catch (err) {
+    if (run.signal.aborted) throw err;
+    // no second picture to be had (a busy graphics card): the video simply isn't checked
+    console.warn('the cut could not be checked', err);
+    return null;
+  }
+}
+
+const shotAtPart = (chosen: Chosen, i: number): PartShot | null => chosen.cues.find((c) => Math.abs(c.at - chosen.cut.analysis.sections[i].start) < 0.06)?.shot ?? null;
+
+/**
+ * Claude looks at the stills and the weak shots get its replacements: one round, while the video plays.
+ * Only on the plan this Make put on, only in parts cut as they were, and never while a part it changes
+ * is on screen. What the person set by hand stays on top, as always.
+ */
+export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; parts: number[] }, o: { story: Story | null; lyrics: Lyrics | null; wish: string }, run: MakeRun): Promise<void> {
+  const mine = () => {
+    const s = useStudio.getState();
+    return !run.signal.aborted && s.plan?.flat?.src.cues === chosen.cues && !!s.analysis && validPlan(s.plan, s.analysis) ? s : null;
+  };
+  if (!mine()) return;
+  const { body, seen } = cutBody(chosen.cut, o.story, o.lyrics, o.wish, (i) => shotAtPart(chosen, i));
+  // only the parts on the sheets may be changed
+  const parts = body.parts.filter((p) => p.kind !== 'footage' || stills.parts.includes(p.i));
+  const r = await requestStep('review', { ...body, parts, images: stills.sheets }, { signal: run.signal, quiet: true });
+  if (!r.ok) {
+    run.note('Claude couldn’t check the cut this time.');
+    return;
+  }
+  const at = new Map<number, ShotCue>();
+  for (const x of Array.isArray(r.json.weak) ? r.json.weak : []) {
+    const g = readShot(x, seen);
+    const cue = g && stills.parts.includes(g.i) ? chosen.cues.find((c) => Math.abs(c.at - chosen.cut.analysis.sections[g.i].start) < 0.06) : undefined;
+    if (g && cue && !at.has(g.i)) at.set(g.i, { ...cue, shot: g.shot, ...(g.why ? { why: g.why } : {}) });
+  }
+  if (!at.size) return;
+  const starts = [...at.values()].map((c) => c.at);
+  // a picture never changes under the person's eyes: wait until none of its parts is on
+  for (let k = 0; k < 150; k++) {
+    const t = audioEngine.currentTime;
+    const onScreen = [...at.values()].some((c) => t > c.at - 1.2 && t < c.end + 0.6);
+    if (!audioEngine.playing || !onScreen) break;
+    await new Promise((res) => setTimeout(res, 200));
+  }
+  const s = mine();
+  if (!s) return;
+  const plan = s.plan!;
+  const cues = chosen.cues.map((c) => [...at.values()].find((x) => x.at === c.at) ?? c);
+  const bounds = s.analysis!.sections.map((x) => x.start);
+  let changed = 0;
+  const shots = bounds.map((b, i) => {
+    const hit = starts.some((x) => Math.abs(x - b) < 0.06) ? cues.find((c) => Math.abs(c.at - b) < 0.06) : undefined;
+    // a part whose look was changed since is the person's now
+    if (!hit || !playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) || plan.base?.looks[i] !== plan.looks[i]) return plan.shots?.[i] ?? null;
+    changed++;
+    return hit.shot;
+  });
+  if (!changed) return;
+  const why = plan.why.map((w, i) => cues.find((c) => Math.abs(c.at - bounds[i]) < 0.06 && starts.includes(c.at))?.why ?? w);
+  useStudio.getState().set({ plan: { ...plan, shots, why, flat: { ...plan.flat!, src: { ...plan.flat!.src, cues } } } });
+  run.note(`Claude checked the cut and changed ${changed === 1 ? 'one shot' : `${changed} shots`}.`);
 }
