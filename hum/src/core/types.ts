@@ -8,6 +8,7 @@
  *            SceneInstance.render(frame, target)  → RenderTarget
  *            Effect chain (GLSL passes)           → screen / recorder
  */
+import type { DrawnShot } from '../inside/drawnIds';
 import type * as THREE from 'three';
 import type { Feel } from './feel';
 import type { StyleId } from './styles';
@@ -408,6 +409,8 @@ export interface PartShot {
   moment?: string;
   /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
   say?: string;
+  /** Inside only: a drawing that stands in the picture (null: none here, over the director's) */
+  drawn?: DrawnShot | null;
 }
 
 /* ───────────────────────── Scenes ───────────────────────── */

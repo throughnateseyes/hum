@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import type { ClipScene } from '../depth/types';
 import type { MomentId } from '../moments';
+import { kindOf } from '../draw/kinds';
 import { clamp01, dice, since, smooth } from '../shot/time';
+import { DrawnInPlace, seat, type Drawn, type FrameBox } from './drawn';
 import { chunksOf, place, standing, type Chunk, type Put, type SungWord } from './layout';
 import type { InsidePalette } from './palettes';
 import type { Finish, InsidePass, Paint } from './pass';
@@ -50,6 +52,8 @@ export interface InsideSpec {
   paint?: PaintId;
   put?: PutId;
   extras?: ExtraId[];
+  /** a drawing that stands in this shot */
+  drawn?: Drawn | null;
 }
 
 interface WordMesh {
@@ -114,6 +118,7 @@ export class InsideShot {
   private readonly streaks: THREE.Mesh[] = [];
   private readonly ribbons: { m: THREE.Mesh; mat: THREE.ShaderMaterial; i: number; w: number }[] = [];
   private readonly lines: THREE.Mesh[] = [];
+  private drawing: DrawnInPlace | null = null;
   private rays: THREE.ShaderMaterial | null = null;
   /** the size of the place: how far ahead its middle is */
   private readonly span: number;
@@ -176,6 +181,7 @@ export class InsideShot {
       last = put.kind;
       this.standing.push(this.stand(chunk, put));
     });
+    if (s.drawn) this.addDrawing(s.drawn);
     if (this.extras.has('rays')) this.addRays();
     if (this.extras.has('lines')) this.addLines();
     if (this.extras.has('posts')) this.addPosts();
@@ -233,6 +239,43 @@ export class InsideShot {
     });
     this.place.add(group);
     return { chunk, put, words, group, far: this.farBehind(put, chunk) };
+  }
+
+  /** the frame room a block of words takes at song time t */
+  private boxOf(st: Standing, t: number): FrameBox {
+    const l = this.lensAt(t);
+    const { o, across, up, block } = st.put;
+    const b = { x0: 9, y0: 9, x1: -9, y1: -9 };
+    for (const a of [0, 1])
+      for (const h of [0, block.height]) {
+        const q = project(l, o[0] + across[0] * a + up[0] * h, o[1] + across[1] * a + up[1] * h, o[2] + across[2] * a + up[2] * h);
+        b.x0 = Math.min(b.x0, q.x);
+        b.x1 = Math.max(b.x1, q.x);
+        b.y0 = Math.min(b.y0, q.y);
+        b.y1 = Math.max(b.y1, q.y);
+      }
+    return b;
+  }
+
+  /** stand a drawing in the room the words leave, where the place holds it (nowhere: there is none) */
+  private addDrawing(d: Drawn) {
+    const s = this.spec;
+    const kind = kindOf(d.asset.kind);
+    if (!kind) return;
+    const size = kind.size(d.asset.data);
+    const ratio = Math.min(2.6, Math.max(0.35, size.w / size.h));
+    const portrait = s.aspect < 0.9;
+    const len = s.end - s.start;
+    const times = [0.4, 0.02, 0.2, 0.7, 0.96].map((k) => s.start + len * k);
+    const words = this.standing.flatMap((st) => [0.05, 0.5, 0.95].map((k) => this.boxOf(st, st.chunk.from + (st.chunk.to - st.chunk.from) * k)));
+    const at = seat(d.put, ratio, d.size, { scene: s.scene, lens: this.lensAt(times[0]), around: times.slice(1).map((t) => this.lensAt(t)), times: times.map((t) => s.clipAt(t)), crop: this.crop, aspect: s.aspect, margin: portrait ? 0.075 : 0.055, dice: s.layout + 5, words });
+    if (!at) return;
+    const l = this.lensAt(times[0]);
+    const foot = project(l, at.o[0], at.o[1], at.o[2]);
+    const head = project(l, at.o[0] + at.up[0], at.o[1] + at.up[1], at.o[2] + at.up[2]);
+    const px = Math.hypot((head.x - foot.x) * this.pass.width, (head.y - foot.y) * this.pass.height);
+    this.drawing = new DrawnInPlace(d, at, s.palette, (v, f, u) => this.material(v, f, u), { start: s.start, beat: s.beat, kicks: s.kicks, jump: this.recipe.jump, px, ratio });
+    this.place.add(this.drawing.group);
   }
 
   private farBehind(put: Put, chunk: Chunk): number {
@@ -422,6 +465,7 @@ export class InsideShot {
     }
     this.placeWords(t, amount, now, p);
     this.placeExtras(t, beats, l, now);
+    this.drawing?.update(t, 1 - amount * 0.75, gone);
 
     const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
     const ramp = s.leave === 'ramp' ? clamp01(1 - (s.end - t) / (s.beat * 2)) : 0;
@@ -541,7 +585,15 @@ export class InsideShot {
     return this.standing.map((x) => ({ text: x.chunk.words.map((w) => w.text).join(' '), kind: x.put.kind, score: Math.round(x.put.score * 100) / 100, from: x.chunk.from, to: x.chunk.to }));
   }
 
+  /** where the drawing stands (null: it has none, or nothing here holds it), for checks */
+  seated() {
+    if (!this.built) this.build();
+    const at = this.drawing?.seat;
+    return at ? { id: this.drawing!.drawn.asset.id, put: at.put, shown: Math.round(at.shown * 100) / 100, score: Math.round(at.score * 100) / 100 } : null;
+  }
+
   dispose() {
+    this.drawing?.dispose();
     for (const m of this.mats) m.dispose();
     for (const g of this.geos) g.dispose();
   }

@@ -239,6 +239,52 @@ void main() {
 }
 `;
 
+/** a drawing cut out and stood in the place: hidden by what is nearer, lit the way the picture is lit there */
+export const DRAWN_FRAG = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+${HIDE}
+${CLIP}
+uniform sampler2D tText;
+uniform float uAlpha, uLight;
+void main() {
+  vec4 d = texture2D(tText, vUv);
+  // a soft look at the neighbours, so the edge where something crosses it isn't a saw
+  float show = showing() * 0.5;
+  float r = 0.0016 * uRes.y;
+  show += (showingAt(gl_FragCoord.xy + vec2(r, 0.0)) + showingAt(gl_FragCoord.xy - vec2(r, 0.0)) + showingAt(gl_FragCoord.xy + vec2(0.0, r)) + showingAt(gl_FragCoord.xy - vec2(0.0, r))) * 0.125;
+  float a = d.a * show * uAlpha;
+  if (a < 0.004) discard;
+  // the light round it, well blurred, and a little of its colour
+  vec3 near = vec3(0.0);
+  for (int k = 0; k < 8; k++) {
+    float t = float(k) * 0.7854;
+    near += texture2D(tFootage, clipUv(gl_FragCoord.xy / uRes + vec2(cos(t), sin(t)) * (k < 4 ? 0.02 : 0.05))).rgb;
+  }
+  near /= 8.0;
+  float l = luma(near);
+  vec3 lit = clamp(0.48 + l * 1.15, 0.42, 1.1) * mix(vec3(1.0), clamp(near / max(l, 0.06), 0.7, 1.3), 0.35);
+  // darker toward its foot, the way anything that stands somewhere is
+  lit *= mix(0.86, 1.0, smoothstep(0.0, 0.35, vUv.y));
+  vec3 c = d.rgb * mix(vec3(1.0), lit, uLight);
+  gl_FragColor = vec4(c * show * uAlpha, a);
+}
+`;
+
+/** the pool of shade where a drawing meets the ground */
+export const SHADOW_FRAG = /* glsl */ `
+precision highp float;
+varying vec2 vUv;
+${HIDE}
+uniform float uAlpha;
+void main() {
+  float r = length((vUv - 0.5) * 2.0);
+  float a = (1.0 - smoothstep(0.25, 1.0, r)) * uAlpha * showing();
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+}
+`;
+
 export const FLAT_VERT = PLACE_VERT;
 export const FLAT_FRAG = /* glsl */ `
 precision highp float;

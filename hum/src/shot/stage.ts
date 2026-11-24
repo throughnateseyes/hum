@@ -38,6 +38,7 @@ import { insidePalette } from '../inside/palettes';
 import { hasRange, noteInside, type Reading } from '../inside/reading';
 import { InsideShot } from '../inside/shot';
 import type { SungWord } from '../inside/layout';
+import type { Drawn } from '../inside/drawn';
 
 export interface StageClip {
   /** the video behind it; null for a still stand-in picture */
@@ -78,7 +79,7 @@ export interface StageOptions {
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
   /** Inside: the colours of the whole video, and the words that stand in a shot */
-  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean } };
+  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean }; drawn?: (shot: Shot) => Drawn | null };
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -408,7 +409,8 @@ export class ShotStage {
     const scene = clip.reading?.scene ?? null;
     const [from, to] = this.clipRange(rig);
     const read = hasRange(scene, from, to);
-    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}`;
+    const drawn = this.insideOf?.drawn?.(shot) ?? null;
+    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}|${drawn ? `${drawn.asset.id}:${drawn.put}:${drawn.size}:${drawn.enter}` : ''}`;
     if (rig.inside?.key === key) return rig.inside.shot;
     rig.inside?.shot.dispose();
     const seq = this.seq!;
@@ -438,6 +440,7 @@ export class ShotStage {
       focus: { ...focus },
       zoom,
       flip: curve.flip,
+      drawn,
     });
     rig.inside = { shot: made, key };
     return made;

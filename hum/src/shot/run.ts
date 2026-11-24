@@ -22,6 +22,7 @@
  * Everything is worked out from the song's parts and the looks' settings alone, so it is a pure
  * function of song time: seeking anywhere, or rendering frame by frame, gives the same picture.
  */
+import type { DrawnShot } from '../inside/drawnIds';
 import type { ClipAsset, ParamValues, PartShot, PhotoAsset, TrackAnalysis, TrackSection } from '../core/types';
 import type { Curves } from '../feeling';
 import { num, str } from '../core/uniforms';
@@ -58,6 +59,8 @@ export interface RunPart {
   moment?: string;
   /** Inside: the words that stand in the picture when nothing is sung */
   say?: string;
+  /** Inside: a drawing that stands in the picture */
+  drawn?: DrawnShot;
 }
 
 export interface RunInput {
@@ -202,6 +205,7 @@ export function footageRun(o: RunInput): Run {
         motion,
         ...(moment ? { moment } : {}),
         ...(o2.say ? { say: o2.say } : {}),
+        ...(o2.drawn ? { drawn: o2.drawn } : {}),
       };
       // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
       const c = mine.length ? mine[j % mine.length] : ordinal % count;
@@ -293,6 +297,7 @@ export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds
     ...(typeof own.from === 'number' && media.length && deckIds[media[0]] === own.media?.[0] ? { from: own.from } : {}),
     ...(isMoment(own.moment) ? { moment: own.moment } : {}),
     ...(own.say ? { say: own.say } : {}),
+    ...(own.drawn ? { drawn: own.drawn } : {}),
   };
 }
 

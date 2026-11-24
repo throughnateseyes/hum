@@ -14,6 +14,7 @@
  *
  * All of it is a pure function of song time.
  */
+import type { DrawnShot } from '../inside/drawnIds';
 import type { TrackAnalysis } from '../core/types';
 import type { Colour } from './kit';
 import { bend, type Curves } from '../feeling';
@@ -68,6 +69,8 @@ export interface Shot {
   moment?: MomentId;
   /** Inside: the words that stand in the picture when nothing is sung */
   say?: string;
+  /** Inside: a drawing that stands in the picture */
+  drawn?: DrawnShot;
 }
 
 export interface Sequence {

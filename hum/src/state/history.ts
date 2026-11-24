@@ -305,6 +305,7 @@ function shotLabel(was: PartShot | null, is: PartShot | null): string {
   if (w.motion !== is.motion) what.push(`motion ${is.motion ?? 'as the look'}`);
   if (JSON.stringify(w.media ?? null) !== JSON.stringify(is.media ?? null)) what.push(is.media?.length ? 'picture changed' : 'picture automatic');
   if (w.focusX !== is.focusX || w.focusY !== is.focusY || w.zoom !== is.zoom) what.push('framing');
+  if (JSON.stringify(w.drawn ?? null) !== JSON.stringify(is.drawn ?? null) || ('drawn' in w) !== ('drawn' in is)) what.push(is.drawn ? 'drawing placed' : 'drawing taken out');
   return what.length ? what.join(', ') : 'picture changed';
 }
 
