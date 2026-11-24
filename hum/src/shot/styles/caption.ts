@@ -35,7 +35,7 @@ export const caption: StyleFactory = (ctx) => {
   const first = choose(ctx, [true, false, true] as const);
   const upright = g.portrait;
   const ink = choose(ctx, [s.paper, s.paper, s.accent] as const, 2);
-  const word = (ctx.word || ctx.labels.title || ctx.labels.part || 'HUM').toUpperCase();
+  const word = (ctx.word || ctx.labels.title || 'HUM').toUpperCase();
   const big = typeLine(word, ink, DISPLAY_FONT, 360);
   group.add(big.mesh);
   // the frame's side the word runs along, and the side across it

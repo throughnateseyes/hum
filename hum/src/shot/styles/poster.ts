@@ -1,6 +1,6 @@
 /**
  * Poster: one word set enormous on a flat field, with the footage inside the letters. The word is the
- * song's title (one word per shot), or the part's name when there is no title to set.
+ * song's title (one word per shot). With no word to set the stage plays the shot plain instead.
  *
  * Two arrangements, by the shot's layout number:
  *   tower   the word as tall as the frame's short side allows while it still stands whole, running up
@@ -34,7 +34,7 @@ export const poster: StyleFactory = (ctx) => {
   const field = fieldFor(ctx);
   const group = new THREE.Group();
   const mask = new THREE.Group();
-  const own = (ctx.word || ctx.labels.part || 'HUM').toUpperCase();
+  const own = (ctx.word || 'HUM').toUpperCase();
   const words = ctx.words.length ? ctx.words.map((w) => w.toUpperCase()) : [own];
   const first = Math.max(0, words.indexOf(own));
   // a tall frame runs the word up the frame (set across it, a word only fills a strip); a wide one picks.

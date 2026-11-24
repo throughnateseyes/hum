@@ -48,7 +48,7 @@ export const window: StyleFactory = (ctx) => {
     return { x0: -r, x1: r, y0: cy - r, y1: cy + r };
   };
 
-  const word = (ctx.word || ctx.labels.title || ctx.labels.part || 'HUM').toUpperCase();
+  const word = (ctx.word || ctx.labels.title || 'HUM').toUpperCase();
   const big = typeLine(word, field.text, DISPLAY_FONT, 360);
   group.add(big.mesh);
   const cap = Math.min((g.x1 - g.x0) / lineWidth(big, 1), (stripH - g.margin * 2) * 0.82);

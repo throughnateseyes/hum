@@ -5,8 +5,8 @@
  * curved path it took, and the lines linger, so the frame keeps a drawing of recent traffic.
  *
  * The feeling is a party getting itself organised: playful, celebratory, order assembling out of
- * a crowd. The shapes come from the song (the title's letters a few at a time, with hearts, rings,
- * arches and lollipops in between, or the live spectrum as fat bars).
+ * a crowd. The shapes are hearts, rings, arches and lollipops (and a
+ * title whose words are very short), or the live spectrum as fat bars.
  *
  *   quiet   most dots wait on the border, a ghost outline of the shape, one or two travellers
  *   verse   every kick launches a handful that dock on the next beat; the shape fills in steps
@@ -65,9 +65,9 @@ const params: ParamDef[] = [
     default: 'auto',
     hint: 'What the dots assemble into',
     options: [
-      { value: 'auto', label: 'Song title + glyphs' },
-      { value: 'letters', label: 'Song title only' },
-      { value: 'glyphs', label: 'Glyphs only' },
+      { value: 'auto', label: 'Shapes, and a very short title' },
+      { value: 'letters', label: 'Very short title only' },
+      { value: 'glyphs', label: 'Shapes only' },
       { value: 'spectrum', label: 'Live spectrum bars' },
     ],
   },
@@ -273,24 +273,22 @@ function iconPath(c: CanvasRenderingContext2D, name: string) {
   }
 }
 
-/** the title's letters in chunks of at most `g`, words split as evenly as they go */
-function titleChunks(title: string, g: number): string[][] {
-  const out: string[][] = [];
-  if (!title || /^untitled$/i.test(title.trim())) return out;
-  for (const word of title.toUpperCase().split(/\s+/)) {
-    const w = Array.from(word).filter((ch) => /[\p{L}\p{N}]/u.test(ch));
-    if (!w.length) continue;
-    const per = Math.ceil(w.length / Math.ceil(w.length / g));
-    for (let i = 0; i < w.length && out.length < 32; i += per) out.push(w.slice(i, i + per));
-  }
-  return out;
+/** the title a whole word at a time, or nothing when any of its words is longer than `most`: the dots never spell a piece of a word */
+function titleWords(title: string, most: number): string[][] {
+  if (!title || /^untitled$/i.test(title.trim())) return [];
+  const words = title
+    .toUpperCase()
+    .split(/\s+/)
+    .map((w) => Array.from(w).filter((ch) => /[\p{L}\p{N}]/u.test(ch)))
+    .filter((w) => w.length);
+  return words.every((w) => w.length <= most) ? words.slice(0, 16) : [];
 }
 
 export const dotAssembly = defineThreeScene({
   id: 'dot-assembly',
   name: 'Dot Assembly',
   description:
-    "Hundreds of flat coloured dots queue along the frame edges and fly in along curved paths to pack, edge to edge, into big chunky shapes: the song title's letters, hearts, rings, or the spectrum as fat bars. Each kick launches a handful that dock on the next beat, snares swap dots, hats blink the queue; a build drains the shape into a race round the frame, and the drop slams every dot into a new shape at once. Every flight leaves a thin line that lingers.",
+    "Hundreds of flat coloured dots queue along the frame edges and fly in along curved paths to pack, edge to edge, into big chunky shapes: hearts, rings, arches, or the spectrum as fat bars. Each kick launches a handful that dock on the next beat, snares swap dots, hats blink the queue; a build drains the shape into a race round the frame, and the drop slams every dot into a new shape at once. Every flight leaves a thin line that lingers.",
   category: 'form',
   style: 'particles',
   tags: ['playful', 'graphic', 'happy', 'upbeat', 'pop', 'bouncy', 'energetic', 'typographic', 'uplifting', 'indie', 'euphoric', 'retro'],
@@ -1052,7 +1050,7 @@ export const dotAssembly = defineThreeScene({
         const icon = DROP_ICONS[(dropN + DROP_ICONS.length - 1) % DROP_ICONS.length];
         return { items: [{ icon }], id: `drop-${icon}-${dropN}` };
       }
-      const chunks = modeSel === 'glyphs' ? [] : titleChunks(title, 2);
+      const chunks = modeSel === 'glyphs' ? [] : titleWords(title, wide ? 3 : 2);
       const L = chunks.length;
       const period = modeSel === 'letters' && L ? L : L + 1;
       const at = ((k % period) + period) % period;

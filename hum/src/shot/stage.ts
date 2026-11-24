@@ -232,7 +232,10 @@ export class ShotStage {
       this.frameScene.add(frame);
       let style: StyleShot | null = null;
       let mask: THREE.Group | null = null;
-      const factory = shot.kind === 'card' ? STYLES.card : shot.kind === 'footage' && shot.style ? STYLES[shot.style] : null;
+      // a style that is one big word needs a real word: without one (the song has lyrics, so its title isn't
+      // set) the picture plays plain. The part's name ("CHORUS") is never the word.
+      const wordless = (shot.style === 'poster' && !shot.word) || ((shot.style === 'window' || shot.style === 'caption') && !shot.word && !labels.title);
+      const factory = shot.kind === 'card' ? STYLES.card : shot.kind === 'footage' && shot.style && !wordless ? STYLES[shot.style] : null;
       if (factory) {
         const ctx: StyleContext = {
           halfW,
