@@ -503,6 +503,8 @@ export interface PlanRequest {
   clips?: number;
   /** how many photos, when there are no clips */
   photos?: number;
+  /** how much of the video should be their footage (mix.ts) */
+  mix?: string;
   /** the video's treatment, when Claude has watched the footage (director/footageDirector.ts) */
   story?: { idea: string; arc: string; sections: { moment: string; footage: boolean; note: string }[] };
 }
@@ -580,6 +582,7 @@ export async function requestPlan(req: PlanRequest, opts: DirectOptions = {}): P
         ...(req.mood ? { mood: req.mood } : {}),
         ...(req.clips ? { clips: req.clips } : {}),
         ...(req.photos ? { photos: req.photos } : {}),
+        ...(req.mix ? { mix: req.mix } : {}),
         ...(req.story ? { story: req.story } : {}),
         accessCode,
       }),

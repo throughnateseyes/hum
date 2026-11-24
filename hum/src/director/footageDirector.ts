@@ -29,6 +29,7 @@ import { audioEngine } from '../audio/engine';
 import { requestStep } from './client';
 import { playsClips } from './footage';
 import { framesSent } from './footageNotice';
+import { dealMix } from './mix';
 import { momentShots } from './footageShots';
 import { notesOf, ownMedia, recallNotes, unwatched, watchMedia } from './media';
 
@@ -204,11 +205,13 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   const seen = seenMedia();
   if (!seen.length) return { story: null, closed: false };
   run.say('Finding the story');
+  const mix = useStudio.getState().mix;
   const hints = momentsFor(a);
   const r = await requestStep(
     'story',
     {
       wish,
+      mix,
       track: { summary: a.summary, bpm: a.bpm, tags: a.tags },
       ...(a.character ? { character: { genre: a.character.genre, mood: a.character.mood } } : {}),
       sections: a.sections.map((x, i) => ({
@@ -238,17 +241,19 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
     run.note('Claude couldn’t find a story this time, so the parts follow the song alone.');
     return { story: null, closed: false };
   }
+  const sections = a.sections.map((_, i) => {
+    const x = got.find((g) => g.index === i);
+    const m = text(x?.moment, 20);
+    return { moment: isMoment(m) ? m : hints[i], media: idsOf(x?.media, seen, 3), footage: x?.footage !== false || (mix === 'most' && (i === 0 || i === a.sections.length - 1)), note: text(x?.note, 140) };
+  });
+  const deal = dealMix(a, mix, sections.map((x) => x.moment), sections.map((x) => x.footage));
   return {
     story: {
       title: text(r.json.title, 60),
       idea,
       arc: text(r.json.arc, 320),
       ...(paint ? { paint } : {}),
-      sections: a.sections.map((_, i) => {
-        const x = got.find((g) => g.index === i);
-        const m = text(x?.moment, 20);
-        return { moment: isMoment(m) ? m : hints[i], media: idsOf(x?.media, seen, 3), footage: x?.footage !== false || i === 0 || i === a.sections.length - 1, note: text(x?.note, 140) };
-      }),
+      sections: deal ? sections.map((x, i) => ({ ...x, footage: deal[i] })) : sections,
     },
     closed: false,
   };

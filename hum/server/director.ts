@@ -449,7 +449,14 @@ export function describeMood(m: unknown): string {
 /** the most clips the app keeps at once (src/state/store.ts), so the most a request can claim */
 const MAX_CLIPS = 12;
 
+const MIX_TELL: Record<string, string> = {
+  only: ' They want only their own footage: every part, and every look a part rotates through, is a footage look, with no interludes.',
+  mixed: ' They want a mix: give about half the song to footage looks (the parts that are human or close) and half to other looks (the parts that are abstract or overwhelming).',
+  hum: ' They want mostly other looks: give footage looks about a quarter of the song, the parts where a real picture hits hardest, and other looks the rest.',
+};
 const CUTAWAYS = ' Give most parts a footage look, and keep one or two parts (a break, a bridge or the part after the biggest drop) on other looks as graphic cutaways.';
+
+const mixTell = (mix: unknown) => (typeof mix === 'string' && Object.hasOwn(MIX_TELL, mix) ? MIX_TELL[mix] : CUTAWAYS);
 
 /**
  * clips: how many video clips the person added → a line telling Claude the footage looks play them and
@@ -457,17 +464,17 @@ const CUTAWAYS = ' Give most parts a footage look, and keep one or two parts (a 
  * else (missing, zero, text, a huge number) says nothing or is clamped. Sent in the user turn so the
  * cached system prompt stays the same for every request. `free`: no treatment says which parts are footage.
  */
-export function describeClips(v: unknown, free = true): string {
+export function describeClips(v: unknown, free = true, mix: unknown = ''): string {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.min(MAX_CLIPS, Math.max(0, Math.floor(v))) : 0;
   if (!n) return '';
-  return `The person added ${n === 1 ? 'a video clip' : `${n} video clips`}, and the footage looks play ${n === 1 ? 'it' : 'them'} as the picture.${free ? CUTAWAYS : ''}`;
+  return `The person added ${n === 1 ? 'a video clip' : `${n} video clips`}, and the footage looks play ${n === 1 ? 'it' : 'them'} as the picture.${free ? mixTell(mix) : ''}`;
 }
 
 /** photos: how many photos the person added, sent when there are no clips: the footage looks play them as moving stills */
-export function describePhotos(v: unknown, free = true): string {
+export function describePhotos(v: unknown, free = true, mix: unknown = ''): string {
   const n = typeof v === 'number' && Number.isFinite(v) ? Math.min(24, Math.max(0, Math.floor(v))) : 0;
   if (n < 2) return '';
-  return `The person added ${n} photos, and the footage looks play them as slowly moving stills.${free ? CUTAWAYS : ''}`;
+  return `The person added ${n} photos, and the footage looks play them as slowly moving stills.${free ? mixTell(mix) : ''}`;
 }
 
 /** character: { genre, confidence, instruments, mood } → one line */
@@ -673,7 +680,7 @@ ${DIRECTION_RULE}`, cache_control: { type: 'ephemeral' } }]
     const mood = describeMood(body.mood);
     if (mood) parts.push(mood);
     const story = describeStory(body.story);
-    const clips = describeClips(body.clips, !story) || describePhotos(body.photos, !story);
+    const clips = describeClips(body.clips, !story, body.mix) || describePhotos(body.photos, !story, body.mix);
     if (clips) parts.push(clips);
     if (story) parts.push(story);
   }

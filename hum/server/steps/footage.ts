@@ -214,7 +214,7 @@ Work like a director with limited material:
 - sections: one entry for every section.
   - moment: what the section should feel like, one id from the list. Follow the music first. Let the moments make a shape: do not use one moment for everything, save release and fury for what earns them, and let sections that come back be recognisable while the last one goes further.
   - media: one to three keys whose pictures belong there, the most important first. Give strong pictures a place to be seen for the first time (a first sight matters more than a fifth), hold a strong one back for the biggest moment (bright, full of shape or movement: a nearly black or nearly empty picture is never the peak), let a key return where the song returns, and use every good picture somewhere. Leave a weak one out.
-  - footage: true when the person's footage should carry the section. The video opens on footage and ends on it, so the first and last sections are always true. In a longer song one or two sections in between (a break, a bridge, the breath after a peak) may be false, and go to a graphic look as a cutaway; with fewer than six sections, usually none.
+  - footage: true when the person's footage should carry the section, false when it goes to a graphic look instead. The request says how much of each the person wants.
   - note: what we see and why it is here, at most 16 words.
 - paint: the set of colours the whole video is painted in, one id from the list. Words and flat colour stand inside the footage in these colours, so choose the set that suits the song first and sits well with the pictures second.
 
@@ -252,6 +252,13 @@ const STORY_TOOL = {
   },
 };
 
+const MIX_STORY: Record<string, string> = {
+  only: 'How much footage: all of it. Every section is true.',
+  most: 'How much footage: the footage carries the video. It opens on footage and ends on it, so the first and last sections are always true. In a longer song one or two sections in between (a break, a bridge, the breath after a peak) may be false, and go to a graphic look as a cutaway; with fewer than six sections, usually none.',
+  mixed: 'How much footage: about half of the song by time, graphic looks the rest. Footage where a section is human, close or about the idea, or lands somewhere we know; a graphic look where the music is abstract, weightless or overwhelming. Let the two answer each other, and keep sections that come back the same kind.',
+  hum: 'How much footage: about a quarter of the song by time. Graphic looks carry the video, and the footage is the few moments a real picture is worth more than anything drawn: the first true sight, the line that matters, the last image.',
+};
+
 const story: Step = {
   maxImages: 0,
   prepare(body) {
@@ -271,7 +278,7 @@ const story: Step = {
       tier: 'main',
       effort: 'low',
       system: STORY_SYSTEM,
-      prompt: [wishLine(body), `The song:\n${describeSong(body)}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', paints.lines ? `Colour sets:\n${paints.lines}` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
+      prompt: [wishLine(body), Object.hasOwn(MIX_STORY, line(body.mix, 8)) ? MIX_STORY[line(body.mix, 8)] : MIX_STORY.most, `The song:\n${describeSong(body)}`, `Sections:\n${lines.join('\n')}`, plain ? `Lyrics, not timed: "${plain}"` : '', paints.lines ? `Colour sets:\n${paints.lines}` : '', `The person's media:\n${media.lines.join('\n')}`].filter(Boolean).join('\n\n'),
       tool: STORY_TOOL,
       maxTokens: 4000 + secs.length * 130,
       finish(output) {
