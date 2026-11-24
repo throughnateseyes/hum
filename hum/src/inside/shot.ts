@@ -85,7 +85,7 @@ function lightFor(s: { field: string; light: string; word: string }): string {
   const c = new THREE.Color(s.light);
   const w = lum(s.word);
   let out = s.light;
-  for (let k = 0; k < 8 && Math.abs(lum(out) - w) < Math.min(0.42, Math.abs(lum(s.field) - w)); k++) out = `#${c.lerp(f, 0.22).getHexString()}`;
+  for (let k = 0; k < 8 && Math.abs(lum(out) - w) < Math.min(0.34, Math.abs(lum(s.field) - w)); k++) out = `#${c.lerp(f, 0.22).getHexString()}`;
   lights.set(key, out);
   return out;
 }

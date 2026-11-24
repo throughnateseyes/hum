@@ -361,7 +361,7 @@ export function place(words: string[], puts: PutId[], o: Where): Put {
         const behind = 1 - r.shown;
         const size = Math.min(0.42, r.size);
         // big, readable, with something crossing in front of it
-        const score = size * 2.1 + shown * 0.5 + Math.min(0.25, worst * 0.3) + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07;
+        const score = size * 2.1 + shown * 0.5 + Math.min(0.6, worst) * 0.55 + (behind > 0.03 && behind < 0.33 ? 0.35 : 0) + (inside - 1) * 1.2 - rank * 0.17 - (kind === o.last ? 0.12 : 0) - (fallback ? 0.3 : 0) + rnd(o.dice * 31 + i + rank * 977) * 0.07;
         if (!best || score > best.score) best = { ...c, score };
       }
     });
