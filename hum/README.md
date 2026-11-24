@@ -365,6 +365,12 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   moves, and stands the words being sung and the part's shapes in the place: behind the skyline, between
   people, along a wall or on the ground. Its colours are one set for the whole video (*Inside colours*).
   The moment of each part picks how it looks (`src/inside`, `src/depth`).
+- **Draw into the scene** (Video tab → Drawings, for people whose access includes drawings) gives a video
+  made from your footage an art direction: one idea, a few rules, one hand, and up to five drawings with a
+  job. Yours are used where they fit and Claude draws what is missing. Each stands in Inside shots, hidden
+  by whoever passes in front and in the video's colours, and is found nowhere if nothing in the picture can
+  hold it. **In this video** lists where each stands and why: go there, move it or take it out
+  (`src/inside/drawn.ts`, `src/director/footageArt.ts`).
 - **Impact** (Video tab → Movement) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.

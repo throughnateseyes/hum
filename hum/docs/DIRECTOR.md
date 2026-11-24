@@ -102,3 +102,12 @@ A video made from the person's footage first asks one more small question (`serv
 ## The mix
 
 `Your footage` (`src/director/mix.ts`) is told to the story and plan steps, and then enforced by code: `dealMix` takes the sections a planner gave to footage and moves as few as it must to keep footage inside its share of the time.
+
+## Drawings in the scene
+
+After the shots are chosen, and while the clips' depth is read, `art` (`server/steps/art.ts`, main model, medium effort, needs drawing access) gets the story, the feeling, the cut with what each part shows, the colours and the drawings the song already has. It answers with one thread, two or three rules, one hand, up to three recurring things (each with a start and, where the song changes it, an end) and the parts each stands in. At most five drawings, four of them new. `src/director/footageArt.ts` checks it, names the missing drawings before they exist, and writes `drawn` into the cues, so the placements travel with the parts like everything else (a person's own choice lies over them, `null` meaning none here).
+
+The video goes on at once. The missing drawings are made by the usual jobs under those ids and join it as they finish. Where one stands is found by `src/inside/drawn.ts` against the depth maps: on the ground, between two layers, far off, or on a wall. What faces the camera must have its foot hidden by something nearer or stand on the ground, must be mostly seen over the whole shot, and never takes the words' room. If nowhere will do there is none.
+
+When all are in, `artReview` sees one still per placement and moves, takes out or has redrawn (two at most) whatever looks stuck on: one round, only on the video it was made for, never in a part on screen.
+
