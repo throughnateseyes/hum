@@ -12,6 +12,7 @@ import { scenes as glassScenes } from './glass';
 import { scenes as snowScenes } from './snow';
 import { scenes as footageScenes } from './footage';
 import { scenes as figureScenes } from './figures';
+import { scenes as drawScenes } from './draw';
 
 const builtin: SceneDef[] = [...boardScenes, ...threeScenes, ...shaderScenes, ...photoScenes, ...natureScenes, ...worldScenes, ...printScenes, ...typeScenes, ...snowScenes];
 // stained glass and glass mosaics
@@ -20,6 +21,8 @@ builtin.push(...glassScenes);
 builtin.push(...footageScenes);
 // line figures made for the person
 builtin.push(...figureScenes);
+// the drawings made for the song
+builtin.push(...drawScenes);
 
 for (const s of builtin) noteSceneStyle(s);
 

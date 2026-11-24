@@ -12,12 +12,14 @@ import { sceneLook, useStudio } from '../state/store';
 import { withTweak, type LookTweak } from '../state/tweaks';
 import { addClipFiles, handleFiles } from '../state/tracks';
 import { noteHandPick } from '../state/taste';
-import { playsClips } from '../director/footage';
+import { lookShows, playsClips, sceneShows } from '../director/footage';
+import { useCanDraw, useDrawingsHere } from '../draw/hooks';
+import { DrawingsTab } from './Drawings';
 import { Chevron, Cube, Film, Grid, Image as ImageIcon, Layers, Plus, Sparkle, X } from './Icons';
 import { hidePeek, peekHandlers } from './Peek';
 import { canShow, giveMedia, hereTarget, MEDIA_MIME, pictureKind, targetWords } from './footageMedia';
 
-type Tab = 'looks' | 'photos' | 'footage';
+type Tab = 'looks' | 'photos' | 'footage' | 'drawings';
 
 /* real thumbnails are captured from the stage the first time a look is shown */
 const thumbs = new Map<string, string>();
@@ -104,16 +106,21 @@ export function Library() {
   const [tab, setTab] = useState<Tab>('looks');
   const photos = useStudio((s) => s.photos.filter((p) => !p.builtin).length);
   const clips = useStudio((s) => s.clips.length);
+  // the drawings shelf isn't there at all for people whose access doesn't include drawings
+  const canDraw = useCanDraw();
+  const drawn = useDrawingsHere().length;
+  const drawnScenes = drawn ? allScenes().filter((s) => (s.usesDrawings || s.usesFigures) && sceneShows(s)) : [];
   const tabs: { id: Tab; label: string; n: number }[] = [
     { id: 'looks', label: 'Looks', n: 0 },
     { id: 'photos', label: 'Photos', n: photos },
     { id: 'footage', label: 'Footage', n: clips },
+    ...(canDraw ? [{ id: 'drawings' as const, label: 'Drawings', n: 0 }] : []),
   ];
   return (
     <aside className="library">
       {/* the same segmented control as the right panel's tabs (Inspector.tsx) */}
       <div className="insp-tabs lib-tabs">
-        <div className="seg full" role="tablist" aria-label="Library">
+        <div className={`seg full ${canDraw ? 'four' : ''}`} role="tablist" aria-label="Library">
           {tabs.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
               {t.label}
@@ -126,6 +133,12 @@ export function Library() {
         {tab === 'looks' && <Looks onAddFootage={() => setTab('footage')} />}
         {tab === 'photos' && <Photos />}
         {tab === 'footage' && <Footage />}
+        {tab === 'drawings' && canDraw && (
+          <>
+            <DrawingsTab />
+            {drawnScenes.length > 0 && <SceneRows label="Looks made of drawings" scenes={drawnScenes} />}
+          </>
+        )}
       </div>
     </aside>
   );
@@ -179,7 +192,11 @@ function Looks({ onAddFootage }: { onAddFootage: () => void }) {
   const presetId = useStudio((s) => s.presetId);
   const hasClips = useStudio((s) => s.clips.length > 0);
   const [blocks, setBlocks] = useState(false);
-  const custom = useStudio((s) => s.customPresets);
+  // (which kinds: the Sketchbook looks and the line figure looks come and go apart)
+  const drawnKinds = [...new Set(useDrawingsHere().map((d) => d.kind))].sort().join();
+  const ownLooks = useStudio((s) => s.customPresets);
+  // looks made of drawings only exist once this song has some
+  const custom = useMemo(() => ownLooks.filter(lookShows), [ownLooks, drawnKinds]);
   const analysis = useStudio((s) => s.analysis);
   const deleteCustomPreset = useStudio((s) => s.deleteCustomPreset);
   const [part, setPart] = useState<PartFilter>('all');
@@ -199,8 +216,8 @@ function Looks({ onAddFootage }: { onAddFootage: () => void }) {
   // footage looks play the person's own clips: with none added they'd show nothing, so they stay out
   // of the list (one quiet row below says how to bring them in)
   const usable = useMemo(
-    () => families.filter((f) => f.takes.some((p) => getScene(p.sceneId)) && (hasClips || !f.takes.every((p) => playsClips(p)))),
-    [families, hasClips],
+    () => families.filter((f) => f.takes.some((p) => getScene(p.sceneId)) && (hasClips || !f.takes.every((p) => playsClips(p))) && f.takes.some(lookShows)),
+    [families, hasClips, drawnKinds],
   );
   const footageHidden = !hasClips && families.some((f) => f.takes.length > 0 && f.takes.every((p) => playsClips(p)));
   const filtering = part !== 'all' || theme !== 'all' || !!q;
@@ -505,7 +522,8 @@ function PresetCard({ p, on, suggested, sub, onClick }: { p: Preset; on: boolean
 function Scenes() {
   const sceneId = useStudio((s) => s.sceneId);
   useStudio((s) => s.customShaders.length); // re-render when AI scenes are added
-  const scenes = allScenes();
+  useDrawingsHere();
+  const scenes = allScenes().filter(sceneShows);
   // by style family; scenes Claude wrote for you come last as their own group
   const groups = [
     ...STYLES.map((st) => ({ key: st.id as string, label: st.label, hint: st.hint, list: scenes.filter((s) => s.category !== 'code' && sceneStyle(s) === st.id) })),

@@ -17,6 +17,7 @@ import { useStudio, type StudioState } from '../state/store';
 import { autopilotTick } from '../state/autopilot';
 import { findLook, planShots, planTick, popLevelAt, shotIndexAt, validPlan } from '../state/plan';
 import { FxChain } from './fxChain';
+import { DrawOverlay } from '../draw/overlay';
 import { LyricLayer } from './lyricLayer';
 import { NO_KEEP_OUT } from './legibility';
 import { HandPass } from './handPass';
@@ -190,6 +191,8 @@ export class Stage {
   private warm: Live | null = null;
   private warmFresh = false;
   private lyricLayer = new LyricLayer();
+  /** small drawings beside the sung words (only with drawings in the song) */
+  private drawOverlay = new DrawOverlay();
   /** little board windows that pop in over the picture (after effects, under lyrics) */
   private popups = new PopupLayer();
   /** windows that play other looks live, under the instrument pop-ups */
@@ -960,10 +963,10 @@ export class Stage {
     // how busy each kind of pop-up window is right now, split by the "Windows show" setting
     // (none over the footage looks: their graphics are bare shapes in the picture, and windows would bury the clips)
     // Each part's windows are dealt from its own level (the same every time it plays); what's on screen now
-    // only limits how many of them show: none over footage, the odd one over a board look
+    // only limits how many of them show: none over footage or drawings, the odd one over a board look
     const kind = s.windowKind;
     const board = this.current.def.category === 'board';
-    const clips = !!this.current.def.usesClips;
+    const clips = !!this.current.def.usesClips || !!this.current.def.usesDrawings || !!this.current.def.usesFigures;
     const pops = {
       instruments: (t: number) => windowLevels(popLevelAt(t), kind, false).instruments,
       looks: (t: number) => windowLevels(popLevelAt(t), kind, false).looks,
@@ -975,7 +978,7 @@ export class Stage {
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio, finish } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
     if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
-    const keep = lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT;
+    const keep = lyricOpts ? this.drawOverlay.prepare(s, audio.time, this.width, this.height, this.lyricLayer.keepOut()) : NO_KEEP_OUT;
     // after they draw: where they are (words on one get the halo), and the legibility guard reads
     // what the words will really sit on, windows and pop-ups included (a tiny readback every other frame)
     const beforeLyrics = (rt: THREE.WebGLRenderTarget | null) => {
@@ -998,7 +1001,10 @@ export class Stage {
       this.popups.render(r, base, this.impactRT, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
-      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
+      if (lyricOpts) {
+        this.drawOverlay.render(r, this.impactRT);
+        this.lyricLayer.render(r, lyricOpts, this.impactRT);
+      }
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
       this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
@@ -1017,6 +1023,7 @@ export class Stage {
       }
       beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
+      this.drawOverlay.render(r, this.impactRT);
       this.lyricLayer.render(r, lyricOpts, this.impactRT);
       this.present(this.impactRT.texture, finish, base, held);
       o?.phase?.('windows');
@@ -1044,7 +1051,10 @@ export class Stage {
       this.popups.render(r, base, held, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(held);
       o?.phase?.('lyrics');
-      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, held ?? undefined);
+      if (lyricOpts) {
+        this.drawOverlay.render(r, held);
+        this.lyricLayer.render(r, lyricOpts, held ?? undefined);
+      }
       if (held) {
         this.holdReady = true;
         this.shared.blit(held.texture, null);
@@ -1166,6 +1176,7 @@ export class Stage {
     this.peekLive?.inst.dispose();
     this.warm?.inst.dispose();
     this.fxWarm?.dispose();
+    this.drawOverlay.dispose();
     this.lyricLayer.dispose();
     this.popups.dispose();
     this.sceneWindows.dispose();

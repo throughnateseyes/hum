@@ -10,8 +10,8 @@
  * apart by their scene's flag, never by their ids, so new footage looks join in on their own.
  */
 import type { Preset, SceneDef } from '../core/types';
+import { drawingsReady, figuresReady } from '../draw/session';
 import { PRESETS } from '../presets';
-import { figureCount } from '../figures/store';
 import { allScenes, getScene } from '../scenes';
 import { useStudio } from '../state/store';
 
@@ -25,12 +25,22 @@ export function playsClips(p: Pick<Preset, 'sceneId'> | undefined): boolean {
   return !!p && !!getScene(p.sceneId)?.usesClips;
 }
 
-/** may a planner use this scene right now? (a clip scene only once there are clips) */
-export function sceneMayPlan(s: Pick<SceneDef, 'usesClips' | 'usesFigures'> | undefined): boolean {
-  // line figures (src/figures): the same rule, once some have been made
-  if (s?.usesFigures && figureCount() === 0) return false;
-  return !s?.usesClips || clipCount() > 0;
+/** may a planner use this scene right now? (a clip scene only once there are clips, a drawing scene only once the song has drawings) */
+export function sceneMayPlan(s: Pick<SceneDef, 'usesClips' | 'usesDrawings' | 'usesFigures'> | undefined): boolean {
+  return (!s?.usesClips || clipCount() > 0) && sceneShows(s);
 }
+
+/**
+ * May this scene be seen at all, in any list, shuffle or suggestion? Looks made of drawings don't exist
+ * until the song has some (and never do where drawings aren't allowed).
+ */
+export function sceneShows(s: Pick<SceneDef, 'usesDrawings' | 'usesFigures'> | undefined): boolean {
+  if (s?.usesFigures && !figuresReady()) return false;
+  return !s?.usesDrawings || drawingsReady();
+}
+
+/** `sceneShows` for a look */
+export const lookShows = (p: Pick<Preset, 'sceneId'> | undefined): boolean => !p || sceneShows(getScene(p.sceneId));
 
 /**
  * May a planner use this look right now? The one question every planner asks before offering,

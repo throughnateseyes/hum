@@ -19,6 +19,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { create } from 'zustand';
 import type { Preset, TrackAnalysis } from '../core/types';
 import { bestTake, familyIdOf, familyOf, fitScore, neighbourScore, relationsOf, takeName, withCustom, type LookFamily } from '../presets/fit';
+import { lookShows } from '../director/footage';
 import { inMood, moodById, type MoodId } from '../presets/moods';
 import { profileFor } from '../render/lyricProfiles';
 import { getScene } from '../scenes';
@@ -278,7 +279,7 @@ export function useRankedLooks(a: TrackAnalysis, i: number, mood: MoodId | 'all'
     const part = `${/^[aeiou]/.test(label) ? 'an' : 'a'} ${label}`;
     const out: Ranked[] = [];
     for (const f of families) {
-      if (f.id === fam?.id || f.fit.themes[0] === 'board') continue;
+      if (f.id === fam?.id || f.fit.themes[0] === 'board' || !f.takes.some(lookShows)) continue;
       const takes = f.takes.filter((p) => getScene(p.sceneId) && (!m || inMood(p, m)));
       if (!takes.length) continue;
       const take = bestTake({ ...f, takes }, sug);

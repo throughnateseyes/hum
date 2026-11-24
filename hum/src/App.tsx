@@ -28,6 +28,7 @@ import { FramePicker, PerformControls, cycleFrame, enterPerform, exitPerform, to
 import { saveStill } from './ui/capture';
 import { useLayout, useLayoutWatch } from './ui/layout';
 import { PhoneDock } from './ui/Phone';
+import { lookShows } from './director/footage';
 
 export default function App() {
   const perform = useStudio((s) => s.perform);
@@ -50,7 +51,7 @@ export default function App() {
   useEffect(() => {
     const s = useStudio.getState();
     if (!s.sceneId) {
-      const first = PRESETS.find((p) => getScene(p.sceneId));
+      const first = PRESETS.find((p) => getScene(p.sceneId) && lookShows(p));
       if (first) s.applyPreset(first);
       else if (allScenes()[0]) s.setScene(allScenes()[0].id);
     }
@@ -83,11 +84,12 @@ export default function App() {
         // a part is picked: the timeline moved the pick instead (Timeline.tsx)
         return;
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === ']' || e.key === '[') {
-        const i = PRESETS.findIndex((p) => p.id === s.presetId);
-        const j = (i + (e.key === 'ArrowRight' || e.key === ']' ? 1 : -1) + PRESETS.length) % PRESETS.length;
-        if (PRESETS[j]) {
-          noteHandPick(PRESETS[j], 'browse');
-          pickLook(PRESETS[j]);
+        const looks = PRESETS.filter(lookShows);
+        const i = looks.findIndex((p) => p.id === s.presetId);
+        const j = (i + (e.key === 'ArrowRight' || e.key === ']' ? 1 : -1) + looks.length) % looks.length;
+        if (looks[j]) {
+          noteHandPick(looks[j], 'browse');
+          pickLook(looks[j]);
         }
       } else if ((e.key === 'k' || e.key === 'K') && !e.metaKey && !e.ctrlKey) {
         // like the shot playing (in Perform too): only its part, marked on the timeline
@@ -168,7 +170,7 @@ export default function App() {
 
 function shuffle() {
   const s = useStudio.getState();
-  const pool = PRESETS.filter((p) => p.id !== s.presetId);
+  const pool = PRESETS.filter((p) => p.id !== s.presetId && lookShows(p));
   if (pool.length) pickLook(pool[Math.floor(Math.random() * pool.length)]);
 }
 

@@ -5,9 +5,11 @@ import { alignLyrics, cancelListening, ListenCancelled, listenForWords, offsetBy
 import type { LyricLine, Lyrics } from '../core/types';
 import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
+import { lookShows } from '../director/footage';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
+import { startDrawings } from '../draw/session';
 import { useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
 import { forgetSong, keepClipsSaved, keepPhotosSaved, keepPlanSaved, recallClips, recallPhotos, recallSong, rememberSong } from './saved';
@@ -51,7 +53,7 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
     const analysis = await analyzeTrack(
       buf,
-      [...PRESETS, ...useStudio.getState().customPresets].map((p) => ({ id: p.id, tags: p.tags })),
+      [...PRESETS, ...useStudio.getState().customPresets].filter(lookShows).map((p) => ({ id: p.id, tags: p.tags })),
     );
     if (token !== loadToken) return;
     audioEngine.setAnalysis(analysis);
@@ -518,6 +520,8 @@ export async function restoreSession() {
     if (photos.length) useStudio.getState().addPhotos(photos);
   }
   keepPhotosSaved();
+  // and the drawings, where they are allowed
+  startDrawings();
   const song = await recallSong();
   // something was opened while we were looking: that wins
   if (!song || useStudio.getState().track) return keepPlanSaved();

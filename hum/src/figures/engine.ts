@@ -146,6 +146,8 @@ export interface Ink {
   reach: number;
   floorZ: number;
   floorAt: [number, number];
+  /** paint only the figure, on nothing (a picture laid over something else) */
+  clear?: boolean;
 }
 
 const FILL_VERT = /* glsl */ `
@@ -244,7 +246,7 @@ uniform sampler2D uFill;
 uniform sampler2D uLines;
 uniform vec2 uRes;
 uniform vec3 uBg, uFg, uAccent, uMuted;
-uniform float uShade, uFloor, uGrid, uReach, uFloorZ, uLens, uAspect, uPx, uLight;
+uniform float uShade, uFloor, uGrid, uReach, uFloorZ, uLens, uAspect, uPx, uLight, uClear;
 uniform vec2 uShift, uFloorAt;
 uniform vec3 uRight, uUp, uFwd, uEye;
 void main() {
@@ -279,7 +281,8 @@ void main() {
   col = mix(col, uFg, l.g * 0.46);
   col = mix(col, uFg, l.r * 0.9);
   col = mix(col, uAccent, l.b);
-  gl_FragColor = vec4(col, 1.0);
+  float a = uClear > 0.5 ? max(f.a > 0.0 ? f.a : 0.0, max(l.r * 0.9, max(l.g * 0.46, l.b))) : 1.0;
+  gl_FragColor = vec4(col * a, a);
 }
 `;
 
@@ -352,6 +355,7 @@ export class FigureRenderer {
         uFill: { value: this.fillRT.texture },
         uLines: { value: this.lineRT.texture },
         uRes: { value: new THREE.Vector2(1, 1) },
+        uClear: { value: 0 },
         uBg: { value: new THREE.Color() },
         uFg: { value: new THREE.Color() },
         uAccent: { value: new THREE.Color() },
@@ -522,6 +526,7 @@ export class FigureRenderer {
     const bg = palette.c.bg;
     u.uLight.value = smooth((bg.r * 0.2126 + bg.g * 0.7152 + bg.b * 0.0722 - 0.25) / 0.4);
     u.uShade.value = ink.shade;
+    u.uClear.value = ink.clear ? 1 : 0;
     u.uFloor.value = ink.floor;
     u.uGrid.value = ink.grid;
     u.uReach.value = ink.reach;

@@ -1,0 +1,152 @@
+/* Drawings: the Video tab's section and the Library's shelf (Drawings.tsx). */
+
+.dr-panel {
+  display: grid;
+  gap: var(--s-2);
+}
+.dr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: var(--s-2) 6px;
+  margin-top: var(--s-1);
+}
+.dr-tile {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--ink-2);
+}
+button.dr-tile {
+  cursor: pointer;
+}
+.dr-pic {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+/* the hairline sits over the picture, whatever its paper colour */
+.dr-pic::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(20, 20, 20, 0.1);
+  pointer-events: none;
+}
+.dr-tile.on .dr-pic::after {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.dr-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.dr-name {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--fs-1);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dr-tile:hover .dr-name,
+.dr-tile.on .dr-name {
+  color: var(--ink);
+}
+.dr-state,
+.dr-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+}
+.dr-veil {
+  background: rgba(251, 251, 249, 0.72);
+  color: var(--ink-2);
+}
+.dr-tile.job:hover .lib-tile-del,
+.dr-tile.job:focus-within .lib-tile-del {
+  opacity: 1;
+}
+.dr-detail {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.dr-detail > b {
+  font-weight: 600;
+}
+.dr-detail p {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.dr-row,
+.dr-busy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dr-again {
+  display: grid;
+  gap: 6px;
+}
+.dr-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.dr-wide {
+  width: 100%;
+}
+.dr-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: var(--h);
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.dr-progress .spin {
+  flex: none;
+}
+.dr-grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dr-error {
+  color: var(--danger);
+}
+/* the Library's fourth tab: the names keep to one line each */
+.insp-tabs.lib-tabs .seg.four button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 3px;
+  gap: 3px;
+  font-size: var(--fs-2);
+}

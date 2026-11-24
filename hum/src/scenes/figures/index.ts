@@ -20,7 +20,7 @@ import { validateFigure, type Figure, type V3 } from '../../figures/format';
 import { buildFigure, type BuiltFigure } from '../../figures/geometry';
 import { Drive } from '../../figures/motion';
 import { SAMPLE_FIGURE } from '../../figures/sample';
-import { listFigures, recallFigures } from '../../figures/store';
+import { figuresAt } from '../../draw/session';
 
 const params: ParamDef[] = [
   {
@@ -84,14 +84,14 @@ const hash = (a: number, b: number, c: number) => {
 };
 
 let sample: Figure | null = null;
-/** the figures to draw: the person's, or the built-in one */
-function figures(which: number, coarse: boolean): BuiltFigure[] {
-  const mine = listFigures();
+/** the figures to draw at song time t: the person's, or the built-in one */
+function figures(which: number, coarse: boolean, t: number): BuiltFigure[] {
+  const mine = figuresAt(t);
   if (!mine.length) {
     sample ??= validateFigure(SAMPLE_FIGURE)!.figure;
     return [buildFigure(sample, coarse)];
   }
-  const all = mine.map((f) => buildFigure(f.figure, coarse));
+  const all = mine.map((f) => buildFigure(f, coarse));
   return which > 0 ? [all[(which - 1) % all.length]] : all;
 }
 
@@ -132,16 +132,12 @@ const LENS = 6.2;
 class FigureScene implements SceneInstance {
   private engine = new FigureRenderer();
 
-  constructor() {
-    void recallFigures();
-  }
-
   render(ctx: FrameContext, target: THREE.WebGLRenderTarget) {
     const p = ctx.params;
     const t = ctx.audio.time;
     const drive = new Drive(ctx.analysis, ctx.audio);
     const layout = String(p.layout ?? 'one');
-    const list = figures(Math.round(num(p, 'which', 0)), layout === 'field');
+    const list = figures(Math.round(num(p, 'which', 0)), layout === 'field', t);
     const seed = Math.round(num(p, 'seed', 1));
     const motion = num(p, 'motion', 1);
     const base = { weight: num(p, 'weight', 2.5), shade: num(p, 'shade', 0.22), motion, floor: num(p, 'floor', 0.6) };

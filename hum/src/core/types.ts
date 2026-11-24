@@ -462,6 +462,8 @@ export interface SceneDef {
   usesClips?: boolean;
   /** true when the scene draws the line figures made for the person (src/figures) */
   usesFigures?: boolean;
+  /** true when the scene is built on the drawings made for the song (the Sketchbook looks) */
+  usesDrawings?: boolean;
   /** true when the scene expects a light (off-white) background by default */
   light?: boolean;
   /** true when the scene already shows the sung words itself (typewriter, word cloud, lyric text);
