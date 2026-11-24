@@ -35,11 +35,16 @@ const set = (text: string): SungWord[] =>
     .slice(0, 5)
     .map((w) => ({ text: w, t: 0, end: 0 }));
 
-/** `title`: the title in words, for a song with no lyrics; `opens`: the shot opens its part of the song */
-export function wordsIn(shot: Shot, title: string[], opens: boolean): { words: SungWord[]; sung: boolean } {
+/**
+ * `title`: the title in words, for a song with no lyrics; `opens`: the shot opens its part of the song.
+ * `hush`: the song's lyrics are shown here but none is sung in this shot, so a line already over (it stood
+ * in the shot before) is not put up again as a subtitle.
+ */
+export function wordsIn(shot: Shot, title: string[], opens: boolean): { words: SungWord[]; sung: boolean; hush?: boolean } {
   const mid = (shot.start + shot.end) / 2;
   const s = useStudio.getState();
-  if (lyricsShown(mid)) {
+  const hush = lyricsShown(mid);
+  if (hush) {
     const words: SungWord[] = [];
     for (const line of s.lyrics!.lines) {
       if (line.end < shot.start - 1 || line.t > shot.end + 1) continue;
@@ -51,9 +56,9 @@ export function wordsIn(shot: Shot, title: string[], opens: boolean): { words: S
     if (words.length) return { words, sung: true };
   }
   const own = partWordsAt(s, mid) || shot.say;
-  if (own) return { words: set(own), sung: false };
+  if (own) return { words: set(own), sung: false, hush };
   // the video opens on its title
-  if (title.length && opens && shot.start < 0.5) return { words: set(title.join(' ')), sung: false };
-  if (!s.lyrics?.lines.length && title.length && opens && shot.arrive === 'hit') return { words: set(title.join(' ')), sung: false };
-  return { words: [], sung: false };
+  if (title.length && opens && shot.start < 0.5) return { words: set(title.join(' ')), sung: false, hush };
+  if (!s.lyrics?.lines.length && title.length && opens && shot.arrive === 'hit') return { words: set(title.join(' ')), sung: false, hush };
+  return { words: [], sung: false, hush };
 }

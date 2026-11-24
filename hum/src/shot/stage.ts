@@ -78,7 +78,7 @@ export interface StageOptions {
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
   /** Inside: the colours of the whole video, and the words that stand in a shot */
-  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean } };
+  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean } };
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -430,6 +430,7 @@ export class ShotStage {
       cuts: rig.scheme.cuts,
       words: set.words,
       sung: set.sung,
+      hush: 'hush' in set && !!set.hush,
       clipAt: (t) => curve.footage(t),
       focus: { ...focus },
       zoom,
@@ -619,7 +620,7 @@ export class ShotStage {
     const state = this.footageState(rig, t, focus.x, zoom);
     inside.render(t, { footage: this.source(rig, t, zoom) ?? rig.clip!.texture, grow: state.grow, flash: state.flash, speed: rig.curve.speed(t), target });
     r.autoClear = autoClear;
-    if (inside.spec.sung) noteInside();
+    if (inside.spec.sung || inside.spec.hush) noteInside();
   }
 
   private treatFrame(rig: Rig, t: number, focus: { x: number; y: number }, flash: number): TreatFrame {
