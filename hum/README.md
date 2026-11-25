@@ -451,8 +451,16 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   through them, the hi-hats pick groups out, the surfaces between them light up, they shoot past their ends,
   or the people near by are outlined (`src/inside/sceneLines.ts`). A clip with few edges keeps the made-up
   lines.
-- **Draw into the scene** (Video tab → Drawings, for people whose access includes drawings) gives a video
-  made from your footage an art direction: one idea, a few rules, one hand, and up to five drawings with a
+- **3D forms** stand in Inside shots, in the depth of the clip: **Rings** round a person, **Frames** down the
+  street, **Blocks** that rise behind people, and **Crossing**, the white road markings lifted off the ground.
+  The people in the clip pass in front, and the light on them is the clip's own (the scene's flat colours where
+  it is painted). A video keeps to two, from how the song hits; they come in its loud and lifting moments, where
+  the picture has room, and there is more of them each time the big part returns. Words always read over them.
+  Crossing is only picked by Hum when Claude's note on the clip names the markings. Switch each off for the
+  video in Graphics, or pick one (or none) for a part under Picture → **3D form**. No Claude call
+  (`src/inside/forms.ts`, `formIds.ts`, `spot.ts`, `src/state/forms.ts`).
+- **Claude adds drawings** (Video tab → Drawings, off unless you switch it on; for people whose access includes
+  drawings) gives a video made from your footage an art direction: one idea, a few rules, one hand, and up to five drawings with a
   job. Yours are used where they fit and Claude draws what is missing. Each stands in Inside shots, hidden
   by whoever passes in front and in the video's colours, and is found nowhere if nothing in the picture can
   hold it. The shot's words stand round its drawing, and the drawing
