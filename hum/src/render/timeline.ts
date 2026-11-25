@@ -26,6 +26,7 @@ import { Stage } from './stage';
 import { download } from './recorder';
 import { encodeAudio, offlineBlocker, sliceSong, VideoFileWriter, videoConfig } from './encode';
 import { exportClip } from './clipExport';
+import { frameWeight, RenderClock, type RenderTime } from './timeLeft';
 
 export interface RenderSize {
   id: '9:16' | '4:5' | '1:1' | '16:9';
@@ -191,12 +192,20 @@ const snapLook = (): LookSnapshot => {
 
 /* ───────── one video ───────── */
 
+/** how many frames of a stretch are drawn: the run-up (thrown away), and the video */
+function framesOf(req: Pick<RenderRequest, 'start' | 'end' | 'fps'>) {
+  return {
+    pre: Math.round(Math.min(DRAW_PREROLL, req.start) * req.fps),
+    total: Math.max(1, Math.round((req.end - req.start) * req.fps)),
+  };
+}
+
 interface Shared {
   pcm: { channels: Float32Array[]; sampleRate: number };
   mono: Float32Array;
 }
 
-async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, audio: Awaited<ReturnType<typeof encodeAudio>>, onFrac: (f: number) => void, isCancelled: () => boolean): Promise<Blob> {
+async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, audio: Awaited<ReturnType<typeof encodeAudio>>, onFrame: (frac: number, drawn: number) => void, isCancelled: () => boolean): Promise<Blob> {
   const { w, h } = size;
   const fps = req.fps;
   const cfg = await videoConfig(w, h, fps);
@@ -213,8 +222,7 @@ async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, a
   const writer = new VideoFileWriter(cfg, fps, audio);
   try {
     const frames = new OfflineAudioFrames(shared.pcm, s0.analysis, { sensitivity: s0.sensitivity, bpmOverride: audioEngine.bpmOverride, mono: shared.mono });
-    const total = Math.max(1, Math.round((req.end - req.start) * fps));
-    const pre = Math.round(Math.min(DRAW_PREROLL, req.start) * fps);
+    const { pre, total } = framesOf(req);
     const firstDrawn = req.start - pre / fps;
     // listening run-up: levels, energy, the beat and Feel catch up without drawing
     const listenFrom = Math.max(0, firstDrawn - LISTEN_PREROLL);
@@ -259,8 +267,8 @@ async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, a
           f.close();
         }
         if (preview && k % 3 === 0) drawPreview(canvas);
-        onFrac((k + 1) / total);
       }
+      onFrame(Math.max(0, k + 1) / total, pre + k + 1);
       if (performance.now() - lastYield > 24) {
         await yieldNow();
         lastYield = performance.now();
@@ -356,6 +364,11 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
   const kept: RenderResult['files'] = [];
   let failure: string | null = null;
   const t0 = performance.now();
+  // how long is left counts every frame of every size, run-ups included
+  const each = framesOf(job);
+  const weights = job.sizes.map((z) => frameWeight(z.w, z.h));
+  const clock = new RenderClock(weights.reduce((sum, x) => sum + x * (each.pre + each.total), 0), t0, req.fps);
+  let time: RenderTime = { elapsed: 0 };
   try {
     const channels = Array.from({ length: buf!.numberOfChannels }, (_, c) => buf!.getChannelData(c));
     const pcm = { channels, sampleRate: buf!.sampleRate };
@@ -368,13 +381,18 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
       useStudio.setState(before.look);
       if (useStudio.getState().planOn) useStudio.setState({ presetId: null });
       restorePlanSequencer({ hold: null, lastTint: '' });
-      set({ phase: 'rec', frac: 0, start, end, size: sizeLabel(size), index: i, count });
+      const show = (frac: number) => set({ phase: 'rec', frac, start, end, size: sizeLabel(size), index: i, count, ...time });
+      show(0);
       let lastFrac = -1;
-      const blob = await renderOne(job, size, { pcm, mono }, audio, (f) => {
-        if (f - lastFrac >= 0.005 || f >= 1) {
-          lastFrac = f;
-          set({ phase: 'rec', frac: f, start, end, size: sizeLabel(size), index: i, count });
-        }
+      let lastShown = 0;
+      const past = weights.slice(0, i).reduce((sum, x) => sum + x, 0) * (each.pre + each.total);
+      const blob = await renderOne(job, size, { pcm, mono }, audio, (f, drawn) => {
+        const now = performance.now();
+        if (f - lastFrac < 0.005 && f < 1 && now - lastShown < 500) return;
+        lastFrac = f;
+        lastShown = now;
+        time = clock.at(now, past + weights[i] * drawn, i * (each.pre + each.total) + drawn);
+        show(f);
       }, () => cancelled || useStudio.getState().track !== track);
       if (useStudio.getState().track !== track) throw new Cancelled();
       const name = renderFileName(songName, start, end, size);

@@ -191,7 +191,8 @@ export async function exportClip(
     const frac = Math.max(0, Math.min(1, (t - w.start) / (w.end - w.start)));
     if (Math.abs(frac - lastFrac) > 0.004) {
       lastFrac = frac;
-      set({ phase: 'rec', frac, start: w.start, end: w.end, size: `${size.w}×${size.h}` });
+      // (it is recorded as it plays)
+      set({ phase: 'rec', frac, start: w.start, end: w.end, size: `${size.w}×${size.h}`, elapsed: Math.max(0, t - w.start), left: Math.max(0, w.end - t), speed: 1 });
     }
   };
   raf = requestAnimationFrame(loop);
