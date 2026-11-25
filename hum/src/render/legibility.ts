@@ -8,10 +8,14 @@ import type { Palette } from '../core/types';
  * Every other frame the finished picture is shrunk into a tiny 96×54 buffer and read back: everything
  * the words will sit on, scene windows and pop-ups included (only the lyrics themselves come after).
  * From that we know, for any box on screen, how bright the picture is there, how much it varies and
- * how busy (edgy) it is. `judge` then picks the lightest backing (none, a soft shadow, a feathered
- * scrim, a halo, a full-width scrim, a paper strip) and the ink that clears a contrast target against
+ * how busy (edgy) it is. `judge` then picks the lightest backing (none, a soft shadow, a keyline,
+ * a halo, a full-width scrim, a paper strip) and the ink that clears a contrast target against
  * the pixels actually under the text, and `Guard` eases between its choices so nothing flickers when
  * the scene changes under a line.
+ *
+ * The keyline (`soft`) is drawn as a title designer would: a thin line round each letter in the plate's colour
+ * and a tight glow of it, hugging the words, so a line that crosses from black to white keeps its edge
+ * on both and nothing behind it turns grey.
  *
  * The halo is the designed answer for words that sit over a pop-up window or a very busy picture: a
  * fuzzy, feathered cloud in a palette colour that inverts against the ink, hugging the words (not a
@@ -30,7 +34,7 @@ export interface Rect {
 
 export const LADDER: Backing[] = ['none', 'shadow', 'soft', 'band'];
 /** how much of the picture under the text each backing covers (in sRGB space, like canvas blending) */
-export const COVER: Record<Backing, number> = { none: 0, shadow: 0.3, soft: 0.62, halo: 0.84, band: 0.86, paper: 1 };
+export const COVER: Record<Backing, number> = { none: 0, shadow: 0.2, soft: 0.8, halo: 0.84, band: 0.86, paper: 1 };
 /** how heavy each backing is (a verdict only steps down to a lighter one after the picture has stayed calm) */
 const LEVEL: Record<Backing, number> = { none: 0, shadow: 1, soft: 2, halo: 2.5, band: 3, paper: 4 };
 
@@ -67,6 +71,8 @@ export class FrameProbe {
   private buf = new Uint8Array(PROBE_W * PROBE_H * 4);
   private n = 0;
   private busy = false;
+  /** a frame being read back is from before a cut: drop it when it comes in */
+  private stale = false;
   /** read back without waiting a frame where the browser allows it (off in the dev harness: it steps faster than real time) */
   readAsync = true;
 
@@ -120,12 +126,20 @@ export class FrameProbe {
     this.readBack(r);
   }
 
+  /** the picture just changed at once (a cut): read the next frame, and drop any still coming from before it */
+  refresh() {
+    this.n = 0;
+    this.stale = this.busy;
+    this.unread = null;
+  }
+
   private readBack(r: THREE.WebGLRenderer) {
     const ar = r as THREE.WebGLRenderer & { readRenderTargetPixelsAsync?: (...a: unknown[]) => Promise<unknown> };
     if (this.readAsync && ar.readRenderTargetPixelsAsync) {
       this.busy = true;
       ar.readRenderTargetPixelsAsync(this.rt, 0, 0, PROBE_W, PROBE_H, this.buf)
         .then(() => {
+          if (this.stale) return;
           this.ingest();
           this.version++;
         })
@@ -134,6 +148,7 @@ export class FrameProbe {
         })
         .finally(() => {
           this.busy = false;
+          this.stale = false;
         });
     } else {
       this.unread = r;
@@ -223,19 +238,21 @@ export function regionStats(p: Pick<FrameProbe, 'luma' | 'L'>, r: Rect): RegionS
   };
 }
 
-/** share of the cells in `r` where `ink` falls under `target` contrast once `plate` covers `cover` of the picture */
-export function badShare(p: Pick<FrameProbe, 'luma'>, r: Rect, inkL: number, plate: RGB, cover: number, target: number, edge = 0): number {
+/** share of the cells in `r` where `ink` (drawn at `alpha`) falls under `target` contrast once `plate` covers `cover` of the picture */
+export function badShare(p: Pick<FrameProbe, 'luma'>, r: Rect, inkL: number, plate: RGB, cover: number, target: number, edge = 0, alpha = 1): number {
   const { x0, x1, y0, y1 } = cells(r);
   const { luma } = p;
   const pY = (0.2126 * plate[0] + 0.7152 * plate[1] + 0.0722 * plate[2]) / 255;
   // busy pictures need more contrast to read; backings calm them down
   const need = target * (1 + Math.min(1.2, edge * (1 - cover) * 9));
+  const inkY = alpha < 1 ? srgb(inkL) : 0;
   let bad = 0;
   let n = 0;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const v = luma[y * PROBE_W + x] * (1 - cover) + pY * cover;
-      if (ratio(inkL, lin(v)) < need) bad++;
+      const L = alpha < 1 ? lin(v * (1 - alpha) + inkY * alpha) : inkL;
+      if (ratio(L, lin(v)) < need) bad++;
       n++;
     }
   }
@@ -279,6 +296,13 @@ export interface Verdict {
   level: number;
   /** share of the box that still misses the target */
   bad: number;
+  /** how opaque words not sung yet may be drawn and still clear the target (0.5..1) */
+  quiet: number;
+  /** the darkest and lightest tenth of what is under the words once the backing covers it (relative luminance) */
+  lo: number;
+  hi: number;
+  /** how busy the picture is there (RegionStats.edge) */
+  edge: number;
 }
 
 /** the plate that goes behind an ink: the scene's background when it contrasts enough, else near-black / paper */
@@ -300,25 +324,88 @@ export interface JudgeOpts {
   pal: Palette;
   /** share of the box allowed to miss (default 6%) */
   slack?: number;
+  /** the ink on screen now: kept while it reads, rather than the words changing colour under the eye */
+  hold?: RGB;
 }
 
 /** the lightest backing + ink that keeps text in box `r` readable */
 export function judge(p: FrameProbe, r: Rect, o: JudgeOpts): Verdict {
   const st = regionStats(p, r);
   const slack = o.slack ?? 0.06;
+  const held = (ink: RGB) => !!o.hold && lumOf(ink) > 0.4 === lumOf(o.hold) > 0.4;
   let best: Verdict | null = null;
   for (let li = 0; li < o.ladder.length; li++) {
     const backing = o.ladder[li];
+    // of the inks that read with this backing, the one that leans on it least (the preferred one, unless
+    // another is clearly better off on the bare picture)
+    let pass: { v: Verdict; bare: number } | null = null;
     for (const ink of o.inks) {
       const plate = backing === 'paper' ? PAPER : backing === 'halo' ? haloFor(ink, o.pal, st, (c) => badShare(p, r, lumOf(ink), c, COVER.halo, o.target, st.edge), slack) : plateFor(ink, o.pal);
       if (backing === 'paper' && lumOf(ink) > 0.4) continue;
       const bad = badShare(p, r, lumOf(ink), plate, COVER[backing], o.target, st.edge);
-      const v: Verdict = { ink, plate, backing, level: LEVEL[backing], bad };
-      if (bad <= slack) return v;
+      const v: Verdict = { ink, plate, backing, level: LEVEL[backing], bad, quiet: 1, lo: 0, hi: 1, edge: st.edge };
+      if (bad <= slack) {
+        const bare = backing === 'none' || backing === 'paper' ? 0 : badShare(p, r, lumOf(ink), plate, 0, o.target);
+        // (an ink already on screen is left for another only when that is a lot better off)
+        const less = !pass ? 0 : held(pass.v.ink) ? 0.28 : held(ink) ? -0.28 : 0.12;
+        if (!pass || bare < pass.bare - less) pass = { v, bare };
+      }
       if (!best || bad < best.bad - 0.02) best = v;
     }
+    if (pass && o.hold && !held(pass.v.ink) && li + 1 < o.ladder.length && LEVEL[o.ladder[li + 1]] - LEVEL[backing] <= 1) {
+      // the same ink with one step more behind it beats the words changing colour mid-line
+      const stay = judge(p, r, { ...o, hold: undefined, inks: o.inks.filter(held), ladder: [o.ladder[li + 1]] });
+      if (stay.bad <= slack) return stay;
+    }
+    if (pass) return ground(p, r, pass.v, st, o.target);
   }
-  return best ?? { ink: NEAR_WHITE, plate: NEAR_BLACK, backing: 'band', level: 3, bad: 1 };
+  return ground(p, r, best ?? { ink: NEAR_WHITE, plate: NEAR_BLACK, backing: 'band', level: 3, bad: 1, quiet: 1, lo: 0, hi: 1, edge: st.edge }, st, o.target);
+}
+
+/** how faint the words not sung yet may be, faintest first */
+const QUIET = [0.5, 0.58, 0.66, 0.74, 0.82, 0.9];
+
+/** fill in what is under the words behind a verdict's backing, and how faint its unsung words may be */
+function ground(p: Pick<FrameProbe, 'luma'>, r: Rect, v: Verdict, st: RegionStats, target: number): Verdict {
+  const cover = COVER[v.backing];
+  const at = (L: number) => lin(srgb(L) * (1 - cover) + srgb(lumOf(v.plate)) * cover);
+  v.lo = Math.min(at(st.lo), at(st.hi));
+  v.hi = Math.max(at(st.lo), at(st.hi));
+  const inkL = lumOf(v.ink);
+  for (const q of QUIET)
+    if (badShare(p, r, inkL, v.plate, cover, target * 1.12, 0, q) <= Math.max(0.06, v.bad)) {
+      v.quiet = q;
+      break;
+    }
+  return v;
+}
+
+/** linear → sRGB 0..1 */
+const srgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+
+/**
+ * A colour's nearest shade, hue kept, that clears `target` against everything from luminance `lo` to
+ * `hi` (what lies under the words). `ok` is false when no shade does: the picture is both dark and
+ * light there, so the words need something of their own behind them.
+ */
+export function inkOn(c: RGB, lo: number, hi: number, target: number): { ink: RGB; ok: boolean } {
+  const clears = (x: RGB) => {
+    const L = lumOf(x);
+    return (L > hi && ratio(L, hi) >= target) || (L < lo && ratio(L, lo) >= target);
+  };
+  if (clears(c)) return { ink: c, ok: true };
+  const up = ratio(1, hi) >= target * 1.04;
+  const down = ratio(lo, 0) >= target * 1.04;
+  // the end nearer to the colour first, when both are open
+  const ends: RGB[] = lumOf(c) > (lo + hi) / 2 ? [[255, 255, 255], [0, 0, 0]] : [[0, 0, 0], [255, 255, 255]];
+  for (const end of ends) {
+    if (end[0] ? !up : !down) continue;
+    for (let k = 0.08; k < 1.001; k += 0.08) {
+      const x = mixRGB(c, end, k);
+      if (clears(x)) return { ink: x, ok: true };
+    }
+  }
+  return { ink: ratio(1, hi) > ratio(lo, 0) ? mixRGB(c, [255, 255, 255], 0.85) : mixRGB(c, [0, 0, 0], 0.85), ok: false };
 }
 
 const sat = (c: RGB) => (Math.max(...c) - Math.min(...c)) / 255;
@@ -402,16 +489,34 @@ export class Guard {
   mix: BackingMix = { shadow: 0.25, soft: 0, halo: 0, band: 0, paper: 0 };
   level = 0;
   backing: Backing = 'none';
+  /** how opaque unsung words are drawn, and what is under the words (see Verdict), eased like the rest */
+  quiet = 1;
+  lo = 0;
+  hi = 1;
+  edge = 0;
   private want: Verdict | null = null;
   private wantSince = 0;
   private inkFlipSince = -1;
   private fresh = true;
   /** until when a cut just happened (ink may change fast: the picture itself just changed) */
   private joltUntil = 0;
+  /** the next verdict is the first of a new picture: it is taken outright, so the words change with the cut */
+  private cut = false;
+
+  /** the ink that has been on screen over this picture, if any has (see JudgeOpts.hold) */
+  get held(): RGB | undefined {
+    return this.fresh || this.cut ? undefined : this.ink;
+  }
 
   /** the look under the text just changed (a cut): let the ink and backing follow quickly */
   jolt(now: number) {
     this.joltUntil = now + 0.7;
+  }
+
+  /** the picture itself was cut under the words, and the next verdict will be of the new one */
+  snap(now: number) {
+    this.jolt(now);
+    this.cut = true;
   }
 
   /** jump straight to a verdict (a new line, nothing on screen yet) */
@@ -421,13 +526,19 @@ export class Guard {
     this.mix = { ...TARGET_MIX[v.backing] };
     this.level = v.level;
     this.backing = v.backing;
+    this.quiet = v.quiet;
+    this.lo = v.lo;
+    this.hi = v.hi;
+    this.edge = v.edge;
     this.want = v;
     this.fresh = false;
+    this.cut = false;
+    this.inkFlipSince = -1;
   }
 
   /** feed a new verdict (time in seconds) */
   propose(v: Verdict, now: number) {
-    if (this.fresh) return this.reset(v);
+    if (this.fresh || this.cut) return this.reset(v);
     if (!this.want || this.want.backing !== v.backing || lumOf(this.want.ink) > 0.4 !== lumOf(v.ink) > 0.4) this.wantSince = now;
     this.want = v;
     const up = v.level > this.level;
@@ -451,11 +562,17 @@ export class Guard {
       const rate = d > 0 ? (now < this.joltUntil ? 12 : 7) : now < this.joltUntil ? 4 : 1.6;
       this.mix[k] += d * Math.min(1, dt * rate);
     }
+    const near = Math.min(1, dt * (now < this.joltUntil ? 14 : 4));
+    this.quiet += (this.want.quiet - this.quiet) * near;
+    this.lo += (this.want.lo - this.lo) * near;
+    this.hi += (this.want.hi - this.hi) * near;
+    this.edge += (this.want.edge - this.edge) * near;
     const flipping = this.inkFlipSince >= 0;
     const jolted = now < this.joltUntil;
     const flipReady = flipping && now - this.inkFlipSince > (jolted ? 0.08 : 0.45);
     if (!flipping || flipReady) {
-      const k = Math.min(1, dt * (jolted ? 14 : flipReady ? 4 : 6));
+      // light to dark goes by way of mid-grey, where nothing reads: that crossing takes two or three frames
+      const k = Math.min(1, dt * (flipReady || (jolted && flipping) ? 26 : jolted ? 14 : 6));
       this.ink = mixRGB(this.ink, this.want.ink, k);
       this.plate = mixRGB(this.plate, this.want.plate, k);
     }
@@ -466,34 +583,17 @@ export class Guard {
   /** a key that changes when the drawn result would visibly change */
   key() {
     const q = (v: number) => Math.round(v * 24);
-    return `${q(this.mix.shadow)}${q(this.mix.soft)}${q(this.mix.halo)}${q(this.mix.band)}${q(this.mix.paper)}|${this.ink.map((c) => c >> 3).join(',')}|${this.plate.map((c) => c >> 3).join(',')}`;
+    return `${q(this.mix.shadow)}${q(this.mix.soft)}${q(this.mix.halo)}${q(this.mix.band)}${q(this.mix.paper)}|${q(this.quiet)}.${q(this.lo)}.${q(this.hi)}|${this.ink.map((c) => c >> 3).join(',')}|${this.plate.map((c) => c >> 3).join(',')}`;
   }
 }
 
 /* ───────────────────────── drawing the backings ───────────────────────── */
 
-/** draw the plates/bands behind text rows (pixel boxes); shadows are applied by the caller per glyph */
+/** draw the plates/bands behind text rows (pixel boxes); shadows and keylines are drawn by the caller per word */
 export function drawBacking(g: CanvasRenderingContext2D, rows: { x: number; y: number; w: number; h: number }[], gd: Guard, size: number, W: number, alpha: number, seed = 1) {
   if (!rows.length || alpha <= 0.01) return;
   const m = gd.mix;
   g.save();
-  if (m.soft > 0.02) {
-    // a soft scrim: the picture darkens (or lightens) behind the block with no edge to see. Drawn as
-    // the blurred shadow of a box parked off-canvas, so only the feathered shadow lands here.
-    const x0 = Math.min(...rows.map((r) => r.x)) - size * 0.6;
-    const y0 = Math.min(...rows.map((r) => r.y)) - size * 0.45;
-    const x1 = Math.max(...rows.map((r) => r.x + r.w)) + size * 0.6;
-    const y1 = Math.max(...rows.map((r) => r.y + r.h)) + size * 0.45;
-    const off = W * 4;
-    g.shadowColor = css(gd.plate, 0.66 * m.soft * alpha);
-    g.shadowBlur = size * 1.1;
-    g.shadowOffsetX = off;
-    g.fillStyle = '#000';
-    g.fillRect(x0 - off, y0, x1 - x0, y1 - y0);
-    g.shadowBlur = 0;
-    g.shadowOffsetX = 0;
-    g.shadowColor = 'transparent';
-  }
   if (m.band > 0.02) {
     // a full-width scrim: a gradient across the frame, solid behind the rows, fading out above and below
     const top = Math.min(...rows.map((r) => r.y)) - size * 0.4;
@@ -567,6 +667,32 @@ export function drawHalo(g: CanvasRenderingContext2D, spans: { x: number; y: num
   }
   g.restore();
 }
+
+/**
+ * A word's keyline: its outline in the plate's colour with a tight glow of the same round it, drawn
+ * before the word. The outline holds the letters' edge whatever they cross; the glow keeps it from
+ * reading as a sticker. Call with the word's font and spacing set.
+ */
+export function drawKeyline(g: CanvasRenderingContext2D, gd: Guard, text: string, x: number, y: number, size: number) {
+  const k = Math.min(1, gd.mix.soft);
+  if (k < 0.02) return;
+  g.save();
+  g.lineJoin = 'round';
+  g.miterLimit = 2;
+  g.globalAlpha *= k;
+  g.strokeStyle = css(gd.plate);
+  g.shadowColor = css(gd.plate, 0.9);
+  g.shadowBlur = size * 0.34;
+  g.lineWidth = Math.max(2.5, (size * KEYLINE) / (1 + size / 150));
+  g.strokeText(text, x, y);
+  // and inside the letters too, so a word drawn faint (not sung yet) is faint on the plate, not on the picture
+  g.shadowColor = 'transparent';
+  g.fillStyle = css(gd.plate);
+  g.fillText(text, x, y);
+  g.restore();
+}
+/** the keyline's width on small type, half of it outside the letter (em); huge letters take a thinner one */
+const KEYLINE = 0.19;
 
 /** soft shadow for glyphs in the plate colour (call before fillText) */
 export function applyShadow(g: CanvasRenderingContext2D, gd: Guard, size: number, alpha: number) {

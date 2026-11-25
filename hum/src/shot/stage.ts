@@ -11,11 +11,14 @@
  * colours of the footage next to it), its own style arrangement and its own speed curve.
  */
 import * as THREE from 'three';
+import type { Rect } from '../render/legibility';
+import { finished, lyricsOn, noteCut, noteType } from '../render/typeRoom';
 import { dryRun } from '../render/warmup';
 import { FULLSCREEN_VERT } from '../core/glsl';
 import type { Palette, TrackAnalysis } from '../core/types';
 import type { Footage, FootageState } from './footage';
 import { FootagePass } from './footage';
+import { Ground } from './ground';
 import { frameGrid } from './grid';
 import { CAM_Z, FOV, frameSize, toneOf, type Bed, type Labels, type StyleContext, type StyleShot } from './kit';
 import { lean } from '../feeling';
@@ -30,6 +33,7 @@ import { planFootage, shownOf, type Sequence, type Shot } from './sequence';
 import { SLOW, slowMotionOf, slowMotionUsers, stepping, type SlowMotion } from './slowmo';
 import type { Anchor } from './stills';
 import { STYLES } from './styles';
+import { GROUND, inkBox, isOverPicture, isType } from './type';
 import { clamp01, dice, easeInCubic, smooth } from './time';
 import type { TreatmentId } from './treatments';
 import { unit, type TreatFrame } from './treatments/common';
@@ -88,6 +92,8 @@ export interface StageOptions {
   inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean }; drawn?: (shot: Shot) => Drawn | null; form?: (shot: Shot, clip: StageClip) => FormWish | null };
   /** the inks a drawn or printed finish prints this clip's shots in, at song time t (null: the clip's own scheme) */
   inks?: (p: ShotPalette, t: number) => InkSet | null;
+  /** do the song's lyrics show over a shot? (its type then keeps to the top of the frame) */
+  lyrics?: (shot: Shot) => boolean;
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -113,6 +119,9 @@ interface Rig {
   pieces: StageClip[];
   /** Inside: the shot's place, made when it is first drawn (`key`: what it was made from) */
   inside: { shot: InsideShot; key: string } | null;
+  /** the style's lines of type, how far each has left for a lyric (0..1), and is any straight on the picture? */
+  type: { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; away: number }[];
+  over: boolean;
 }
 
 /** a picture as a treatment that lays several out reads it: a clip by its full-size still */
@@ -155,6 +164,10 @@ export class ShotStage {
   private insidePass: InsidePass | null = null;
   private insideOf: StageOptions['inside'];
   private inkOf: StageOptions['inks'];
+  private ground: Ground | null = null;
+  /** the shot whose type was last drawn, and when (song time) */
+  private typeRig: Rig | null = null;
+  private typeAt = 0;
   private analysis: TrackAnalysis | null = null;
   private labels: Labels = { title: '', part: '', time: '', tempo: '' };
 
@@ -272,6 +285,8 @@ export class ShotStage {
           tone: toneOf(shot.colour),
           colour: shot.colour,
           energy: seq.energy,
+          cuts: palette.cuts,
+          lyrics: !!o.lyrics?.(shot),
           arrive: shot.arrive,
           leave: shot.leave,
           freeze: curve.freeze,
@@ -295,7 +310,11 @@ export class ShotStage {
       const treatment: TreatmentId = shot.kind === 'footage' ? (shot.treatment ?? 'none') : 'none';
       // Collage's fragments and Trace's other tiles: the shot's other pictures, each once
       const pieces = treatment === 'collage' || treatment === 'trace' ? [...new Set((shot.extra ?? []).map((i) => o.clips[i % o.clips.length]))].filter((c) => c && c !== clip) : [];
-      this.rigs.push({ shot, curve, motion, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces, inside: null });
+      const type: Rig['type'] = [];
+      style?.object.traverse((m) => {
+        if (isType(m)) type.push({ mesh: m, away: 0 });
+      });
+      this.rigs.push({ shot, curve, motion, palette, scheme, clip, alt, look, frame, mask, style, treatment, pieces, inside: null, type, over: type.some((x) => isOverPicture(x.mesh)) });
     }
     if (this.rigs.some((r) => usesRing(r.motion))) this.ring ??= new FrameRing(this.renderer);
     if (this.rigs.some((r) => r.treatment !== 'none')) {
@@ -638,6 +657,7 @@ export class ShotStage {
       if (rig.clip) this.pass.setSource(rig.clip.texture, rig.clip.aspect);
       this.pass.setAlt(rig.alt?.texture ?? null, rig.alt?.aspect ?? 1);
       rig.look?.setPalette(asLookPalette(scheme));
+      noteCut(r);
       this.active = rig;
     }
     const tau = t - shot.start;
@@ -663,6 +683,7 @@ export class ShotStage {
     bed.zoom[0] = bed.zoom[1] = bed.zoom[2] = 1;
     bed.src[0] = bed.src[1] = bed.src[2] = 0;
     rig.style?.update({ t, focusU: focus.x, focusV: focus.y }, bed);
+    this.clearOfLyrics(rig, t);
 
     const autoClear = r.autoClear;
     r.autoClear = false;
@@ -700,10 +721,46 @@ export class ShotStage {
       this.copy(rig.look.texture, target, tau < 1 / 30 ? 0.6 : 0);
     }
 
+    GROUND.uFinish.value = finished(r) ? 1 : 0;
+    GROUND.uSize.value.set(this.width, this.height);
+    // what the type on the picture stands on
+    if (rig.over && rig.type.some((x) => x.mesh.visible)) {
+      if (target) (this.ground ??= new Ground()).read(r, target.texture, this.width, this.height);
+      else GROUND.uGround.value = 0;
+    }
+
     // the frame
     r.clearDepth();
     r.render(this.frameScene, this.frameCam);
     r.autoClear = autoClear;
+  }
+
+  /**
+   * Keep the style's type and the lyrics apart: note where its lines are, for the lyrics to be set
+   * elsewhere, and where a lyric stands (or the next is about to) all the same, the line of type leaves
+   * until the words have passed.
+   */
+  private clearOfLyrics(rig: Rig, t: number) {
+    // at a cut or a jump in the song the type is wherever it should be by now
+    const jump = rig !== this.typeRig || Math.abs(t - this.typeAt) > 0.25;
+    const step = jump ? 1 : Math.abs(t - this.typeAt) / 0.18;
+    this.typeRig = rig;
+    this.typeAt = t;
+    if (!rig.type.length) return;
+    const { halfW, halfH } = frameSize(this.width / this.height);
+    const k = CAM_Z / this.frameCam.position.z;
+    const noted: Rect[] = [];
+    for (const line of rig.type) {
+      const { mesh } = line;
+      if (!mesh.visible) continue;
+      const b = inkBox(mesh);
+      const rect = { x0: 0.5 + (b.x0 * k) / (2 * halfW), x1: 0.5 + (b.x1 * k) / (2 * halfW), y0: 0.5 - (b.y1 * k) / (2 * halfH), y1: 0.5 - (b.y0 * k) / (2 * halfH) };
+      const to = lyricsOn(this.renderer, rect) ? 1 : 0;
+      line.away = to > line.away ? Math.min(to, line.away + step) : Math.max(to, line.away - step);
+      mesh.material.uniforms.uAlpha.value = 1 - line.away;
+      if (line.away < 0.5) noted.push(rect);
+    }
+    noteType(this.renderer, noted);
   }
 
   private drawInside(rig: Rig, t: number, focus: { x: number; y: number }, zoom: number, target: THREE.WebGLRenderTarget | null) {
@@ -715,6 +772,7 @@ export class ShotStage {
     inside.render(t, { footage: this.source(rig, t, zoom) ?? rig.clip!.texture, grow: state.grow, flash: state.flash, speed: rig.curve.speed(t), target });
     r.autoClear = autoClear;
     if (inside.spec.sung || inside.spec.hush) noteInside();
+    else noteType(r, inside.wordBoxes());
   }
 
   private treatFrame(rig: Rig, t: number, focus: { x: number; y: number }, flash: number): TreatFrame {
@@ -738,6 +796,7 @@ export class ShotStage {
       flash,
       labels: this.labels,
       focus,
+      taken: (b) => lyricsOn(this.renderer, b, false),
       speed: rig.curve.speed(t),
     };
   }
@@ -767,6 +826,8 @@ export class ShotStage {
     this.slow = null;
     this.insidePass?.dispose();
     this.insidePass = null;
+    this.ground?.dispose();
+    this.ground = null;
   }
 
   /** compile the motion's materials (Echo, Slices, slow motion) ahead of the first cut, on a tiny ring */

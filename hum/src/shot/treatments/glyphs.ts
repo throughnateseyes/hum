@@ -104,6 +104,8 @@ float atlas(float index, vec2 local) {
 
 export const MAX_LINES = 8;
 export const LINE_CHARS = 40;
+/** where a line left out of the frame is put (px) */
+const OFF = -1e5;
 
 /**
  * Up to eight lines of text a treatment sets over its picture: glyph indices in a small data texture
@@ -153,6 +155,16 @@ export class TextLines {
     this.back[i].set(back?.r ?? 0, back?.g ?? 0, back?.b ?? 0, back ? 1 : 0);
   }
 
+  /** leave out the lines a lyric stands on: `taken` says so of a normalized box (y from the top); w × h is the frame */
+  without(taken: (r: { x0: number; y0: number; x1: number; y1: number }) => boolean, w: number, h: number) {
+    for (let i = 0; i < this.count; i++) {
+      const p = this.place[i];
+      let n = LINE_CHARS;
+      while (n > 0 && !this.data[(i * LINE_CHARS + n - 1) * 4]) n--;
+      if (n && taken({ x0: p.x / w, x1: (p.x + n * p.z) / w, y0: 1 - (p.y + p.w) / h, y1: 1 - p.y / h })) p.x = OFF;
+    }
+  }
+
   /** call once the lines for this frame are set */
   commit() {
     if (this.dirty) this.texture.needsUpdate = true;
@@ -177,6 +189,7 @@ uniform vec4 uLinePlace[${max}];
 uniform vec4 uLineColor[${max}];
 uniform vec4 uLineBack[${max}];
 uniform float uLines;
+float textLum(vec3 c) { return dot(pow(c, vec3(2.2)), vec3(0.2126, 0.7152, 0.0722)); }
 vec3 textOver(vec2 px, vec3 col) {
   for (int i = 0; i < ${max}; i++) {
     if (float(i) >= uLines) break;
@@ -188,11 +201,24 @@ vec3 textOver(vec2 px, vec3 col) {
     // the box behind the line runs under every letter that is set, with a little room round them
     float filled = g > 0.5 ? 1.0 : 0.0;
     if (uLineBack[i].a > 0.5 && (filled > 0.5 || (ci < 0.0 && q.x > -0.3))) col = uLineBack[i].rgb;
-    if (filled < 0.5 || q.y < 0.0 || q.y > 1.0) continue;
+    if (filled < 0.5 || q.y < -0.1 || q.y > 1.1) continue;
     // the line's height covers 0.8 of a square slot (0.12..0.92, descender to accent); a letter's
     // width is the same share of it, taken from the middle of the slot
     vec2 local = vec2(0.5 + (fract(q.x) - 0.5) * 0.8 * pl.z / pl.w, 0.12 + q.y * 0.8);
-    col = mix(col, uLineColor[i].rgb, atlas(g, local));
+    float a = atlas(g, local);
+    // set straight on the picture: a keyline, only where the picture under it is too near the letters' own colour
+    if (uLineBack[i].a < 0.5) {
+      float L = textLum(uLineColor[i].rgb);
+      float under = textLum(col);
+      float lost = 1.0 - smoothstep(4.0, 6.5, (max(L, under) + 0.05) / (min(L, under) + 0.05));
+      if (lost > 0.0) {
+        float d = max(0.055, 1.6 / pl.w);
+        float ring = a;
+        for (int k = 0; k < 8; k++) ring = max(ring, atlas(g, local + vec2(cos(float(k) * 0.7854), sin(float(k) * 0.7854)) * d));
+        col = mix(col, L > 0.18 ? uLineColor[i].rgb * 0.08 : mix(uLineColor[i].rgb, vec3(1.0), 0.94), ring * lost);
+      }
+    }
+    col = mix(col, uLineColor[i].rgb, a);
   }
   return col;
 }

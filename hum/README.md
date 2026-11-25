@@ -288,8 +288,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   picture under the text to 96×54 and checks it (windows and pop-ups included: it's read after they
   draw, just before the words), then picks the calmest place for the line, an ink
   that reads there and the lightest backing that clears the contrast target (none, a soft shadow, a
-  feathered scrim, a halo, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers
-  when a cut changes the picture. Words that sit on a pop-up window (or a very busy picture) always
+  keyline with a tight glow hugging the letters, a halo, a full-width scrim, or a paper strip on paper looks), easing between them so nothing flickers.
+  Unsung words are only as faint as the picture lets them be. The ink on screen is kept while it reads;
+  a footage look's own cuts are told to the guard, which reads the new shot at once and changes with it.
+  Under a finish the bar is higher (grain, tape and brush marks take some contrast with them), and the
+  hand-drawn one sets small lines on a torn strip of paper where a keyline would turn to scribble. Words that sit on a pop-up window (or a very busy picture) always
   get the **halo**: a fuzzy, feathered glow hugging the words in a palette colour that inverts
   against the ink (it becomes one flat ink under the hand-drawn finish), so an overlap looks meant. The per-look lyric profiles and the audit behind them are in
   [docs/LYRICS-AUDIT.md](docs/LYRICS-AUDIT.md).
@@ -413,7 +416,14 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   they're built on. With no video, the Look tab shows the takes of the look on screen.
 - **Footage** (Library → Footage, or drop video files on the page) adds your own clips. The footage
   looks cut them on the beat and print them in the song's colours, with graphics on top in one of six
-  styles: Caption, Poster, Window, Slab, Grid, Split. In the Part tab a footage look has no takes to
+  styles: Caption, Poster, Window, Slab, Grid, Split. Type a style sets straight on the clip takes
+  whichever of the clip's inks reads on most of it, and draws a keyline and glow in the other one just
+  where the picture under a letter would swallow it (the shader reads a shrunken copy of the picture,
+  `src/shot/ground.ts`, so nothing is read back and a frame always comes out the same); small labels
+  under a finish are set sturdier, on a strip where they must be. Where a song's lyrics show, Window
+  keeps its word at the top and Caption hangs from the top, and any type a lyric line still lands on
+  leaves for that line: the words and the picture's type tell each other where they are
+  (`src/render/typeRoom.ts`). In the Part tab a footage look has no takes to
   hunt through: right under it is a row of styles (**Auto** picks one for each part) and **Shuffle**,
   which lays the same style out another way, with **Previous** to go back one. Style and Shuffle
   belong to the look, so they change every part that plays it (the hint under the button says so),

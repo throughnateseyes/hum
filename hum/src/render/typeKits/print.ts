@@ -2,7 +2,7 @@ import type { Palette } from '../../core/types';
 import type { Role, TypeLayout, Voice } from '../lyricAuto';
 import { notePlate, PAD_H, PAD_V, platePad, safeInsets, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, contrast, css, easeOut, fromHsl, hash1, huesOf, lineCap, lum, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, clamp01, contrast, css, easeOut, faint, fromHsl, hash1, huesOf, lineCap, lum, mix, reach, roundRect, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Print: lettering for the risograph and ink-wash finishes (references 21, 22, 14), drawn before the
@@ -64,6 +64,19 @@ export function printInks(pal: Palette): RGB[] {
 
 /** the ink or paper that reads on a band (at least 4.5:1 when one exists) */
 const onBand = (band: RGB): RGB => (contrast(KEY, band) >= contrast(PAPER, band) ? KEY : PAPER);
+
+/**
+ * A band's colour and what is set on it: the ink, taken far enough from the words' that they hold.
+ * Riso prints black, and anything pale or in between, as loose dots; a deep colour of its own prints
+ * solid, so under it every band is the look's own ink, deep, and the words are the paper showing through.
+ */
+function bandInks(base: RGB, riso: boolean): { band: RGB; ink: RGB } {
+  const ink = riso ? PAPER : onBand(base);
+  const end: RGB = ink === PAPER ? [0, 0, 0] : [255, 255, 255];
+  let band = base;
+  for (let i = 0; i < 12 && contrast(ink, band) < (riso ? 7.5 : 6.5); i++) band = mix(band, end, 0.15);
+  return { band, ink };
+}
 
 /* ───────────────────────── display: the stretched band ───────────────────────── */
 
@@ -138,8 +151,7 @@ function drawBands(k: KitLine) {
     const age = t - first.t;
     if (age < 0) return;
     const grow = easeOut(clamp01(age / 0.22));
-    const band = inks[(ri + k.seed) % inks.length];
-    const ink = onBand(band);
+    const { band, ink } = bandInks(k.finish === 'riso' ? inks[0] : inks[(ri + k.seed) % inks.length], k.finish === 'riso');
     const ph = hash1(k.seed + ri * 13) * 6.28;
     g.save();
     g.globalAlpha = alpha;
@@ -300,7 +312,9 @@ function drawPanel(k: KitLine) {
   // the panel is a solid ink with paper letters: the riso and ink finishes dither mid-tones and thin
   // dark strokes into dots, but a flat ink and fat paper-white letters come through whole
   const deep = [...inks].sort((a, b) => lum(a) - lum(b))[0];
-  const panel = reach(deep, [0, 0, 0], 0, 0.16);
+  const panel = reach(deep, [0, 0, 0], 0, 0.07);
+  // unsung words part-way into the panel, as far as still reads on it; sung ones in paper
+  const quiet = faint(panel, PAPER, k.finish === 'riso' || k.finish === 'ink' ? 7 : 5);
   g.fillStyle = css(panel);
   g.fill();
   g.lineWidth = Math.max(1.5, size * 0.07);
@@ -311,8 +325,7 @@ function drawPanel(k: KitLine) {
   for (const w of L.words) {
     const a = arrival(L, w, t);
     wordFont(g, w);
-    // unsung words half-way into the panel, sung ones in paper
-    g.fillStyle = css(a.p >= 1 ? PAPER : mix(panel, PAPER, 0.45 + 0.55 * a.p));
+    g.fillStyle = css(a.p >= 1 ? PAPER : mix(panel, PAPER, quiet + (1 - quiet) * a.p));
     g.fillText(w.text, w.x, w.y);
   }
   g.letterSpacing = '0px';
@@ -334,6 +347,7 @@ function drawAside(k: KitLine) {
     wordFont(g, w);
     const d = w.size * 0.08;
     g.globalAlpha = alpha * a.op;
+    k.inks.under(g, w.text, w.x, w.y + a.dy, w.size);
     g.fillStyle = css(back);
     g.fillText(w.text, w.x + d, w.y + a.dy + d);
     g.fillStyle = css(ink);

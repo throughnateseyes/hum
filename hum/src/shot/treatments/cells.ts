@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { ATLAS_GLSL, BLOCK, TEXT_GLSL, TextLines, atlasTexture, glyphOf } from './glyphs';
-import { HEAD_GLSL, TAIL_GLSL, barOf, clock, headUniforms, hitsBefore, makeMaterial, strictFor, unit, type TreatFrame } from './common';
+import { HEAD_GLSL, TAIL_GLSL, barOf, clock, headUniforms, hitsBefore, makeMaterial, readable, strictFor, unit, type TreatFrame } from './common';
 
 const FRAG = /* glsl */ `
 ${HEAD_GLSL}
@@ -191,8 +191,9 @@ export class Cells {
     ];
     spots.forEach(([c, row], i) => {
       const [x, y] = at(c, row);
-      L.add(items[(i + barN) % items.length], x, y, cell, i === 2 ? s.a : s.white, s.field, cell);
+      L.add(items[(i + barN) % items.length], x, y, cell, i === 2 ? readable(s.a, s.field) : s.white, s.field, cell);
     });
+    L.without(f.taken, w, h);
     L.commit();
     u.uLines.value = L.count;
   }

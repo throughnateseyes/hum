@@ -208,6 +208,10 @@ uniform float uAlpha, uShade, uBleed, uBleedX;
 uniform float uEdges[${MAX_LETTERS}];
 uniform float uShow[${MAX_LETTERS}];
 uniform float uHide;
+uniform sampler2D tBed;
+// what goes behind a letter the picture under it would swallow (the palette's ink behind light words, its paper behind dark)
+uniform vec3 uAround;
+float lum709(vec3 c) { return dot(pow(c, vec3(2.2)), vec3(0.2126, 0.7152, 0.0722)); }
 void main() {
   float x = (vUv.x - uBleedX) / (1.0 - 2.0 * uBleedX);
   float s = uShow[0];
@@ -216,6 +220,22 @@ void main() {
   vec2 q = vec2(vUv.x, vUv.y + (1.0 - s) * 0.9);
   float cut = step(uBleed * 0.4, vUv.y) + step(0.999, s);
   float a = texture2D(tText, q).a * step(q.y, 1.0) * min(cut, 1.0) * uAlpha;
+  // the picture just here, a little blurred, against the word's colour: a soft edge in the palette's own
+  // ink where they come too close, nothing where the word already reads
+  vec2 at = gl_FragCoord.xy / uRes;
+  vec2 bl = vec2(0.006 * uRes.y) / uRes;
+  vec3 bed = (texture2D(tBed, at).rgb * 2.0 + texture2D(tBed, at + bl).rgb + texture2D(tBed, at - bl).rgb + texture2D(tBed, at + vec2(bl.x, -bl.y)).rgb + texture2D(tBed, at + vec2(-bl.x, bl.y)).rgb) / 6.0;
+  float lw = lum709(uColor), lb = lum709(bed);
+  float need = smoothstep(3.3, 1.7, (max(lw, lb) + 0.05) / (min(lw, lb) + 0.05));
+  float halo = 0.0;
+  if (need > 0.01 && uAlpha > 0.0) {
+    for (int k = 0; k < 8; k++) {
+      float t = float(k) * 0.7854;
+      vec2 d = vec2(cos(t) * uBleedX, sin(t) * uBleed);
+      halo += texture2D(tText, vUv + d * 0.22).a * 0.085 + texture2D(tText, vUv + d * 0.45).a * 0.06;
+    }
+    halo = min(1.0, halo) * smoothstep(0.85, 1.0, s) * need * uAlpha;
+  }
   float show = showing();
   if (show < 0.99 && uHide > 0.0) {
     // something thin (a cable, a wire) only dims the word, so a lot of them can't cut it to pieces
@@ -228,14 +248,15 @@ void main() {
     show = max(show, 0.5 * smoothstep(0.55, 0.78, open / 8.0));
   }
   a *= mix(1.0, show, uHide);
-  if (a < 0.004) discard;
+  halo *= mix(1.0, show, uHide) * (1.0 - a);
+  if (a + halo < 0.004) discard;
   vec3 c = uColor;
   if (uShade > 0.001) {
     float l = luma(texture2D(tFootage, clipUv(gl_FragCoord.xy / uRes)).rgb);
     c *= mix(1.0, clamp(0.5 + l * 1.35, 0.35, 1.12), uShade);
     a *= mix(1.0, smoothstep(0.03, 0.12, l), uShade * 0.8);
   }
-  gl_FragColor = vec4(c * a, a);
+  gl_FragColor = vec4(c * a + uAround * halo, a + halo);
 }
 `;
 

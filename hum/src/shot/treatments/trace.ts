@@ -27,7 +27,7 @@
  */
 import * as THREE from 'three';
 import type { Anchor } from '../stills';
-import { HEAD_GLSL, TAIL_GLSL, barOf, clock, headUniforms, hitsBefore, makeMaterial, unit, type TreatFrame } from './common';
+import { HEAD_GLSL, TAIL_GLSL, barOf, clock, headUniforms, hitsBefore, makeMaterial, readable, unit, type TreatFrame } from './common';
 import { ATLAS_GLSL, TextLines, atlasTexture, textGlsl } from './glyphs';
 
 export const MAX_TILES = 5;
@@ -511,12 +511,13 @@ export class Trace {
     }
     if (newest && grow >= 1) {
       const l = `${pad(newest[0])}.${pad(h - newest[1])}`;
-      L.add(l, fit(newest[0] + half * 0.75 + cap * 0.5, l.length), newest[1] - cap * 0.5, cap, u.uAccent.value as THREE.Color, back);
+      L.add(l, fit(newest[0] + half * 0.75 + cap * 0.5, l.length), newest[1] - cap * 0.5, cap, readable(u.uAccent.value as THREE.Color, back), back);
     }
     const stamp = `BAR ${String(barOf(f)).padStart(3, '0')} · ${clock(f.t, true)} · ${f.labels.tempo}`;
     L.add(stamp, g.m * 0.5 + cap * 0.2, g.m * 0.5 - cap * 0.3, cap, text, null);
     const count2 = `TRC ${String(steps).padStart(3, '0')} · PTS ${String(Math.min(steps, MAX_SEGS) + 1).padStart(2, '0')}`;
     L.add(count2, w - g.m * 0.5 - count2.length * cw, g.m * 0.5 - cap * 0.3, cap, text, null);
+    L.without(f.taken, w, h);
     L.commit();
     u.uLines.value = L.count;
   }

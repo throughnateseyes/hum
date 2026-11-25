@@ -2,7 +2,7 @@ import type { Palette } from '../../core/types';
 import type { Placed, Role, TypeLayout, Voice } from '../lyricAuto';
 import { noteDeco, noteInk, notePlate, platePad, spaceLog, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
-import { arrival, capOf, clamp01, css, fromHsl, hexRGB, huesOf, lineCap, mix, reach, roundRect, rowsBox, scratchCanvas, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, capOf, clamp01, css, fromHsl, hexRGB, holdsSafe, huesOf, lineCap, mix, reach, roundRect, rowsBox, scratchCanvas, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Tape: lettering off a 1984 cassette sleeve or a computer's splash screen (references 12, 15, 16,
@@ -11,7 +11,8 @@ import { arrival, capOf, clamp01, css, fromHsl, hexRGB, huesOf, lineCap, mix, re
  *   display, giant  a wide heavy logotype (Krona One, capitals), each word in its own phosphor colour
  *                   band, cut by thin horizontal stripes through its lower half, with a soft glow and
  *                   a chroma ghost either side. Above it a terminal line "> CHORUS  0:36  120 BPM",
- *                   under it a progress bar of the line being sung, all in a hairline frame
+ *                   under it a progress bar of the line being sung, all in a hairline frame (filled with dark
+ *                   glass where the picture is neither dark nor light all over)
  *   subtitle        an LED sign: the words spelled in glowing dots (VT323 rasterized to a dot grid) on a
  *                   dark plate whose unlit dots show. Sung words light up full; the rest glow faintly
  *   sparse          a terminal prompt: "> " and the words in VT323 phosphor green, a block caret after
@@ -39,7 +40,7 @@ export function tapeVoice(role: Role | 'kicker', base: Voice): Voice {
 const phosphor = (c: RGB, light: boolean): RGB => {
   const [h, s] = toHsl(c);
   const p = fromHsl(h, Math.max(0.78, s), light ? 0.6 : 0.36);
-  return light ? reach(p, [235, 240, 255], 0.36) : reach(p, [0, 0, 0], 0, 0.12);
+  return light ? reach(p, [235, 240, 255], 0.36) : reach(p, [0, 0, 0], 0, 0.06);
 };
 
 /** four band colours from the look's hues: its own, then the colours opposite them */
@@ -61,7 +62,7 @@ export function tapeBands(pal: Palette, light: boolean): RGB[] {
 export function termInk(pal: Palette, light: boolean): RGB {
   const h = toHsl(hexRGB(pal.accent))[0];
   const warm = h >= 18 && h <= 55;
-  return light ? (warm ? [255, 184, 64] : [92, 255, 150]) : warm ? [150, 82, 0] : [10, 110, 56];
+  return light ? (warm ? [255, 184, 64] : [92, 255, 150]) : warm ? [104, 54, 0] : [4, 74, 36];
 }
 
 /* ───────────────────────── LED sign (subtitle) ───────────────────────── */
@@ -189,8 +190,9 @@ function drawLed(k: KitLine, col: RGB) {
     const a = arrival(L, wd, t);
     const s = led!.spans[i];
     if (!s) return;
-    // unsung words glow faintly, sung ones full; the newest lights left to right
-    g.globalAlpha = alpha * 0.26;
+    // unsung words are lit part-way (enough to read through the tape), sung ones full; the newest
+    // lights left to right
+    g.globalAlpha = alpha * 0.64;
     drawPart(g, led!.on, s.x, s.y, s.w, s.h, x0, y0);
     if (a.p > 0) {
       g.globalAlpha = alpha;
@@ -213,7 +215,7 @@ function drawPart(g: CanvasRenderingContext2D, src: HTMLCanvasElement, x: number
 
 const isTerm = (w: Placed) => w.voice.family === TERM;
 
-function drawLogotype(k: KitLine) {
+function drawLogotype(k: KitLine, glass: boolean) {
   const { g, L, t, alpha, W, H } = k;
   const bands = tapeBands(k.pal, k.light);
   const term = termInk(k.pal, k.light);
@@ -274,7 +276,7 @@ function drawLogotype(k: KitLine) {
   g.save();
   g.globalAlpha = alpha;
   // the hairline frame, the terminal line above and the progress bar under the line
-  chrome(k, big, term);
+  chrome(k, big, term, glass);
   if (any) {
     if (k.light) {
       g.shadowColor = css(mix(bands[k.seed % 4], [255, 255, 255], 0.3), 0.7);
@@ -332,7 +334,7 @@ function frameOf(L: TypeLayout, W: number, H: number) {
 }
 
 /** the small secondary lines round a display line: song facts, a bar for the line, a frame */
-function chrome(k: KitLine, big: Placed[], term: RGB) {
+function chrome(k: KitLine, big: Placed[], term: RGB, glass: boolean) {
   const { g, L, t, W, H, facts } = k;
   if (!big.length) return;
   const f = frameOf(L, W, H);
@@ -340,6 +342,10 @@ function chrome(k: KitLine, big: Placed[], term: RGB) {
   // drawn on over the line's first moment
   const on = clamp01((t - k.start) / 0.35);
   g.save();
+  if (glass) {
+    g.fillStyle = `rgba(10, 8, 16, ${(0.86 * on).toFixed(3)})`;
+    g.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
   g.strokeStyle = css(term, 0.55 * on);
   g.lineWidth = Math.max(1, fs * 0.08);
   g.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, Math.round(x1 - x0), Math.round(y1 - y0));
@@ -470,20 +476,27 @@ function drawTerm(k: KitLine, words: Placed[], col: RGB, caret: boolean) {
 
 /* ───────────────────────── entry ───────────────────────── */
 
+/**
+ * Are the bare phosphor colours lost there? They read on a dark picture (bright ones) or a light one
+ * (deep ones), and on nothing in between or both: there the words get their screen's dark glass.
+ */
+const needsGlass = (k: KitLine) => holdsSafe(k, (k.L.role === 'aside' && k.inks.keyed) || !(k.light ? k.inks.hi < 0.07 : k.inks.lo > 0.48));
+
 export function drawTape(k: KitLine) {
   if (k.L.role === 'caption') {
     const bands = tapeBands(k.pal, true);
     drawLed(k, bands[k.seed % bands.length]);
     return;
   }
+  const glass = needsGlass(k);
   if (k.L.role === 'aside') {
-    if (!k.light) {
+    if (!k.light || glass) {
       // on a light or busy picture the dark phosphor colours vanish: the prompt gets its own little
       // terminal window instead, dark glass with a hairline, and glows as it does on a dark picture
       const box = termWindow(k.L);
       k.g.save();
       k.g.globalAlpha = k.alpha * clamp01((k.t - k.start + 0.2) / 0.2);
-      k.g.fillStyle = 'rgba(10, 8, 16, 0.84)';
+      k.g.fillStyle = 'rgba(10, 8, 16, 0.86)';
       k.g.fillRect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
       k.g.strokeStyle = css(termInk(k.pal, true), 0.6);
       k.g.lineWidth = Math.max(1, k.L.size * 0.04);
@@ -496,11 +509,11 @@ export function drawTape(k: KitLine) {
     drawTerm(k, k.L.words, termInk(k.pal, k.light), true);
     return;
   }
-  drawLogotype(k);
+  drawLogotype(glass ? { ...k, light: true } : k, glass);
 }
 
 /** without panels (Panels and bands switched off): the sign's words as terminal type, no plate and no window */
 export function drawTapeBare(k: KitLine) {
   if (k.L.role === 'caption' || k.L.role === 'aside') return drawTerm(k, k.L.words, termInk(k.pal, k.light), k.L.role === 'aside');
-  drawLogotype(k);
+  drawLogotype(k, false);
 }

@@ -7,7 +7,7 @@ import { getScene } from '../scenes';
 import { buildCutout, cutoutMoving, drawCutout, type CutoutLayout } from './cutout';
 import { FAMILY_FONTS, dropMoment, drawLine, layoutLine, moving, treatmentFor, voiceFor, type Box, type Inks, type Role, type Treatment, type TypeLayout } from './lyricAuto';
 import { hostFor, type HostLine } from './lyricHosts';
-import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr, applyShadow, badShare, coverNow, coveredL, coveredShare, css, drawBacking, drawHalo, hexRGB, inksFor, judge, lumOf, regionStats, type Backing, type KeepOut, type RGB, type Rect, type RegionStats } from './legibility';
+import { COVER, FrameProbe, Guard, NEAR_BLACK, NEAR_WHITE, NO_KEEP_OUT, accentOr, applyShadow, badShare, coverNow, coveredL, coveredShare, css, drawBacking, drawHalo, drawKeyline, hexRGB, inksFor, judge, lumOf, regionStats, type Backing, type KeepOut, type RGB, type Rect, type RegionStats } from './legibility';
 import { ladderFor, profileFor, type LyricProfile, type Zone } from './lyricProfiles';
 import { chooseForLine, lyricPlanNow, seeded, setLyricNow, type LyricChoice, type LyricMoment } from '../state/lyricPlan';
 import { FACES, LYRIC_FAMILIES, ensureLyricFont, lyricFontVersion } from './lyricFonts';
@@ -50,9 +50,12 @@ import { buildKnockout, drawKnockout, fieldFor, kickStep, knockoutBoxes, knockou
  *
  * Every style is guarded (legibility.ts): the frame under the text is sampled every few frames (after
  * scene windows and pop-ups are drawn, so it's what the words really sit on) and the ink and backing
- * (shadow, soft scrim, halo, full-width scrim, paper strip) are eased to whatever clears the contrast
+ * (shadow, keyline, halo, full-width scrim, paper strip) are eased to whatever clears the contrast
  * target there. Words over a pop-up window (or a very busy picture) always get the halo, a fuzzy
  * palette-coloured glow round the words, so the overlap reads as meant.
+ *
+ * The picture's own type (a footage style's title, a treatment's labels) counts as something to keep
+ * off too, and leaves where a line has to stand on it; its cuts are told here as well (typeRoom.ts).
  *
  * Pop-ups and windows keep clear of the words: prepare() lays the line out before they draw and
  * keepOut() hands them its box (and where the next line will likely land), so they open elsewhere
@@ -270,6 +273,10 @@ export class LyricLayer {
   private lineWindow = false;
   /** look + scene the guard last saw, to notice cuts */
   private lookKey = '';
+  /** the finish on the part playing (it works on the words too: see strictness and ladderNow) */
+  private finish: FinishId = 'clean';
+  /** the picture was cut this frame (see cut()) */
+  private cutNow = false;
   /** the accent passes the same per-pixel contrast test as the ink (else the giant word uses the ink) */
   private accentOK = false;
   /** the line that just made way, fading out over the new one (a copy of its last frame) */
@@ -316,9 +323,15 @@ export class LyricLayer {
     this.probe.sampleScreen(r, w, h);
   }
 
-  /** the pop-up windows on screen this frame (normalized boxes), so a line over one gets the halo */
+  /** the pop-up windows on screen this frame, and the picture's own type (normalized boxes), so a line over one gets the halo */
   setOccluders(rects: Rect[]) {
     this.occluders = rects;
+  }
+
+  /** the picture under the words was cut without the look changing (one footage shot to the next) */
+  cut() {
+    this.probe.refresh();
+    this.cutNow = true;
   }
 
   /** where the words are (and the next line will likely be), for windows to keep clear of; see prepare() */
@@ -405,6 +418,7 @@ export class LyricLayer {
     const hostKey = hostFor(st.sceneId) ? st.sceneId : '-';
     // the type kit: a change of finish (or of the Lettering setting) sets the line again in the new kit
     const kit = this.kitNow(o);
+    this.finish = o.finish ?? 'clean';
     const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}|${kit.id}${panelsAt(o.t) ? '' : ' bare'}|${kitFontVersion()}`;
     if (this.line?.key !== key) {
       // the next line arrived while this one was still up: fade it out over the new one
@@ -480,11 +494,15 @@ export class LyricLayer {
       this.lookKey = lookNow;
       this.guard.jolt(now);
     }
+    if (this.cutNow) {
+      this.cutNow = false;
+      this.guard.snap(now);
+    }
     // legibility: re-judge the box whenever a new probe arrives, ease toward it every frame
     if (guarded && this.probe.version > 0 && this.probe.version !== this.probed) {
       this.probed = this.probe.version;
       L.stats = regionStats(this.probe, L.rect);
-      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target, ladder: this.ladderNow(L, L.stats), pal: o.palette });
+      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target * this.strictness(), ladder: this.ladderNow(L, L.stats), pal: o.palette, hold: t - line.t < FADE_IN + 0.12 ? undefined : this.guard.held });
       // while the line is still fading in nobody can see a jump, so take the new verdict outright
       // (shots often cut on the very line start, so the first probe may still show the last look)
       if (t - line.t < FADE_IN + 0.12) this.guard.reset(v);
@@ -541,7 +559,7 @@ export class LyricLayer {
           const boxes = knockoutBoxes(ko, tSung);
           if (boxes.length) drawBacking(g, boxes, this.guard, ko.shadowSize, W, alpha, L.i + 1);
           const c = this.inks(o.palette, L);
-          const base = { ink: c.ink, accent: c.accent, shadow: c.shadow };
+          const base = { ink: c.ink, accent: c.accent, shadow: c.shadow, under: c.under, lo: c.lo, hi: c.hi };
           // under a kit, its face set huge and inked its way (a glow on tape, a flat print shadow on film)
           const kc = L.kit.knockInks ? L.kit.knockInks(base, lumOf(this.guard.ink) > 0.5, o.palette) : base;
           drawKnockout(g, ko, tSung, alpha, kc, o.audio.kick, W, H);
@@ -566,7 +584,7 @@ export class LyricLayer {
             if (this.guard.mix.halo > 0.02) drawHalo(g, haloSpans(L.type, t), this.guard, L.type.size, W, alpha);
           }
           if (L.kit.draw) {
-            L.kit.draw({ g, L: L.type, t, alpha: Math.max(0, alpha), inks: this.inks(o.palette, L), light: lumOf(this.guard.ink) > 0.5, pal: o.palette, audio: o.audio, drop, W, H, medium, facts: songFacts(an, o.t, L.nth, L.of), seed: L.choice?.seed ?? L.i * 7919 + 1, start: L.start });
+            L.kit.draw({ g, L: L.type, t, alpha: Math.max(0, alpha), inks: this.inks(o.palette, L), light: lumOf(this.guard.ink) > 0.5, finish: o.finish ?? 'clean', pal: o.palette, audio: o.audio, drop, W, H, medium, facts: songFacts(an, o.t, L.nth, L.of), seed: L.choice?.seed ?? L.i * 7919 + 1, start: L.start });
           } else drawLine(g, L.type, t, Math.max(0, alpha), this.inks(o.palette, L), o.audio, drop);
         }
         g.restore();
@@ -578,6 +596,17 @@ export class LyricLayer {
     r.autoClear = false;
     this.quad.render(r, target);
     r.autoClear = ac;
+  }
+
+  /** a finish that works on the words takes some of their contrast with it, so they start with more */
+  private strictness(): number {
+    return this.finish === 'clean' ? 1 : 1.3;
+  }
+
+  /** how faint unsung words may be under the finish: the drawn finish has no half tones for them, and film's halation eats thin dark strokes */
+  private quietNow(): number {
+    if (this.finish === 'hand') return 1;
+    return this.finish === 'film' && lumOf(this.guard.ink) < 0.4 ? Math.max(0.94, this.guard.quiet) : this.guard.quiet;
   }
 
   private inkList(pref: LineState['inks'], pal: Palette, st: RegionStats | null): RGB[] {
@@ -594,6 +623,10 @@ export class LyricLayer {
   private ladderNow(L: LineState, st: RegionStats): Backing[] {
     // knockout answers a busy picture with its field, not a halo
     if (L.medium === 'knockout') return L.ladder;
+    // drawn over by hand, a thin keyline or a glow round small type dissolves into the marks: it gets a torn
+    // strip of paper instead. Large type keeps the halo, which the drawing lays down as one flat ink
+    if (this.finish === 'hand' && L.target < 4) return ['none', 'halo'];
+    if (this.finish === 'hand') return st.edge >= BUSY_EDGE || coveredShare(L.rect, this.occluders) > OVER_WINDOW ? ['paper'] : ['none', 'paper'];
     if (coveredShare(L.rect, this.occluders) > OVER_WINDOW) return ['halo', ...L.ladder.filter((b) => b === 'band' || b === 'paper')];
     if (st.edge >= BUSY_EDGE) {
       if (L.ladder.includes('soft')) return L.ladder.map((b) => (b === 'soft' ? 'halo' : b));
@@ -620,6 +653,12 @@ export class LyricLayer {
       accent: this.accentOK ? css(accentOr(hexRGB(pal.accent), gd.ink, bgL)) : css(gd.ink),
       accent2: css(accentOr(hexRGB(pal.accent2), gd.plate, bgL, 1.5)),
       shadow: (g, size) => applyShadow(g, gd, size, 1),
+      under: (g, text, x, y, size) => drawKeyline(g, gd, text, x, y, size),
+      quiet: this.quietNow(),
+      lo: gd.lo,
+      hi: gd.hi,
+      edge: gd.edge,
+      keyed: gd.mix.soft > 0.5,
     };
   }
 
@@ -790,7 +829,7 @@ export class LyricLayer {
     // a new line starts invisible, so the guard can jump straight to what this box needs
     if (L.medium !== 'cutout' && this.probe.version > 0) {
       L.stats = regionStats(this.probe, L.rect);
-      this.guard.reset(judge(this.probe, L.rect, { inks: this.inkList(L.inks, pal, L.stats), target: L.target, ladder: this.ladderNow(L, L.stats), pal }));
+      this.guard.reset(judge(this.probe, L.rect, { inks: this.inkList(L.inks, pal, L.stats), target: L.target * this.strictness(), ladder: this.ladderNow(L, L.stats), pal }));
       this.probed = this.probe.version;
       this.accentOK = this.accentReads(L, pal);
     }

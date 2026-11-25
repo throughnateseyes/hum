@@ -21,6 +21,7 @@ import { FxChain } from './fxChain';
 import { DrawOverlay } from '../draw/overlay';
 import { LyricLayer } from './lyricLayer';
 import { NO_KEEP_OUT } from './legibility';
+import { clearType, cutsSeen, setFinished, setLyricRoom, typeBoxes } from './typeRoom';
 import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
 import { activeFinish, partWordsAt } from '../state/direction';
@@ -197,6 +198,8 @@ export class Stage {
   /** the next section's scene, created and drawn once ahead of time so a cut lands without a compile stall */
   private warm: Live | null = null;
   private warmFresh = false;
+  /** how many times the picture's own type has reported a cut (see typeRoom) */
+  private cutsSeen = 0;
   private lyricLayer = new LyricLayer();
   /** small drawings beside the sung words (only with drawings in the song) */
   private drawOverlay = new DrawOverlay();
@@ -947,6 +950,8 @@ export class Stage {
     };
 
     const r = this.renderer;
+    clearType(r);
+    setFinished(r, finish !== 'clean');
     const drawScene = (live: Live, target: THREE.WebGLRenderTarget, params: ParamValues, palette = this.palette) => {
       r.setRenderTarget(target);
       r.setClearColor(palette.c.bg, 1);
@@ -1026,13 +1031,21 @@ export class Stage {
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: inks ?? s.palette, width: this.width, height: this.height, audio, finish } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
     if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
+    // the picture's own type (a footage style's title and slates) hears where the words are, for its next frame
+    setLyricRoom(r, lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT);
     const keep = this.drawOverlay.prepare(s, audio.time, this.width, this.height, lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT);
     if (lyricOpts && keep.now) noteWords(this.lyricLayer.keepOut().now ?? keep.now);
     // after they draw: where they are (words on one get the halo), and the legibility guard reads
     // what the words will really sit on, windows and pop-ups included (a tiny readback every other frame)
     const beforeLyrics = (rt: THREE.WebGLRenderTarget | null) => {
       if (!lyricOpts) return;
-      this.lyricLayer.setOccluders([...this.sceneWindows.occupied(), ...this.popups.occupied()]);
+      this.lyricLayer.setOccluders([...this.sceneWindows.occupied(), ...this.popups.occupied(), ...typeBoxes(r)]);
+      // a footage look cuts from shot to shot by itself: the guard reads the new picture at once
+      const cuts = cutsSeen(r);
+      if (cuts !== this.cutsSeen) {
+        this.cutsSeen = cuts;
+        this.lyricLayer.cut();
+      }
       if (rt) this.lyricLayer.sample(r, rt.texture, this.shared.blit);
       else this.lyricLayer.sampleScreen(r, this.width, this.height);
     };

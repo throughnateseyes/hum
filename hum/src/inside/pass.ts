@@ -43,6 +43,8 @@ export interface Finish {
 /** shared by every material drawn in the place */
 export interface PlaceUniforms {
   tNear: { value: THREE.Texture | null };
+  /** the picture behind everything that stands in it, for a word to read its ground */
+  tBed: { value: THREE.Texture | null };
   uRes: { value: THREE.Vector2 };
   uZScale: { value: number };
   tFootage: { value: THREE.Texture | null };
@@ -126,6 +128,7 @@ export class InsidePass {
     for (const t of [this.nearRT, this.bedRT, this.overRT, this.outRT]) t.texture.colorSpace = THREE.NoColorSpace;
     this.place = {
       tNear: { value: this.nearRT.texture },
+      tBed: { value: this.bedRT.texture },
       uRes: { value: new THREE.Vector2(width, height) },
       uZScale: { value: 1 },
       tFootage: { value: null },

@@ -253,6 +253,8 @@ export class InsideShot {
           uEdges: { value: edges },
           uShow: { value: new Array(MAX_LETTERS).fill(0) },
           uHide: { value: put.score > 0 ? 1 : 0 },
+          tBed: this.pass.place.tBed,
+          uAround: { value: new THREE.Color() },
         });
         const mesh = new THREE.Mesh(unit, mat);
         mesh.matrixAutoUpdate = false;
@@ -703,6 +705,11 @@ export class InsideShot {
     noteThing({ key: standingKey(s.partStart), kind: 'standing', name: d.drawn.asset.name, box: shown(this.seatFrame(d.seat, t)), spot, from: s.start, to: s.end, hand: !!d.drawn.spots, ratio: ratioOf(d.drawn), ref: d.drawn.asset.id, part: s.partStart, push: zoom });
   }
 
+  /** the room the words that are up take in the frame (y from the top), as drawn */
+  wordBoxes(): { x0: number; y0: number; x1: number; y1: number }[] {
+    return this.boxes.map((b) => ({ x0: b.x0, x1: b.x1, y0: 1 - b.y1, y1: 1 - b.y0 }));
+  }
+
   /**
    * The words that are up stay in the frame whatever the place does: one that the picture's own movement
    * would carry over the edge is held at it. Says how far the picture can be pushed in with them all still in.
@@ -773,7 +780,9 @@ export class InsideShot {
         const each = Math.min(0.028, 0.16 / Math.max(1, w.letters));
         for (let k = 0; k < MAX_LETTERS; k++) show[k] = outQuint((t - (w.from - 0.1) - k * each) / 0.2);
         w.mat.uniforms.uAlpha.value = (t >= w.from - 0.11 ? 1 : 0) * (1 - leaving);
-        (w.mat.uniforms.uColor.value as THREE.Color).set(this.wordColor(st, amount, now, p));
+        const colour = this.wordColor(st, amount, now, p);
+        (w.mat.uniforms.uColor.value as THREE.Color).set(colour);
+        (w.mat.uniforms.uAround.value as THREE.Color).set(lum(colour) < 0.4 ? p.paper : p.ink);
       }
     });
   }

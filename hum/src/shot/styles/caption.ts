@@ -6,7 +6,8 @@
  *
  * Where the word stands, by the shot's layout number: in a tall frame it runs up the left edge (its
  * tops cut off) or the right edge (its feet cut off); in a wide one it stands on the bottom edge or
- * hangs from the top. It is set in paper, or in the accent.
+ * hangs from the top. It is set in paper, or in the accent (or in ink, on a bright clip). In a song
+ * whose lyrics are showing it always hangs from the top, above them.
  *
  *   arrives   the word's letters come out of the edge one after another, within 0.2 s
  *   the beat  only the small squares change, one step per beat
@@ -15,7 +16,7 @@
 import * as THREE from 'three';
 import { arrival, beatIndex, Flat, handOver, settling, type StyleFactory } from '../kit';
 import { DISPLAY_FONT, lineWidth, MONO_FONT, placeLine, riseLetters, typeLine, type TypeLine } from '../type';
-import { choose } from './common';
+import { choose, inkOver, LARGE, SMALL } from './common';
 
 /** how much of the word's cap height the frame's edge cuts off */
 const CROP = 0.22;
@@ -32,11 +33,12 @@ export const caption: StyleFactory = (ctx) => {
   const s = ctx.scheme;
   const group = new THREE.Group();
   // which edge: in a tall frame 'left' or 'right', in a wide one 'bottom' or 'top'
-  const first = choose(ctx, [true, false, true] as const);
-  const upright = g.portrait;
-  const ink = choose(ctx, [s.paper, s.paper, s.accent] as const, 2);
+  const first = choose(ctx, [true, false, true] as const) && !ctx.lyrics;
+  const upright = g.portrait && !ctx.lyrics;
+  const { ink, around } = inkOver(ctx, choose(ctx, [s.paper, s.paper, s.accent] as const, 2));
   const word = (ctx.word || ctx.labels.title || 'HUM').toUpperCase();
   const big = typeLine(word, ink, DISPLAY_FONT, 360);
+  big.over(around, LARGE);
   group.add(big.mesh);
   // the frame's side the word runs along, and the side across it
   const along = upright ? g.halfH * 2 : g.halfW * 2;
@@ -49,6 +51,7 @@ export const caption: StyleFactory = (ctx) => {
   const topsOut = upright ? first : !first;
 
   const slate = typeLine(`${ctx.labels.part}  ${ctx.labels.time}  ${ctx.labels.tempo}`.toUpperCase(), ink, MONO_FONT, 64);
+  slate.over(around, SMALL);
   group.add(slate.mesh);
   const ticks = [0, 1, 2, 3].map(() => new Flat(group, ink, 'rect', 5));
 

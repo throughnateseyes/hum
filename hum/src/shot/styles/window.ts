@@ -7,7 +7,8 @@
  * The opening, by the shot's layout number:
  *   bleed    a rectangle running off three edges of the frame
  *   inset    a rectangle inside the margins, on the grid's lines
- * and the word below the picture or above it.
+ * and the word below the picture or above it (always above it while the song's lyrics are showing, which
+ * sit in the lower two thirds: then the two never trade places either).
  *
  *   arrives   the shot opens on full-frame footage; within 0.2 s the field closes in to the opening and
  *             the word's letters rise
@@ -29,7 +30,7 @@ export const window: StyleFactory = (ctx) => {
   const shape = choose(ctx, ['bleed', 'inset'] as const);
   const hole = new Flat(mask, MASK_A, 'rect', 1);
   const { halfW: W, halfH: H } = g;
-  const wordBelow = ((ctx.layout >> 3) & 1) === 0;
+  const wordBelow = ((ctx.layout >> 3) & 1) === 0 && !ctx.lyrics;
 
   // the field's strip for the word: the last third of the frame (in rows of the grid)
   const stripRows = Math.max(1, Math.round(g.rows * (g.portrait ? 0.3 : 0.36)));
@@ -59,7 +60,7 @@ export const window: StyleFactory = (ctx) => {
       const open = Math.max(handOver(ctx, f.t), settling(ctx, f.t));
       bed.tone[0] = field.field;
       bed.tone[1] = field.inside;
-      const { n, e } = barStep(ctx, f.t);
+      const { n, e } = ctx.lyrics ? { n: 0, e: 1 } : barStep(ctx, f.t);
       // a hard trade on each bar line: the move is quick and lands on the bar
       const below = (n % 2 === 0) === wordBelow;
       const was = n === 0 ? below : !below;

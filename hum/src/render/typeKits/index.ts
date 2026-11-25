@@ -9,6 +9,7 @@ import { kitFontsReady, loadKitFonts, type FontKit } from './fonts';
 import { drawPrint, drawPrintBare, printReachBare, printInks, printReach, printVoice } from './print';
 import { drawTape, drawTapeBare, tapeBands, tapeReach, tapeVoice } from './tape';
 import type { Insets } from '../lyricSpace';
+import { inkOn } from '../legibility';
 
 /**
  * Type kits: the lettering belongs to the finish. Each finish has a kit (a display face, a text face,
@@ -90,12 +91,12 @@ const TAPE: TypeKit = {
   voice: tapeVoice,
   draw: drawTape,
   reach: tapeReach,
-  ownPlate: (role) => role === 'caption',
+  ownPlate: (role) => role === 'caption' || role === 'display' || role === 'giant',
   knockFace: 'kit-tape',
   knockInks: (base, light, pal) => {
     const col = tapeBands(pal, light)[0];
     return {
-      ink: base.ink,
+      ...base,
       accent: css(col),
       // a phosphor glow round the letters
       shadow: (g, size) => {
@@ -116,12 +117,16 @@ const FILM: TypeKit = {
   voice: filmVoice,
   draw: drawFilm,
   reach: filmReach,
+  // the display letters carry their own keyline and shadows (film.ts), so the guard adds nothing
+  ownPlate: (role) => role === 'display' || role === 'giant',
   knockFace: 'kit-film',
   knockInks: (base, light, pal) => {
     const c = filmInks(pal, light);
+    const ink = css(inkOn(c.main, base.lo, base.hi, 3.4).ink);
     return {
-      ink: css(c.main),
-      accent: css(c.main),
+      ...base,
+      ink,
+      accent: ink,
       // one flat offset shadow in the warm shadow colour, like a printed title
       shadow: (g, size) => {
         g.shadowColor = css(c.sh1);
@@ -146,8 +151,7 @@ const PRINT: TypeKit = {
   knockInks: (base, light, pal) => {
     const inks = printInks(pal);
     return {
-      ink: base.ink,
-      accent: base.accent,
+      ...base,
       shadow: (g, size) => {
         g.shadowColor = css(light ? inks[0] : mix(inks[0], hexRGB('#ffffff'), 0.2));
         g.shadowBlur = 0;

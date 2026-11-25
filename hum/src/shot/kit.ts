@@ -97,6 +97,10 @@ export interface StyleContext {
   colour: Colour;
   /** how loud the part is, 0..1 */
   energy: number;
+  /** the brightness levels (0..1) that split the shot's picture into five equal parts */
+  cuts: number[];
+  /** the song's lyrics show over this shot: type keeps to the top of the frame, where they never are */
+  lyrics: boolean;
   /** how the shot arrives and leaves (see Shot in sequence.ts), and the frames it holds still on a hit (s) */
   arrive: 'hit' | 'cold';
   leave: 'ramp' | 'settle' | 'cut';
