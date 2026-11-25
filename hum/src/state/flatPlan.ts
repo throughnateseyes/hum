@@ -20,6 +20,7 @@
  * from before a reload, Claude's plan swapped in by one-tap start, a map started from one look), so a
  * plan never plays unflattened. A remake that keeps changes carries them by time (carryEdits).
  */
+import { NOTHING } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import type { Lyrics, Preset, TrackAnalysis } from '../core/types';
 import { duringRecut, boundsOf, cutAnalysis, originalOf } from './planCache';
@@ -165,7 +166,7 @@ export function carryEdits(next: { plan: VideoPlan; analysis: TrackAnalysis }, p
   const pa = prev.analysis;
   if (!validPlan(prev.plan, pa) || originalOf(pa) !== originalOf(next.analysis)) return { ...next, kept: 0 };
   const pp = withBase(prev.plan, pa);
-  const edits = partEdits(pp, pa, null, null, null);
+  const edits = partEdits(pp, pa, null, null, null, undefined, null);
   const liked = pp.liked ?? [];
   const keep = pa.sections
     .map((sec, k) => ({ k, sec, look: !!edits[k]?.look || !!liked[k], lyric: !!edits[k]?.lyric, liked: !!liked[k] }))
@@ -235,7 +236,7 @@ export function carryByTime<T>(arr: (T | null)[] | null, from: TrackAnalysis, to
  * and every per-part setting moved to them, in one store change. Doesn't touch the song's position.
  *
  *   keep       the plan playing before: its changes are carried across (carryEdits)
- *   freshPops  the pop-up levels set by hand go (a remake that starts fresh)
+ *   freshPops  the pop-up levels set by hand go, and what was placed by hand (a remake that starts fresh)
  *   restore    a saved plan coming back (the cache, a reload): its per-part settings are the ones saved
  *              with it (planCache brings them back), so the ones in the store aren't moved onto it
  *
@@ -272,6 +273,7 @@ export function putOn(plan: VideoPlan, a: TrackAnalysis, opts: { keep?: VideoPla
       : opts.freshPops
         ? { partPops: null }
         : {}),
+    ...(opts.freshPops ? { placed: NOTHING } : {}),
   };
   const apply = () => {
     if (audioEngine.analysis !== out.analysis) audioEngine.setAnalysis(out.analysis);

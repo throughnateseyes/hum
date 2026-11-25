@@ -5,9 +5,11 @@
 import { drawingNow, drawingsHere } from '../draw/session';
 import type { Shot } from '../shot/sequence';
 import type { Drawn } from './drawn';
+import { cleanDrawn } from './drawnIds';
 
 export function drawnIn(shot: Shot): Drawn | null {
-  if (!shot.drawn) return null;
-  const asset = drawingNow(shot.drawn.id, drawingsHere());
-  return asset ? { asset, put: shot.drawn.put, size: shot.drawn.size, enter: shot.drawn.enter, arrives: shot.index === 0 } : null;
+  const d = cleanDrawn(shot.drawn);
+  if (!d) return null;
+  const asset = drawingNow(d.id, drawingsHere());
+  return asset ? { asset, put: d.put, size: d.size, enter: d.enter, ...(d.spots ? { spots: d.spots } : {}), arrives: shot.index === 0 } : null;
 }

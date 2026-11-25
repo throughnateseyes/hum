@@ -582,6 +582,7 @@ function PartsRow({
   const lyrics = useStudio((s) => s.lyrics);
   const selected = useStudio((s) => s.selectedParts);
   const partPops = useStudio((s) => s.partPops);
+  useStudio((s) => s.placed);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
   const partShot = useStudio((s) => s.partShot);

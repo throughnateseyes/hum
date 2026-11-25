@@ -8,7 +8,7 @@ import { useDrawingsHere } from '../draw/hooks';
 import { cancelJob, retryJob, useDrawJobs, type DrawJob } from '../draw/jobs';
 import { drawingNow } from '../draw/session';
 import type { DrawingAsset } from '../draw/types';
-import { DRAWN_PUTS, type DrawnPut, type DrawnShot } from '../inside/drawnIds';
+import { HAND_PUTS, type DrawnShot, type HandPut } from '../inside/drawnIds';
 import { seatedAt, useSeated } from '../inside/seated';
 import { shotOfPart } from '../shot/partShots';
 import { setPartsShot } from '../state/partEdit';
@@ -16,7 +16,7 @@ import { partNames, validPlan } from '../state/plan';
 import { useStudio, type StudioState } from '../state/store';
 import { X } from './Icons';
 
-export const PUT_NAMES: Record<DrawnPut, string> = { ground: 'On the ground', between: 'Behind people', far: 'Far off', wall: 'Along a wall' };
+export const PUT_NAMES: Record<HandPut, string> = { ground: 'On the ground', between: 'Behind people', far: 'Far off', wall: 'Along a wall', front: 'In front' };
 
 interface Placed {
   i: number;
@@ -104,8 +104,8 @@ function Shot({ p, ready }: { p: Placed; ready: boolean }) {
         <span>{p.drawn.why || p.name}</span>
       </button>
       <div className="dr-how">
-      <select className="dr-put" aria-label={`Where it stands at ${clock(p.at)}`} value={p.drawn.put} onChange={(e) => setPartsShot([p.i], { drawn: { ...p.drawn, put: e.target.value as DrawnPut } })}>
-        {DRAWN_PUTS.map((x) => (
+      <select className="dr-put" aria-label={`Where it stands at ${clock(p.at)}`} value={p.drawn.put} onChange={(e) => setPartsShot([p.i], { drawn: { ...p.drawn, put: e.target.value as HandPut } })}>
+        {HAND_PUTS.map((x) => (
           <option key={x} value={x}>
             {PUT_NAMES[x]}
           </option>

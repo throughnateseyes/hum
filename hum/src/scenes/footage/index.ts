@@ -52,6 +52,7 @@ import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
 import { wordsIn } from '../../inside/lines';
 import { drawnIn } from '../../inside/cast';
+import { drawnKey } from '../../inside/drawnIds';
 import { readingOf } from '../../inside/readings';
 import { STYLE_IDS, STYLE_NAMES } from '../../shot/styles';
 import { TREATMENT_IDS, TREATMENT_NAMES, type TreatmentId } from '../../shot/treatments';
@@ -122,7 +123,7 @@ const params: ParamDef[] = [
 ];
 
 /** the run's key for a part: its settings and its own pictures */
-const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${r.drawn.put}.${r.drawn.size}.${r.drawn.enter}` : ''}`;
+const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${drawnKey(r.drawn)}` : ''}`;
 
 /**
  * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video

@@ -18,6 +18,7 @@
  * the same step (plan.ts recutParts); the plan keeps the new part lines as `bounds`, so a re-plan, the
  * plan cache and a reload all find them again.
  */
+import { withoutAny, withoutPops } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import type { PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import { rememberTake } from '../presets/fit';
@@ -172,6 +173,10 @@ function setStored<K extends 'partPops' | 'partHand' | 'partWords'>(key: K, is: 
 export function setPartsPops(is: number[], level: number | null) {
   const v = level === null || !Number.isFinite(level) ? null : Math.max(0, Math.min(3, Math.round(level)));
   setStored('partPops', is, v);
+  // what was placed by hand there goes: how many come up is being asked for again
+  const s = useStudio.getState();
+  const placed = withoutPops(s.placed, s.analysis ? partsIn(is, s.analysis).map((i) => s.analysis!.sections[i]) : []);
+  if (placed !== s.placed) s.set({ placed });
 }
 
 export function setPartPopsLevel(i: number, level: number | null) {
@@ -351,11 +356,12 @@ export function resetParts(is: number[]) {
   const partHand = withValue(s.partHand, n, parts, null);
   const partWords = withValue(s.partWords, n, parts, null);
   const partShot = withValue(s.partShot, n, parts, null);
+  const placed = withoutAny(s.placed, parts.map((i) => a.sections[i]));
   // the plan's "kept your changes" line goes once nothing is changed any more
-  if (partEdits(next, a, partPops, partHand, partWords, partShot).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
+  if (partEdits(next, a, partPops, partHand, partWords, partShot, placed).every((e) => !e)) next = { ...next, note: next.note.replace(/ Kept your changes to [^.]*\.$/, '') };
   const name = partsName(parts, a);
   commit(next);
-  s.set({ partPops, partHand, partWords, partShot });
+  s.set({ partPops, partHand, partWords, partShot, placed });
   s.flash(`${name} ${parts.length > 1 ? 'are' : 'is'} back to the plan`);
 }
 

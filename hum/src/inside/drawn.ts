@@ -15,26 +15,29 @@ import type { DrawingAsset } from '../draw/types';
 import { kindOf } from '../draw/kinds';
 import { VARIANTS } from '../draw/pen';
 import { EYE } from '../depth/types';
+import { clampTo, shapeOfFrame, spotFor, STANDING_SIZE, type Spot, type Spots } from '../arrange/types';
 import { clamp01, since } from '../shot/time';
-import { standing, type FrameBox } from './layout';
+import { keepFor, standing, type FrameBox } from './layout';
 import { hides, mapAt, nearnessAt, project, unproject, type Crop, type Lens } from './place';
 import type { InsidePalette } from './palettes';
 import { DRAWN_FRAG, SHADOW_FRAG, WORD_VERT } from './shaders';
-import { DRAWN_PUTS, type DrawnEnter, type DrawnPut, type DrawnSize } from './drawnIds';
+import { DRAWN_PUTS, type DrawnEnter, type DrawnPut, type DrawnSize, type HandPut } from './drawnIds';
 
 /** a drawing a shot was given */
 export interface Drawn {
   asset: DrawingAsset;
-  put: DrawnPut;
+  put: HandPut;
   size: DrawnSize;
   enter: DrawnEnter;
+  /** where the person put it */
+  spots?: Spots;
   /** the shot opens its part: it arrives here (later shots of the part find it there) */
   arrives: boolean;
 }
 
 /** where it stands: its bottom-left corner, what its width runs along and what its height does */
 export interface Seat {
-  put: DrawnPut;
+  put: HandPut;
   o: [number, number, number];
   across: [number, number, number];
   up: [number, number, number];
@@ -143,7 +146,7 @@ function groundAt(l: Lens, fx: number, fy: number): number {
   return Math.sqrt(lo * hi);
 }
 
-function facing(o: SeatWhere, put: DrawnPut, w: number, fx: number, fy: number, W: number, H: number): Try {
+function facing(o: Pick<SeatWhere, 'lens' | 'aspect'>, put: HandPut, w: number, fx: number, fy: number, W: number, H: number): Try {
   const a = unproject(o.lens, fx - W / 2, fy, w);
   const b = unproject(o.lens, fx + W / 2, fy, w);
   const len = Math.hypot(b.x - a.x, b.y - a.y) || 1e-6;
@@ -282,6 +285,83 @@ export function seatsAt(kind: DrawnPut, ratio: number, size: DrawnSize, o: SeatW
   return aside ? [best.seat, aside.seat] : [best.seat];
 }
 
+/* ───────── by hand ───────── */
+
+/** how far ahead what is laid in front of everything stands (nothing hides it, so only its looks matter) */
+const IN_FRONT = 4;
+
+/** the spot a drawing was given in this shape of frame, or the one it would have laid in front (null: the shot finds it one) */
+export function spotOf(d: Pick<Drawn, 'put' | 'size' | 'spots'>, ratio: number, aspect: number): Spot | null {
+  const shape = shapeOfFrame(aspect, 1);
+  const at = spotFor(d.spots, shape);
+  if (!at) return d.put === 'front' ? { x: 0.74, y: 0.6, size: TALL[d.size] * Math.min(1, aspect) } : null;
+  if (at.of === shape) return at.spot;
+  // placed in another shape of frame: as big beside the frame's short side, and inside its margins
+  const of = { wide: 16 / 9, square: 1, tall: 9 / 16 }[at.of];
+  const k = keepFor(aspect);
+  let H = at.spot.size * (Math.min(1, aspect) / Math.min(1, of));
+  H *= Math.min(1, (1 - k.side * 2) / ((H * ratio) / aspect), (1 - k.head - k.foot) / H);
+  const W = (H * ratio) / aspect;
+  return { x: clampTo([k.side + W / 2, 1 - k.side - W / 2], at.spot.x), y: clampTo([k.head + H / 2, 1 - k.foot - H / 2], at.spot.y), size: H };
+}
+
+/** where a drawing stands when its spot was chosen for it: exactly there, whatever is in the way */
+export function handSeat(put: HandPut, spot: Spot, ratio: number, size: DrawnSize, o: SeatWhere): Seat {
+  const { lens, scene } = o;
+  const H = clampTo(STANDING_SIZE, spot.size);
+  const W = (H * ratio) / o.aspect;
+  const fx = spot.x;
+  let fy = 1 - spot.y - H / 2;
+  const seat = (t: Try): Seat => ({ ...t, size, score: 1, shown: t.put === 'front' ? 1 : measure(o, t, lens, o.times[0]).shown });
+  if (!scene || put === 'front') return seat(facing(o, 'front', IN_FRONT, fx, fy, W, H));
+  if (put === 'ground' && lens.vp.y > 0.1) {
+    // its foot is on the ground, so it can go no higher than where the ground ends
+    fy = Math.min(fy, lens.vp.y - 0.03);
+    return seat(facing(o, put, Math.min(400, groundAt(lens, fx, fy)), fx, fy, W, H));
+  }
+  if (put === 'wall') {
+    const on = onWall(o, fx, 1 - spot.y, H, ratio);
+    if (on) return seat(on);
+  }
+  const st = standing(scene);
+  if (put === 'far') return seat(facing(o, 'far', st.far, fx, fy, W, H));
+  // behind the nearest there is to stand behind with it still seen, else wherever it is seen most
+  const all = (st.between.length ? st.between : [st.far]).map((w) => seat(facing(o, 'between', w, fx, fy, W, H)));
+  return all.find((s) => s.shown > 0.45 && s.shown < 0.97) ?? all.sort((a, b) => b.shown - a.shown)[0];
+}
+
+/** flat along a side wall, with its middle on a frame point */
+function onWall(o: SeatWhere, fx: number, fy: number, H: number, ratio: number): Try | null {
+  const { lens } = o;
+  const { vp } = lens;
+  if (Math.abs(fx - vp.x) < 0.07) return null;
+  const side = fx > vp.x ? 1 : -1;
+  let best: { t: Try; score: number } | null = null;
+  for (const X of [2.4, 4, 7, 12]) {
+    let lo = 0.8;
+    let hi = 4000;
+    for (let n = 0; n < 40; n++) {
+      const m = Math.sqrt(lo * hi);
+      if ((project(lens, side * X, EYE, -m - lens.ahead).x - fx) * side > 0) lo = m;
+      else hi = m;
+    }
+    const zc = Math.sqrt(lo * hi);
+    const at = project(lens, side * X, EYE, -zc - lens.ahead);
+    const one = project(lens, side * X, EYE + 1, -zc - lens.ahead).y - at.y;
+    if (one <= 1e-5) continue;
+    const tall = H / one;
+    const len = Math.min(tall * ratio, zc * 1.5);
+    const near = zc - len / 2;
+    const y = EYE + (fy - at.y) / one - tall / 2;
+    const t: Try = side > 0 ? { put: 'wall', o: [X, y, -near - len - lens.ahead], across: [0, 0, len], up: [0, tall, 0], w: zc } : { put: 'wall', o: [-X, y, -near - lens.ahead], across: [0, 0, -len], up: [0, tall, 0], w: zc };
+    const r = measure(o, t, lens, o.times[0]);
+    const wide = ((r.box.x1 - r.box.x0) * o.aspect) / Math.max(1e-6, (r.box.y1 - r.box.y0) * ratio);
+    const score = r.shown + Math.min(0.6, wide);
+    if (!best || score > best.score) best = { t, score };
+  }
+  return best?.t ?? null;
+}
+
 const lum = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
   return (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
@@ -320,13 +400,14 @@ export class DrawnInPlace {
   private readonly mat: THREE.ShaderMaterial;
   private readonly mesh: THREE.Mesh;
   private readonly shadow: THREE.ShaderMaterial | null = null;
+  private readonly pool: THREE.Mesh | null = null;
   private readonly colours: ReturnType<typeof cutOut>;
   private readonly seconds: number;
   private key = '';
 
   constructor(
     readonly drawn: Drawn,
-    readonly seat: Seat,
+    public seat: Seat,
     palette: InsidePalette,
     make: MakeMaterial,
     private readonly o: { start: number; beat: number; kicks: number[]; jump: number; px: number; ratio: number },
@@ -345,20 +426,18 @@ export class DrawnInPlace {
     t.anisotropy = 4;
     t.colorSpace = THREE.NoColorSpace;
     this.texture = t;
-    this.mat = make(WORD_VERT, DRAWN_FRAG, { tText: { value: t }, uAlpha: { value: 1 }, uLight: { value: 0.6 } });
+    this.mat = make(WORD_VERT, DRAWN_FRAG, { tText: { value: t }, uAlpha: { value: 1 }, uLight: { value: 0.6 }, uHide: { value: seat.put === 'front' ? 0 : 1 } });
     this.mesh = new THREE.Mesh(unit, this.mat);
     this.mesh.matrixAutoUpdate = false;
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = seat.put === 'far' ? 2.5 : 3.5;
+    this.mesh.renderOrder = seat.put === 'front' ? 7 : seat.put === 'far' ? 2.5 : 3.5;
+    if (seat.put === 'front') this.mat.depthTest = false;
     if (seat.put === 'ground') {
       const s = (this.shadow = make(WORD_VERT, SHADOW_FRAG, { uAlpha: { value: 0 } }));
-      const m = new THREE.Mesh(unit, s);
-      const len = Math.hypot(...seat.across);
+      const m = (this.pool = new THREE.Mesh(unit, s));
       m.matrixAutoUpdate = false;
       m.frustumCulled = false;
       m.renderOrder = 2.2;
-      // a flat pool on the ground under its feet, a little behind them
-      m.matrix.makeBasis(new THREE.Vector3(len * 1.15, 0, 0), new THREE.Vector3(0, 0, -len * 0.5), new THREE.Vector3(0, 1, 0)).setPosition(seat.o[0] + seat.across[0] / 2, 0.015, seat.o[2] - len * 0.06);
       this.group.add(m);
     }
     this.group.add(this.mesh);
@@ -392,6 +471,11 @@ export class DrawnInPlace {
     const on = (rising && tau < 0 ? 0 : 1) * (1 - fade);
     this.mat.uniforms.uAlpha.value = on;
     this.mat.uniforms.uLight.value = 0.22 + 0.5 * bare;
+    if (this.pool) {
+      // a flat pool on the ground under its feet, a little behind them
+      const len = Math.hypot(...s.across);
+      this.pool.matrix.makeBasis(new THREE.Vector3(len * 1.15, 0, 0), new THREE.Vector3(0, 0, -len * 0.5), new THREE.Vector3(0, 1, 0)).setPosition(s.o[0] + s.across[0] / 2, 0.015, s.o[2] - len * 0.06);
+    }
     if (this.shadow) this.shadow.uniforms.uAlpha.value = 0.5 * on * clamp01(drawing ? progress * 1.4 - 0.3 : up);
     this.group.visible = on > 0.003;
   }

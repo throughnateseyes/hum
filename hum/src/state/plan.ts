@@ -9,6 +9,7 @@
  * different look, whoever made the plan. Picking a look while the plan plays puts it into the current section (and into the
  * sections that sound the same), so editing is just: play to a part, pick a look.
  */
+import { popSetFor, type Placed } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import { textBetween } from '../audio/lyrics';
 import { harmonize } from '../core/songPalette';
@@ -1608,6 +1609,7 @@ export function partEdits(
   partHand: (boolean | null)[] | null = useStudio.getState().partHand,
   partWords: (string | null)[] | null = useStudio.getState().partWords,
   partShot: (PartShot | null)[] | null = useStudio.getState().partShot,
+  placed: Placed | null = useStudio.getState().placed,
 ): (PartEdit | null)[] {
   if (!plan || !a || !validPlan(plan, a)) return [];
   const b = plan.base && plan.base.looks.length === plan.looks.length ? plan.base : null;
@@ -1615,7 +1617,7 @@ export function partEdits(
   return a.sections.map((_, i) => {
     const e = {
       look: !!b && plan.looks[i] !== b.looks[i],
-      pops: partPops?.length === n && typeof partPops[i] === 'number',
+      pops: (partPops?.length === n && typeof partPops[i] === 'number') || (!!placed && !!popSetFor(placed, a.sections[i].start, a.sections[i].end)),
       lyric: !!b && !!plan.lyricPlan?.parts[i] && plan.lyricPlan.parts[i]!.medium !== b.lyric[i],
       hand: partHand?.length === n && typeof partHand[i] === 'boolean',
       words: partWords?.length === n && !!partWords[i],

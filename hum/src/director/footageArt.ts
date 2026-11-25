@@ -12,7 +12,7 @@ import type { Lyrics, TrackAnalysis } from '../core/types';
 import { makeDrawings, newDrawingId, redraw, songLines, useDrawJobs } from '../draw/jobs';
 import { cleanStyle, drawingNow, drawingsHere, drawOpen, songName } from '../draw/session';
 import type { DrawIdea, DrawStyle } from '../draw/types';
-import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, type DrawnShot, type Room } from '../inside/drawnIds';
+import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, type DrawnPut, type DrawnShot, type Room } from '../inside/drawnIds';
 import { forgetSeats } from '../inside/seated';
 import { ratioOf } from '../inside/shot';
 import type { Cut } from './footageStills';
@@ -221,7 +221,8 @@ export async function reviewArt(art: VideoArt): Promise<void> {
   const parts = s.analysis!.sections.flatMap((_, i) => {
     const d = layShot(plan.shots?.[i], s.partShot?.[i])?.drawn;
     const asset = d ? drawingNow(d.id, here) : null;
-    return d && asset && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put, size: d.size, why: d.why ?? '', id: d.id, ratio: ratioOf({ asset }) }] : [];
+    // (one the person put somewhere stays there)
+    return d && asset && !byHand(d) && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put as DrawnPut, size: d.size, why: d.why ?? '', id: d.id, ratio: ratioOf({ asset }) }] : [];
   });
   if (!parts.length) return;
   const some = parts.slice(0, MOST_STILLS);
@@ -254,7 +255,7 @@ export async function reviewArt(art: VideoArt): Promise<void> {
       if (!was) continue;
       // never moved to where there is no room for it
       const held = room.get(p.part);
-      const put = oneOf(c.put, DRAWN_PUTS, was.put);
+      const put = oneOf(c.put, DRAWN_PUTS, was.put as DrawnPut);
       const size = oneOf(c.size, DRAWN_SIZES, was.size);
       const fits = held ? inRoom(held, put, size) : { put, size };
       if (c.do !== 'remove' && fits && fits.put === was.put && fits.size === was.size) continue;
@@ -271,6 +272,8 @@ export async function reviewArt(art: VideoArt): Promise<void> {
     off();
   }
 }
+
+const byHand = (d: DrawnShot) => !!d.spots || d.put === 'front';
 
 /** resolves once none of these shots is on screen (or after half a minute) */
 async function offScreen(spans: { at: number; end: number }[]) {
@@ -295,7 +298,7 @@ async function rehouse(mine: () => boolean, signal: AbortSignal) {
   const placed = inside.flatMap((part) => {
     const d = shotAt(part)!.drawn;
     const asset = d && drawingNow(d.id, here);
-    return d && asset ? [{ part, d, ratio: ratioOf({ asset }) }] : [];
+    return d && asset && !byHand(d) ? [{ part, d, ratio: ratioOf({ asset }) }] : [];
   });
   const cut: Cut = { plan, analysis: a, shotAt };
   if (!placed.length) return;
@@ -316,7 +319,7 @@ async function rehouse(mine: () => boolean, signal: AbortSignal) {
     const span = (i: number) => ({ at: a.sections[i].start, end: a.sections[i].end, id: p.d.id });
     if (to === undefined) continue;
     free.delete(to);
-    spans.push({ ...span(p.part), next: null }, { ...span(to), next: { ...p.d, ...inRoom(there.get(to)!, p.d.put, p.d.size)! }, fresh: true });
+    spans.push({ ...span(p.part), next: null }, { ...span(to), next: { ...p.d, ...inRoom(there.get(to)!, p.d.put as DrawnPut, p.d.size)! }, fresh: true });
   }
   if (!spans.length) return;
   await offScreen(spans);

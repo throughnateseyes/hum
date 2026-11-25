@@ -7,10 +7,12 @@
 import * as THREE from 'three';
 import type { ClipScene } from '../depth/types';
 import type { MomentId } from '../moments';
+import { arranging, noteThing, noteWords, standingKey, trialOf } from '../arrange/things';
+import type { Spot } from '../arrange/types';
 import { kindOf } from '../draw/kinds';
 import { clamp01, dice, since, smooth } from '../shot/time';
-import { DrawnInPlace, seats, seatsAt, type Drawn, type Seat, type SeatWhere } from './drawn';
-import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type Room } from './drawnIds';
+import { DrawnInPlace, handSeat, seats, seatsAt, spotOf, type Drawn, type Seat, type SeatWhere } from './drawn';
+import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type HandPut, type Room } from './drawnIds';
 import { noteSeat } from './seated';
 import { chunksOf, keepFor, place, standing, type Keep, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
 import type { InsidePalette } from './palettes';
@@ -196,7 +198,7 @@ export class InsideShot {
     this.built = true;
     const s = this.spec;
     const chunks = this.chunks();
-    const { puts, seat } = this.arrange(chunks, s.drawn ? { put: s.drawn.put, size: s.drawn.size, ratio: ratioOf(s.drawn) } : null);
+    const { puts, seat } = this.arrange(chunks, s.drawn ? { put: s.drawn.put, size: s.drawn.size, ratio: ratioOf(s.drawn), spot: spotOf(s.drawn, ratioOf(s.drawn), s.aspect) } : null);
     chunks.forEach((chunk, i) => this.standing.push(this.stand(chunk, puts[i])));
     if (s.drawn && seat) this.addDrawing(s.drawn, seat);
     if (s.drawn && s.scene) noteSeat(s.partStart, s.drawn.put, s.drawn.size, !!seat);
@@ -308,6 +310,11 @@ export class InsideShot {
 
   /** the frame room a drawing takes at song time t, and a little air round it */
   private seatBox(at: Seat, t: number): FrameBox {
+    const b = this.seatFrame(at, t);
+    return { x0: b.x0 - 0.012, x1: b.x1 + 0.012, y0: b.y0, y1: b.y1 + 0.012 };
+  }
+
+  private seatFrame(at: Seat, t: number): FrameBox {
     const l = this.lensAt(t);
     const b = { x0: 9, y0: 9, x1: -9, y1: -9 };
     for (const u of [0, 1])
@@ -318,7 +325,7 @@ export class InsideShot {
         b.y0 = Math.min(b.y0, q.y);
         b.y1 = Math.max(b.y1, q.y);
       }
-    return { x0: b.x0 - 0.012, x1: b.x1 + 0.012, y0: b.y0, y1: b.y1 + 0.012 };
+    return b;
   }
 
   /**
@@ -326,10 +333,19 @@ export class InsideShot {
    * words stand round it; where they can't be read that way the next seat is tried, and in the end the words
    * come first and the drawing has what they leave.
    */
-  private arrange(chunks: Chunk[], d: { put: DrawnPut; size: DrawnSize; ratio: number } | null): { puts: Put[]; seat: Seat | null } {
+  private arrange(chunks: Chunk[], d: { put: HandPut; size: DrawnSize; ratio: number; spot: Spot | null } | null): { puts: Put[]; seat: Seat | null } {
     if (!d) return { puts: this.placeBlocks(chunks, null), seat: null };
     const where = this.seatWhere();
-    const tries = seats(d.put, d.ratio, d.size, where);
+    if (d.spot) {
+      // it stays where the person put it; the words stand round it where they still read, else where they would have
+      const seat = handSeat(d.put, d.spot!, d.ratio, d.size, where);
+      const alone = this.placeBlocks(chunks, null);
+      const round = chunks.length ? this.placeBlocks(chunks, seat) : [];
+      return { puts: stillRead(round, alone) ? round : alone, seat };
+    }
+    // (laid in front always has a spot)
+    const put = d.put as DrawnPut;
+    const tries = seats(put, d.ratio, d.size, where);
     if (!chunks.length) return { puts: [], seat: tries[0] ?? null };
     const puts = this.placeBlocks(chunks, null);
     for (const seat of tries.slice(0, 5)) {
@@ -337,7 +353,7 @@ export class InsideShot {
       if (stillRead(round, puts)) return { puts: round, seat };
     }
     const words = chunks.flatMap((chunk, i) => [0.05, 0.5, 0.95].map((k) => this.boxOf(puts[i], chunk.from + (chunk.to - chunk.from) * k)));
-    return { puts, seat: seats(d.put, d.ratio, d.size, { ...where, words })[0] ?? null };
+    return { puts, seat: seats(put, d.ratio, d.size, { ...where, words })[0] ?? null };
   }
 
   private chunks(): Chunk[] {
@@ -368,6 +384,7 @@ export class InsideShot {
     const foot = project(l, at.o[0], at.o[1], at.o[2]);
     const head = project(l, at.o[0] + at.up[0], at.o[1] + at.up[1], at.o[2] + at.up[2]);
     const px = Math.hypot((head.x - foot.x) * this.pass.width, (head.y - foot.y) * this.pass.height);
+    this.seat = at;
     this.drawing = new DrawnInPlace(d, at, s.palette, (v, f, u) => this.material(v, f, u), { start: s.start, beat: s.beat, kicks: s.kicks, jump: this.recipe.jump, px, ratio: ratioOf(d) });
     this.place.add(this.drawing.group);
   }
@@ -593,6 +610,7 @@ export class InsideShot {
     const most = this.hold(t, l, steady);
     this.placeExtras(t, beats, l, now);
     this.own?.update(t, l, this.lineColours(amount, now, p), this.boxes, (0.25 + 0.75 * inK) * (1 - gone) * (black ? 0 : 1));
+    this.placeDrawing(t, l);
     this.drawing?.update(t, 1 - amount * 0.75, gone);
 
     const bump = kick * 0.035 + (s.arrive === 'hit' ? 0.09 * Math.exp(-tau / 0.22) : 0);
@@ -607,7 +625,43 @@ export class InsideShot {
     const c = pushCentre(l);
     // and what is left for whatever pushes the finished frame in about its middle
     for (const b of this.boxes) for (const [at, mid] of [[b.x0, c.x], [b.x1, c.x], [b.y0, c.y], [b.y1, c.y]]) notePush(0.478 / Math.max(1e-3, Math.abs(mid + (at - mid) * finish.zoom - 0.5)));
+    this.noteArranged(t, l, finish.zoom);
     this.pass.render({ scene: s.scene, t: s.clipAt(t), footage: o.footage, clipAspect: s.clipAspect, crop: this.crop, lens: l, paint, finish, place: this.place, target: o.target });
+  }
+
+  /** the drawing in the hand is where the hand has it; one laid in front stays put in the frame */
+  private placeDrawing(t: number, l: Lens) {
+    const d = this.drawing;
+    if (!d) return;
+    const held = trialOf(standingKey(this.spec.partStart));
+    const front = d.seat.put === 'front';
+    if (held) this.tried = held;
+    if (!held && !front) {
+      // let go, and back where it was (an undo, or a press of Esc): the shot is laid out again when it was moved
+      if (this.tried && this.seat) d.seat = this.seat;
+      this.tried = null;
+      return;
+    }
+    const spot = held ?? spotOf(d.drawn, ratioOf(d.drawn), this.spec.aspect);
+    if (!spot) return;
+    const where = this.seatWhere();
+    d.seat = handSeat(d.drawn.put, spot, ratioOf(d.drawn), d.drawn.size, front ? { ...where, lens: l } : where);
+  }
+  private tried: Spot | null = null;
+  private seat: Seat | null = null;
+
+  /** for the Arrange view: where the drawing and the words are */
+  private noteArranged(t: number, l: Lens, zoom: number) {
+    if (!arranging()) return;
+    const s = this.spec;
+    const c = pushCentre(l);
+    const shown = (b: FrameBox) => ({ x0: c.x + (b.x0 - c.x) * zoom, x1: c.x + (b.x1 - c.x) * zoom, y0: 1 - (c.y + (b.y1 - c.y) * zoom), y1: 1 - (c.y + (b.y0 - c.y) * zoom) });
+    for (const b of this.boxes) noteWords(shown(b));
+    const d = this.drawing;
+    if (!d) return;
+    const bare = (b: FrameBox) => ({ x: (b.x0 + b.x1) / 2, y: 1 - (b.y0 + b.y1) / 2, size: b.y1 - b.y0 });
+    const spot = this.tried ?? spotOf(d.drawn, ratioOf(d.drawn), s.aspect) ?? bare(this.seatFrame(d.seat, s.start + (s.end - s.start) * 0.4));
+    noteThing({ key: standingKey(s.partStart), kind: 'standing', name: d.drawn.asset.name, box: shown(this.seatFrame(d.seat, t)), spot, from: s.start, to: s.end, hand: !!d.drawn.spots, ratio: ratioOf(d.drawn), ref: d.drawn.asset.id, part: s.partStart, push: zoom });
   }
 
   /**

@@ -94,7 +94,7 @@ export function swipeLook(dir: 1 | -1) {
 /* ───────── the gesture recogniser ───────── */
 
 /** a touch that starts on one of these is theirs, not a gesture */
-const OWN = 'button, a, input, select, textarea, label, .welcome, .taste-hud, .stage-vol, .stage-fs, .tap-play, .seek, .perform-bar, .rg, .stage-hud';
+const OWN = 'button, a, input, select, textarea, label, .welcome, .taste-hud, .stage-vol, .stage-fs, .tap-play, .seek, .perform-bar, .rg, .stage-hud, .arr';
 
 const TAP_MOVE = 10;
 const SWIPE_MIN = 48;

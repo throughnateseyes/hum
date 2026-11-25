@@ -8,6 +8,7 @@ import { Volume } from './Volume';
 import { WelcomeLayer } from './Welcome';
 import { fmtPrecise, RenderPreview, useRenderMode } from './RenderBar';
 import { togglePerform } from './Perform';
+import { ArrangeLayer } from './arrange/ArrangeLayer';
 import { Expand, Shrink } from './Icons';
 import { lastTouchTap, useStageGestures } from './stageGestures';
 import { useStageUi } from './layout';
@@ -119,6 +120,7 @@ export function StageView() {
             </span>
           )}
         </div>
+        <ArrangeLayer />
         <LookToast />
         <WelcomeLayer />
         {dropOver && <StageDrop />}
@@ -185,7 +187,7 @@ function FullscreenButton({ frame, perform }: { frame: RefObject<HTMLDivElement 
     // double-click the picture (not a button or card on it) to go full screen and back
     const onDouble = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (t.closest('button, a, input, textarea, select, label, .welcome, .taste-hud, .stage-vol')) return;
+      if (t.closest('button, a, input, textarea, select, label, .welcome, .taste-hud, .stage-vol, .arr')) return;
       // a double-tap is handled by the touch gestures already
       if (Date.now() - lastTouchTap < 700) return;
       e.preventDefault();

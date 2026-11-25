@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { arranging, noteThing, trialOf } from '../arrange/things';
+import { clampTo, cornerAt, POP_SIZE, shapeOfFrame, spotFor, type PopSet, type WindowShape } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import { resolvePalette } from '../core/palettes';
 import { createFullscreenQuad, makeRenderTarget } from '../core/sceneHelpers';
@@ -18,7 +20,7 @@ import { moodFilter } from '../presets/moods';
 import { FxChain } from './fxChain';
 import { newGlide, overlap, toPx, toRect, type Glide, type PxBox } from './keepClear';
 import { NO_KEEP_OUT, type KeepOut, type Rect } from './legibility';
-import { barsIn, dealer, dropsIn, hash01, keepGlide, lastAt, paperInk, popPartAt, prevPopPart, refSize, songGrid, type PopLevel, type PopPart } from './popups';
+import { barsIn, cutTo, dealer, dealtId, dropsIn, handSet, hash01, idOf, keepGlide, lastAt, paperInk, popPartAt, prevPopPart, refSize, songGrid, type DealtPop, type PopLevel, type PopPart } from './popups';
 import { dryRun } from './warmup';
 
 /**
@@ -104,22 +106,22 @@ interface WDealt {
   snap: boolean;
   /** bursts open after a drop with a full cascade behind it */
   trail: boolean;
+  /** what it is called when it is arranged by hand, whether it stays exactly where it was put, and how many times its own size it is */
+  uid: string;
+  exact: boolean;
+  scale: number;
 }
 
 interface WDeal {
   key: string;
   level: number;
   wins: WDealt[];
+  /** the person's own: they all show, whatever is on screen */
+  hand: boolean;
 }
 
 /** the dice behind a window's shape: frame kind, aspect, round or not, size, title bar */
-interface Shape {
-  f: number;
-  aspect: number;
-  circle: number;
-  size: number;
-  bar: number;
-}
+type Shape = WindowShape;
 
 /** a dealt window on screen */
 interface Win {
@@ -140,7 +142,12 @@ interface Win {
   title: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; key: string } | null;
   /** keeping clear of the lyrics: where it's gliding to, and a little shrink when there's no room */
   g: Glide;
+  /** stretched by the hand while it is being resized */
+  grow: number;
 }
+
+/** one window stays itself while it is moved; a new size of its picture is a new one */
+const winKey = (dl: WDeal, d: WDealt) => `${dl.key}#${d.id}${dl.hand ? `@${d.lookId}${d.scale.toFixed(3)}${d.shape.f.toFixed(3)}` : ''}`;
 
 const IN_STEP = 0.045;
 const IN_SCALES = [0.35, 1.14, 0.95, 1];
@@ -326,18 +333,21 @@ export class SceneWindows {
     const part = popPartAt(an, song);
     const prev = prevPopPart(an, part);
     const deal = this.dealFor(r, part, levelAt(part.start + 0.001), base, now, grid);
-    const want: { key: string; d: WDealt }[] = [];
+    this.now = { part, show: opts.show ?? 3, main: opts.mainSceneId, deal };
+    const want: { key: string; d: WDealt; hand: boolean }[] = [];
     const parts = prev && song - part.start < OUT_TIME ? [this.dealFor(r, prev, levelAt(prev.start + 0.001), base, now, grid), deal] : [deal];
-    for (const dl of parts) for (const d of dl.wins) if (d.born <= song && song < d.until + (d.snap ? 0 : OUT_TIME)) want.push({ key: `${dl.key}#${d.id}`, d });
-    // most windows drawn: the newest open ones; never the look that's on screen itself
-    let room = Math.max(0, Math.min(this.cap, opts.show ?? 3));
+    for (const dl of parts) for (const d of dl.wins) if (d.born <= song && song < d.until + (d.snap ? 0 : OUT_TIME)) want.push({ key: winKey(dl, d), d, hand: dl.hand });
+    // most windows drawn: the newest open ones; never the look that's on screen itself (unless it was asked for).
+    // One that is closing only does if it was up
+    // (those set by hand are all drawn at full detail, and a slow machine still shows them while they're arranged)
+    let room = deal.hand ? (this.cap >= 3 ? 6 : arranging() ? Math.max(3, this.cap) : this.cap) : Math.max(0, Math.min(this.cap, opts.show ?? 3));
     for (let k = want.length - 1; k >= 0; k--) {
-      const d = want[k].d;
-      if (d.sceneId === opts.mainSceneId) want.splice(k, 1);
-      else if (d.until > song) {
-        if (room > 0) room--;
-        else want.splice(k, 1);
-      }
+      const { d, hand, key: id } = want[k];
+      if (!hand && d.sceneId === opts.mainSceneId) want.splice(k, 1);
+      else if (d.until <= song) {
+        if (!this.live.has(id) || (!hand && (opts.show ?? 3) <= 0)) want.splice(k, 1);
+      } else if (room > 0) room--;
+      else want.splice(k, 1);
     }
 
     const seeked = this.lastSong < 0 || song < this.lastSong - 1e-3 || song - this.lastSong > 0.5;
@@ -362,10 +372,22 @@ export class SceneWindows {
         if (!slot) continue;
         const x = Math.round(d.x * ref.k);
         const y = Math.round(d.y * ref.k);
-        w = { d, home: { x, y }, slot, x, y, dir: d.dir, born: d.born, closing: -1, bump: 0, stamps: [], title: null, g: newGlide(x, y) };
+        w = { d, home: { x, y }, slot, x, y, dir: d.dir, born: d.born, closing: -1, bump: 0, stamps: [], title: null, g: newGlide(x, y), grow: 1 };
         fresh.add(w);
       }
       if (w.slot.failed) continue;
+      // the one in the hand is where the hand has it (its picture only stretches until it is let go)
+      const held = trialOf(`window:${d.uid}`);
+      w.grow = held ? clampTo(POP_SIZE, held.size) / d.scale : 1;
+      const at = held ? cornerAt(held, w.slot.spec, W, H, false) : { x: Math.round(d.x * ref.k), y: Math.round(d.y * ref.k) };
+      if (held || w.d !== d) {
+        if (w.home.x !== at.x || w.home.y !== at.y || (held && !w.d.exact)) {
+          Object.assign(w, { home: at, x: at.x, y: at.y, g: newGlide(at.x, at.y) });
+          fresh.add(w);
+        }
+        w.d = held ? { ...d, exact: true } : d;
+        w.born = d.born;
+      }
       w.closing = song >= d.until ? d.until : -1;
       next.set(k, w);
       wins.push(w);
@@ -377,9 +399,15 @@ export class SceneWindows {
     // open windows step out of the sung line's way
     const words = toPx(this.keep.now, W, H, Math.min(W, H) * 0.02);
     for (const w of wins) {
-      if (w.closing >= 0) continue;
+      if (w.closing >= 0 || w.d.exact) continue;
       const others = wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
       keepGlide(w, w.home, w.g, w.slot.spec.w, w.slot.spec.h, words, W, H, Math.min(W, H) * 0.04, others, gdt, seeked || fresh.has(w));
+    }
+    for (const w of wins) {
+      if (w.closing >= 0) continue;
+      const sp = w.slot.spec;
+      const b = this.goalBox(w);
+      noteThing({ key: `window:${w.d.uid}`, kind: 'window', name: w.slot.name, box: toRect({ x: b.x + (b.w * (1 - w.grow)) / 2, y: b.y + (b.h * (1 - w.grow)) / 2, w: b.w * w.grow, h: b.h * w.grow }, W, H), spot: { x: (w.home.x + sp.w / 2) / W, y: (w.home.y + sp.h / 2) / H, size: w.d.scale * w.grow }, from: w.d.born, to: w.d.until, hand: w.d.exact, ratio: sp.w / sp.h, ref: w.d.uid });
     }
     // warm the next window's look on a frame where nothing opens, so the compile never lands on a beat
     if (!busy) this.warmNext(r, base, deal, song);
@@ -419,7 +447,7 @@ export class SceneWindows {
       let newest: WDealt | null = null;
       for (const d of deal.wins) if (d.born <= s && s < d.until && (!newest || d.born >= newest.born)) newest = d;
       if (!newest || s - newest.born <= IN_STEP * IN_SCALES.length) continue;
-      const w = this.wins.find((x) => x.d === newest);
+      const w = this.wins.find((x) => x.d.uid === newest!.uid);
       if (!w) continue;
       const first = lastAt(snares, newest.born + IN_STEP * IN_SCALES.length) + 1;
       const k = ((j - first) % MAX_STAMPS) + 1;
@@ -441,6 +469,45 @@ export class SceneWindows {
     return this.wins.filter((w) => w.closing < 0).map((w) => toRect(this.goalBox(w), W, H));
   }
 
+  private now: { part: PopPart; show: number; main: string; deal: WDeal } | null = null;
+
+  /** the look windows of the part playing as they come up now, to be changed by hand */
+  dealt(): { part: PopPart; pops: DealtPop[] } | null {
+    if (!this.now) return null;
+    const { part, show, main, deal } = this.now;
+    const [W, H] = this.size.split('x').map(Number);
+    const { RW, RH } = refSize(W, H);
+    const wins = cutTo(deal.hand ? deal.wins : deal.wins.filter((d) => d.sceneId !== main), deal.hand ? 99 : show);
+    return { part, pops: wins.map((d) => ({ id: d.uid, look: d.lookId, shape: d.shape, style: 0, from: d.born, to: d.until, spot: { x: (d.x + d.spec.w / 2) / RW, y: (d.y + d.spec.h / 2) / RH, size: d.scale, dealt: true }, ...(d.snap ? { snap: true as const } : {}), ...(d.trail ? { trail: true as const } : {}) })) };
+  }
+
+  /** the person's own windows for a part, at the reference size */
+  private handDeal(part: PopPart, set: PopSet, RW: number, RH: number, level: number): WDeal {
+    const key = `hand|${part.start.toFixed(3)}`;
+    const memo = `${RW}x${RH}|${part.end.toFixed(3)}`;
+    const had = this.hands.get(key);
+    if (had && had.set === set && had.memo === memo) return had.deal;
+    const frame = shapeOfFrame(RW, RH);
+    const wins = set.wins.flatMap((w): WDealt[] => {
+      const p = w.look ? findLook(w.look) : undefined;
+      const at = spotFor(w.spots, frame);
+      const born = Math.max(part.start, w.from);
+      const until = Math.min(part.end, w.to);
+      if (!p || !at || until - born < 0.05) return [];
+      const shape = w.shape ?? { f: 0.2, aspect: 0.1, circle: 0.2, size: 0.5, bar: 0.2 };
+      const scale = clampTo(POP_SIZE, at.spot.size);
+      const spec = specOf(shape, RW, RH, scale);
+      const { x, y } = cornerAt(at.spot, spec, RW, RH, at.of !== frame);
+      return [{ id: idOf(w.id), lookId: p.id, sceneId: p.sceneId, shape, spec, x, y, dir: [x + spec.w / 2 < RW / 2 ? -1 : 1, y + spec.h / 2 < RH / 2 ? 1 : -1], born, until, snap: !!w.snap, trail: !!w.trail, uid: w.id, exact: at.exact, scale }];
+    });
+    wins.sort((a, b) => a.born - b.born);
+    const deal: WDeal = { key, level: Math.max(level, 1), wins, hand: true };
+    if (this.hands.size > 40) this.hands.clear();
+    this.hands.set(key, { set, memo, deal });
+    return deal;
+  }
+  private hands = new Map<string, { set: PopSet; memo: string; deal: WDeal }>();
+
   /** dev: the windows on screen this frame (normalized boxes), to check they repeat */
   debugList(): { look: string; born: number; until: number; deal: string; x: number; y: number; w: number; h: number; frame: string }[] {
     const [W, H] = this.size.split('x').map(Number);
@@ -455,6 +522,8 @@ export class SceneWindows {
     void r;
     const lv = Math.max(0, Math.min(3, Math.round(level)));
     const { RW, RH } = refSize(base.width, base.height);
+    const set = handSet(part);
+    if (set) return this.handDeal(part, set, RW, RH, lv);
     const key = `${part.seed}|${part.start.toFixed(3)}|${part.end.toFixed(3)}|${lv}|${RW}x${RH}|${grid.spb.toFixed(5)}|${grid.off.toFixed(4)}|${mainsKey(part, now)}|${popDealsVersion()}`;
     let deal = this.deals.get(key);
     if (deal) {
@@ -462,7 +531,7 @@ export class SceneWindows {
       this.deals.set(key, deal);
       return deal;
     }
-    deal = { key, level: lv, wins: dealWindows(part, lv, base, RW, RH, now, grid) };
+    deal = { key, level: lv, hand: false, wins: dealWindows(part, lv, base, RW, RH, now, grid) };
     this.deals.set(key, deal);
     while (this.deals.size > KEEP_DEALS) this.deals.delete(this.deals.keys().next().value!);
     return deal;
@@ -470,8 +539,8 @@ export class SceneWindows {
 
   /** create the next window's look ahead of time (compiled in the background by a render that draws nothing) */
   private warmNext(r: THREE.WebGLRenderer, base: Omit<FrameContext, 'params'>, deal: WDeal, song: number) {
-    const d = deal.wins.find((x) => x.born > song && !this.live.has(`${deal.key}#${x.id}`));
-    const key = d ? `${deal.key}#${d.id}` : '';
+    const d = deal.wins.find((x) => x.born > song && !this.live.has(winKey(deal, x)));
+    const key = d ? winKey(deal, d) : '';
     if (this.warm?.key === key) return;
     this.freeWarm();
     if (!d) return;
@@ -486,7 +555,7 @@ export class SceneWindows {
     const p = findLook(d.lookId);
     const def = p ? getScene(p.sceneId) : undefined;
     if (!p || !def) return null;
-    const spec = specOf(d.shape, base.width, base.height);
+    const spec = specOf(d.shape, base.width, base.height, d.scale);
     // in a video, a window wears the song's colours like the main picture does
     const look = presetToLook(songTinted(withTweak(p, useStudio.getState().tweaks[p.id])));
     const rt = makeRenderTarget(spec.cw, spec.ch, { depthBuffer: true, samples: 0 });
@@ -609,7 +678,7 @@ export class SceneWindows {
       } else sx = sy = IN_SCALES[Math.min(IN_SCALES.length - 1, Math.floor(age / IN_STEP))];
       if (sx <= 0.001) return;
       const k = w.closing < 0 ? tense : 0;
-      const g = (1 + w.bump) * (1 - 0.15 * k) * w.g.fit;
+      const g = (1 + w.bump) * (1 - 0.15 * k) * w.g.fit * w.grow;
       sx *= g;
       sy *= g;
       const i = w.d.id;
@@ -747,7 +816,7 @@ function dealWindows(part: PopPart, level: number, base: Omit<FrameContext, 'par
     // a window due to close just before a drop holds on (trembling) until the drop slams it shut
     const nextDrop = drops.find((d) => d > st.at);
     if (nextDrop !== undefined && until < nextDrop && nextDrop - until < spb * 16) until = nextDrop;
-    out.push({ id: out.length, lookId: p.id, sceneId: p.sceneId, shape, spec, x, y, dir, born: st.at, until, snap: false, trail: st.trail });
+    out.push({ id: out.length, uid: dealtId(part.start, 'w', out.length), exact: false, scale: 1, lookId: p.id, sceneId: p.sceneId, shape, spec, x, y, dir, born: st.at, until, snap: false, trail: st.trail });
     recent.push(p.id);
     if (recent.length > 6) recent.shift();
   }
@@ -776,7 +845,7 @@ function pickLook(a: TrackAnalysis | null | undefined, main: MainLook, open: WDe
 }
 
 /** a window's box at frame size W×H, from its shape's dice */
-function specOf(sh: Shape, W: number, H: number): Spec {
+function specOf(sh: Shape, W: number, H: number, scale = 1): Spec {
   const s = Math.min(W, H) / 1080;
   const frame: FrameKind = sh.f < 0.5 ? 'window' : sh.f < 0.75 ? 'card' : 'round';
   let aspect = ASPECTS[Math.floor(sh.aspect * ASPECTS.length)];
@@ -785,7 +854,8 @@ function specOf(sh: Shape, W: number, H: number): Spec {
   const U = Math.min(W, H) * (0.4 + sh.size * 0.08);
   let w = U * Math.sqrt(aspect);
   let h = U / Math.sqrt(aspect);
-  const k = Math.min(1, (W * 0.42) / w, (H * 0.4) / h);
+  // (one made bigger by hand may go past what is dealt)
+  const k = Math.min(Math.min(1, (W * 0.42) / w, (H * 0.4) / h) * scale, (W * 0.96) / w, (H * 0.96) / h);
   w = Math.max(16, Math.round(w * k));
   h = Math.max(16, Math.round(h * k));
   if (circle) w = h = Math.min(w, h);

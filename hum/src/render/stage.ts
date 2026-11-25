@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { beginThings, noteWords } from '../arrange/things';
 import { audioEngine } from '../audio/engine';
 import { FeelTracker } from '../core/feel';
 import { FULLSCREEN_VERT } from '../core/glsl';
@@ -24,7 +25,7 @@ import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
 import { activeFinish, partWordsAt } from '../state/direction';
 import { chosenPhotosAt } from '../state/partEdit';
-import { PopupLayer } from './popups';
+import { PopupLayer, type DealtPop, type PopPart } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
 import { lineAt } from '../audio/lyrics';
 import { takePush } from '../inside/reading';
@@ -874,6 +875,14 @@ export class Stage {
     return { o, now, dt, s, finish, handOn, audio, feel, time, hold };
   }
 
+  /** the pop-ups and look windows of the part playing as they come up now (Arrange changes them by hand) */
+  dealtPops(): { part: PopPart; pops: DealtPop[] } | null {
+    const p = this.popups.dealt();
+    const w = this.sceneWindows.dealt();
+    if (!p || !w || Math.abs(p.part.start - w.part.start) > 1e-3) return null;
+    return { part: p.part, pops: [...p.pops, ...w.pops].sort((a, b) => a.from - b.from) };
+  }
+
   /** The second half of a frame: draw everything for the step advance() made. */
   private draw(f: FrameStep) {
     const { o, now, dt, s, finish, handOn, audio, feel, time } = f;
@@ -884,6 +893,7 @@ export class Stage {
       return;
     }
     this.lastDrawing = time;
+    if (!o) beginThings();
     if (!handOn && s.hand.fps >= 60) this.holdReady = false;
 
     // (what a window or a warm-up noted since the last frame isn't this picture's)
@@ -985,7 +995,8 @@ export class Stage {
     const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio, finish } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
     if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
-    const keep = lyricOpts ? this.drawOverlay.prepare(s, audio.time, this.width, this.height, this.lyricLayer.keepOut()) : NO_KEEP_OUT;
+    const keep = this.drawOverlay.prepare(s, audio.time, this.width, this.height, lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT);
+    if (lyricOpts && keep.now) noteWords(this.lyricLayer.keepOut().now ?? keep.now);
     // after they draw: where they are (words on one get the halo), and the legibility guard reads
     // what the words will really sit on, windows and pop-ups included (a tiny readback every other frame)
     const beforeLyrics = (rt: THREE.WebGLRenderTarget | null) => {
@@ -1008,10 +1019,8 @@ export class Stage {
       this.popups.render(r, base, this.impactRT, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
-      if (lyricOpts) {
-        this.drawOverlay.render(r, this.impactRT);
-        this.lyricLayer.render(r, lyricOpts, this.impactRT);
-      }
+      this.drawOverlay.render(r, this.impactRT);
+      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
       this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
@@ -1058,10 +1067,8 @@ export class Stage {
       this.popups.render(r, base, held, pops.instruments, keep, pops.showInstruments);
       beforeLyrics(held);
       o?.phase?.('lyrics');
-      if (lyricOpts) {
-        this.drawOverlay.render(r, held);
-        this.lyricLayer.render(r, lyricOpts, held ?? undefined);
-      }
+      this.drawOverlay.render(r, held);
+      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, held ?? undefined);
       if (held) {
         this.holdReady = true;
         this.shared.blit(held.texture, null);

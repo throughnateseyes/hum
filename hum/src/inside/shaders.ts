@@ -246,13 +246,14 @@ varying vec2 vUv;
 ${HIDE}
 ${CLIP}
 uniform sampler2D tText;
-uniform float uAlpha, uLight;
+uniform float uAlpha, uLight, uHide;
 void main() {
   vec4 d = texture2D(tText, vUv);
   // a soft look at the neighbours, so the edge where something crosses it isn't a saw
   float show = showing() * 0.5;
   float r = 0.0016 * uRes.y;
   show += (showingAt(gl_FragCoord.xy + vec2(r, 0.0)) + showingAt(gl_FragCoord.xy - vec2(r, 0.0)) + showingAt(gl_FragCoord.xy + vec2(0.0, r)) + showingAt(gl_FragCoord.xy - vec2(0.0, r))) * 0.125;
+  show = mix(1.0, show, uHide);
   float a = d.a * show * uAlpha;
   if (a < 0.004) discard;
   // the light round it, well blurred, and a little of its colour

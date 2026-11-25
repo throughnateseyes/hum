@@ -363,6 +363,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
   const lyricStyle = useStudio((s) => s.lyricStyle);
   const popups = useStudio((s) => s.popups);
   const partPops = useStudio((s) => s.partPops);
+  useStudio((s) => s.placed);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
   const partShot = useStudio((s) => s.partShot);

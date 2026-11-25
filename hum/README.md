@@ -33,6 +33,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   never written over without asking, loading another song starts a new project, and a clip taken out
   of the video stays in the folder. After a reload Chrome may want one click (**Reconnect**) before Hum
   writes there again. What was read of the clips' depth isn't saved: it is read again when needed.
+- **Arrange it by hand** (the Arrange button by Undo, or the Part tab; `src/arrange`, `src/ui/arrange`).
+  Everything on the picture gets an outline: drag it, pull a corner to resize it (it snaps to the middle,
+  the margins and the other things; arrow keys nudge, Delete takes it out, Esc lets go). The bar under the
+  picture swaps what a pop-up shows (an instrument or a live look), changes a drawing, where it stands (on
+  the ground, behind people, far off, on the wall, in front) and how it arrives, and its strip moves and
+  trims each one in time, on the beat. Add a pop-up to any part, footage included, or a drawing, in the
+  place or over the picture. **Back to automatic** undoes a part. What's set by hand is kept by song time
+  (`placed` in the store, per song and in the project), so it survives a remake; a spot is kept per frame
+  shape (wide, tall, square), and a shape with none of its own gets a mapped one inside its margins. The
+  first change to a part's pop-ups lists them all, so the others stay as dealt; changing the part's level
+  or shuffling deals again. A thing moved by hand stays put under words unless **Give way to words** is on.
 - **It comes back after a reload.** The song, your video clips and the video you made (your changes
   included) are kept in this browser (`src/state/saved.ts`: the files in IndexedDB, the plan in
   localStorage), so a reload or a closed tab picks up where you were, with a short "Bringing back"

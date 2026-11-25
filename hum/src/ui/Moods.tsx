@@ -22,6 +22,7 @@ export function MoodRow() {
   const analysis = useStudio((s) => s.analysis);
   const plan = useStudio((s) => s.plan);
   const partPops = useStudio((s) => s.partPops);
+  useStudio((s) => s.placed);
   const planning = useStudio((s) => s.planning);
   const busy = useStudio((s) => !!s.clip);
   // the mood waiting on "keep your changes?" (null: Any)

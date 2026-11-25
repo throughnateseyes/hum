@@ -39,6 +39,8 @@ import { setQuickPicks } from './shotActions';
 import type { LookTweak } from '../state/tweaks';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
+import { popSetFor } from '../arrange/types';
+import { ArrangeHere } from './arrange/ArrangeBar';
 import { Play } from './Icons';
 import { FootagePicture, ShuffleIcon } from './FootagePicture';
 import { lookParam, pictureKind, scrollToPicture, shownMedia, useMedia, usePartsTarget, useSoloTarget } from './footageMedia';
@@ -163,6 +165,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const lyricStyle = useStudio((s) => s.lyricStyle);
   const popups = useStudio((s) => s.popups);
   const partPops = useStudio((s) => s.partPops);
+  const placed = useStudio((s) => s.placed);
   const partHand = useStudio((s) => s.partHand);
   const partWords = useStudio((s) => s.partWords);
   const partShot = useStudio((s) => s.partShot);
@@ -206,6 +209,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   // hand-drawn, pop-ups, words: the person's own values (null: as planned)
   const hand = common(parts.map((j) => (partHand?.length === n ? (partHand[j] ?? null) : null)));
   const pops = common(parts.map((j) => (partPops?.length === n && typeof partPops[j] === 'number' ? Math.min(3, partPops[j]!) : null)).map((v) => (v === 2 ? 3 : v)));
+  const byHand = one && !!popSetFor(placed, a.sections[i].start, a.sections[i + 1]?.start ?? a.sections[i].end);
   const planned = common(parts.map((j) => popsOf(plan, a, j)));
   const words = common(parts.map((j) => (partWords?.length === n ? (partWords[j] ?? '') : '')));
 
@@ -347,7 +351,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
       <section className="pp-sec" aria-labelledby={`${headingId}-pop`}>
         <div className="ps-h">
           <h3 id={`${headingId}-pop`}>Pop-ups</h3>
-          <span>{pops === 'mixed' ? 'Mixed' : planned === 'mixed' ? 'Auto differs by part' : `Auto here is ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`}</span>
+          <span>{byHand ? 'Placed by hand' : pops === 'mixed' ? 'Mixed' : planned === 'mixed' ? 'Auto differs by part' : `Auto here is ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`}</span>
           <button
             className="btn sm ghost pp-shuffle"
             disabled={busy || popups === 'off'}
@@ -360,7 +364,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         </div>
         <div className="seg full" role="group" aria-label={`Pop-up windows in ${one ? names[i] : 'these parts'}`}>
           {POP_LEVELS.map((o) => {
-            const on = pops === o.v;
+            const on = !byHand && pops === o.v;
             return (
               <button key={o.label} className={on ? 'on' : ''} aria-pressed={on} disabled={busy} title={o.tip} onClick={() => setPartsPops(parts, o.v)}>
                 {o.label}
@@ -368,7 +372,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
             );
           })}
         </div>
-        {popups === 'off' && <p className="pp-note">Pop-ups are switched off for the whole video (Video tab).</p>}
+        {popups === 'off' && <p className="pp-note">Pop-ups are switched off for the whole video (Video tab). Ones you place by hand still show.</p>}
+        {one && <ArrangeHere part={i} />}
       </section>
 
       {synced && (

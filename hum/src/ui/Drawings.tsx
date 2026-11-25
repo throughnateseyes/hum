@@ -43,7 +43,7 @@ const MORE = 4;
  * A drawing by the real pen, in the video's colours. A new one draws itself on; hovering or focusing the
  * tile draws it again.
  */
-function DrawThumb({ d, replay }: { d: DrawingAsset; replay: number }) {
+export function DrawThumb({ d, replay }: { d: DrawingAsset; replay: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const palette = useStudio((s) => s.palette);
   const inView = useRef(replay);

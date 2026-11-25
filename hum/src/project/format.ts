@@ -13,6 +13,7 @@
  * A project may come from someone else: whatever is read here is checked, and what doesn't hold is left out.
  */
 import type { ClipAsset, ClipPalette, CustomShaderSpec, Lyrics, MediaNotes, Palette, PartShot, Preset, TrackAnalysis } from '../core/types';
+import { cleanPlaced, type Placed } from '../arrange/types';
 import { feelingFor } from '../director/feeling';
 import { notesOf, recallNotes } from '../director/media';
 import { cleanAsset } from '../draw/session';
@@ -62,6 +63,7 @@ export interface ProjectFile {
     soloShot: PartShot | null;
     tweaks: TweakTable;
     drawParts: DrawPart[];
+    placed: Placed;
     popDeals: Record<string, number>;
     text: string;
   };
@@ -95,7 +97,7 @@ function drawingIds(s: StudioState): Set<string> {
   const ids = new Set<string>();
   for (const d of s.drawParts) for (const id of d.ids ?? []) ids.add(id);
   // the plan's shots, its cues and the person's own choices all name drawings by id
-  const text = JSON.stringify([s.plan, s.partShot]);
+  const text = JSON.stringify([s.plan, s.partShot, s.placed.drawings]);
   for (const d of s.drawings) if (text.includes(`"${d.id}"`)) ids.add(d.id);
   return ids;
 }
@@ -142,6 +144,7 @@ export async function collect(s: StudioState, id: string, name: string, song: { 
         soloShot: s.soloShot,
         tweaks: s.tweaks,
         drawParts: s.drawParts,
+        placed: s.placed,
         popDeals: track && s.analysis ? dealsHere(track.name, s.analysis) : {},
         text: s.text,
       },
@@ -313,6 +316,7 @@ export function readProject(text: string): ProjectFile {
       soloShot: okShot(v.soloShot) ? (v.soloShot as PartShot) : null,
       tweaks: isObj(v.tweaks) ? (v.tweaks as TweakTable) : {},
       drawParts: cleanDrawParts(v.drawParts),
+      placed: cleanPlaced(v.placed),
       popDeals: isObj(v.popDeals) ? Object.fromEntries(Object.entries(v.popDeals).filter((e): e is [string, number] => /^\d{1,9}$/.test(e[0]) && typeof e[1] === 'number')) : {},
       text: str(v.text, 400),
     },

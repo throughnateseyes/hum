@@ -13,6 +13,7 @@
  * popDealsVersion() changes on every reshuffle, so the pop-up layers know to deal again at once.
  */
 import type { TrackAnalysis } from '../core/types';
+import { withoutPops } from '../arrange/types';
 import { songKey } from './planCache';
 import { useStudio } from './store';
 
@@ -129,6 +130,10 @@ export function reshufflePops(parts: number[]): void {
   if (!changed) return;
   version++;
   saveDeals(song, deals);
+  // what was placed by hand there goes: a fresh deal was asked for
+  const st = useStudio.getState();
+  const placed = withoutPops(st.placed, [...new Set(parts)].flatMap((i) => a.sections[i] ?? []));
+  if (placed !== st.placed) st.set({ placed });
 }
 
 function saveDeals(song: string, deals: Record<string, number>) {

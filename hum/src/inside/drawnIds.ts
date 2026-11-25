@@ -2,8 +2,13 @@
  * Where a drawing can stand in an inside shot, how big it is and how it arrives: the ids a part's setting
  * and the art director's answer are checked against (no drawing code here; the server reads this too).
  */
+import { cleanSpots, SHAPES, STANDING_SIZE, type Spots } from '../arrange/types';
+
 export const DRAWN_PUTS = ['ground', 'between', 'far', 'wall'] as const;
 export type DrawnPut = (typeof DRAWN_PUTS)[number];
+/** and by hand it can be laid in front of everything: never hidden, staying put in the frame */
+export const HAND_PUTS = [...DRAWN_PUTS, 'front'] as const;
+export type HandPut = (typeof HAND_PUTS)[number];
 export const DRAWN_SIZES = ['small', 'medium', 'large'] as const;
 export type DrawnSize = (typeof DRAWN_SIZES)[number];
 export const DRAWN_ENTERS = ['draw', 'rise', 'there'] as const;
@@ -39,23 +44,30 @@ export function inRoom(room: Room, put: DrawnPut, size: DrawnSize): { put: Drawn
 export interface DrawnShot {
   /** the drawing's id (src/draw); one redrawn since stands in for it */
   id: string;
-  put: DrawnPut;
+  put: HandPut;
   size: DrawnSize;
   enter: DrawnEnter;
+  /** where the person put it, by the frame's shape: its middle at the shot's middle, and its height as a share of the frame's */
+  spots?: Spots;
   /** what it does there, in a few words */
   why?: string;
 }
+
+/** what a shot has to be laid out again for */
+export const drawnKey = (d: Pick<DrawnShot, 'put' | 'size' | 'enter' | 'spots'>) => `${d.put}.${d.size}.${d.enter}${d.spots ? `.${SHAPES.map((s) => (d.spots![s] ? `${d.spots![s]!.x.toFixed(4)},${d.spots![s]!.y.toFixed(4)},${d.spots![s]!.size.toFixed(4)}` : '')).join(';')}` : ''}`;
 
 export function cleanDrawn(v: unknown): DrawnShot | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
   if (typeof o.id !== 'string' || !o.id) return null;
+  const spots = cleanSpots(o.spots, STANDING_SIZE);
   const pick = <T extends string>(x: unknown, ids: readonly T[], d: T): T => (ids.includes(x as T) ? (x as T) : d);
   return {
     id: o.id.slice(0, 60),
-    put: pick(o.put, DRAWN_PUTS, 'between'),
+    put: pick(o.put, HAND_PUTS, 'between'),
     size: pick(o.size, DRAWN_SIZES, 'medium'),
     enter: pick(o.enter, DRAWN_ENTERS, 'draw'),
+    ...(spots ? { spots } : {}),
     ...(typeof o.why === 'string' && o.why ? { why: o.why.slice(0, 110) } : {}),
   };
 }

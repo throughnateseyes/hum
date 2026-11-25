@@ -290,7 +290,7 @@ function cutNow(plan: VideoPlan, a: TrackAnalysis, keep: VideoPlan | null) {
   const out = prev ? carryEdits(f, prev) : f;
   const hand = prevA && prevA !== out.analysis ? carryByTime(s.partShot, prevA, out.analysis) : s.partShot;
   // the looks the person chose or liked keep the picture they had
-  const edits = prev ? partEdits(prev.plan, prev.analysis, null, null, null) : [];
+  const edits = prev ? partEdits(prev.plan, prev.analysis, null, null, null, undefined, null) : [];
   const kept = out.analysis.sections.map((sec, i) => {
     if (!prev) return false;
     const j = sectionIndexAt(prev.analysis.sections, sec.start + 0.06);

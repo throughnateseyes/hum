@@ -1,0 +1,446 @@
+/* arranging by hand: on the picture (ArrangeLayer.tsx) and the bar under it (ArrangeBar.tsx) */
+.arr {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* nothing else over the picture while its things are in hand */
+.stage-frame:has(.arr) .taste-hud,
+.stage-frame:has(.arr) .tap-play,
+.stage-frame:has(.arr) .stage-vol,
+.stage-frame:has(.arr) .stage-fs {
+  display: none;
+}
+.arr-safe {
+  position: absolute;
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  outline: 1px dashed rgba(0, 0, 0, 0.35);
+  outline-offset: -2px;
+  pointer-events: none;
+}
+.arr-line {
+  position: absolute;
+  background: #ff3d8b;
+  pointer-events: none;
+  z-index: 5;
+}
+.arr-line.v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.arr-line.h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.arr-box {
+  position: absolute;
+  cursor: move;
+  outline: none;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.85),
+    0 0 0 2px rgba(0, 0, 0, 0.35);
+  border-radius: 2px;
+}
+.arr-box:hover,
+.arr-box:focus-visible {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3px rgba(47, 75, 255, 0.9);
+}
+.arr-box.sel {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 0 3px #fff;
+}
+.arr-tag {
+  position: absolute;
+  left: -1px;
+  bottom: calc(100% + 4px);
+  max-width: max(100%, 180px);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(20, 20, 18, 0.8);
+  color: #fff;
+  font-size: var(--fs-1);
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+}
+.arr-tag.in {
+  bottom: auto;
+  top: 4px;
+  left: 4px;
+}
+.arr-box.sel .arr-tag,
+.arr-box:hover .arr-tag,
+.arr-box:focus-visible .arr-tag,
+.arr-tag:has(b) {
+  opacity: 1;
+}
+.arr-box.sel .arr-tag {
+  background: var(--accent);
+}
+.arr-tag b {
+  margin-left: 6px;
+  font-weight: 600;
+  color: #ffd54a;
+}
+.arr-grip {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+}
+/* as big to the finger as it has to be */
+.arr-grip::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+.arr-grip.nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+.arr-grip.ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+.arr-grip.sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+.arr-grip.se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+.arr-none {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 5px 10px;
+  border-radius: var(--r);
+  background: rgba(20, 20, 18, 0.78);
+  color: #fff;
+  font-size: var(--fs-3);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ── the bar ── */
+.arrbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+  padding: var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.arrbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  min-height: var(--h);
+}
+.arrbar-part {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.arrbar-part b {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+.arrbar-add,
+.arrbar-sel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.arrbar-sel select,
+.arr-field select {
+  padding: 0 22px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  appearance: none;
+  background: var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%23888' stroke-width='1.5'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 8px center;
+  font: inherit;
+  font-size: var(--fs-2);
+  color: var(--ink);
+  text-overflow: ellipsis;
+}
+.arrbar-sel select {
+  max-width: 170px;
+  height: var(--h-sm);
+}
+.arrbar-sel select:hover,
+.arr-field select:hover {
+  border-color: var(--ink-3);
+}
+.arrbar-done {
+  margin-left: auto;
+  flex: none;
+}
+.arrbar-note {
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.arr-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.arr-size input {
+  width: 92px;
+}
+.arr-menu {
+  position: relative;
+}
+.menu.arr-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  width: 300px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+}
+.arr-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2px;
+}
+.arr-kinds button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-3);
+  text-align: left;
+  color: var(--ink);
+}
+.arr-kinds button:hover {
+  background: var(--panel-2);
+}
+.arr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px var(--s-2) var(--s-2);
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+}
+.arr-field select {
+  height: var(--h);
+}
+.arr-seg {
+  margin: var(--s-1) var(--s-1) var(--s-2);
+}
+.arr-draws {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-1);
+  padding: var(--s-1);
+}
+.arr-draws button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+}
+.arr-draws button:hover {
+  background: var(--panel-2);
+}
+.arr-draws canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+}
+.arr-draws span {
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── the part in time ── */
+.arr-lane-wrap {
+  max-height: 116px;
+  overflow-y: auto;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+}
+.arr-lane {
+  position: relative;
+  min-height: 34px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+.arr-beat {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+.arr-beat.bar {
+  background: var(--line-2);
+}
+.arr-item {
+  position: absolute;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: #d8dcff;
+  color: #1c2470;
+  font-size: var(--fs-1);
+  cursor: grab;
+  outline: none;
+  overflow: hidden;
+}
+.arr-item.window {
+  background: #cfe9e2;
+  color: #0d4a3c;
+}
+.arr-item.placed,
+.arr-item.standing {
+  background: #ffe1c4;
+  color: #6b3506;
+}
+.arr-item.standing {
+  cursor: pointer;
+}
+.arr-item.sel,
+.arr-item:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.arr-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.arr-end {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.arr-end.l {
+  left: 0;
+}
+.arr-end.r {
+  right: 0;
+}
+.arr-item.hand::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.arr-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--ink);
+  pointer-events: none;
+}
+.arr-lane-none {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-2);
+  color: var(--ink-2);
+  pointer-events: none;
+}
+
+.app.phone .arrbar {
+  padding: 6px;
+}
+.app.phone .arrbar .btn {
+  min-height: 34px;
+}
+.app.phone .arr-item {
+  touch-action: none;
+}
+.app.phone .arr-end {
+  width: 14px;
+}
+.app.phone .menu.arr-pop {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  z-index: 90;
+}
+
+/* ── a narrow screen: the part and Done on one line, the controls on their own, lists from the bottom ── */
+@media (max-width: 720px) {
+  .arrbar-part {
+    flex: 1;
+    min-width: 0;
+  }
+  .arrbar-add,
+  .arrbar-sel {
+    order: 3;
+    flex: 1 0 100%;
+  }
+  .arrbar-sel select {
+    max-width: 130px;
+  }
+  .menu.arr-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 56vh;
+    z-index: 60;
+  }
+}

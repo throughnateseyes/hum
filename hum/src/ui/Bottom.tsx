@@ -8,6 +8,7 @@ import { makeVideo, sectionIndexAt, sectionNames, validPlan } from '../state/pla
 import { originalOf } from '../state/planCache';
 import { useStudio } from '../state/store';
 import { LAYER_MIME, Toggle } from './controls';
+import { ArrangeBar, ArrangeButton } from './arrange/ArrangeBar';
 import { Pause, Play, Redo, Sparkle, Wave } from './Icons';
 import { toggleBreakdown, useBreakdown } from './Breakdown';
 import { fmtTime } from './song';
@@ -32,6 +33,7 @@ export function Bottom() {
   const meters = useStudio((s) => s.metersOpen);
   return (
     <div className="bottom">
+      <ArrangeBar />
       <TopRow />
       <Timeline side={phone ? <PhoneSide /> : undefined} />
       {phone && <MoodRow />}
@@ -106,6 +108,7 @@ function TopRow() {
       </div>
       {!phone && (
         <div className="bt-group">
+          <ArrangeButton />
           <UndoRedo />
           <span className="time bpm" title="The song’s tempo">
             {analysis ? `${Math.round(analysis.bpm)} bpm` : audioEngine.frame.bpm ? `${Math.round(audioEngine.frame.bpm)} bpm` : '– bpm'}
@@ -175,6 +178,7 @@ function PhoneSide() {
   return (
     <>
       <MakeVideoButton />
+      <ArrangeButton label />
       <button className={`btn tl-bd ${bdOpen ? 'on' : ''}`} disabled={!track} onClick={toggleBreakdown}>
         <Wave width={14} height={14} />
         Breakdown

@@ -24,6 +24,7 @@
  * Cmd/Ctrl+Z undoes, Shift+Cmd/Ctrl+Z and Cmd/Ctrl+Y redo, anywhere but in a text field (where the
  * browser's own undo keeps working).
  */
+import type { Placed } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import { finishName, isFinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
@@ -67,6 +68,7 @@ const FIELDS = [
   'lyricFont',
   'drawTrash',
   'drawParts',
+  'placed',
   'drawOverlay',
 ] as const satisfies readonly (keyof StudioState)[];
 type Field = (typeof FIELDS)[number];
@@ -404,9 +406,19 @@ function describe(a: Values, b: Values): string {
   if (a.lyricFont !== b.lyricFont) out.push('lyrics font');
   if (a.drawTrash !== b.drawTrash) out.push(b.drawTrash.length > a.drawTrash.length ? (b.drawTrash.length - a.drawTrash.length > 1 ? 'deleted drawings' : 'deleted a drawing') : 'brought back a drawing');
   if (a.drawParts !== b.drawParts) out.push('the drawings in a part');
+  if (a.placed !== b.placed && a.partPops === b.partPops && !out.length) out.push(placedLabel(a.placed, b.placed));
   if (a.drawOverlay !== b.drawOverlay) out.push(`Drawings beside the words ${b.drawOverlay ? 'on' : 'off'}`);
   if (!out.length) return 'a change';
   return out.length > 2 ? `${out[0]} and ${out.length - 1} more` : out.join(' and ');
+}
+
+/** what was placed, moved or taken away by hand */
+function placedLabel(a: Placed, b: Placed): string {
+  if (a.drawings !== b.drawings) return b.drawings.length > a.drawings.length ? 'placed a drawing' : b.drawings.length < a.drawings.length ? 'took a drawing out' : 'moved a drawing';
+  if (a.hidden !== b.hidden) return 'took a drawing out';
+  const n = (p: Placed) => p.pops.reduce((k, s) => k + s.wins.length, 0);
+  if (a.pops.length === b.pops.length && n(a) !== n(b)) return n(b) > n(a) ? 'added a pop-up' : 'took a pop-up out';
+  return 'moved a pop-up';
 }
 
 /* ───────── wiring: the store, gestures, the keyboard ───────── */

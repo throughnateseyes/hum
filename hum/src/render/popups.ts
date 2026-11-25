@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { FrameContext, TrackAnalysis } from '../core/types';
 import { createFullscreenQuad } from '../core/sceneHelpers';
+import { noteThing, trialOf } from '../arrange/things';
+import { clampTo, cornerAt, popSetFor, POP_SIZE, shapeOfFrame, spotFor, type PopSet, type Spot, type WindowShape } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import { beatOffset } from '../audio/frameDsp';
 import { lum, makeInk, mix, rgba, setFont, MONO } from '../scenes/board/kit';
@@ -82,7 +84,58 @@ const KINDS: Kind[] = [
   { title: 'PITCH', make: chroma, w: 1, h: 0.62 },
 ];
 
+/** the instruments there are, for choosing one by hand */
+export const popKinds = (): { title: string; needs?: 'words' | 'map' }[] => KINDS.map(({ title, needs }) => ({ title, ...(needs ? { needs } : {}) }));
+
+/** an instrument's own size in a W×H frame */
+function kindSize(kind: Kind, W: number, H: number): { w: number; h: number } {
+  const U = Math.min(W, H) * 0.36;
+  return { w: Math.round(Math.min(W * 0.5, kind.w * U)), h: Math.round(Math.min(H * 0.42, kind.h * U + U * 0.1)) };
+}
+
 /* ───────── shared with sceneWindows.ts: parts, dice and the song's grid ───────── */
+
+/** a pop-up of a part as it would be dealt, for the person to change (arrange/edit.ts) */
+export interface DealtPop {
+  id: string;
+  title?: string;
+  look?: string;
+  style: number;
+  from: number;
+  to: number;
+  spot: Spot;
+  shape?: WindowShape;
+  snap?: true;
+  trail?: true;
+}
+
+/** windows that are up at once, cut to the most that may show: a newer one takes the oldest's place */
+export function cutTo<T extends { born: number; until: number }>(wins: T[], most: number): T[] {
+  if (most <= 0) return [];
+  const out: T[] = [];
+  for (const w of [...wins].sort((a, b) => a.born - b.born)) {
+    const open = out.filter((o) => o.until > w.born);
+    if (open.length >= most) open[0].until = w.born;
+    out.push({ ...w });
+  }
+  return out.filter((w) => w.until - w.born > 0.25);
+}
+
+/** a window's name, kept when a part's deal is first changed by hand */
+export const dealtId = (start: number, layer: 'p' | 'w', id: number) => `${layer}${Math.round(start * 1000)}-${id}`;
+
+/** the pop-ups set by hand for a part, when there are any to go by */
+export function handSet(part: PopPart): PopSet | null {
+  const s = useStudio.getState();
+  if (!s.placed.pops.length || !s.planOn || audioEngine.kind !== 'file') return null;
+  const set = popSetFor(s.placed, part.start, part.end);
+  // with pop-ups off for the video, only the ones put somewhere by hand stay
+  if (!set || s.popups !== 'off') return set;
+  let kept = keptOnly.get(set);
+  if (!kept) keptOnly.set(set, (kept = { ...set, wins: set.wins.filter((w) => Object.values(w.spots).some((x) => !x.dealt)) }));
+  return kept;
+}
+const keptOnly = new WeakMap<PopSet, PopSet>();
 
 /** a stretch of song whose pop-ups are dealt together */
 export interface PopPart {
@@ -217,12 +270,17 @@ interface Dealt {
   until: number;
   /** title bar: 0 striped, 1 accent, 2 ink */
   style: number;
+  /** what it is called when it is arranged by hand, and whether it stays exactly where it was put */
+  uid: string;
+  exact: boolean;
 }
 
 interface Deal {
   key: string;
   part: PopPart;
   wins: Dealt[];
+  /** the person's own: they all show, whatever is on screen */
+  hand: boolean;
 }
 
 /** a dealt window on screen: its instrument, its drawn chrome and where it is gliding */
@@ -307,6 +365,8 @@ export class PopupLayer {
     if (this.canvas.width !== W || this.canvas.height !== H) {
       this.canvas.width = W;
       this.canvas.height = H;
+      // the GL texture was allocated at the old size: without a new one every window lands squashed and off its place
+      this.tex.dispose();
     }
     this.size = { W, H };
 
@@ -317,16 +377,22 @@ export class PopupLayer {
     const ref = refSize(W, H);
     const part = popPartAt(an, song);
     const prev = prevPopPart(an, part);
-    const want: { key: string; d: Dealt }[] = [];
+    const want: { key: string; d: Dealt; hand: boolean }[] = [];
+    this.now = { part, show };
     for (const p of prev && song - part.start < OUT_TIME ? [prev, part] : [part]) {
       const deal = this.dealFor(p, levelAt(p.start + 0.001), base, ref.RW, ref.RH, grid);
-      for (const d of deal.wins) if (d.born <= song && song < d.until + OUT_TIME) want.push({ key: `${deal.key}#${d.id}`, d });
+      if (p === part) this.now.deal = deal;
+      for (const d of deal.wins) if (d.born <= song && song < d.until + OUT_TIME) want.push({ key: `${deal.key}#${d.id}`, d, hand: deal.hand });
     }
-    // most windows drawn: the newest open ones (the deal doesn't change, only how many show)
+    // most windows drawn: the newest open ones (the deal doesn't change, only how many show). One that is
+    // closing only does if it was up: with nothing showing it must not flash by as it goes
     let room = Math.max(0, show);
     for (let k = want.length - 1; k >= 0; k--) {
-      if (want[k].d.until <= song) continue;
-      if (room > 0) room--;
+      const { d, hand, key } = want[k];
+      if (d.until <= song) {
+        if (!this.live.has(key) || (!hand && show <= 0)) want.splice(k, 1);
+      } else if (hand) continue;
+      else if (room > 0) room--;
       else want.splice(k, 1);
     }
 
@@ -337,13 +403,27 @@ export class PopupLayer {
     const next = new Map<string, Win>();
     const wins: Win[] = [];
     const fresh = new Set<Win>();
-    for (const { key, d } of want) {
+    for (const { key, d: d0 } of want) {
+      // the one in the hand is where the hand has it
+      const held = trialOf(`pop:${d0.uid}`);
+      const d = held ? { ...d0, ...boxAt(d0.kind, held, ref.RW, ref.RH, false), exact: true } : d0;
+      const x = Math.round(d.x * ref.k);
+      const y = Math.round(d.y * ref.k);
+      const ww = Math.round(d.w * ref.k);
+      const wh = Math.round(d.h * ref.k);
       let w = this.live.get(key);
-      if (!w) {
-        const x = Math.round(d.x * ref.k);
-        const y = Math.round(d.y * ref.k);
-        const home = { x, y };
-        fresh.add((w = { d, home, kind: d.kind, mod: d.kind.make(), x, y, w: Math.round(d.w * ref.k), h: Math.round(d.h * ref.k), born: d.born, closing: -1, style: d.style, cache: null, cacheKey: '', bumpX: 0, bumpY: 0, g: newGlide(x, y) }));
+      if (!w) fresh.add((w = { d, home: { x, y }, kind: d.kind, mod: d.kind.make(), x, y, w: ww, h: wh, born: d.born, closing: -1, style: d.style, cache: null, cacheKey: '', bumpX: 0, bumpY: 0, g: newGlide(x, y) }));
+      else if (w.d !== d) {
+        // moved, resized or changed by hand: it is at once what it was made
+        if (w.kind !== d.kind) {
+          w.kind = d.kind;
+          w.mod = d.kind.make();
+        }
+        if (w.home.x !== x || w.home.y !== y || w.w !== ww || w.h !== wh || w.d.exact !== d.exact) {
+          Object.assign(w, { home: { x, y }, x, y, w: ww, h: wh, g: newGlide(x, y) });
+          fresh.add(w);
+        }
+        Object.assign(w, { d, born: d.born, style: d.style });
       }
       w.closing = song >= d.until ? d.until : -1;
       next.set(key, w);
@@ -356,9 +436,15 @@ export class PopupLayer {
     const m = Math.min(W, H) * 0.04;
     const words = toPx(keep.now, W, H, Math.min(W, H) * 0.02);
     for (const w of wins) {
-      if (w.closing >= 0) continue;
+      if (w.closing >= 0 || w.d.exact) continue;
       const others = wins.filter((o) => o !== w && o.closing < 0).map((o) => this.goalBox(o));
       keepGlide(w, w.home, w.g, w.w, w.h, words, W, H, m, others, dt, seeked || fresh.has(w));
+    }
+    for (const w of wins) {
+      if (w.closing >= 0) continue;
+      const b = this.goalBox(w);
+      const own = kindSize(w.kind, ref.RW, ref.RH);
+      noteThing({ key: `pop:${w.d.uid}`, kind: 'pop', name: w.kind.title, box: toRect(b, W, H), spot: { x: (w.d.x + w.d.w / 2) / ref.RW, y: (w.d.y + w.d.h / 2) / ref.RH, size: w.d.w / own.w }, from: w.d.born, to: w.d.until, hand: w.d.exact, ratio: w.w / w.h, ref: w.d.uid });
     }
 
     if (!wins.length) {
@@ -378,6 +464,16 @@ export class PopupLayer {
   }
 
   private size = { W: 2, H: 2 };
+  private now: { part: PopPart; show: number; deal?: Deal } | null = null;
+
+  /** the pop-ups of the part playing as they come up now, to be changed by hand (null: nothing has drawn yet) */
+  dealt(): { part: PopPart; pops: DealtPop[] } | null {
+    if (!this.now?.deal) return null;
+    const { part, show, deal } = this.now;
+    const { RW, RH } = refSize(this.size.W, this.size.H);
+    const wins = cutTo(deal.wins, deal.hand ? 99 : show);
+    return { part, pops: wins.map((d) => ({ id: d.uid, title: d.kind.title, style: d.style, from: d.born, to: d.until, spot: { x: (d.x + d.w / 2) / RW, y: (d.y + d.h / 2) / RH, size: clampTo(POP_SIZE, d.w / kindSize(d.kind, RW, RH).w), dealt: true } })) };
+  }
 
   /** where a window is heading, at the size it's heading for (px) */
   private goalBox(w: Win): PxBox {
@@ -403,6 +499,8 @@ export class PopupLayer {
   /** the part's deal at the reference size W×H (kept while nothing it was dealt from changes) */
   private dealFor(part: PopPart, level: number, base: Omit<FrameContext, 'params'>, W: number, H: number, grid: { spb: number; off: number }): Deal {
     const s = useStudio.getState();
+    const set = handSet(part);
+    if (set) return this.handDeal(part, set, W, H);
     const hasWords = !!(s.lyrics?.synced && s.lyrics.lines.length) || !!base.text.trim();
     const hasMap = !!base.analysis?.sections.length;
     const lv = Math.max(0, Math.min(3, Math.round(level)));
@@ -414,11 +512,35 @@ export class PopupLayer {
       this.deals.set(key, deal);
       return deal;
     }
-    deal = { key, part, wins: dealPopups(part, lv, base.analysis, W, H, grid, hasWords, hasMap) };
+    deal = { key, part, hand: false, wins: dealPopups(part, lv, base.analysis, W, H, grid, hasWords, hasMap) };
     this.deals.set(key, deal);
     while (this.deals.size > KEEP_DEALS) this.deals.delete(this.deals.keys().next().value!);
     return deal;
   }
+
+  /** the person's own pop-ups for a part, at the reference size */
+  private handDeal(part: PopPart, set: PopSet, W: number, H: number): Deal {
+    const key = `hand|${part.start.toFixed(3)}`;
+    const memo = `${W}x${H}|${part.end.toFixed(3)}`;
+    const had = this.hands.get(key);
+    if (had && had.set === set && had.memo === memo) return had.deal;
+    const shape = shapeOfFrame(W, H);
+    const wins = set.wins.flatMap((w): Dealt[] => {
+      const kind = KINDS.find((k) => k.title === w.title);
+      const at = spotFor(w.spots, shape);
+      const born = Math.max(part.start, w.from);
+      const until = Math.min(part.end, w.to);
+      if (!kind || !at || until - born < 0.05) return [];
+      // the number it bumps by and is known by stays its own, wherever it is in the list
+      return [{ id: idOf(w.id), kind, ...boxAt(kind, at.spot, W, H, at.of !== shape), born, until, style: w.style, uid: w.id, exact: at.exact }];
+    });
+    wins.sort((a, b) => a.born - b.born);
+    const deal: Deal = { key, part, wins, hand: true };
+    if (this.hands.size > 40) this.hands.clear();
+    this.hands.set(key, { set, memo, deal });
+    return deal;
+  }
+  private hands = new Map<string, { set: PopSet; memo: string; deal: Deal }>();
 
   private draw(base: Omit<FrameContext, 'params'>, W: number, H: number, spb: number) {
     const g = this.ctx;
@@ -586,6 +708,22 @@ export class PopupLayer {
   }
 }
 
+/** a window's number from its name (for the dice it bumps by) */
+export function idOf(uid: string): number {
+  let h = 7;
+  for (let i = 0; i < uid.length; i++) h = (Math.imul(h, 31) + uid.charCodeAt(i)) | 0;
+  return (h >>> 0) % 1_000_003;
+}
+
+/** an instrument's box at the reference size, where a spot puts it */
+function boxAt(kind: Kind, spot: Spot, W: number, H: number, inside: boolean): { x: number; y: number; w: number; h: number } {
+  const own = kindSize(kind, W, H);
+  const k = Math.min(clampTo(POP_SIZE, spot.size), (W * 0.96) / own.w, (H * 0.96) / own.h);
+  const w = Math.round(own.w * k);
+  const h = Math.round(own.h * k);
+  return { ...cornerAt(spot, { w, h }, W, H, inside), w, h };
+}
+
 /**
  * Deal a part's pop-ups: windows open on the part's first beats, on its drops and on some bar lines
  * (more on phrase starts), staggered a beat apart, each staying 2 to 4 bars. A full screen retires its
@@ -609,7 +747,6 @@ function dealPopups(part: PopPart, level: number, a: TrackAnalysis | null | unde
   times.sort((x, y) => x - y);
 
   const out: Dealt[] = [];
-  const U = Math.min(W, H) * 0.36;
   const m = Math.min(W, H) * 0.04;
   for (const at of times) {
     // too close to the part's end to be worth opening
@@ -626,8 +763,7 @@ function dealPopups(part: PopPart, level: number, a: TrackAnalysis | null | unde
     // lyric windows come up more often when there are words
     const weighted = pool.flatMap((k) => (k.needs === 'words' ? [k, k] : [k]));
     const kind = weighted[Math.floor(pick() * weighted.length)];
-    let w = Math.round(Math.min(W * 0.5, kind.w * U));
-    let h = Math.round(Math.min(H * 0.42, kind.h * U + U * 0.1));
+    let { w, h } = kindSize(kind, W, H);
     // together the windows leave the picture and the words their room: the oldest makes way, then this one is smaller
     const most = MOST_COVER[level] * W * H;
     const taken = () => open.reduce((n, o) => n + o.w * o.h, 0);
@@ -652,7 +788,7 @@ function dealPopups(part: PopPart, level: number, a: TrackAnalysis | null | unde
     }
     const bars = 2 + Math.floor(pick() * 3);
     const style = Math.floor(pick() * 3);
-    out.push({ id: out.length, kind, x: Math.round(best!.x), y: Math.round(best!.y), w, h, born: at, until: Math.min(part.end, at + Math.min(11, Math.max(3, bars * 4 * spb))), style });
+    out.push({ id: out.length, uid: dealtId(part.start, 'p', out.length), exact: false, kind, x: Math.round(best!.x), y: Math.round(best!.y), w, h, born: at, until: Math.min(part.end, at + Math.min(11, Math.max(3, bars * 4 * spb))), style });
   }
   return out;
 }

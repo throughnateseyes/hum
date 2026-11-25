@@ -21,6 +21,7 @@ import { getScene, registerScene } from '../scenes';
 import { makeCustomShaderScene } from '../scenes/custom';
 import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { PRESETS } from '../presets';
+import { loadPlaced, NOTHING, savePlaced, type Placed } from '../arrange/types';
 import { loadDrawParts, saveDrawParts } from '../draw/parts';
 import type { DrawingAsset, DrawPart } from '../draw/types';
 import { uid } from './modulation';
@@ -106,6 +107,8 @@ export interface StudioState extends LookState {
   drawTrash: string[];
   /** what parts of this song do with drawings, by time */
   drawParts: DrawPart[];
+  /** the pop-ups and drawings placed by hand in this song, by time (src/arrange) */
+  placed: Placed;
   /** small drawings beside the lyrics when a word that has one is sung */
   drawOverlay: boolean;
   /** a video made from the person's footage has drawings standing in some of its shots (director/footageArt.ts) */
@@ -516,6 +519,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   drawings: [],
   drawTrash: [],
   drawParts: [],
+  placed: NOTHING,
   drawOverlay: persisted.drawOverlay ?? true,
   drawInScene: persisted.drawInScene ?? true,
   tweaks: loadTweaks(''),
@@ -689,9 +693,10 @@ useStudio.subscribe((s, prev) => {
   const song = s.track?.name ?? '';
   if (song !== tweakSong) {
     tweakSong = song;
-    useStudio.setState({ tweaks: loadTweaks(song), drawParts: loadDrawParts(song) });
+    useStudio.setState({ tweaks: loadTweaks(song), drawParts: loadDrawParts(song), placed: loadPlaced(song) });
     return;
   }
   if (s.tweaks !== prev.tweaks) saveTweaks(song, s.tweaks);
   if (s.drawParts !== prev.drawParts) saveDrawParts(song, s.drawParts);
+  if (s.placed !== prev.placed) savePlaced(song, s.placed);
 });
