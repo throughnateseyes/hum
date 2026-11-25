@@ -89,6 +89,9 @@ export function readingOf(asset: ClipAsset | PhotoAsset): Reading & Pick<One, 'o
   return one;
 }
 
+/** what is known of a clip or photo so far, without asking for it */
+export const sceneOf = (id: string): ClipScene | null => kept.get(id)?.one.scene ?? null;
+
 useStudio.subscribe((s, prev) => {
   if (s.clips === prev.clips && s.photos === prev.photos) return;
   const ids = new Set([...s.clips.map((c) => c.id), ...s.photos.map((p) => p.id)]);

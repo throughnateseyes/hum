@@ -203,6 +203,7 @@ varying vec2 vUv;
 ${HIDE}
 ${CLIP}
 uniform sampler2D tText;
+uniform float uWhole;
 uniform vec3 uColor;
 uniform float uAlpha, uShade, uBleed, uBleedX;
 uniform float uEdges[${MAX_LETTERS}];
@@ -245,7 +246,7 @@ void main() {
       float t = float(k) * 0.7854 + 0.3;
       open += showingAt(gl_FragCoord.xy + vec2(cos(t), sin(t)) * r);
     }
-    show = max(show, 0.5 * smoothstep(0.55, 0.78, open / 8.0));
+    show = max(show, mix(0.5 * smoothstep(0.55, 0.78, open / 8.0), smoothstep(0.35, 0.55, open / 8.0), uWhole));
   }
   a *= mix(1.0, show, uHide);
   halo *= mix(1.0, show, uHide) * (1.0 - a);

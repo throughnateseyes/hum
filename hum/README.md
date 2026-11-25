@@ -454,7 +454,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **3D forms** stand in Inside shots, in the depth of the clip: **Rings** round a person, **Frames** down the
   street, **Blocks** that rise behind people, and **Crossing**, the white road markings lifted off the ground.
   The people in the clip pass in front, and the light on them is the clip's own (the scene's flat colours where
-  it is painted). A video keeps to two, from how the song hits; they come in its loud and lifting moments, where
+  it is painted). How the song hits picks which one a video leans on; they come in its biggest moments, never two parts in a row, where
   the picture has room, and there is more of them each time the big part returns. Words always read over them.
   Crossing is only picked by Hum when Claude's note on the clip names the markings. Switch each off for the
   video in Graphics, or pick one (or none) for a part under Picture → **3D form**. No Claude call

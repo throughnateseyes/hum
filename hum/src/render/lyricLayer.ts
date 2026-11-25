@@ -328,6 +328,11 @@ export class LyricLayer {
     this.occluders = rects;
   }
 
+  /** the line up now is small type: the drawn finish would break its thin strokes, so it is laid over the drawing */
+  small(): boolean {
+    return !!this.line && this.line.target >= 4;
+  }
+
   /** the picture under the words was cut without the look changing (one footage shot to the next) */
   cut() {
     this.probe.refresh();

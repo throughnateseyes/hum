@@ -1050,7 +1050,7 @@ export class Stage {
       else this.lyricLayer.sampleScreen(r, this.width, this.height);
     };
     if (handOn) {
-      // everything (lyrics too) goes through the hand-drawn finish, then is held until the next drawing
+      // everything (large lyrics too) goes through the hand-drawn finish, then is held until the next drawing
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
@@ -1061,13 +1061,19 @@ export class Stage {
       this.sceneWindows.render(r, base, { ...winOpts, target: this.impactRT, keep });
       o?.phase?.('popups');
       this.popups.render(r, base, this.impactRT, pops.instruments, keep, pops.showInstruments);
-      beforeLyrics(this.impactRT);
+      // small lyrics are set over the drawing: drawn with it, their strokes break up
+      const over = !!lyricOpts && this.lyricLayer.small();
+      if (!over) beforeLyrics(this.impactRT);
       o?.phase?.('lyrics');
       this.drawOverlay.render(r, this.impactRT);
-      if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
+      if (lyricOpts && !over) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
       this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: print, width: this.width, height: this.height, drawing });
+      if (over) {
+        beforeLyrics(this.holdRT);
+        this.lyricLayer.render(r, lyricOpts!, this.holdRT);
+      }
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else if (lyricOpts && this.lyricLayer.underFinish(lyricOpts)) {

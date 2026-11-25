@@ -215,6 +215,9 @@ export class Forms {
     const fromWord = (c: string) => contrast(c, word);
     let others = pal.accents.filter((c) => apart(c) && c !== o.now.word);
     if (p.words) others = [...pal.accents, pal.ink, pal.paper].filter((c) => c !== word && (o.cel < 0.5 || apart(c)) && fromWord(c) >= 2.2);
+    // in the plain picture a colour before black or white
+    const vivid = (c: string) => new THREE.Color(c).getHSL({ h: 0, s: 0, l: 0 }).s;
+    if (p.words && o.cel < 0.5) others.sort((x, y) => Number(vivid(y) > 0.35) - Number(vivid(x) > 0.35));
     if (!others.length) others = [fromWord(pal.ink) > fromWord(pal.paper) ? pal.ink : pal.paper];
     const a = others[0];
     // one colour and its shade where words stand, two where the shot is the form's own

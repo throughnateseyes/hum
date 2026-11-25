@@ -33,10 +33,10 @@ const hash = (n: number) => {
 };
 
 /**
- * The two a video keeps to, from how the song hits (`hits`, kicks per beat): a song that pounds gets
- * frames and blocks, one that flows gets rings. The same song always gets the same two.
+ * The order a video prefers them in, from how the song hits (`hits`, kicks per beat): a song that pounds gets
+ * frames and blocks, one that flows gets rings. The same song always gets the same order.
  */
-export function songForms(hits: number, seed: number): [FormId, FormId] {
+export function songForms(hits: number, seed: number): FormId[] {
   const h = Math.min(1, Math.max(0, hits));
   const score: [FormId, number][] = [
     ['rings', 1 - 0.55 * h + 0.35 * hash(seed + 1)],
@@ -44,8 +44,24 @@ export function songForms(hits: number, seed: number): [FormId, FormId] {
     ['blocks', 0.45 + 0.4 * h + 0.35 * hash(seed + 3)],
   ];
   score.sort((a, b) => b[1] - a[1]);
-  return [score[0][0], score[1][0]];
+  return score.map((x) => x[0]);
 }
 
-/** does this shot of its part have one? Loud parts every other shot, others their first, and never a shot too short to read it */
-export const formShot = (kind: 'main' | 'other', index: number, seconds: number) => seconds >= 1.1 && (kind === 'main' ? index % 2 === 0 : index === 0);
+/**
+ * Which parts of a video have one: the biggest moments first, never two parts in a row, and no more than a
+ * third of them. `kinds` is each part's moment ('' where it can't have one). Gives each chosen part's number
+ * among them, in order.
+ */
+const WEIGHT: Partial<Record<MomentId, number>> = { release: 6, reveal: 5, rush: 4, fury: 3, lift: 2, glow: 2 };
+export function formParts(kinds: (MomentId | '')[]): Map<number, number> {
+  const open = kinds.map((m, i) => ({ i, w: m ? (WEIGHT[m] ?? 0) : 0 })).filter((x) => x.w > 0);
+  open.sort((a, b) => b.w - a.w || a.i - b.i);
+  const most = Math.max(1, Math.round(kinds.length / 3));
+  const got: number[] = [];
+  for (const { i } of open) if (got.length < most && !got.some((g) => Math.abs(g - i) < 2)) got.push(i);
+  got.sort((a, b) => a - b);
+  return new Map(got.map((i, n) => [i, n]));
+}
+
+/** does this shot of its part have one? The first, and in a loud part every third after it; never one too short to read */
+export const formShot = (kind: 'main' | 'other', index: number, seconds: number) => seconds >= 1.1 && (index === 0 || (kind === 'main' && index % 3 === 0));

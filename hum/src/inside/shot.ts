@@ -209,7 +209,7 @@ export class InsideShot {
     if (s.drawn && seat) this.addDrawing(s.drawn, seat);
     if (s.drawn && s.scene) noteSeat(s.partStart, s.drawn.put, s.drawn.size, !!seat);
     this.addForm();
-    this.addOwn();
+    if (!this.form) this.addOwn();
     if (this.extras.has('rays')) this.addRays();
     if (this.extras.has('lines')) this.addLines();
     if (this.extras.has('posts')) this.addPosts();
@@ -253,6 +253,7 @@ export class InsideShot {
           uEdges: { value: edges },
           uShow: { value: new Array(MAX_LETTERS).fill(0) },
           uHide: { value: put.score > 0 ? 1 : 0 },
+          uWhole: { value: 0 },
           tBed: this.pass.place.tBed,
           uAround: { value: new THREE.Color() },
         });
@@ -459,7 +460,12 @@ export class InsideShot {
     const late = at(s.end - 0.05);
     const l = this.lensAt(s.start);
     const fits = (id: FormId) => {
-      if (id === 'rings') return !!spot.body && Math.abs((spot.body.x0 + spot.body.x1) / 2 - 0.5) < 0.36;
+      // someone big enough to go round: never one head in a crowd
+      if (id === 'rings') {
+        const b = spot.body;
+        // taller than wide, and well in front of the rest: a person, not a piece of the place
+        return !!b && b.y1 - b.y0 > 0.26 && (b.x1 - b.x0) * s.aspect < (b.y1 - b.y0) * 0.95 && b.w < spot.open * 0.6 && Math.abs((b.x0 + b.x1) / 2 - 0.5) < 0.36;
+      }
       if (id === 'frames') return spot.open > 7 && s.scene!.sure.horizon > 0.3 && l.vp.x > 0.1 && l.vp.x < 0.9 && l.vp.y > 0.1 && l.vp.y < 0.85;
       return s.scene!.ground > 0.06 && s.scene!.sure.horizon > 0.3;
     };
@@ -475,7 +481,11 @@ export class InsideShot {
       this.form = form;
       this.place.add(form.group);
       // what is said is read over it, not cut up by it (people still pass in front of both)
-      for (const st of this.standing) st.group.traverse((o) => o instanceof THREE.Mesh && ((o.material as THREE.Material).depthTest = false));
+      // nor by cables, which would let the form show through it
+      for (const st of this.standing) {
+        st.group.traverse((o) => o instanceof THREE.Mesh && ((o.material as THREE.Material).depthTest = false));
+        for (const w of st.words) w.mat.uniforms.uWhole.value = 1;
+      }
       return;
     }
   }
