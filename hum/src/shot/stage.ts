@@ -376,7 +376,7 @@ export class ShotStage {
     const f = rig.clip?.footage;
     if (!f || rig.motion) return null;
     const at = rig.curve.footage(t);
-    if (!this.slowNow(rig, t) && !(this.slow && f.video.currentTime - at > 0.045 && f.video.currentTime - at < 0.45 && this.slow.holds(f, at))) return null;
+    if (!this.slowNow(rig, t) && !(this.slow && f.now - at > 0.045 && f.now - at < 0.45 && this.slow.holds(f, at))) return null;
     return this.slowOf(f);
   }
 
@@ -405,7 +405,7 @@ export class ShotStage {
     if (!this.rigs.length) return null;
     const rig = this.rigAt(t);
     const f = rig.clip?.footage;
-    return f ? f.video.currentTime - rig.curve.footage(t) : null;
+    return f ? f.now - rig.curve.footage(t) : null;
   }
 
   /**

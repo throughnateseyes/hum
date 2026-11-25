@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { FULLSCREEN_VERT } from '../core/glsl';
+import { FrameSource } from './frameSource';
 import type { Bed } from './kit';
 import type { Scheme } from './palette';
 
@@ -78,6 +79,10 @@ export class Footage {
    */
   mark(): FrameMark | null {
     const v = this.video;
+    if (this.picture) {
+      this.lasts = this.picture.lasts;
+      return { at: this.picture.at, lasts: this.picture.lasts };
+    }
     if (v.readyState < 2) return null;
     let at = this.shown;
     let lasts = this.shownGap;
@@ -100,20 +105,117 @@ export class Footage {
   /** settles once the clip has opened (or failed to) */
   whenLoaded: Promise<void> = Promise.resolve();
 
-  load(src: string): Promise<void> {
+  load(src: string, file?: Blob): Promise<void> {
+    this.file = file ?? null;
     this.whenLoaded = this.open(src);
     return this.whenLoaded;
+  }
+
+  /* ───────── frame by frame (a render) ───────── */
+
+  private file: Blob | null = null;
+  /** the clip decoded in order, when it gives what the player would; null: not (yet), the player is put on each second */
+  private frames: FrameSource | null = null;
+  private stepped = false;
+  private opening: Promise<void> | null = null;
+  /** it is being found out */
+  private asking = false;
+  /** the decoded picture being shown, and which one it is */
+  private picture: (FrameMark & { frame: VideoFrame; second: number }) | null = null;
+
+  /** a render asks for this clip frame by frame from here on: have it decoded in order, if that gives the very same pictures */
+  byFrame() {
+    this.stepped = true;
+  }
+
+  /** (found out when the clip is first asked for: one that isn't on screen costs nothing) */
+  private ready(): Promise<void> {
+    if (this.opening) return this.opening;
+    this.asking = true;
+    this.opening = this.ask()
+      .catch(() => undefined)
+      .finally(() => (this.asking = false));
+    return this.opening;
+  }
+
+  private async ask() {
+    await this.whenLoaded.catch(() => undefined);
+    if (!this.file || !this.duration) return;
+    const src = await FrameSource.open(this.file);
+    if (!src) return;
+    const v = this.video;
+    const ok = await src.proves({ duration: this.duration, show: async (t) => ((await this.put(t)) ? new VideoFrame(v) : null) });
+    if (ok && this.duration) this.frames = src;
+    else src.close();
+  }
+
+  /** the second of the clip on screen: of a render's decoded picture, else the player's */
+  get now(): number {
+    return this.picture ? this.picture.second : this.video.currentTime;
+  }
+
+  /** show the decoded picture of a second; false when the player has to */
+  private async decoded(second: number): Promise<boolean> {
+    await this.ready();
+    if (!this.frames) return false;
+    try {
+      const frame = await this.frames.at(second);
+      if (!this.frames) {
+        frame.close();
+        return false;
+      }
+      const was = this.picture;
+      this.picture = { frame, second, at: frame.timestamp / 1e6, lasts: (frame.duration ?? 0) / 1e6 || this.lasts };
+      this.texture.image = this.picture.frame as unknown as HTMLVideoElement;
+      this.texture.needsUpdate = true;
+      this.fresh = true;
+      was?.frame.close();
+      return true;
+    } catch (err) {
+      if (this.duration) console.warn('[hum] a clip could not be decoded in order; it is seeked instead', err);
+      this.unframe();
+      return false;
+    }
+  }
+
+  /** back to the player */
+  private unframe() {
+    this.frames?.close();
+    this.frames = null;
+    this.texture.image = this.video;
+    this.texture.needsUpdate = true;
+    this.picture?.frame.close();
+    this.picture = null;
+  }
+
+  /** put the player on a second and wait for the frame; false if it didn't come */
+  private put(t: number): Promise<boolean> {
+    const v = this.video;
+    v.pause();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        v.removeEventListener('seeked', done);
+        resolve(false);
+      }, 1500);
+      v.addEventListener('seeked', done, { once: true });
+      v.currentTime = t;
+    });
   }
 
   /** let go of the clip and its texture */
   close() {
     if (this.frameCall) this.video.cancelVideoFrameCallback(this.frameCall);
     this.frameCall = 0;
+    this.duration = 0;
+    this.unframe();
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.load();
     this.texture.dispose();
-    this.duration = 0;
   }
 
   private open(src: string): Promise<void> {
@@ -164,6 +266,8 @@ export class Footage {
   follow(target: number, rate: number, playing: boolean, who = 0, snap = false, ahead: Ahead | null = null) {
     const v = this.video;
     if (!this.duration || !this.mine(who)) return;
+    // (a look's warm-up draw in a render: the next frame it is shown on puts the clip where it belongs)
+    if (this.frames || this.asking) return;
     if (ahead) {
       this.run(target, rate, playing, ahead);
       return;
@@ -228,6 +332,11 @@ export class Footage {
     if (!this.duration) return false;
     v.pause();
     const want = Math.min(Math.max(0, target), Math.max(0, this.duration - 0.001));
+    if (this.stepped) {
+      if (this.picture && Math.abs(this.picture.second - want) < 1e-6) return true;
+      if (await this.decoded(want)) return true;
+      if (!this.duration) return false;
+    }
     const word = typeof VideoFrame === 'undefined' && 'requestVideoFrameCallback' in v;
     if (Math.abs(v.currentTime - want) < 1e-6 && !v.seeking) return true;
     const announced = word ? new Promise<void>((r) => v.requestVideoFrameCallback(() => r())) : null;
@@ -260,10 +369,16 @@ export class Footage {
   }
 
   /** Stills: put the clip on exactly this second and wait for the frame */
-  seek(target: number): Promise<void> {
+  async seek(target: number): Promise<void> {
     const v = this.video;
-    if (!this.duration) return Promise.resolve();
+    if (!this.duration) return;
     v.pause();
+    if (this.stepped) {
+      // (a millisecond off what is on screen already is the same picture, as it is for the player below)
+      if (this.picture && Math.abs(this.picture.second - target) < 1e-3) return;
+      if (await this.decoded(Math.min(Math.max(0, target), Math.max(0, this.duration - 0.05)))) return;
+      if (!this.duration) return;
+    }
     return new Promise((resolve) => {
       let done = false;
       const finish = () => {
