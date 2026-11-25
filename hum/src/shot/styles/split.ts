@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { arrival, barStep, Flat, handOver, lerp, MASK_A, settling, TONE, toU, toV, type StyleFactory } from '../kit';
 import { MONO_FONT, placeLine, typeLine } from '../type';
+import { inkOver, SMALL } from './common';
 
 /** the large panel's share of the frame */
 const BIG = 0.62;
@@ -39,11 +40,15 @@ export const split: StyleFactory = (ctx) => {
   // panel 1 (the small one, by the mask) shows the second moment
   const cut = new Flat(mask, MASK_A, 'rect', 1);
   const line = new Flat(group, s.paper, 'rect', 4);
+  const { ink, around } = inkOver(ctx, s.paper);
   const slates = [
-    typeLine(`A  ${stamp(ctx.clipFrom)}`, s.paper, MONO_FONT, 64),
-    typeLine(`B  ${stamp(second ? (ctx.altFrom ?? 0) : ctx.clipFrom)}`, s.paper, MONO_FONT, 64),
+    typeLine(`A  ${stamp(ctx.clipFrom)}`, ink, MONO_FONT, 64),
+    typeLine(`B  ${stamp(second ? (ctx.altFrom ?? 0) : ctx.clipFrom)}`, ink, MONO_FONT, 64),
   ];
-  for (const l of slates) group.add(l.mesh);
+  for (const l of slates) {
+    l.over(around, SMALL);
+    group.add(l.mesh);
+  }
   const clean = ctx.colour === 'clean';
 
   return {

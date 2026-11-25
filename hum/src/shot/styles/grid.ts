@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { beatIndex, Flat, handOver, MASK_A, settling, TONE, type StyleFactory } from '../kit';
 import { dice } from '../time';
 import { MONO_FONT, placeLine, typeLine } from '../type';
+import { SMALL } from './common';
 
 export const grid: StyleFactory = (ctx) => {
   const g = ctx.grid;
@@ -51,6 +52,7 @@ export const grid: StyleFactory = (ctx) => {
   const labels = Array.from({ length: Math.min(32, beats) }, (_, i) => {
     const n = firstBeat + i;
     const l = typeLine(`${String(Math.floor(n / 4) + 1).padStart(2, '0')}.${(n % 4) + 1}`, s.paper, MONO_FONT, 64);
+    l.over(s.ink, SMALL);
     l.mesh.visible = false;
     group.add(l.mesh);
     return l;

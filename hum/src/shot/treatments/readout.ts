@@ -394,6 +394,7 @@ export class Readout {
     L.add(time, Math.round(w / 2 - (time.length * stamp * 0.62) / 2), h - m - stamp, stamp, ink);
     const no = String(bar).padStart(3, '0');
     L.add(no, w - m - no.length * stamp * 0.62, h - m - stamp, stamp, ink);
+    L.without(f.taken, w, h);
     L.commit();
     u.uLines.value = L.count;
   }

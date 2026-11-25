@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { hexToLch, lchToHex } from '../../core/songPalette';
+import { inkOn, lumOf, type Rect, type RGB } from '../../render/legibility';
 import type { Colour, Labels } from '../kit';
 import type { Scheme, ShotPalette } from '../palette';
 
@@ -36,6 +37,8 @@ export interface TreatFrame {
   labels: Labels;
   /** the focus point, 0..1 from the bottom-left */
   focus: { x: number; y: number };
+  /** does a lyric stand there? (a normalized box, y from the top): small type under one is left out */
+  taken: (r: Rect) => boolean;
   /** the shot's speed (1 real time) at t */
   speed: number;
 }
@@ -181,4 +184,12 @@ export class Quad {
   dispose() {
     this.mesh.geometry.dispose();
   }
+}
+
+/** a colour's nearest shade, hue kept, that small type in it reads on `back` (with some to spare: strokes a pixel wide never reach their full colour) */
+export function readable(c: THREE.Color, back: THREE.Color): THREE.Color {
+  const rgb = (x: THREE.Color): RGB => [x.r * 255, x.g * 255, x.b * 255];
+  const L = lumOf(rgb(back));
+  const [r, g, b] = inkOn(rgb(c), L, L, 7).ink;
+  return new THREE.Color(r / 255, g / 255, b / 255);
 }

@@ -175,6 +175,12 @@ function wordsKey(): number {
   return wordsRound;
 }
 
+/** do the song's lyrics show over a shot? (its type keeps out of the part of the frame they use) */
+function lyricsOver(shot: { start: number; end: number }): boolean {
+  const s = useStudio.getState();
+  return !!s.lyrics?.synced && s.lyricStyle !== 'off' && s.lyrics.lines.some((l) => l.t < shot.end && (l.end ?? l.t + 4) > shot.start - 0.5);
+}
+
 /** the song's title as words for the type, when no lyrics are being shown (the lyric layer owns those) */
 /** `always`: in a song with lyrics too (the Inside shot a video opens on) */
 export function titleWords(always = false): string[] {
@@ -627,7 +633,7 @@ class FootageLook implements SceneInstance {
       if (!seq) return this.builtKey !== '';
       this.builtKey = key;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - seq!.partStart) < 0.05), drawn: drawnIn } });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - seq!.partStart) < 0.05), drawn: drawnIn }, lyrics: lyricsOver });
       for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];
