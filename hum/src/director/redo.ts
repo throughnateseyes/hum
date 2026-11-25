@@ -9,7 +9,7 @@
  */
 import { create } from 'zustand';
 import type { PartShot } from '../core/types';
-import { plannedShot, type ShotCue } from '../shot/partShots';
+import { cuesAfter, plannedShot, type ShotCue } from '../shot/partShots';
 import { askedFor } from '../state/history';
 import type { LyricMedium } from '../state/lyricPlan';
 import { findLook, listNames, partNames, releaseHold, type VideoPlan } from '../state/plan';
@@ -226,7 +226,7 @@ function putIn(v: Playing, next: Map<number, Next>): number[] {
     ...(lyricPlan ? { lyricPlan } : {}),
     ...(base ? { base } : {}),
     ...(liked ? { liked } : {}),
-    flat: { ...cur.plan.flat!, src: cues ? { ...src, cues } : src },
+    flat: { ...cur.plan.flat!, src: cues ? { ...src, cues: cuesAfter(src.cues!, cues) } : src },
   };
   // what the person had set on these pictures was for the ones that were there (their own drawing stays)
   const hand = cur.hand?.map((h, i) => (!h || !parts.includes(i) ? h : h.drawn && made.get(i)?.style === 'inside' ? { drawn: h.drawn } : null)) ?? null;

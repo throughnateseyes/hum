@@ -17,7 +17,7 @@ import { forgetSeats } from '../inside/seated';
 import { ratioOf } from '../inside/shot';
 import type { Cut } from './footageStills';
 import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
-import { layShot, type ShotCue } from '../shot/partShots';
+import { layShot, sameVideo, type ShotCue } from '../shot/partShots';
 import { findLook, validPlan, type VideoPlan } from '../state/plan';
 import { useStudio } from '../state/store';
 import { requestStep } from './client';
@@ -192,7 +192,7 @@ export function readArt(
 export async function joinArt(chosen: Chosen, coming: Promise<Art | null>, checked: Promise<void>, run: MakeRun): Promise<void> {
   const mine = () => {
     const s = useStudio.getState();
-    return !run.signal.aborted && s.plan?.flat?.src.cues === chosen.cues && !!s.analysis && validPlan(s.plan, s.analysis) ? s : null;
+    return !run.signal.aborted && sameVideo(s.plan?.flat?.src.cues, chosen.cues) && !!s.analysis && validPlan(s.plan, s.analysis) ? s : null;
   };
   const now = mine();
   if (!now) return;
@@ -202,8 +202,10 @@ export async function joinArt(chosen: Chosen, coming: Promise<Art | null>, check
   if (!art || !mine()) return;
   art.begin();
   await checked.catch(() => {});
-  // (a shot the check made something else of has no place for one)
-  const spans: Span[] = art.cues.flatMap((c) => (c.shot.drawn && cueOf(chosen.cues, c.at)?.shot.style === 'inside' ? [{ at: c.at, end: c.end, id: c.shot.drawn.id, next: c.shot.drawn, fresh: true }] : []));
+  // (a shot the check, or a Redo, made something else of has no place for one)
+  const cues = mine()?.plan!.flat!.src.cues;
+  if (!cues) return;
+  const spans: Span[] = art.cues.flatMap((c) => (c.shot.drawn && cueOf(cues, c.at)?.shot.style === 'inside' ? [{ at: c.at, end: c.end, id: c.shot.drawn.id, next: c.shot.drawn, fresh: true }] : []));
   // one that isn't drawn yet changes nothing on screen
   await offScreen(spans.filter((x) => drawingNow(x.id, drawingsHere())));
   if (!mine()) return;

@@ -66,6 +66,15 @@ export interface ShotCue {
   lyric?: LyricMedium;
 }
 
+const cameFrom = new WeakMap<ShotCue[], ShotCue[]>();
+/** these are the cues of the same video with a part chosen again (redo.ts): what is still coming for it may join it */
+export function cuesAfter(was: ShotCue[], now: ShotCue[]): ShotCue[] {
+  cameFrom.set(now, cameFrom.get(was) ?? was);
+  return now;
+}
+/** they are of one video, whatever was chosen again in it since */
+export const sameVideo = (x: ShotCue[] | undefined, y: ShotCue[]) => !!x && (cameFrom.get(x) ?? x) === (cameFrom.get(y) ?? y);
+
 /** the cue a part starting at t plays under */
 export const cueAt = (cues: ShotCue[], t: number) => cues.find((x) => t >= x.at - 0.06 && t < x.end - 0.06);
 
