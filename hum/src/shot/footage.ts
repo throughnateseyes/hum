@@ -12,7 +12,36 @@ import { FULLSCREEN_VERT } from '../core/glsl';
 import type { Bed } from './kit';
 import type { Scheme } from './palette';
 
+/** which source frame a clip is showing: the second it starts at, and how long it lasts (s) */
+export interface FrameMark {
+  at: number;
+  lasts: number;
+}
+
+/** how far ahead of the picture a clip shown in slow motion has to run (slowmo.ts) */
+export interface Ahead {
+  /** seconds of clip */
+  lead: number;
+  /** the frame on screen is kept already */
+  begun: boolean;
+  /** and so is the one after it */
+  ready: boolean;
+  /** the second of a frame it went past without showing, when the picture needs it */
+  missing: number | null;
+}
+
+let made = 0;
+
 export class Footage {
+  /** tells its frames from another player's */
+  readonly id = ++made;
+  /** a new frame has come on screen since this was last cleared */
+  fresh = true;
+  /** how long one frame lasts, as last seen (s) */
+  lasts = 1 / 30;
+  private shown = -1;
+  private shownGap = 0;
+  private frameCall = 0;
   readonly video: HTMLVideoElement;
   readonly texture: THREE.VideoTexture;
   duration = 0;
@@ -27,6 +56,45 @@ export class Footage {
     this.video = v;
     this.texture = new THREE.VideoTexture(v);
     this.texture.colorSpace = THREE.NoColorSpace;
+    this.listen();
+  }
+
+  /** hear about each frame as it comes on screen, and which one it is */
+  private listen() {
+    const v = this.video;
+    if (!('requestVideoFrameCallback' in v)) return;
+    this.frameCall = v.requestVideoFrameCallback((_now, meta) => {
+      this.fresh = true;
+      const gap = meta.mediaTime - this.shown;
+      if (gap > 0.004 && gap < 0.1) this.shownGap = this.shownGap ? Math.min(this.shownGap, gap) : gap;
+      this.shown = meta.mediaTime;
+      this.listen();
+    });
+  }
+
+  /**
+   * Which source frame the clip is showing right now. The browser's own word for it where it has one
+   * (a VideoFrame carries its time), else the last frame it announced; null when there is no telling.
+   */
+  mark(): FrameMark | null {
+    const v = this.video;
+    if (v.readyState < 2) return null;
+    let at = this.shown;
+    let lasts = this.shownGap;
+    if (typeof VideoFrame !== 'undefined') {
+      try {
+        const frame = new VideoFrame(v);
+        at = frame.timestamp / 1e6;
+        lasts = (frame.duration ?? 0) / 1e6 || lasts;
+        frame.close();
+      } catch {
+        /* not this clip, or not yet: what was announced will do */
+      }
+    }
+    if (at < 0 || Math.abs(at - v.currentTime) > 0.6) return null;
+    if (lasts < 1 / 250 || lasts > 0.5) lasts = this.lasts;
+    this.lasts = lasts;
+    return { at, lasts };
   }
 
   /** settles once the clip has opened (or failed to) */
@@ -39,6 +107,8 @@ export class Footage {
 
   /** let go of the clip and its texture */
   close() {
+    if (this.frameCall) this.video.cancelVideoFrameCallback(this.frameCall);
+    this.frameCall = 0;
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.load();
@@ -85,10 +155,19 @@ export class Footage {
    * speed and is nudged when it drifts; a real jump (the cut on the hit, or `snap`: the clip's motion
    * jumped, however short the jump) seeks. A clip running backwards (rate below zero) can't play, so
    * it is put on each frame's second in turn.
+   *
+   * In slow motion (`ahead`) the picture is drawn from frames kept as the clip showed them, so the clip
+   * itself runs a little ahead and how evenly it runs is not seen: it plays up to where it is wanted and
+   * waits there, and never has to seek to creep along. Paused, it plays on just until the frame after
+   * the one on screen is in.
    */
-  follow(target: number, rate: number, playing: boolean, who = 0, snap = false) {
+  follow(target: number, rate: number, playing: boolean, who = 0, snap = false, ahead: Ahead | null = null) {
     const v = this.video;
     if (!this.duration || !this.mine(who)) return;
+    if (ahead) {
+      this.run(target, rate, playing, ahead);
+      return;
+    }
     const off = target - v.currentTime;
     if (!playing || rate < 0.07) {
       if (!v.paused) v.pause();
@@ -99,6 +178,76 @@ export class Footage {
     if ((Math.abs(off) > 0.45 || (snap && Math.abs(off) > 1 / 30)) && !v.seeking) v.currentTime = target + rate * (snap ? 0.04 : 0.08);
     v.playbackRate = Math.min(8, Math.max(0.0625, rate * (1 + Math.max(-0.35, Math.min(0.35, off * 2)))));
     if (v.paused) void v.play().catch(() => {});
+  }
+
+  /** the second a frame that was missed was last fetched from */
+  private fetched = -1;
+
+  private run(want: number, rate: number, playing: boolean, ahead: Ahead) {
+    const v = this.video;
+    const target = Math.min(want, Math.max(0, this.duration - 0.05));
+    const play = (speed: number) => {
+      v.playbackRate = Math.min(8, Math.max(0.0625, speed));
+      if (v.paused) void v.play().catch(() => {});
+    };
+    const off = target + ahead.lead - v.currentTime;
+    const away = Math.abs(target - v.currentTime);
+    if (!playing) {
+      const past = v.currentTime - target;
+      // it went past a frame the picture needs: back to that one, once
+      if (ahead.missing !== null && this.fetched !== ahead.missing && !v.seeking) {
+        this.fetched = ahead.missing;
+        if (!v.paused) v.pause();
+        v.currentTime = ahead.missing;
+        return;
+      }
+      if (v.seeking) return;
+      if (ahead.ready && past > -1 / 50) {
+        if (!v.paused) v.pause();
+      } else if (ahead.begun && past > -1 / 50 && past < 0.35) play(0.5);
+      else {
+        if (!v.paused) v.pause();
+        if (away > 1 / 50) {
+          v.currentTime = target;
+          this.fetched = -1;
+        }
+      }
+      return;
+    }
+    this.fetched = -1;
+    if (away > 0.45 && !v.seeking) v.currentTime = target + rate * 0.02;
+    // how far off it is closes in about a fifth of a second; well ahead, it waits
+    const speed = rate + off * 5;
+    if (v.paused ? off > 0.004 || speed > 0.15 : speed > 0.0625 || off > -0.03) play(speed);
+    else if (!v.paused) v.pause();
+  }
+
+  /** put the clip on the frame showing at a second and wait for it; false if it didn't come */
+  async land(target: number): Promise<boolean> {
+    const v = this.video;
+    if (!this.duration) return false;
+    v.pause();
+    const want = Math.min(Math.max(0, target), Math.max(0, this.duration - 0.001));
+    const word = typeof VideoFrame === 'undefined' && 'requestVideoFrameCallback' in v;
+    if (Math.abs(v.currentTime - want) < 1e-6 && !v.seeking) return true;
+    const announced = word ? new Promise<void>((r) => v.requestVideoFrameCallback(() => r())) : null;
+    const came = await new Promise<boolean>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        v.removeEventListener('seeked', done);
+        resolve(false);
+      }, 1500);
+      v.addEventListener('seeked', done, { once: true });
+      v.currentTime = want;
+    });
+    // without a frame's own time the picture follows the seek by a moment, and says so
+    if (came && announced) await Promise.race([announced, new Promise<void>((r) => setTimeout(r, 120))]);
+    this.fresh = true;
+    this.texture.needsUpdate = true;
+    return came;
   }
 
   /**

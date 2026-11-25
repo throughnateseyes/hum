@@ -25,6 +25,7 @@ import { schemeFor, type Scheme, type ShotPalette } from './palette';
 import { usesRing, withMotion, type MotionCurve, type MotionId } from './motion';
 import { FrameRing, RATE, type RingFrame } from './ring';
 import { planFootage, type Sequence, type Shot } from './sequence';
+import { SLOW, slowMotionOf, slowMotionUsers, stepping, type SlowMotion } from './slowmo';
 import type { Anchor } from './stills';
 import { STYLES } from './styles';
 import { clamp01, dice, easeInCubic, smooth } from './time';
@@ -139,6 +140,10 @@ export class ShotStage {
   private treat: TreatPass | null = null;
   /** the clip's recent frames, for Echo and Slices; made when a shot first needs it */
   private ring: FrameRing | null = null;
+  /** slow motion (shared by the stages on this renderer), once a shot of this stage has used it */
+  private slow: SlowMotion | null = null;
+  /** the song time settle() last put the clips on (a render), or null when they are followed live */
+  private settled: number | null = null;
   /** where follow() last put the clip, to tell a stutter's jump from playback drifting */
   private followed: { rig: Rig; t: number; at: number } | null = null;
   /** draws inside shots; made when a shot first needs it */
@@ -314,6 +319,7 @@ export class ShotStage {
   /** Live: keep the clip on screen where its curve wants it, and have the next shot's clip waiting on its first frame */
   follow(t: number, playing: boolean) {
     if (!this.rigs.length) return;
+    this.settled = null;
     const rig = this.rigAt(t);
     const mine = rig.clip?.footage ?? null;
     const at = rig.curve.footage(t);
@@ -321,12 +327,57 @@ export class ShotStage {
     const last = this.followed;
     const snap = rig.motion === 'stutter' && !!last && last.rig === rig && Math.abs(at - (last.at + rig.curve.rate(t) * (t - last.t))) > 0.05;
     this.followed = { rig, t, at };
-    mine?.follow(at, rig.curve.rate(t), playing, this.who, snap);
+    const slow = mine ? this.slowAt(rig, t) : null;
+    if (mine && slow) {
+      slow.watch(mine);
+      mine.follow(at, rig.curve.rate(t), playing, this.who, snap, slow.ahead(mine, at, rig.curve.rate(t), this.slowNow(rig, t)));
+    } else mine?.follow(at, rig.curve.rate(t), playing, this.who, snap);
     const second = rig.alt?.footage ?? null;
     if (second && second !== mine) second.follow(this.altTime(rig, t), rig.curve.rate(t), playing, this.who);
     const next = this.rigs.find((r) => r.shot.index > rig.shot.index && r.clip?.footage);
     const theirs = next?.clip?.footage;
-    if (next && theirs && theirs !== mine && theirs !== second && next.shot.start - t < 2.5) theirs.follow(next.curve.footage(next.shot.start), 0, false, this.who);
+    if (next && theirs && theirs !== mine && theirs !== second && next.shot.start - t < 2.5) this.cue(theirs, next.curve.footage(next.shot.start), this.slowNow(next, next.shot.start));
+    slow?.work();
+  }
+
+  /** have a clip waiting on the frame its shot opens on (a shot that opens slowly: with the one after it too) */
+  cue(f: Footage, at: number, slowly: boolean) {
+    const slow = slowly ? this.slowOf(f) : null;
+    if (!slow) {
+      f.follow(at, 0, false, this.who);
+      return;
+    }
+    slow.watch(f);
+    f.follow(at, 0, false, this.who, false, slow.ahead(f, at, 0, true, true));
+    slow.opening(f, at);
+    slow.work();
+  }
+
+  /** the renderer's slow motion, when this clip can use it */
+  private slowOf(f: Footage): SlowMotion | null {
+    const slow = slowMotionOf(this.renderer);
+    if (!slow.works(f)) return null;
+    if (!this.slow) {
+      this.slow = slow;
+      slowMotionUsers(this.renderer, 1);
+    }
+    return slow;
+  }
+
+  /** is the shot's clip running slowly at song time t, or just about to? (a clip that plays plainly; the frames held on a hit stay held) */
+  private slowNow(rig: Rig, t: number): boolean {
+    const { shot, curve } = rig;
+    if (!rig.clip?.footage || rig.motion || t < shot.start + curve.freeze) return false;
+    return [0, 0.15, 0.3].some((d) => t + d < shot.end && curve.rate(t + d) < SLOW);
+  }
+
+  /** live: slow motion for the clip on screen, while it runs slowly and until the player has fallen back into step with it */
+  private slowAt(rig: Rig, t: number): SlowMotion | null {
+    const f = rig.clip?.footage;
+    if (!f || rig.motion) return null;
+    const at = rig.curve.footage(t);
+    if (!this.slowNow(rig, t) && !(this.slow && f.video.currentTime - at > 0.045 && f.video.currentTime - at < 0.45 && this.slow.holds(f, at))) return null;
+    return this.slowOf(f);
   }
 
   /** the players follow() is steering at song time t (the shot's clips, and the next shot's when cued) */
@@ -365,6 +416,7 @@ export class ShotStage {
    */
   async settle(t: number) {
     if (!this.rigs.length) return;
+    this.settled = t;
     const rig = this.rigAt(t);
     const f = rig.clip?.footage;
     if (f && this.ring && usesRing(rig.motion)) {
@@ -383,7 +435,11 @@ export class ShotStage {
     // an inside shot is laid out from the depth of its whole stretch of the clip
     if (rig.shot.style === 'inside' && rig.clip?.reading) await rig.clip.reading.need([this.clipRange(rig)]);
     const second = rig.alt?.footage;
-    await Promise.all([f?.seek(rig.curve.footage(t)), second && second !== f ? second.seek(this.altTime(rig, t)) : undefined]);
+    // in slow motion the clip is put on the two source frames the picture lies between
+    const at = rig.curve.footage(t);
+    const slow = f && this.slowNow(rig, t) && rig.curve.rate(t) < SLOW ? this.slowOf(f) : null;
+    const mine = f ? (slow ? slow.settle(f, at).then((ok) => (ok ? undefined : f.seek(at))) : f.seek(at)) : undefined;
+    await Promise.all([mine, second && second !== f ? second.seek(this.altTime(rig, t)) : undefined]);
   }
 
   /** the seconds of its clip a shot shows */
@@ -469,13 +525,20 @@ export class ShotStage {
   }
 
   /**
-   * The picture the shot shows this frame: the clip itself, or with Echo or Slices, the clip composed
-   * from its ring (live, the frame on screen goes into the ring first, when the ring hasn't got it)
+   * The picture the shot shows this frame: the clip itself; where it runs slowly, the moment between its
+   * frames (slowmo.ts); or with Echo or Slices, the clip composed from its ring (live, the frame on
+   * screen goes into the ring first, when the ring hasn't got it)
    */
   private source(rig: Rig, t: number, zoom: number): THREE.Texture | null {
     const clip = rig.clip;
     if (!clip) return null;
-    if (!clip.footage || !this.ring || !usesRing(rig.motion)) return clip.texture;
+    if (!clip.footage) return clip.texture;
+    if (!rig.motion) {
+      const still = this.settled !== null && Math.abs(this.settled - t) < 1e-3;
+      const when = still ? this.settled! : t;
+      return this.slowAt(rig, when)?.texture(clip.footage, rig.curve.footage(when), stepping(rig.curve.rate(when)), !still) ?? clip.texture;
+    }
+    if (!this.ring || !usesRing(rig.motion)) return clip.texture;
     this.ring.fit(clip.aspect);
     const key = this.ringKey(rig);
     const tick = Math.floor(t * RATE + 1e-4);
@@ -687,14 +750,17 @@ export class ShotStage {
     this.treat = null;
     this.ring?.release();
     this.ring = null;
+    if (this.slow) slowMotionUsers(this.renderer, -1);
+    this.slow = null;
     this.insidePass?.dispose();
     this.insidePass = null;
   }
 
-  /** compile the motion's materials (Echo, Slices) ahead of the first cut, on a tiny ring */
+  /** compile the motion's materials (Echo, Slices, slow motion) ahead of the first cut, on a tiny ring */
   warmMotion(texture: THREE.Texture) {
     this.ring ??= new FrameRing(this.renderer);
     this.ring.warm(texture);
+    slowMotionOf(this.renderer).warm(texture);
   }
 
   dispose() {
