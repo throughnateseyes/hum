@@ -25,6 +25,8 @@
 import { useState } from 'react';
 import type { ParamDef, TrackAnalysis } from '../core/types';
 import { getScene } from '../scenes';
+import { activeFinish } from '../state/direction';
+import { inked } from '../state/inks';
 import { setPartsShot } from '../state/partEdit';
 import { useStudio } from '../state/store';
 import { Seg } from './controls';
@@ -32,6 +34,7 @@ import { Framing } from './Framing';
 import { canShow, pictureKind, useMedia, type PictureKind, type ShotTarget } from './footageMedia';
 import { useLandings, type Landing } from './landings';
 import { MediaPicker } from './MediaPicker';
+import { inkName, PartInks } from './InkColours';
 import { fmtTime } from './song';
 
 /** a line for each treatment the scene doesn't describe itself */
@@ -73,7 +76,7 @@ const seedsBefore = new WeakMap<TrackAnalysis, Map<string, (number | null)[]>>()
 const soloBefore = new Map<string, (number | null)[]>();
 
 /** which folded rows are open; kept while the panel moves between parts */
-const openRows = { treat: false, frame: false };
+const openRows = { inks: false, treat: false, frame: false };
 
 /** Style, then Shuffle / Previous with the arrangement number */
 export function ShotStyle({ t, busy }: { t: ShotTarget; busy: boolean }) {
@@ -199,6 +202,8 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const kind = pictureKind(t.sceneId);
   const media = all.filter((m) => canShow(kind, m));
   const [hover, setHover] = useState<string | null>(null);
+  const finish = useStudio(activeFinish);
+  const [inksOpen, setInksOpen] = useState(openRows.inks);
   const [treatOpen, setTreatOpen] = useState(openRows.treat);
   const [frameOpen, setFrameOpen] = useState(openRows.frame);
   const footage = kind === 'footage';
@@ -220,6 +225,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const treatName = treat === MIXED ? 'Mixed' : (treats.find((o) => o.v === treat)?.label ?? treat);
   const treatNote = hover !== null ? (treats.find((o) => o.v === hover)?.tip ?? '') : ownTreat === null ? (planned ? 'As planned.' : 'Follows the look.') : ownTreat === MIXED ? 'Different in each part.' : `Set for ${t.scope}.`;
 
+  const inks = common(shots.map((r) => r?.inks ?? null));
   const graphics = common(shots.map((r) => r?.graphics ?? null));
 
   // motion: the scene's own setting, when it has one (clips only)
@@ -295,6 +301,30 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
             label={`Graphics over ${t.scope}`}
             onChange={(v) => t.set({ graphics: v === 'on' || v === 'off' ? v : undefined })}
           />
+
+          {inked(finish) && (
+            <div className="pp-fold">
+              <button
+                className="pp-more"
+                aria-expanded={inksOpen}
+                onClick={() => {
+                  openRows.inks = !inksOpen;
+                  setInksOpen(!inksOpen);
+                }}
+              >
+                <span className={`pp-caret ${inksOpen ? 'open' : ''}`} aria-hidden>
+                  ›
+                </span>
+                Colours
+                <span className="pp-more-h">{inks === MIXED ? 'Mixed' : inkName(inks)}</span>
+              </button>
+              {inksOpen && (
+                <div className="pp-fold-body">
+                  <PartInks value={inks === MIXED ? 'mixed' : inks} disabled={busy} onChange={(v) => t.set({ inks: v })} />
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="pp-fold">
             <button

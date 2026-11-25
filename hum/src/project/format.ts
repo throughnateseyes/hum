@@ -232,7 +232,7 @@ function cleanClip(v: unknown): ProjectClip | null {
     width: num(v.width, 2, 16384, 1280),
     height: num(v.height, 2, 16384, 720),
     thumb: typeof v.thumb === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(v.thumb) && v.thumb.length < 400_000 ? v.thumb : '',
-    palette: p as unknown as ClipPalette,
+    palette: { ...(p as unknown as ClipPalette), tones: colours(p.tones, list(p.tones, 6).length) ?? undefined },
   };
 }
 

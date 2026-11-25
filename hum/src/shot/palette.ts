@@ -7,6 +7,7 @@
  */
 import { hexToLch, lchToHex } from '../core/songPalette';
 import type { ClipPalette } from '../core/types';
+import { tonesFromPixels } from './inks';
 
 /** a shot's colours: the same shape a clip carries (core/types.ts) */
 export type ShotPalette = ClipPalette;
@@ -106,11 +107,12 @@ export function paletteFromPixels(data: Uint8ClampedArray): ShotPalette {
   luma.sort((x, y) => x - y);
   const cuts = [0.2, 0.4, 0.6, 0.8].map((f) => luma[Math.floor(f * (luma.length - 1))] ?? f);
   for (let i = 1; i < 4; i++) cuts[i] = Math.max(cuts[i], cuts[i - 1] + 0.02);
-  if (soft[i1] <= 0) return { ...DEFAULT_PALETTE, cuts };
+  const tones = tonesFromPixels(data);
+  if (soft[i1] <= 0) return { ...DEFAULT_PALETTE, cuts, tones };
   const h1 = i1 * 10 + 5;
   // the second colour has to be a different one: at least 50 degrees round the wheel
   let i2 = -1;
   for (let i = 0; i < 36; i++) if (apart(i * 10 + 5, h1) >= 50 && (i2 < 0 || soft[i] > soft[i2])) i2 = i;
   const h2 = i2 >= 0 && soft[i2] > soft[i1] * 0.12 ? i2 * 10 + 5 : h1 + 150;
-  return { ...paletteFromHues(h1, h2), cuts };
+  return { ...paletteFromHues(h1, h2), cuts, tones };
 }

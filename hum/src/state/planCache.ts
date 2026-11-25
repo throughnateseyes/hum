@@ -276,7 +276,7 @@ export function okShot(v: unknown, most = 40): boolean {
   const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
   const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= most);
   const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
-  return text('style') && text('treatment') && text('motion') && text('moment') && text('say') && (r.graphics === undefined || r.graphics === 'off' || r.graphics === 'on') && (r.drawn === undefined || r.drawn === null || !!cleanDrawn(r.drawn)) && okPin(r.pin) && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
+  return text('style') && text('treatment') && text('motion') && text('moment') && text('inks') && text('say') && (r.graphics === undefined || r.graphics === 'off' || r.graphics === 'on') && (r.drawn === undefined || r.drawn === null || !!cleanDrawn(r.drawn)) && okPin(r.pin) && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
 }
 const FIELDS = Object.keys(PART_KEYS) as PartField[];
 

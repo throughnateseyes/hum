@@ -72,6 +72,7 @@ const FIELDS = [
   'drawOverlay',
   'smoothSlow',
   'graphicsOff',
+  'inkColors',
 ] as const satisfies readonly (keyof StudioState)[];
 type Field = (typeof FIELDS)[number];
 /** fields that also change on their own (a plan arriving, a re-cut): only counted with intent */
@@ -416,6 +417,7 @@ function describe(a: Values, b: Values): string {
   if (a.drawParts !== b.drawParts) out.push('the drawings in a part');
   if (a.placed !== b.placed && a.partPops === b.partPops && !out.length) out.push(placedLabel(a.placed, b.placed));
   if (a.smoothSlow !== b.smoothSlow) out.push(`Smooth slow motion ${b.smoothSlow ? 'on' : 'off'}`);
+  if (a.inkColors !== b.inkColors) out.push('ink colours');
   if (a.graphicsOff !== b.graphicsOff) out.push('what may cover the picture');
   if (a.drawOverlay !== b.drawOverlay) out.push(`Drawings beside the words ${b.drawOverlay ? 'on' : 'off'}`);
   if (!out.length) return 'a change';

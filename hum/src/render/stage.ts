@@ -24,6 +24,7 @@ import { NO_KEEP_OUT } from './legibility';
 import { HandPass } from './handPass';
 import { FinishPass } from './finishPass';
 import { activeFinish, partWordsAt } from '../state/direction';
+import { inked, inksAt } from '../state/inks';
 import { chosenPhotosAt } from '../state/partEdit';
 import { PopupLayer, type DealtPop, type PopPart } from './popups';
 import { SceneWindows, windowLevels } from './sceneWindows';
@@ -180,6 +181,8 @@ export class Stage {
   private clockNow = performance.now();
   private frameNo = 0;
   private palette: ResolvedPalette;
+  /** the inks on screen (state/inks.ts), when they are not the look's */
+  private inkPalette: ResolvedPalette;
   private placeholder: PhotoAsset | null = null;
   private fxParams = new Map<string, ParamValues>();
   private compilingScene = false;
@@ -292,6 +295,7 @@ export class Stage {
     this.fx = new FxChain(this.shared);
     this.fxOut = new FxChain(this.shared);
     this.palette = resolvePalette(useStudio.getState().palette);
+    this.inkPalette = resolvePalette(useStudio.getState().palette);
     this.peekRT = makeRenderTarget(2, 2, sceneOpts);
     this.peekFx = new FxChain(this.shared);
     this.peekPalette = resolvePalette(useStudio.getState().palette);
@@ -1014,7 +1018,12 @@ export class Stage {
     };
     const winOpts = { level: pops.looks, show: pops.showLooks, mainPresetId: s.presetId, mainSceneId: s.sceneId };
     const showLyrics = !!s.lyrics?.synced && s.lyricStyle !== 'off';
-    const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: s.palette, width: this.width, height: this.height, audio, finish } : null;
+    // the drawn and printed finishes' own colours (the scene has drawn: it knows which clip is on screen);
+    // the words are set in the same ones, so they and the picture are one print
+    const inks = inked(finish) ? inksAt(audio.time, this.current.inst.shown?.() ?? null) : null;
+    const print = inks ? resolvePalette(inks, this.inkPalette) : this.palette;
+    const printBase = inks ? { ...base, palette: print } : base;
+    const lyricOpts = showLyrics ? { lines: s.lyrics!.lines, t: audio.time, style: s.lyricStyle, palette: inks ?? s.palette, width: this.width, height: this.height, audio, finish } : null;
     // the line is laid out first, so the windows and pop-ups know where the words go and keep clear
     if (lyricOpts) this.lyricLayer.prepare(lyricOpts);
     const keep = this.drawOverlay.prepare(s, audio.time, this.width, this.height, lyricOpts ? this.lyricLayer.keepOut() : NO_KEEP_OUT);
@@ -1045,7 +1054,7 @@ export class Stage {
       if (lyricOpts) this.lyricLayer.render(r, lyricOpts, this.impactRT);
       // smooth: every frame is drawn, but the lines and paper re-draw on a 12-a-second clock
       const drawing = s.hand.fps >= 60 ? Math.floor(time * 12) : this.drawingNo++;
-      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: this.palette, width: this.width, height: this.height, drawing });
+      this.hand.render(r, this.impactRT.texture, this.holdRT, { style: this.handStyle(s.hand), palette: print, width: this.width, height: this.height, drawing });
       this.holdReady = true;
       this.shared.blit(this.holdRT.texture, null);
     } else if (lyricOpts && this.lyricLayer.underFinish(lyricOpts)) {
@@ -1063,7 +1072,7 @@ export class Stage {
       o?.phase?.('lyrics');
       this.drawOverlay.render(r, this.impactRT);
       this.lyricLayer.render(r, lyricOpts, this.impactRT);
-      this.present(this.impactRT.texture, finish, base, held);
+      this.present(this.impactRT.texture, finish, printBase, held);
       o?.phase?.('windows');
       this.sceneWindows.render(r, base, held ? { ...winOpts, target: held, keep } : { ...winOpts, keep });
       o?.phase?.('popups');
@@ -1079,9 +1088,9 @@ export class Stage {
       if (s.impact > 0.001) {
         this.setImpactUniforms(finalTex, audio, time, s.impact, this.width / this.height);
         this.impactQuad.render(r, this.impactRT);
-        this.present(this.impactRT.texture, finish, base, held);
+        this.present(this.impactRT.texture, finish, printBase, held);
       } else {
-        this.present(finalTex, finish, base, held);
+        this.present(finalTex, finish, printBase, held);
       }
       o?.phase?.('windows');
       this.sceneWindows.render(r, base, held ? { ...winOpts, target: held, keep } : { ...winOpts, keep });

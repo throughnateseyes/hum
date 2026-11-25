@@ -17,6 +17,8 @@ import { perfReport, perfSummary } from '../render/perfReport';
 import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { setGraphic } from '../state/graphics';
+import { inked } from '../state/inks';
+import { InkControls } from './InkColours';
 import { GRAPHIC_IDS, GRAPHICS } from '../shot/graphics';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
@@ -222,6 +224,7 @@ const FINISH_OPTS: { v: 'auto' | FinishId; label: string; tip?: string; span: nu
 function FinishSection() {
   const finish = useStudio((s) => s.finish);
   const now = useStudio(activeFinish);
+  const fullColour = useStudio((s) => s.hand.inks === 0);
   const dir = useStudio(playingDirection);
   const info = FINISHES.find((f) => f.id === (finish === 'auto' ? now : finish));
   const note =
@@ -236,6 +239,7 @@ function FinishSection() {
     <Section id="video.finish" title="Finish" sub="One surface over every look, like shooting it all on the same film." value={finish === 'auto' ? `Auto · ${finishName(now)}` : finishName(now)} collapsible defaultOpen={false}>
       <Seg value={finish} options={FINISH_OPTS} onChange={setFinish} cols={12} label="Finish" />
       <p className="field-note">{note}</p>
+      {inked(now) && <InkControls full={now === 'hand' && fullColour} />}
       {now === 'hand' && <HandSettings />}
     </Section>
   );
@@ -284,7 +288,7 @@ function HandSettings() {
   );
   return (
     <div className="vp-hand" aria-label="Hand-drawn settings">
-      <Field label="Inks" tip="Print with a few flat inks from the palette, or keep every colour.">
+      <Field label="Inks" tip="Print with a few flat inks of these colours, or keep every colour.">
         <Seg value={hand.inks} options={HAND_INKS} onChange={(v) => put({ inks: v })} label="Inks" />
       </Field>
       {slider('wobble', 'Wobble', 'How much each drawing strays from the last')}

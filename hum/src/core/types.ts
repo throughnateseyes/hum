@@ -327,6 +327,8 @@ export interface ClipPalette {
   paper: string;
   /** four brightness levels (0..1) that split the clip's picture into five equal bands */
   cuts: number[];
+  /** the colours really in it, most of it first (shot/inks.ts; missing on clips added before they were read) */
+  tones?: string[];
 }
 
 /** A video clip the person added: footage for the footage looks (src/scenes/footage) */
@@ -419,6 +421,8 @@ export interface PartShot {
   moment?: string;
   /** 'off': nothing covers the picture here, 'on': anything may (missing: as the video; see shot/graphics.ts) */
   graphics?: 'off' | 'on';
+  /** the inks a drawn or printed finish uses here: 'look', 'clips', 'video', 'own' or a palette id (missing: as the video) */
+  inks?: string;
   /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
   say?: string;
   /** Inside only: a drawing that stands in the picture (null: none here, over the director's) */
@@ -492,6 +496,8 @@ export interface SceneInstance {
    */
   prepare?(songTime: number, frame: PrepareContext): Promise<void>;
   resize?(width: number, height: number): void;
+  /** the palette of the person's clip or photo last drawn, when that is what is on screen (shot/inks.ts) */
+  shown?(): ClipPalette | null;
   dispose(): void;
 }
 

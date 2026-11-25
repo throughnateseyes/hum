@@ -751,6 +751,10 @@ class FootageLook implements SceneInstance {
     await this.stage.settle(songTime);
   }
 
+  shown() {
+    return this.deck.length ? this.stage.shown() : null;
+  }
+
   resize(width: number, height: number) {
     if (width === this.width && height === this.height) return;
     for (const k of this.held.keys()) release(this.renderer, k);

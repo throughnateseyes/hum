@@ -599,6 +599,11 @@ export class ShotStage {
     this.renderer.render(this.blit.scene, this.blit.camera);
   }
 
+  /** the palette of the picture last drawn (null: nothing drawn, or a card or a look) */
+  shown(): ShotPalette | null {
+    return this.active?.clip?.palette ?? null;
+  }
+
   private maskTarget(): THREE.WebGLRenderTarget {
     this.maskRT ??= new THREE.WebGLRenderTarget(this.width, this.height, { depthBuffer: false });
     return this.maskRT;
