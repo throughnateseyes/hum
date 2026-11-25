@@ -394,6 +394,11 @@ export interface KInks {
   ink: string;
   accent: string;
   shadow: (g: CanvasRenderingContext2D, size: number) => void;
+  /** draws what goes round a word before the word itself (the guard's keyline), with the word's font set */
+  under: (g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number) => void;
+  /** the darkest and lightest of what is under the words (relative luminance, backing included) */
+  lo: number;
+  hi: number;
 }
 
 const fieldCss = (c: RGB, a: number) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a.toFixed(3)})`;
@@ -491,6 +496,7 @@ export function drawKnockout(g: CanvasRenderingContext2D, L: KnockoutLayout, t: 
         g.fontStretch = L.stretch ?? 'normal';
         g.letterSpacing = `${(r.track * r.size).toFixed(2)}px`;
         if (!card.field) {
+          c.under(g, r.text, r.x, r.y, r.size);
           c.shadow(g, Math.min(r.size, L.shadowSize));
           g.fillStyle = card.accent && r === card.rows[card.rows.length - 1] ? c.accent : c.ink;
         }

@@ -2,7 +2,7 @@ import type { Palette } from '../../core/types';
 import type { Placed, Role, TypeLayout, Voice } from '../lyricAuto';
 import { noteDeco, safeInsets, type Insets } from '../lyricSpace';
 import { KIT_FACES } from './fonts';
-import { arrival, clamp01, css, easeOut, fromHsl, hexRGB, huesOf, lum, mix, parseRGB, reach, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
+import { arrival, clamp01, css, easeOut, fromHsl, hexRGB, holdsSafe, huesOf, lum, mix, parseRGB, reach, rowsBox, toHsl, wordFont, type KitLine, type RGB } from './common';
 
 /**
  * Film: '70s title lettering (references 18, 19, 22, 23, 24), drawn before the film finish so its
@@ -56,6 +56,8 @@ export interface FilmInks {
   sh1: RGB;
   sh2: RGB;
   key: RGB;
+  /** what goes round small type: the far side of the main colour */
+  edge: RGB;
 }
 
 /** main, two shadows and the keyline, from the look, for light ink (dark picture) or dark ink */
@@ -66,13 +68,13 @@ export function filmInks(pal: Palette, light: boolean): FilmInks {
   if (light) {
     // cream letters on a dark picture; the shadows are the look's two warm colours, kept mid-dark so
     // the cream stands off them
-    const main = mix(CREAM, hexRGB(pal.fg), 0.12);
-    return { main, sh1: reach(a, [0, 0, 0], 0, 0.32), sh2: reach(b, [0, 0, 0], 0, 0.2), key: KEYLINE };
+    const main = mix(CREAM, hexRGB(pal.fg), lum(hexRGB(pal.fg)) > 0.5 ? 0.12 : 0);
+    return { main, sh1: reach(a, [0, 0, 0], 0, 0.2), sh2: reach(b, [0, 0, 0], 0, 0.13), key: KEYLINE, edge: KEYLINE };
   }
   // on a light picture: the letters in the deepest warm colour, shadows lighter behind
-  const deep = reach(lum(a) < lum(b) ? a : b, KEYLINE, 0, 0.14);
+  const deep = reach(lum(a) < lum(b) ? a : b, KEYLINE, 0, 0.09);
   const other = lum(a) < lum(b) ? b : a;
-  return { main: deep, sh1: reach(other, [255, 255, 255], 0.3), sh2: reach(mix(other, WARM[1], 0.5), [255, 255, 255], 0.45), key: KEYLINE };
+  return { main: deep, sh1: reach(other, [255, 255, 255], 0.42), sh2: reach(mix(other, WARM[1], 0.5), [255, 255, 255], 0.5), key: KEYLINE, edge: CREAM };
 }
 
 /* ───────────────────────── drawing ───────────────────────── */
@@ -208,6 +210,14 @@ export function filmReach(L: TypeLayout, _medium: KitLine['medium'], W: number, 
   return { l: 2, t: t + 1, r: r + 1, b: b + 1 };
 }
 
+/** the keyline round small type in the main colour (the fat letters have theirs in the stack) */
+function keyed(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, c: FilmInks) {
+  g.lineJoin = 'round';
+  g.strokeStyle = css(c.edge);
+  g.lineWidth = Math.max(2, size * 0.2);
+  g.strokeText(text, x, y);
+}
+
 function secondary(k: KitLine, c: FilmInks, words: Placed[]) {
   const { g, L, t, facts, W } = k;
   if (!words.length) return;
@@ -217,16 +227,25 @@ function secondary(k: KitLine, c: FilmInks, words: Placed[]) {
   g.font = `650 ${fs.toFixed(1)}px ${TEXT}`;
   g.letterSpacing = `${(fs * 0.22).toFixed(1)}px`;
   g.globalAlpha = k.alpha * clamp01((t - k.start) / 0.4) * 0.92;
-  g.fillStyle = css(k.light ? c.main : c.main);
+  g.fillStyle = css(c.main);
   const left = !(box.x0 > W * 0.45);
   g.textAlign = left ? 'left' : 'right';
-  g.fillText(`${facts.part.toUpperCase()}  ·  ${facts.time}`, left ? box.x0 + fs * 0.2 : box.x1, box.y0 - fs * 0.9);
+  const line = `${facts.part.toUpperCase()}  ·  ${facts.time}`;
+  const x = left ? box.x0 + fs * 0.2 : box.x1;
+  const y = box.y0 - fs * 0.9;
+  keyed(g, line, x, y, fs, c);
+  g.fillText(line, x, y);
   g.restore();
 }
 
 export function drawFilm(k: KitLine) {
   const { g, L, t, alpha } = k;
-  const c = filmInks(k.pal, k.light);
+  // cream with its dark keyline and shadows unless the picture is light all over there: the dark
+  // letters have nothing dark round them to hold their edge where it isn't
+  const dark = k.L.role === 'caption' || k.L.role === 'aside' ? !k.light : !holdsSafe(k, k.inks.lo <= 0.34 || k.inks.edge > 0.06);
+  const c = filmInks(k.pal, !dark);
+  // the keyline is what separates cream from a light patch: fatter where there are any
+  const edge = !dark && k.inks.hi > 0.12 ? 0.085 : 0.036;
   g.save();
   g.textBaseline = 'alphabetic';
   if (L.role === 'caption' || L.role === 'aside') {
@@ -239,12 +258,16 @@ export function drawFilm(k: KitLine) {
     const [ih, , il] = toHsl(ink);
     const [wh, ws] = toHsl(warmed(ink));
     const main = fromHsl(wh * 0.5 + ih * 0.5, Math.min(0.5, ws), il);
+    // light spills over thin dark strokes in the film finish: there they are set a little fatter
+    const fat = k.finish === 'film' && il < 0.4 ? L.size * 0.05 : 0;
     const sh: RGB = lum(main) > 0.4 ? reach(c.sh1, [0, 0, 0], 0, 0.12) : reach(c.sh1, [255, 255, 255], 0.45);
     c.main = main;
     for (const w of L.words) {
-      const a = arrival(L, w, t);
+      const a = arrival(L, w, t, k.inks.quiet);
       if (!a.on) continue;
       wordFont(g, w);
+      g.globalAlpha = alpha;
+      k.inks.under(g, w.text, w.x, w.y + a.dy, w.size);
       // the shadow drops in as the word is sung, so unsung words are the bare ink, not a pale blur
       g.globalAlpha = alpha * a.op * a.p;
       g.fillStyle = css(sh);
@@ -252,6 +275,12 @@ export function drawFilm(k: KitLine) {
       g.globalAlpha = alpha * a.op;
       g.fillStyle = css(c.main);
       g.fillText(w.text, w.x, w.y + a.dy);
+      if (fat) {
+        g.lineJoin = 'round';
+        g.lineWidth = fat;
+        g.strokeStyle = g.fillStyle;
+        g.strokeText(w.text, w.x, w.y + a.dy);
+      }
     }
     g.restore();
     return;
@@ -264,7 +293,7 @@ export function drawFilm(k: KitLine) {
     const a = arrival(L, w, t);
     if (!a.on) continue;
     g.globalAlpha = alpha * a.op;
-    const keyW = Math.max(1.5, w.size * 0.036);
+    const keyW = Math.max(1.5, w.size * edge);
     const masked = a.wipe < 1;
     if (masked) {
       g.save();
@@ -275,6 +304,7 @@ export function drawFilm(k: KitLine) {
     if (w.part === 'kicker') {
       wordFont(g, w);
       g.fillStyle = css(c.main);
+      keyed(g, w.text, w.x, w.y + a.dy, w.size, c);
       g.fillText(w.text, w.x, w.y + a.dy);
     } else if (w.part === 'giant') extruded(g, w, w.x, w.y + a.dy, c, keyW);
     else stacked(g, w, w.x, w.y + a.dy, c, Math.max(1.5, w.size * 0.05), keyW);

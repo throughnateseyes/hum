@@ -258,6 +258,15 @@ export interface Inks {
   accent2: string;
   /** sets the glyph shadow (from the guard's backing) */
   shadow: (g: CanvasRenderingContext2D, size: number) => void;
+  /** draws what goes round a word before the word itself (the guard's keyline), with the word's font set */
+  under: (g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number) => void;
+  /** how opaque words not sung yet are drawn: as faint as still reads on what is under them */
+  quiet: number;
+  /** the darkest and lightest of what is under the words (relative luminance, backing included) */
+  lo: number;
+  hi: number;
+  /** how busy the picture is there */
+  edge: number;
 }
 
 interface AWord {
@@ -543,8 +552,10 @@ export function drawLine(g: CanvasRenderingContext2D, L: TypeLayout, t: number, 
       setFont(g, v, w.size, w.italic);
       g.letterSpacing = `${(w.size * v.track).toFixed(2)}px`;
       const p = age <= 0 ? 0 : easeOut(clamp01(age / Math.min(WIPE_MAX, Math.max(0.12, w.end - w.t))));
+      g.globalAlpha = alpha;
+      c.under(g, w.text, w.x, w.y, w.size);
       if (p < 1) {
-        g.globalAlpha = alpha * 0.42;
+        g.globalAlpha = alpha * c.quiet;
         g.fillText(w.text, w.x, w.y);
       }
       if (p > 0) {
@@ -600,7 +611,6 @@ export function drawLine(g: CanvasRenderingContext2D, L: TypeLayout, t: number, 
       dy = (1 - expoOut(k)) * w.size * 0.95;
       op *= 0.35 + 0.65 * easeOut(k);
     }
-    if (w.part === 'kicker') op *= 0.86;
 
     setFont(g, v, w.size, w.italic, weight);
     g.letterSpacing = `${(w.size * track).toFixed(2)}px`;
@@ -626,6 +636,7 @@ export function drawLine(g: CanvasRenderingContext2D, L: TypeLayout, t: number, 
       if (a <= 0.01) continue;
       g.fontStretch = stretch ?? 'normal';
       g.globalAlpha = (v.typed ? alpha : op) * a;
+      c.under(g, text, w.x, w.y + dy, Math.min(w.size, L.size * 1.4));
       g.fillText(text, w.x, w.y + dy);
     }
     if (masked) g.restore();

@@ -26,6 +26,8 @@ export interface KitLine {
   drop: boolean;
   W: number;
   H: number;
+  /** the finish that goes over the words (riso prints mid-tones as loose dots, so plates there keep to the ends) */
+  finish: string;
   /** which medium this line is (for the medium-specific forms: the LED plate, the stretched band) */
   medium: 'subtitle' | 'big' | 'sparse';
   facts: SongFacts;
@@ -99,6 +101,13 @@ export function huesOf(pal: Palette): RGB[] {
   return all.map((c) => ({ c, s: toHsl(c)[1] * (1 - Math.abs(toHsl(c)[2] - 0.5)) })).sort((a, b) => b.s - a.s).map((x) => x.c);
 }
 
+/** how far a colour must go from `from` to `to` (never less than `least`) before it clears `target` contrast against `from` */
+export function faint(from: RGB, to: RGB, target: number, least = 0.45): number {
+  let k = least;
+  while (k < 1 && contrast(mix(from, to, k), from) < target) k += 0.04;
+  return Math.min(1, k);
+}
+
 /** push a colour toward a lightness until it reaches `minL` luminance (light) or under `maxL` (dark) */
 export function reach(c: RGB, toward: RGB, lumMin: number, lumMax = 1): RGB {
   let out = c;
@@ -132,16 +141,15 @@ export interface Arrival {
 
 /**
  * How a word stands at time t. Captions: the whole line is up quietly and each word comes up to full
- * as it's sung. Display lines: words appear only as they're sung, rising (or wiping, for the giant
+ * as it's sung (`quiet`: how opaque it is before that). Display lines: words appear only as they're sung, rising (or wiping, for the giant
  * word) at the song's motion.
  */
-export function arrival(L: TypeLayout, w: Placed, t: number): Arrival {
+export function arrival(L: TypeLayout, w: Placed, t: number, quiet = 0.65): Arrival {
   const age = t - w.t;
   if (L.role === 'caption') {
     const p = age <= 0 ? 0 : easeOut(clamp01(age / Math.min(0.45, Math.max(0.12, w.end - w.t))));
-    // unsung words stay readable ahead of the voice (the finishes lift blacks, so not too faint),
-    // sung ones go full
-    return { on: true, op: 0.65 + 0.35 * p, dy: 0, wipe: 1, p };
+    // unsung words stay readable ahead of the voice, sung ones go full
+    return { on: true, op: quiet + (1 - quiet) * p, dy: 0, wipe: 1, p };
   }
   if (age < 0) return { on: false, op: 0, dy: 0, wipe: 0, p: 0 };
   const rd = REVEAL[L.treatment];
@@ -160,6 +168,19 @@ export function kitMoving(L: TypeLayout, t: number, extra = 0): boolean {
     if (age < 0.8 + extra) return true;
   }
   return false;
+}
+
+const held = new WeakMap<TypeLayout, boolean>();
+/**
+ * A choice a line makes for the picture it is on, held for as long as it is up: free to change while
+ * the line is still coming in, after that only ever to the safer answer (so nothing flicks back and
+ * forth under a word).
+ */
+export function holdsSafe(k: KitLine, safe: boolean): boolean {
+  const had = held.get(k.L);
+  const now = had && k.t - k.start > 0.3 ? true : safe;
+  held.set(k.L, now);
+  return now;
 }
 
 /* ───────────────────────── song facts ───────────────────────── */
