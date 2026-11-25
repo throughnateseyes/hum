@@ -264,6 +264,11 @@ const PART_OK: Record<PartField, (v: unknown) => boolean> = {
   partShot: (v) => v === null || okShot(v),
 };
 
+const okPin = (v: unknown) => {
+  const p = v as { part?: unknown; shot?: unknown } | null | undefined;
+  return p === undefined || (!!p && Number.isInteger(p.part) && Number.isInteger(p.shot) && (p.part as number) >= 0 && (p.shot as number) >= 0);
+};
+
 /** a saved footage picture record (store.partShot) still reads as one */
 export function okShot(v: unknown, most = 40): boolean {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
@@ -271,7 +276,7 @@ export function okShot(v: unknown, most = 40): boolean {
   const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
   const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= most);
   const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
-  return text('style') && text('treatment') && text('motion') && text('moment') && text('say') && (r.drawn === undefined || r.drawn === null || !!cleanDrawn(r.drawn)) && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
+  return text('style') && text('treatment') && text('motion') && text('moment') && text('say') && (r.drawn === undefined || r.drawn === null || !!cleanDrawn(r.drawn)) && okPin(r.pin) && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
 }
 const FIELDS = Object.keys(PART_KEYS) as PartField[];
 

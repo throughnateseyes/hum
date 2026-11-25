@@ -42,8 +42,15 @@ export function plannedShot(plan: VideoPlan | null | undefined, i: number): Part
   return plan?.shots && plan.shots.length === plan.looks.length ? (plan.shots[i] ?? null) : null;
 }
 
+let tried: { plan: VideoPlan; part: number; shot: PartShot | null } | null = null;
+/** show a part another way for now (the plan and what the person set are left alone); null ends it */
+export function tryShot(v: typeof tried) {
+  tried = v;
+}
+
 /** what part i does, whoever chose it */
 export function shotOfPart(i: number, s: { plan: VideoPlan | null; partShot: (PartShot | null)[] | null } = useStudio.getState()): PartShot | null {
+  if (tried && tried.part === i && tried.plan === s.plan) return tried.shot;
   return layShot(plannedShot(s.plan, i), s.partShot?.[i]);
 }
 

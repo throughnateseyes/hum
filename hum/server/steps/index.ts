@@ -6,9 +6,10 @@ import { FIGURE_STEPS } from './figure.js';
 import { FEEL_STEPS } from './feel.js';
 import { FOOTAGE_STEPS } from './footage.js';
 import { readImages } from './images.js';
+import { REDO_STEPS } from './redo.js';
 import type { Step, StepTool } from './types';
 
-const STEPS: Record<string, Step> = { ...FOOTAGE_STEPS, ...FEEL_STEPS, ...DRAW_STEPS, ...ART_STEPS, ...FIGURE_STEPS };
+const STEPS: Record<string, Step> = { ...FOOTAGE_STEPS, ...FEEL_STEPS, ...DRAW_STEPS, ...ART_STEPS, ...FIGURE_STEPS, ...REDO_STEPS };
 
 /** own keys only, so a mode like "constructor" isn't a step */
 export const stepFor = (mode: unknown): Step | null => (typeof mode === 'string' && Object.hasOwn(STEPS, mode) ? STEPS[mode] : null);

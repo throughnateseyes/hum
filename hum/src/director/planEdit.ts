@@ -28,7 +28,7 @@ export interface PlanEditResult {
   changed?: number;
 }
 
-/** apply the server's checked changes to a plan */
+/** apply the server's checked changes to a plan (parts marked Keep are left alone) */
 export function applyPlanEdit(plan: VideoPlan, a: TrackAnalysis, changes: unknown[]): { plan: VideoPlan; changed: number } {
   const n = a.sections.length;
   const looks = [...plan.looks];
@@ -47,14 +47,14 @@ export function applyPlanEdit(plan: VideoPlan, a: TrackAnalysis, changes: unknow
     if (!isObj(c) || typeof c.index !== 'number' || typeof c.lookId !== 'string' || !a.sections[c.index]) continue;
     const i = c.index;
     a.sections.forEach((sec, j) => {
-      if (j !== i && !own.has(j) && sec.group === a.sections[i].group && plan.looks[j] === plan.looks[i]) {
+      if (j !== i && !plan.kept?.[j] && !own.has(j) && sec.group === a.sections[i].group && plan.looks[j] === plan.looks[i]) {
         own.add(j);
         spread.push({ ...c, index: j });
       }
     });
   }
   for (const c of [...changes, ...spread]) {
-    if (!isObj(c) || typeof c.index !== 'number' || c.index < 0 || c.index >= n) continue;
+    if (!isObj(c) || typeof c.index !== 'number' || c.index < 0 || c.index >= n || plan.kept?.[c.index]) continue;
     const i = c.index;
     if (typeof c.lookId === 'string' && findLook(c.lookId) && mayPlanId(c.lookId) && c.lookId !== looks[i]) {
       looks[i] = c.lookId;
@@ -129,6 +129,7 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
           pops: a.sections.map((_, i) => s.partPops?.[i] ?? plan.pops?.[i] ?? 1),
           pace: plan.shotBars ?? [],
           lyric: plan.lyricPlan ? plan.lyricPlan.parts.map((p) => p?.medium ?? null) : [],
+          ...(plan.kept?.some(Boolean) ? { kept: plan.kept } : {}),
         },
         accessCode,
       }),
@@ -156,7 +157,8 @@ export async function editVideo(prompt: string, opts: { signal?: AbortSignal } =
   const now = useStudio.getState();
   if (now.analysis !== a || now.plan !== plan) return { ok: false, note: 'The plan changed while Claude was thinking, so this edit was dropped.' };
   const { plan: next, changed } = applyPlanEdit(plan, a, json.edit.changes);
-  if (!changed) return { ok: true, note: serverNote || 'Nothing needed to change.', via, changed: 0 };
+  const held = (json.edit.changes as unknown[]).some((c) => isObj(c) && typeof c.index === 'number' && plan.kept?.[c.index]);
+  if (!changed) return { ok: true, note: held ? 'Only parts you kept would have changed, so they were left as they are.' : serverNote || 'Nothing needed to change.', via, changed: 0 };
   // a part whose pop-ups the edit changed is the plan's again (the newest wish wins over an older hand setting)
   const own = now.partPops?.length === a.sections.length ? [...now.partPops] : null;
   if (own) for (let i = 0; i < own.length; i++) if ((next.pops?.[i] ?? null) !== (plan.pops?.[i] ?? null)) own[i] = null;

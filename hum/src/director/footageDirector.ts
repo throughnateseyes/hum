@@ -21,7 +21,7 @@ import { STYLE_IDS, STYLE_SERVES, isStyle } from '../shot/styles';
 import { TREATMENT_IDS, TREATMENT_SERVES, isTreatment } from '../shot/treatments';
 import { layShot, type ShotCue } from '../shot/partShots';
 import { dropAt, isMoment, momentsFor, type MomentId, type Serves } from '../moments';
-import { carryByTime, carryEdits, flattenPlan } from '../state/flatPlan';
+import { carryByTime, carryEdits, flattenPlan, keptOnly } from '../state/flatPlan';
 import { LYRIC_MEDIUMS, type LyricMedium } from '../state/lyricPlan';
 import { findLook, partEdits, sectionIndexAt, validPlan, type VideoPlan } from '../state/plan';
 import { parentsOf } from '../state/planCache';
@@ -294,13 +294,16 @@ function cutNow(plan: VideoPlan, a: TrackAnalysis, keep: VideoPlan | null) {
   const f = flattenPlan(plan, a, s.pace, s.lyrics);
   if (!f) return null;
   const prevA = s.analysis;
-  const prev = keep?.flat && prevA && validPlan(keep, prevA) ? { plan: keep, analysis: prevA } : null;
+  // (parts marked Keep come across even when it starts fresh)
+  const had = keep ?? keptOnly(s.plan, prevA);
+  const prev = had?.flat && prevA && validPlan(had, prevA) ? { plan: had, analysis: prevA } : null;
   const out = prev ? carryEdits(f, prev) : f;
   const hand = prevA && prevA !== out.analysis ? carryByTime(s.partShot, prevA, out.analysis) : s.partShot;
   // the looks the person chose or liked keep the picture they had
   const edits = prev ? partEdits(prev.plan, prev.analysis, null, null, null, undefined, null) : [];
   const kept = out.analysis.sections.map((sec, i) => {
     if (!prev) return false;
+    if (out.plan.kept?.[i]) return true;
     const j = sectionIndexAt(prev.analysis.sections, sec.start + 0.06);
     return (!!edits[j]?.look || !!prev.plan.liked?.[j]) && prev.plan.looks[j] === out.plan.looks[i];
   });
@@ -479,7 +482,7 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
 }
 
 /** a choice with what timing decided about it: its clip, its second and what lands */
-function withTiming(shot: PartShot, t: PartShot): PartShot {
+export function withTiming(shot: PartShot, t: PartShot): PartShot {
   const { from: _f, hit: _h, on: _o, ramp: _r, ...rest } = shot;
   const moved = t.media?.[0] !== undefined && t.media[0] !== shot.media?.[0];
   return {
@@ -601,13 +604,13 @@ export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; part
   let changed = 0;
   const shots = bounds.map((b, i) => {
     const hit = starts.some((x) => Math.abs(x - b) < 0.06) ? cues.find((c) => Math.abs(c.at - b) < 0.06) : undefined;
-    // a part whose look was changed since is the person's now
-    if (!hit || !playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) || plan.base?.looks[i] !== plan.looks[i]) return plan.shots?.[i] ?? null;
+    // a part whose look was changed since, or that was kept, is the person's now
+    if (!hit || plan.kept?.[i] || !playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) || plan.base?.looks[i] !== plan.looks[i]) return plan.shots?.[i] ?? null;
     changed++;
     return hit.shot;
   });
   if (!changed) return;
-  const why = plan.why.map((w, i) => cues.find((c) => Math.abs(c.at - bounds[i]) < 0.06 && starts.includes(c.at))?.why ?? w);
+  const why = plan.why.map((w, i) => (plan.kept?.[i] ? undefined : cues.find((c) => Math.abs(c.at - bounds[i]) < 0.06 && starts.includes(c.at))?.why) ?? w);
   useStudio.getState().set({ plan: { ...plan, shots, why, flat: { ...plan.flat!, src: { ...plan.flat!.src, cues } } } });
   run.note(`Claude checked the cut and changed ${changed === 1 ? 'one shot' : `${changed} shots`}.`);
 }

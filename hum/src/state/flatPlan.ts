@@ -20,7 +20,7 @@
  * from before a reload, Claude's plan swapped in by one-tap start, a map started from one look), so a
  * plan never plays unflattened. A remake that keeps changes carries them by time (carryEdits).
  */
-import { NOTHING } from '../arrange/types';
+import { onlyIn } from '../arrange/types';
 import { audioEngine } from '../audio/engine';
 import type { Lyrics, Preset, TrackAnalysis } from '../core/types';
 import { duringRecut, boundsOf, cutAnalysis, originalOf } from './planCache';
@@ -29,6 +29,7 @@ import {
   partEdits,
   planBase,
   planShots,
+  popsOf,
   recutParts,
   relatedLooks,
   releaseHold,
@@ -164,6 +165,11 @@ function momentsOnce(lp: LyricPlan, src: LyricPlan, aP: TrackAnalysis, cut: Trac
  * part's start and end, and any cut of the new plan inside that stretch goes, so the kept part plays
  * as one block again. Everything else comes from the new plan. Pop-ups, hand-drawn and words are
  * carried by time for every part (carryByTime). `kept` counts the parts carried.
+ *
+ * A part marked Keep (plan.kept) comes across whole: its exact start and end (a line of the new plan
+ * within a beat of one moves onto it), its look, shot, drawing, pop-up level, transition and words. What
+ * the whole video has one of and shows in it (the paint, the finish, the type and the dice of the words)
+ * stays too.
  */
 export function carryEdits(next: { plan: VideoPlan; analysis: TrackAnalysis }, prev: { plan: VideoPlan; analysis: TrackAnalysis }): { plan: VideoPlan; analysis: TrackAnalysis; kept: number } {
   const pa = prev.analysis;
@@ -172,42 +178,81 @@ export function carryEdits(next: { plan: VideoPlan; analysis: TrackAnalysis }, p
   const edits = partEdits(pp, pa, null, null, null, undefined, null);
   const liked = pp.liked ?? [];
   const keep = pa.sections
-    .map((sec, k) => ({ k, sec, look: !!edits[k]?.look || !!liked[k], lyric: !!edits[k]?.lyric, liked: !!liked[k] }))
-    .filter((x) => x.look || x.lyric || x.liked);
+    .map((sec, k) => ({ k, sec, whole: !!pp.kept?.[k], look: !!edits[k]?.look || !!liked[k], lyric: !!edits[k]?.lyric, liked: !!liked[k] }))
+    .filter((x) => x.whole || x.look || x.lyric || x.liked);
   if (!keep.length) return { ...next, kept: 0 };
+  const beat = 60 / Math.max(50, Math.min(200, next.analysis.bpm || 120));
+  const end = next.analysis.duration;
+  next = ontoLines(next, keep.filter((x) => x.whole).flatMap((x) => [x.sec.start, x.sec.end]), beat);
   const na = next.analysis;
-  const end = na.duration;
-  const beat = 60 / Math.max(50, Math.min(200, na.bpm || 120));
   const nb = boundsOf(na);
-  const near = (t: number) => nb.find((b) => Math.abs(b - t) <= beat + 1e-3);
+  const near = (t: number) => nb.filter((b) => Math.abs(b - t) <= beat + 1e-3).sort((x, y) => Math.abs(x - t) - Math.abs(y - t))[0];
   const spans = keep
     .map((x) => {
+      if (x.whole) return { x, s0: x.k === 0 ? nb[0] : round3(x.sec.start), e0: x.sec.end >= end - 0.01 ? end : round3(x.sec.end) };
       const s0 = x.k === 0 ? nb[0] : (near(x.sec.start) ?? round3(x.sec.start));
       const e0 = x.sec.end >= end - 0.01 ? end : (near(x.sec.end) ?? round3(x.sec.end));
       return { x, s0, e0 };
     })
-    .filter((sp) => sp.e0 - sp.s0 >= 0.5);
+    .filter((sp) => sp.x.whole || sp.e0 - sp.s0 >= 0.5);
   const inside = (b: number) => spans.some((sp) => b > sp.s0 + 1e-3 && b < sp.e0 - 1e-3);
+  // (a line of another kept change never goes inside a part kept whole)
+  const barred = (b: number) => spans.some((sp) => sp.x.whole && b > sp.s0 + 1e-3 && b < sp.e0 - 1e-3);
   const set = new Set(nb.filter((b) => !inside(b)));
   for (const sp of spans) {
-    set.add(sp.s0);
-    if (sp.e0 < end - 0.01) set.add(sp.e0);
+    if (!barred(sp.s0)) set.add(sp.s0);
+    if (sp.e0 < end - 0.01 && !barred(sp.e0)) set.add(sp.e0);
   }
   const bounds: number[] = [];
-  for (const b of [...set].sort((x, y) => x - y)) if (!bounds.length || b - bounds[bounds.length - 1] > 0.05) bounds.push(b);
+  // two lines at one moment: a kept part's own is the one that stays
+  const fixed = new Set(spans.flatMap((sp) => (sp.x.whole ? [sp.s0, sp.e0] : [])));
+  for (const b of [...set].sort((x, y) => x - y)) {
+    if (!bounds.length || b - bounds[bounds.length - 1] > 0.051) bounds.push(b);
+    else if (fixed.has(b) && bounds.length > 1) bounds[bounds.length - 1] = b;
+  }
   const r = recutParts({ analysis: na, plan: next.plan, partPops: null, partHand: null, partWords: null }, bounds);
   if (!r?.plan) return { ...next, kept: 0 };
   const plan = r.plan;
+  const whole = spans.some((sp) => sp.x.whole);
+  // a line that moved onto a kept part's edge: the parts round it take the director's choice for them again
+  if (whole) recue(plan, bounds, end);
   const looks = [...plan.looks];
   const likedNext = plan.looks.map((_, k) => !!plan.liked?.[k]);
   const lp = plan.lyricPlan ? { ...plan.lyricPlan, parts: [...plan.lyricPlan.parts] } : undefined;
   const shots = plan.shots || pp.shots ? plan.looks.map((_, k) => plan.shots?.[k] ?? null) : null;
+  const n = plan.looks.length;
+  const why = plan.looks.map((_, k) => plan.why[k] ?? '');
+  const pops = r.analysis.sections.map((_, k) => popsOf(plan, r.analysis, k));
+  const transitions = plan.looks.map((_, k) => plan.transitions?.[k] ?? null);
+  const moments = plan.looks.map((_, k) => plan.moments?.[k] ?? null);
+  const keptNext = new Array<boolean>(n).fill(false);
+  const base = plan.base && { looks: [...plan.base.looks], rotate: [...plan.base.rotate], lyric: [...plan.base.lyric] };
   let kept = 0;
   for (const sp of spans) {
     // the new part that starts where the kept one does
     let k = 0;
     for (let j = 0; j < bounds.length; j++) if (Math.abs(bounds[j] - sp.s0) < Math.abs(bounds[k] - sp.s0)) k = j;
     const { x } = sp;
+    if (x.whole) {
+      const j = x.k;
+      looks[k] = pp.looks[j];
+      if (shots) shots[k] = pp.shots?.[j] ?? null;
+      why[k] = pp.why[j] ?? '';
+      pops[k] = popsOf(pp, pa, j);
+      transitions[k] = pp.transitions?.[j] ?? null;
+      moments[k] = pp.moments?.[j] ?? null;
+      if (lp && pp.lyricPlan) lp.parts[k] = pp.lyricPlan.parts[j] ? { ...pp.lyricPlan.parts[j]!, at: pp.lyricPlan.parts[j]!.at ?? j } : null;
+      // what was planned there stays what a change by hand is told by
+      if (base && pp.base) {
+        base.looks[k] = pp.base.looks[j] ?? null;
+        base.rotate[k] = pp.base.rotate[j] ?? null;
+        base.lyric[k] = pp.base.lyric[j] ?? null;
+      }
+      if (x.liked) likedNext[k] = true;
+      keptNext[k] = true;
+      kept++;
+      continue;
+    }
     if (x.look && pp.looks[x.k] && findLook(pp.looks[x.k])) {
       looks[k] = pp.looks[x.k];
       // a kept look keeps the picture it had, not the new plan's
@@ -219,11 +264,75 @@ export function carryEdits(next: { plan: VideoPlan; analysis: TrackAnalysis }, p
     kept++;
   }
   return {
-    plan: { ...plan, looks, ...(shots ? { shots } : {}), ...(lp ? { lyricPlan: lp } : {}), ...(likedNext.some(Boolean) ? { liked: likedNext } : {}) },
+    plan: {
+      ...plan,
+      looks,
+      ...(shots ? { shots } : {}),
+      ...(lp ? { lyricPlan: whole && pp.lyricPlan ? { ...lp, seed: pp.lyricPlan.seed, family: pp.lyricPlan.family, motion: pp.lyricPlan.motion } : lp } : {}),
+      ...(likedNext.some(Boolean) ? { liked: likedNext } : {}),
+      ...(whole
+        ? {
+            kept: keptNext,
+            why,
+            pops,
+            transitions,
+            ...(plan.moments || pp.moments ? { moments } : {}),
+            ...(base ? { base } : {}),
+            ...(pp.paint ? { paint: pp.paint } : {}),
+            ...(pp.direction ? { direction: { ...(plan.direction ?? pp.direction), finish: pp.direction.finish } } : {}),
+          }
+        : {}),
+    },
     analysis: r.analysis,
     kept,
   };
 }
+
+/** the plan's lines moved onto these times where one is within a beat, each line once and never past another */
+function ontoLines(next: { plan: VideoPlan; analysis: TrackAnalysis }, times: number[], beat: number): { plan: VideoPlan; analysis: TrackAnalysis } {
+  const was = boundsOf(next.analysis);
+  const nb = [...was];
+  const used = new Set<number>([0]);
+  for (const t of [...new Set(times.map(round3))].sort((x, y) => x - y)) {
+    let j = -1;
+    for (let k = 1; k < nb.length; k++) if (Math.abs(nb[k] - t) <= beat + 1e-3 && (j < 0 || Math.abs(nb[k] - t) < Math.abs(nb[j] - t))) j = k;
+    if (j < 0 || used.has(j) || t <= nb[j - 1] + 0.06 || t >= (nb[j + 1] ?? next.analysis.duration) - 0.06) continue;
+    nb[j] = t;
+    used.add(j);
+  }
+  if (nb.every((b, k) => b === was[k])) return next;
+  const cut = cutAnalysis(next.analysis, nb);
+  if (!cut || cut.sections.length !== was.length) return next;
+  // what lands in a part lands at the same moment of the song
+  const shots = next.plan.shots?.map((s, k) => {
+    const d = nb[k] - was[k];
+    if (!s || !d || s.on === undefined) return s;
+    if (s.on - d >= 0) return { ...s, on: s.on - d };
+    const { hit: _h, on: _o, ramp: _r, ...rest } = s;
+    return rest;
+  });
+  const plan = { ...next.plan, ...(shots ? { shots } : {}), bounds: boundsOf(cut) };
+  if (originalOf(cut) === cut) delete (plan as VideoPlan).bounds;
+  return { plan, analysis: cut };
+}
+
+/** the director's choices made for parts that start exactly here, dealt again (after lines were moved) */
+function recue(plan: VideoPlan, bounds: number[], end: number) {
+  const src = plan.flat?.src;
+  if (!src?.cues || !plan.shots) return;
+  const exact = bounds.map((b, k) => src.cues!.find((c) => Math.abs(c.at - b) < 0.06 && (!src.dealt || Math.abs(c.end - (bounds[k + 1] ?? end)) < 0.3)));
+  plan.shots = plan.shots.map((s, k) => exact[k]?.shot ?? s);
+  if (!src.dealt) underCues(plan, src.cues, bounds);
+}
+
+/** the plan with only its kept parts to carry: what a remake that starts fresh still leaves alone (null: none is kept) */
+export function keptOnly(plan: VideoPlan | null | undefined, a: TrackAnalysis | null): VideoPlan | null {
+  if (!plan?.flat || !a || !validPlan(plan, a) || !plan.kept?.some(Boolean)) return null;
+  return { ...plan, base: planBase(plan, a), liked: undefined };
+}
+
+/** the stretches of the song that are kept */
+export const keptSpans = (plan: VideoPlan | null | undefined, a: TrackAnalysis | null) => (plan && a ? a.sections.filter((_, i) => plan.kept?.[i]).map((s) => ({ start: s.start, end: s.end })) : []);
 
 /** a per-part setting moved to new parts by time: each new part takes the old part it starts in */
 export function carryByTime<T>(arr: (T | null)[] | null, from: TrackAnalysis, to: TrackAnalysis): (T | null)[] | null {
@@ -239,7 +348,8 @@ export function carryByTime<T>(arr: (T | null)[] | null, from: TrackAnalysis, to
  * and every per-part setting moved to them, in one store change. Doesn't touch the song's position.
  *
  *   keep       the plan playing before: its changes are carried across (carryEdits)
- *   freshPops  the pop-up levels set by hand go, and what was placed by hand (a remake that starts fresh)
+ *   freshPops  the pop-up levels set by hand go, and what was placed by hand (a remake that starts fresh),
+ *              but for the parts marked Keep, which come across whatever was asked
  *   restore    a saved plan coming back (the cache, a reload): its per-part settings are the ones saved
  *              with it (planCache brings them back), so the ones in the store aren't moved onto it
  *
@@ -256,9 +366,16 @@ export function putOn(plan: VideoPlan, a: TrackAnalysis, opts: { keep?: VideoPla
   }
   let out = { ...f, kept: 0 };
   const prevA = s.analysis;
-  if (opts.keep && prevA && validPlan(opts.keep, prevA) && opts.keep.flat) out = carryEdits(f, { plan: opts.keep, analysis: prevA });
+  const keep = opts.keep ?? (opts.restore ? null : keptOnly(s.plan, prevA));
+  if (keep && prevA && validPlan(keep, prevA) && keep.flat) out = carryEdits(f, { plan: keep, analysis: prevA });
   const sameSong = !!prevA && originalOf(prevA) === originalOf(out.analysis);
   const moved = sameSong && !opts.restore && prevA !== out.analysis;
+  // a fresh start: the pop-ups set by hand go, outside the parts that are kept
+  const held = out.plan.kept;
+  const fresh = (pops: (number | null)[] | null) => {
+    const p = held && pops?.length === held.length ? pops.map((v, i) => (held[i] ? v : null)) : null;
+    return p?.some((v) => v !== null) ? p : null;
+  };
   const patch = {
     analysis: out.analysis,
     plan: out.plan,
@@ -267,16 +384,16 @@ export function putOn(plan: VideoPlan, a: TrackAnalysis, opts: { keep?: VideoPla
     ...(prevA !== out.analysis ? { selectedParts: [] as number[] } : {}),
     ...(moved
       ? {
-          partPops: opts.freshPops ? null : carryByTime(s.partPops, prevA, out.analysis),
+          partPops: opts.freshPops ? fresh(carryByTime(s.partPops, prevA, out.analysis)) : carryByTime(s.partPops, prevA, out.analysis),
           partHand: carryByTime(s.partHand, prevA, out.analysis),
           partWords: carryByTime(s.partWords, prevA, out.analysis),
           // a section's own picture goes to each of its shots, and only when it had one
           partShot: carryByTime(s.partShot, prevA, out.analysis),
         }
       : opts.freshPops
-        ? { partPops: null }
+        ? { partPops: fresh(sameSong ? s.partPops : null) }
         : {}),
-    ...(opts.freshPops ? { placed: NOTHING } : {}),
+    ...(opts.freshPops ? { placed: onlyIn(s.placed, sameSong ? keptSpans(out.plan, out.analysis) : []) } : {}),
   };
   const apply = () => {
     if (audioEngine.analysis !== out.analysis) audioEngine.setAnalysis(out.analysis);

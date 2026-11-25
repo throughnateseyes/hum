@@ -222,7 +222,7 @@ export async function reviewArt(art: VideoArt): Promise<void> {
     const d = layShot(plan.shots?.[i], s.partShot?.[i])?.drawn;
     const asset = d ? drawingNow(d.id, here) : null;
     // (one the person put somewhere stays there)
-    return d && asset && !byHand(d) && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put as DrawnPut, size: d.size, why: d.why ?? '', id: d.id, ratio: ratioOf({ asset }) }] : [];
+    return d && asset && !byHand(d) && !plan.kept?.[i] && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined) ? [{ part: i, name: asset.name, put: d.put as DrawnPut, size: d.size, why: d.why ?? '', id: d.id, ratio: ratioOf({ asset }) }] : [];
   });
   if (!parts.length) return;
   const some = parts.slice(0, MOST_STILLS);
@@ -246,6 +246,8 @@ export async function reviewArt(art: VideoArt): Promise<void> {
       if (!p) continue;
       if (c.do === 'redraw') {
         const now = drawingNow(p.id, drawingsHere());
+        // (nor one that also stands in a part that is kept)
+        if (plan.kept?.some((k, i) => k && placedIn(plan, i)?.id === p.id)) continue;
         // the person's own older drawings are never drawn over: they go out of the shot instead
         if (now && art.drawings.some((d) => d.id === now.id) && now.added > Date.now() - 3600_000 && text(c.note, 200)) redraw(now.id, text(c.note, 200));
         else todo.set(p.part, { at: starts[p.part].start, end: starts[p.part].end, id: p.id, next: null });
@@ -295,7 +297,8 @@ async function rehouse(mine: () => boolean, signal: AbortSignal) {
   const a = s.analysis!;
   const here = drawingsHere(s);
   const shotAt = (i: number) => layShot(plan.shots?.[i], s.partShot?.[i]);
-  const inside = a.sections.map((_, i) => i).filter((i) => shotAt(i)?.style === 'inside' && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined));
+  // (a part marked Keep keeps its drawing where it is, and takes no other's)
+  const inside = a.sections.map((_, i) => i).filter((i) => !plan.kept?.[i] && shotAt(i)?.style === 'inside' && playsClips(plan.looks[i] ? findLook(plan.looks[i]!) : undefined));
   const placed = inside.flatMap((part) => {
     const d = shotAt(part)!.drawn;
     const asset = d && drawingNow(d.id, here);
@@ -344,8 +347,10 @@ interface Span {
 function applyArt(spans: Span[]) {
   const s = useStudio.getState();
   const plan = s.plan!;
+  // a part kept since it was looked at stays as it is
+  const held = new Set(spans.filter((x) => s.analysis!.sections.some((sec, i) => plan.kept?.[i] && Math.abs(sec.start - x.at) < 0.06)));
   const fix = <T extends { drawn?: DrawnShot | null }>(shot: T, at: number): T => {
-    const hit = spans.find((x) => Math.abs(x.at - at) < 0.06 && (x.fresh ? shot.drawn === undefined : x.id === shot.drawn?.id));
+    const hit = spans.find((x) => Math.abs(x.at - at) < 0.06 && !held.has(x) && (x.fresh ? shot.drawn === undefined : x.id === shot.drawn?.id));
     if (!hit) return shot;
     const { drawn: _was, ...rest } = shot;
     return hit.next ? { ...shot, drawn: hit.next } : (rest as T);

@@ -261,6 +261,7 @@ function cleanPlan(v: unknown): VideoPlan | null {
   if (!Number.isFinite(v.duration)) return null;
   if (v.shots !== undefined) p.shots = list(v.shots, 400).map((x) => (okShot(x, 400) ? (x as PartShot) : null));
   if (v.bounds !== undefined && !(Array.isArray(v.bounds) && v.bounds.every((b) => Number.isFinite(b)))) delete p.bounds;
+  if (v.kept !== undefined && !(Array.isArray(v.kept) && v.kept.length === v.looks.length && v.kept.every((k) => typeof k === 'boolean'))) delete p.kept;
   if (v.flat !== undefined) {
     const src = isObj(v.flat) ? cleanPlan(v.flat.src) : null;
     if (!src) return null;

@@ -135,6 +135,18 @@ export function withoutAny(p: Placed, parts: Stretch[]): Placed {
   return q === p && drawings.length === p.drawings.length && hidden.length === p.hidden.length ? p : { ...q, drawings, hidden };
 }
 
+/** only what was placed by hand in these parts */
+export function onlyIn(p: Placed, parts: Stretch[]): Placed {
+  if (!parts.length) return NOTHING;
+  const pops = parts.flatMap((part) => {
+    const set = popSetFor(p, part.start, part.end);
+    return set ? [{ ...set, from: Math.max(set.from, part.start), to: Math.min(set.to, part.end) }] : [];
+  });
+  const drawings = p.drawings.filter((d) => within(d, parts));
+  const hidden = p.hidden.filter((h) => within(h, parts));
+  return pops.length || drawings.length || hidden.length ? { pops, drawings, hidden } : NOTHING;
+}
+
 /* ───────── reading it back ───────── */
 
 const num = (v: unknown, lo: number, hi: number): number | null => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null);

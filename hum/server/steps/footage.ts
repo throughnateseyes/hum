@@ -627,3 +627,5 @@ export const FOOTAGE_STEPS: Record<string, Step> = { watch, story, shots, review
 
 // the art steps read the same song, media and parts (art.ts)
 export { DATA_RULE, describeSong, partsHead, readMedia, readParts, wishLine };
+// and one part is chosen again in the same words (redo.ts)
+export { cleanShots, isObj, line, list, MOMENT_LINES, readCut, SHOT_PROPS, SHOT_RULES };

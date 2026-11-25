@@ -30,7 +30,7 @@ import { finishName, isFinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { PartShot, TrackAnalysis } from '../core/types';
 import { STYLE_NAMES } from '../shot/styles';
-import { findLook, partNames, sectionNames } from './plan';
+import { findLook, partNames, sectionNames, type VideoPlan } from './plan';
 import { duringRecut, keepPlan, originalOf } from './planCache';
 import { isApplyingLook, isSoloQuiet, useStudio, type StudioState } from './store';
 import { tweakParts, type LookTweak } from './tweaks';
@@ -135,6 +135,12 @@ function startOver(s: StudioState) {
   seen = take(s);
   song = songOf(s);
   changed();
+}
+
+/** the change made next is one the person asked for a moment ago (an answer from Claude arriving): it makes a step */
+export function askedFor() {
+  if (pending) checkpoint();
+  plannedAt = now();
 }
 
 /** what is on now is where history starts (a project was opened: none of it is an edit) */
@@ -358,14 +364,14 @@ function describe(a: Values, b: Values): string {
         const ids = new Set(looks.map((i) => pb.looks[i]));
         const look = ids.size === 1 ? findLook(pb.looks[looks[0]])?.name : null;
         out.push(look ? `swapped ${partList(looks, namesB)} to ${look}` : `swapped the looks in ${partList(looks, namesB)}`);
-      } else if (pa.lyricPlan !== pb.lyricPlan) {
+      } else if (pa.lyricPlan !== pb.lyricPlan && planLabel(pa, pb, bn) === CHANGED) {
         const lp = diffAt(
           pa.lyricPlan?.parts.map((p) => p?.medium ?? null) ?? null,
           pb.lyricPlan?.parts.map((p) => p?.medium ?? null) ?? null,
           n,
         );
         out.push(lp.length ? `lyrics for ${partList(lp, namesB)}` : 'changed the lyrics');
-      } else out.push('changed the video');
+      } else out.push(planLabel(pa, pb, bn));
     }
   }
   if (a.partHand !== b.partHand && an === bn) {
@@ -412,6 +418,17 @@ function describe(a: Values, b: Values): string {
   if (a.drawOverlay !== b.drawOverlay) out.push(`Drawings beside the words ${b.drawOverlay ? 'on' : 'off'}`);
   if (!out.length) return 'a change';
   return out.length > 2 ? `${out[0]} and ${out.length - 1} more` : out.join(' and ');
+}
+
+/** parts kept or let go, a part shown another way, or anything else about the plan */
+const CHANGED = 'changed the video';
+function planLabel(a: VideoPlan, b: VideoPlan, an: TrackAnalysis | null): string {
+  const n = b.looks.length;
+  const names = an ? partNames(an) : [];
+  const shots = diffShots(a.shots ?? null, b.shots ?? null, n);
+  const kept = diffAt(a.kept ?? null, b.kept ?? null, n).filter((i) => !!a.kept?.[i] !== !!b.kept?.[i]);
+  if (kept.length) return `${b.kept?.[kept[0]] ? 'kept' : 'let go of'} ${partList(kept, names)}`;
+  return shots.length ? `${partList(shots, names)} shown another way` : CHANGED;
 }
 
 /** what was placed, moved or taken away by hand */
