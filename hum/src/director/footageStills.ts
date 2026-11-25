@@ -10,6 +10,7 @@ import { curvesFor } from './feeling';
 import * as THREE from 'three';
 import type { ClipAsset, PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import { dryRun } from '../render/warmup';
+import { drawnWith, offIn } from '../shot/graphics';
 import { songTitle, stillClip, titleWords } from '../scenes/footage';
 import { Footage } from '../shot/footage';
 import { deckIdsOf, footageRun, runPartOf, withOwn } from '../shot/run';
@@ -225,7 +226,7 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
     const shown = parts.filter((i) => run.seqs[i]);
     let drawn = 0;
     for (const i of shown) {
-      const seq = run.seqs[i]!;
+      const seq = drawnWith(run.seqs[i]!, offIn(cut.shotAt(i), useStudio.getState().graphicsOff));
       const t = seq.start + (seq.end - seq.start) * AT;
       const shot = seq.shots.find((x) => t < x.end) ?? seq.shots[seq.shots.length - 1];
       const here = [...deck];

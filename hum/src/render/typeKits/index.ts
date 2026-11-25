@@ -6,8 +6,8 @@ import type { Role, TypeLayout, Voice } from '../lyricAuto';
 import { css, hexRGB, kitMoving, mix, type KitLine } from './common';
 import { drawFilm, filmInks, filmReach, filmVoice } from './film';
 import { kitFontsReady, loadKitFonts, type FontKit } from './fonts';
-import { drawPrint, printInks, printReach, printVoice } from './print';
-import { drawTape, tapeBands, tapeReach, tapeVoice } from './tape';
+import { drawPrint, drawPrintBare, printReachBare, printInks, printReach, printVoice } from './print';
+import { drawTape, drawTapeBare, tapeBands, tapeReach, tapeVoice } from './tape';
 import type { Insets } from '../lyricSpace';
 
 /**
@@ -159,14 +159,20 @@ const PRINT: TypeKit = {
   moving: (L, t) => L.role === 'giant' || kitMoving(L, t),
 };
 
+/** the kits with nothing behind the words: the guard's own backing stands in when the picture needs one */
+const BARE: Partial<Record<KitId, TypeKit>> = {
+  print: { ...PRINT, draw: drawPrintBare, reach: printReachBare, ownPlate: undefined, spans: undefined },
+  tape: { ...TAPE, draw: drawTapeBare, ownPlate: undefined },
+};
+
 const KITS: Record<KitId, TypeKit> = { clean: CLEAN, tape: TAPE, film: FILM, print: PRINT, hand: HAND };
 
 /**
  * The kit to set a line in. A kit whose faces are still loading sets nothing yet (the clean kit
  * stands in); asking starts the load, and the layer lays the line out again when they arrive.
  */
-export function typeKit(id: KitId): TypeKit {
-  const k = KITS[id];
+export function typeKit(id: KitId, panels = true): TypeKit {
+  const k = (panels ? undefined : BARE[id]) ?? KITS[id];
   if (!k.fonts) return k;
   if (kitFontsReady(k.fonts)) return k;
   void loadKitFonts(k.fonts);

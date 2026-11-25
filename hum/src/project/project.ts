@@ -123,7 +123,7 @@ function readLink(): Link | null {
 
 /* ───────── following what the person changes ───────── */
 
-const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'songName', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'smoothSlow', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
+const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'songName', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'smoothSlow', 'graphicsOff', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
 
 useStudio.subscribe((s, prev) => {
   if (opening) return;
@@ -467,7 +467,7 @@ async function openWith(read: Read, where: { place: 'folder' | 'file' | null; di
     for (const p of s0.photos) if (!p.builtin) s0.removePhoto(p.id);
     useStudio.setState((s) => ({ clips, photos: [...s.photos, ...photos] }));
     const set = Object.fromEntries(Object.entries(cleanSettings(f.settings)).filter(([, v]) => v !== undefined));
-    s0.set({ finish: 'hand', finishPicked: false, lyricStyle: 'auto', lyricStylePicked: false, hand: HAND_DEFAULT, ...set });
+    s0.set({ finish: 'hand', finishPicked: false, lyricStyle: 'auto', lyricStylePicked: false, hand: HAND_DEFAULT, graphicsOff: [], ...set });
     await bringNotes(f.notes);
     bringDrawings(f);
     bringFeeling(f.lyrics.lyrics, f.feeling);

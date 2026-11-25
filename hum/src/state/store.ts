@@ -23,6 +23,7 @@ import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { PRESETS } from '../presets';
 import { loadPlaced, NOTHING, savePlaced, type Placed } from '../arrange/types';
 import { loadDrawParts, saveDrawParts } from '../draw/parts';
+import { cleanGraphics, type GraphicId } from '../shot/graphics';
 import { loadSongName, saveSongName, type SongName } from './songName';
 import type { DrawingAsset, DrawPart } from '../draw/types';
 import { uid } from './modulation';
@@ -205,6 +206,8 @@ export interface StudioState extends LookState {
   mix: Mix;
   /** clips running slowly glide between their frames (shot/slowmo.ts) */
   smoothSlow: boolean;
+  /** what may not cover the picture, in the whole video (shot/graphics.ts) */
+  graphicsOff: GraphicId[];
   /** how looks change: picked from the song (auto), one transition always, or 'cut' */
   transition: 'auto' | TransitionId;
   /** transition length in beats (0 = picked from the song) */
@@ -306,6 +309,7 @@ export function cleanSettings(j: any): Partial<StudioState> {
     pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
     mix: isMix(j.mix) ? j.mix : undefined,
     smoothSlow: typeof j.smoothSlow === 'boolean' ? j.smoothSlow : undefined,
+    graphicsOff: cleanGraphics(j.graphicsOff),
     transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
     transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
     // a finish only sticks once the person has picked one (an old saved Auto doesn't count)
@@ -369,6 +373,7 @@ export function settingsOf(s: StudioState) {
     pace: s.pace,
     mix: s.mix,
     smoothSlow: s.smoothSlow,
+    graphicsOff: s.graphicsOff,
     transition: s.transition,
     transitionBeats: s.transitionBeats,
     finish: s.finish,
@@ -529,6 +534,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   pace: persisted.pace ?? 'song',
   mix: persisted.mix ?? 'most',
   smoothSlow: persisted.smoothSlow ?? true,
+  graphicsOff: persisted.graphicsOff ?? [],
   transition: persisted.transition ?? 'auto',
   transitionBeats: persisted.transitionBeats ?? 0,
   // Hand-drawn is the house look: a plan's own finish only shows once the person picks Auto
@@ -689,7 +695,7 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
-    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'smoothSlow' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch || 'drawInScene' in patch) persist(get());
+    if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'smoothSlow' in patch || 'graphicsOff' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch || 'drawInScene' in patch) persist(get());
   },
   setPartPops: (i, level) => {
     const a = get().analysis;

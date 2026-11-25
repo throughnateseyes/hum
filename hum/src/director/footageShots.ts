@@ -11,6 +11,8 @@ import type { Curves, SongFeeling } from '../feeling';
 import { INSIDE_PALETTES } from '../inside/palettes';
 import { RECIPES, momentOfPart, rank, type MomentId } from '../moments';
 import { MOTION_IDS, MOTION_SERVES } from '../shot/motion';
+import { useStudio } from '../state/store';
+import { treatmentOn } from '../shot/graphics';
 import { TREATMENT_IDS, TREATMENT_SERVES, type TreatmentId } from '../shot/treatments';
 import { parentsOf } from '../state/planCache';
 import type { VideoPlan } from '../state/plan';
@@ -97,7 +99,7 @@ export function momentShots(plan: VideoPlan, parts: TrackAnalysis, looks: (strin
     const inside = !!plan.paint && (own === 'none' || own === 'auto') && (ownStyle === 'auto' || ownStyle === 'inside' || ownStyle === 'caption') && (k === 0 || (h >>> 4) % 10 < 7);
     if (inside) shot.style = 'inside';
     if (!inside && (own === 'none' || own === 'auto')) {
-      const list = rank(TREATMENT_SERVES, m, TREATMENT_IDS).filter((t) => (t !== 'collage' || media.length >= 3) && (t !== 'trace' || media.length >= 2));
+      const list = rank(TREATMENT_SERVES, m, TREATMENT_IDS).filter((t) => treatmentOn(t, useStudio.getState().graphicsOff) && (t !== 'collage' || media.length >= 3) && (t !== 'trace' || media.length >= 2));
       // the plain picture most of the time: a treatment is for the moments that want one
       const strong = list.filter((t) => t !== 'none' && (TREATMENT_SERVES[t][m] ?? 0) >= 2 && t !== lastTreat);
       const pick = strong.length && h % 5 < (m === 'fury' ? 3 : 2) ? strong[h % strong.length] : 'none';

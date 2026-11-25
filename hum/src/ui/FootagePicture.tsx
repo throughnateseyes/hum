@@ -10,6 +10,7 @@
  *   Style           footage looks: Auto (follow the look) or one of the footage styles
  *   Shuffle         another arrangement of the same style; Previous steps back once
  *   Motion          footage looks, when the scene has it: what a clip does in time
+ *   Graphics        footage looks: whether anything may cover the picture here (shot/graphics.ts)
  *   Treatment       footage looks: how the picture itself is broken down (folded away)
  *   Framing         footage looks: where the picture is centred and how far it is pushed in (folded away)
  *
@@ -219,6 +220,8 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const treatName = treat === MIXED ? 'Mixed' : (treats.find((o) => o.v === treat)?.label ?? treat);
   const treatNote = hover !== null ? (treats.find((o) => o.v === hover)?.tip ?? '') : ownTreat === null ? (planned ? 'As planned.' : 'Follows the look.') : ownTreat === MIXED ? 'Different in each part.' : `Set for ${t.scope}.`;
 
+  const graphics = common(shots.map((r) => r?.graphics ?? null));
+
   // motion: the scene's own setting, when it has one (clips only)
   const motions = selectOptions(t.sceneId, 'motion', MOTION_TIPS);
   const lookMotion = String(t.lookValue('motion') ?? motions[0]?.v ?? 'play');
@@ -275,6 +278,23 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
               <Seg value={motion} options={motions} cols={Math.min(5, motions.length)} disabled={busy} label={`What the clip does in ${t.scope}`} onChange={(v) => t.set({ motion: v })} />
             </>
           )}
+
+          <div className="pp-sub-h pp-gap">
+            <span>Graphics over it</span>
+            <span>{graphics === MIXED ? 'Mixed' : graphics === 'off' ? 'Off here' : graphics === 'on' ? 'All on here' : 'As the video'}</span>
+          </div>
+          <Seg
+            value={graphics === MIXED ? MIXED : (graphics ?? 'video')}
+            options={[
+              { v: 'video', label: 'As the video', tip: 'What the Video tab’s Graphics allow' },
+              { v: 'on', label: 'On', tip: 'Anything may go over the picture here' },
+              { v: 'off', label: 'Off', tip: 'The clip alone: no shapes, effects or lyric panels here' },
+            ]}
+            cols={3}
+            disabled={busy}
+            label={`Graphics over ${t.scope}`}
+            onChange={(v) => t.set({ graphics: v === 'on' || v === 'off' ? v : undefined })}
+          />
 
           <div className="pp-fold">
             <button

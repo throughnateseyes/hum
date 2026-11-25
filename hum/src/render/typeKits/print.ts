@@ -350,3 +350,50 @@ export function drawPrint(k: KitLine) {
   else if (r === 'display' && k.medium === 'big') drawBands(k);
   else drawStack(k);
 }
+
+/* ───────────────────────── without panels ───────────────────────── */
+
+/**
+ * The same fat letters with nothing behind them (Panels and bands switched off): paper on a dark keyline
+ * as thick as a stroke, which holds on black, white and everything between, and one ink out of register.
+ */
+export function drawPrintBare(k: KitLine) {
+  const r = k.L.role;
+  if (r === 'aside') return drawAside(k);
+  if (r !== 'caption') return drawStack(k);
+  const { g, L, t, alpha } = k;
+  const back = printInks(k.pal)[0];
+  g.save();
+  g.textBaseline = 'alphabetic';
+  g.lineJoin = 'round';
+  for (const pass of [0, 1, 2])
+    for (const w of L.words) {
+      const a = arrival(L, w, t);
+      wordFont(g, w);
+      // (words still to come stand a little back, never so far that they can't be read)
+      g.globalAlpha = alpha * (0.72 + 0.28 * a.p);
+      const d = w.size * 0.07;
+      g.lineWidth = Math.max(2, w.size * 0.2);
+      if (pass === 0) {
+        g.strokeStyle = g.fillStyle = css(back);
+        g.lineWidth *= 0.6;
+        g.strokeText(w.text, w.x + d, w.y + d);
+        g.fillText(w.text, w.x + d, w.y + d);
+      } else if (pass === 1) {
+        g.strokeStyle = css(KEY);
+        g.strokeText(w.text, w.x, w.y);
+      } else {
+        g.fillStyle = css(PAPER);
+        g.fillText(w.text, w.x, w.y);
+      }
+    }
+  g.letterSpacing = '0px';
+  g.restore();
+}
+
+export function printReachBare(L: TypeLayout): Insets {
+  const big = Math.max(...L.words.map((w) => w.size));
+  const d = L.role === 'aside' ? L.size * 0.08 : L.role === 'caption' ? L.size * 0.14 : big * 0.06 * 3 + Math.max(2, big * 0.03);
+  const e = L.role === 'caption' ? L.size * 0.1 : 2;
+  return { l: e, t: e, r: d + 2, b: d + 2 };
+}

@@ -498,3 +498,9 @@ export function drawTape(k: KitLine) {
   }
   drawLogotype(k);
 }
+
+/** without panels (Panels and bands switched off): the sign's words as terminal type, no plate and no window */
+export function drawTapeBare(k: KitLine) {
+  if (k.L.role === 'caption' || k.L.role === 'aside') return drawTerm(k, k.L.words, termInk(k.pal, k.light), k.L.role === 'aside');
+  drawLogotype(k);
+}

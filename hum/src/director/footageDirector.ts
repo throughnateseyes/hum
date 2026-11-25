@@ -17,6 +17,7 @@ import type { Lyrics, MediaNotes, PartShot, TrackAnalysis } from '../core/types'
 import { feltLine } from '../feeling';
 import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
 import { MOTION_IDS, MOTION_SERVES, isMotion } from '../shot/motion';
+import { styleOn, treatmentOn } from '../shot/graphics';
 import { STYLE_IDS, STYLE_SERVES, isStyle } from '../shot/styles';
 import { TREATMENT_IDS, TREATMENT_SERVES, isTreatment } from '../shot/treatments';
 import { layShot, type ShotCue } from '../shot/partShots';
@@ -191,10 +192,11 @@ const choices = <T extends string>(ids: readonly T[], serves: Record<T, Serves>,
   ids.map((id) => ({ id, line: lines[id] ?? id, serves: (Object.entries(serves[id]) as [string, number][]).filter(([, v]) => v >= 2).map(([m]) => m) }));
 
 /** with lyrics on screen Poster has no word of its own to set, so it isn't offered */
-const vocabulary = (lyr: Lyrics | null) => ({
+/** (nor is what the person switched off, shot/graphics.ts: it would play as the plain picture) */
+const vocabulary = (lyr: Lyrics | null, off = useStudio.getState().graphicsOff) => ({
   // Plain serves every moment, so it is told when to come up instead (SHOT_RULES)
-  styles: choices(lyr?.lines.length ? STYLE_IDS.filter((s) => s !== 'poster') : STYLE_IDS, STYLE_SERVES, STYLE_LINES).map((c) => (c.id === 'plain' || c.id === 'inside' ? { ...c, serves: [] } : c)),
-  treatments: choices(TREATMENT_IDS, TREATMENT_SERVES, TREATMENT_LINES),
+  styles: choices(STYLE_IDS.filter((s) => (s !== 'poster' || !lyr?.lines.length) && styleOn(s, off)), STYLE_SERVES, STYLE_LINES).map((c) => (c.id === 'plain' || c.id === 'inside' ? { ...c, serves: [] } : c)),
+  treatments: choices(TREATMENT_IDS.filter((t) => treatmentOn(t, off)), TREATMENT_SERVES, TREATMENT_LINES),
   motions: choices(MOTION_IDS, MOTION_SERVES, MOTION_LINES),
 });
 

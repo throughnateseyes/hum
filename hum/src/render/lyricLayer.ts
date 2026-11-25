@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { AudioFrame, LyricLine, Palette, TrackAnalysis } from '../core/types';
 import { createFullscreenQuad } from '../core/sceneHelpers';
+import { panelsAt } from '../state/graphics';
 import { useStudio, type LyricStyle } from '../state/store';
 import { getScene } from '../scenes';
 import { buildCutout, cutoutMoving, drawCutout, type CutoutLayout } from './cutout';
@@ -372,7 +373,7 @@ export class LyricLayer {
 
   /** the type kit for this frame: the Lettering setting, or the finish's own (typeKits/) */
   private kitNow(o: LyricOpts): TypeKit {
-    return typeKit(kitFor(useStudio.getState().typeKit, o.finish ?? 'clean'));
+    return typeKit(kitFor(useStudio.getState().typeKit, o.finish ?? 'clean'), panelsAt(o.t));
   }
 
   /**
@@ -404,7 +405,7 @@ export class LyricLayer {
     const hostKey = hostFor(st.sceneId) ? st.sceneId : '-';
     // the type kit: a change of finish (or of the Lettering setting) sets the line again in the new kit
     const kit = this.kitNow(o);
-    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}|${kit.id}|${kitFontVersion()}`;
+    const key = `${o.style}|${group}|${W}x${H}|${st.lyricFont}|${hostKey}|${lyricFontVersion()}|${kit.id}${panelsAt(o.t) ? '' : ' bare'}|${kitFontVersion()}`;
     if (this.line?.key !== key) {
       // the next line arrived while this one was still up: fade it out over the new one
       const prev = this.line;

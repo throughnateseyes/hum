@@ -417,6 +417,8 @@ export interface PartShot {
   ramp?: string;
   /** what the part is meant to feel like (a moment id, src/moments): how the picture runs and the camera moves */
   moment?: string;
+  /** 'off': nothing covers the picture here, 'on': anything may (missing: as the video; see shot/graphics.ts) */
+  graphics?: 'off' | 'on';
   /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
   say?: string;
   /** Inside only: a drawing that stands in the picture (null: none here, over the director's) */

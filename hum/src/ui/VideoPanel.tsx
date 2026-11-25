@@ -16,6 +16,8 @@ import { quality as governor } from '../render/quality';
 import { perfReport, perfSummary } from '../render/perfReport';
 import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
+import { setGraphic } from '../state/graphics';
+import { GRAPHIC_IDS, GRAPHICS } from '../shot/graphics';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
 import { changeLyrics } from './lyricsOpen';
@@ -25,6 +27,7 @@ import { Lock, Sparkle } from './Icons';
 import { MOODS } from '../presets/moods';
 import { MoodRow } from './Moods';
 import { TasteGroup } from './Taste';
+import './covers.css';
 
 export function VideoPanel() {
   return (
@@ -40,6 +43,7 @@ export function VideoPanel() {
         <TransitionSection />
       </Group>
       <Group label="On screen">
+        <CoversSection />
         <WordsSection />
         <DrawingsSection />
         <PopupSection />
@@ -413,6 +417,44 @@ function TransitionSection() {
           <Seg value={beats} options={LENGTHS} onChange={(v) => set({ transitionBeats: v })} label="Transition length in beats" />
         </Field>
       )}
+    </Section>
+  );
+}
+
+/* ───────── what covers the picture ───────── */
+
+function CoversSection() {
+  const off = useStudio((s) => s.graphicsOff);
+  const clips = useStudio((s) => s.clips.length + s.photos.filter((p) => !p.builtin).length > 0);
+  const [hover, setHover] = useState<string | null>(null);
+  const on = GRAPHIC_IDS.length - off.length;
+  const tip = GRAPHICS.flatMap((g) => g.items).find((x) => x.id === hover)?.tip;
+  return (
+    <Section id="video.covers" title="Graphics" sub="What may go over your clips. A part can have its own answer in the Part tab." value={on === GRAPHIC_IDS.length ? 'All on' : on ? `${on} of ${GRAPHIC_IDS.length} on` : 'All off'} collapsible defaultOpen={false}>
+      <div className="cov-all">
+        <button className="btn sm" disabled={!off.length} onClick={() => useStudio.getState().set({ graphicsOff: [] })}>
+          All on
+        </button>
+        <button className="btn sm" disabled={!on} onClick={() => useStudio.getState().set({ graphicsOff: [...GRAPHIC_IDS] })}>
+          All off
+        </button>
+      </div>
+      {GRAPHICS.map((g) => (
+        <Field key={g.group} label={g.group}>
+          <div className="cov" role="group" aria-label={g.group}>
+            {g.items.map((x) => {
+              const is = !off.includes(x.id);
+              return (
+                <button key={x.id} className={`cov-chip ${is ? 'on' : ''}`} aria-pressed={is} onClick={() => setGraphic(x.id, !is)} onPointerEnter={() => setHover(x.id)} onPointerLeave={() => setHover(null)}>
+                  <i aria-hidden />
+                  {x.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+      ))}
+      <p className="field-note">{tip ? `${tip}.` : clips ? 'A shot with its graphic off plays the same clip, clean. Turn it back on and it returns.' : 'These show on videos made with your clips and photos.'}</p>
     </Section>
   );
 }

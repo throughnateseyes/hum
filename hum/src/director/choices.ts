@@ -10,6 +10,7 @@ import { audioEngine } from '../audio/engine';
 import { rank, type MomentId } from '../moments';
 import { familyIdOf, familyOf } from '../presets/fit';
 import { tryShot } from '../shot/partShots';
+import { styleOn } from '../shot/graphics';
 import { STYLE_IDS, STYLE_NAMES, STYLE_SERVES, type StyleId } from '../shot/styles';
 import { askedFor } from '../state/history';
 import { setPartsLook, setPartsShot } from '../state/partEdit';
@@ -137,7 +138,7 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
   const s = useStudio.getState();
   const sung = !!s.lyrics?.lines.length;
   const styles = rank(STYLE_SERVES, moment, STYLE_IDS)
-    .filter((x): x is StyleId => x !== shot.style && !near.styles.has(x) && (x !== 'poster' || !sung) && (x !== 'inside' || !!v.plan.paint))
+    .filter((x): x is StyleId => x !== shot.style && !near.styles.has(x) && (x !== 'poster' || !sung) && styleOn(x, s.graphicsOff) && (x !== 'inside' || !!v.plan.paint))
     // the plain picture is there for a style with nothing on it; the others come first when there is nothing on it now
     .sort((x, y) => Number(x === 'plain' || x === 'inside') - Number(y === 'plain' || y === 'inside') || 0);
   const ownStyles = inside || shot.style === 'plain' ? styles : [...styles.filter((x) => x === 'inside' || x === 'plain'), ...styles.filter((x) => x !== 'inside' && x !== 'plain')];

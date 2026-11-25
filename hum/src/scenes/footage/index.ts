@@ -51,6 +51,7 @@ import { footageNeed, partSequence, planFootage, type PartOptions, type Sequence
 import { SLOW, slowMotion } from '../../shot/slowmo';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
+import { drawnWith, offIn } from '../../shot/graphics';
 import { songCredit } from '../../state/songName';
 import { MAX_LETTERS } from '../../shot/type';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
@@ -622,7 +623,8 @@ class FootageLook implements SceneInstance {
     const size = `${this.width}x${this.height}`;
     const paint = paintNow(p, a).id;
     const say = wordsKey();
-    const key = flat ? `f|${flat.key}|${index}|${title}|${this.deckKey}|${size}|${paint}|${say}` : `${a.duration}|${a.sections.length}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}|${paint}|${say}`;
+    const off = offIn(flat ? shotOfPart(index) : solo, useStudio.getState().graphicsOff);
+    const key = flat ? `f|${flat.key}|${off.join(' ')}|${index}|${title}|${this.deckKey}|${size}|${paint}|${say}` : `${a.duration}|${a.sections.length}|${off.join(' ')}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}|${paint}|${say}`;
     // the first footage look on this renderer compiles every shader the shots use, once
     warmShots(this.renderer, a, this.deck[0]);
     if (key !== this.builtKey) {
@@ -633,8 +635,10 @@ class FootageLook implements SceneInstance {
       // a part of a video plan that isn't footage (this look is on its way out or in): its neighbour's shots
       if (!seq) return this.builtKey !== '';
       this.builtKey = key;
+      seq = drawnWith(seq, off);
+      const { partStart } = seq;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - seq!.partStart) < 0.05), drawn: drawnIn } });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - partStart) < 0.05), drawn: drawnIn } });
       for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];
