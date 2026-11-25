@@ -94,7 +94,12 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
     one goes by (**Mood**, **Your footage**); then one row a setting, each showing what it is set to and
     opening where it stands. Surface: **Finish** (Auto, Clean, Hand-drawn, Film, Riso, Ink wash, Tape)
     with the hand-drawn settings right under it when Hand-drawn is on, **Song colours**, **Frames**.
-    Movement: **Impact and pace**, **Transitions** and their length. On screen: **Words** (the lyrics
+    Hand-drawn, Riso and Ink wash also show **Colours**, the inks they use: each clip's own (they change
+    with the cut), one set mixed from all the clips, palettes dealt to the parts, your own five, or the
+    look's. Colours from clips print on light or dark paper, and **Follow the feeling** fades them in quiet
+    parts and lifts them in loud ones.
+    Movement: **Impact and pace**, **Transitions** and their length. On screen: **Graphics** (which shapes,
+    effects and lyric panels may go over the clips), **Words** (the lyrics
     style and the title text), **Drawings**, **Pop-ups** and what's in them. And **Settings**: Play the
     video plan, Make a video when a song loads, Auto-pilot, Your taste, Render quality and the AI access
     code. The Director chat stays docked at the bottom of the panel with its last answer in two lines;
