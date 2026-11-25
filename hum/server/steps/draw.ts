@@ -69,9 +69,9 @@ const IDEAS_TOOL: StepTool = {
           properties: {
             name: { type: 'string' },
             why: { type: 'string' },
-            words: { type: 'array', items: { type: 'string' } },
-            lines: { type: 'array', items: { type: 'integer' } },
-            sections: { type: 'array', items: { type: 'integer' } },
+            words: { type: ['array', 'null'], items: { type: 'string' } },
+            lines: { type: ['array', 'null'], items: { type: 'integer' } },
+            sections: { type: ['array', 'null'], items: { type: 'integer' } },
             brief: { type: 'string' },
             wide: { type: 'string', enum: ['tall', 'wide', 'square'] },
             style: { type: 'string', enum: ['pen', 'figure'] },

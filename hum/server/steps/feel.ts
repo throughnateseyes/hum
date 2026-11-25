@@ -39,7 +39,7 @@ const TOOL = {
         type: 'array',
         items: {
           type: 'object',
-          properties: { i: { type: 'integer' }, emotion: { type: 'string', enum: [...EMOTION_IDS] }, tone: { type: 'number' }, weight: { type: 'number' }, word: { type: 'string' }, turn: { type: 'boolean' } },
+          properties: { i: { type: 'integer' }, emotion: { type: 'string', enum: [...EMOTION_IDS] }, tone: { type: 'number' }, weight: { type: 'number' }, word: { type: ['string', 'null'] }, turn: { type: ['boolean', 'null'] } },
           required: ['i', 'emotion', 'tone', 'weight'],
         },
       },

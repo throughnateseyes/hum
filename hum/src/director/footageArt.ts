@@ -285,8 +285,9 @@ async function offScreen(spans: { at: number; end: number }[]) {
 }
 
 /**
- * A drawing that turns out to have no room where it was put (its real shape is known now, and all the depth)
- * moves to the nearest shot that has some, so nothing is drawn for nothing.
+ * A drawing that turns out not to fit where it was put (its real shape is known now, and all the depth) takes the
+ * nearest place and size its shot does hold; one with no room there at all moves to the nearest shot that has some,
+ * so nothing is drawn for nothing. The check then looks at drawings that fit, and needn't spend its answer on it.
  */
 async function rehouse(mine: () => boolean, signal: AbortSignal) {
   const s = useStudio.getState();
@@ -308,9 +309,14 @@ async function rehouse(mine: () => boolean, signal: AbortSignal) {
   if (!mine()) return;
   const room = await roomIn(cut, placed.map(({ part, ratio }) => ({ part, ratio })), signal);
   const lost = placed.filter((p) => room.has(p.part) && !Object.keys(room.get(p.part)!).length);
-  if (!lost.length || !mine()) return;
+  // (a shot whose drawing the person set is theirs)
+  const tight = placed.flatMap((p) => {
+    const fit = !s.partShot?.[p.part]?.drawn && room.has(p.part) ? inRoom(room.get(p.part)!, p.d.put as DrawnPut, p.d.size) : null;
+    return fit && (fit.put !== p.d.put || fit.size !== p.d.size) ? [{ ...p, fit }] : [];
+  });
+  if ((!lost.length && !tight.length) || !mine()) return;
   const free = new Set(inside.filter((i) => shotAt(i)!.drawn === undefined && a.sections[i].end - a.sections[i].start >= LEAST));
-  const spans: Span[] = [];
+  const spans: Span[] = tight.map((p) => ({ at: a.sections[p.part].start, end: a.sections[p.part].end, id: p.d.id, next: { ...p.d, ...p.fit } }));
   for (const p of lost) {
     const taken = new Map(placed.filter((x) => !lost.includes(x)).map((x) => [x.part, x.d.id]));
     const near = [...free].filter((i) => [i - 1, i + 1].every((n) => !taken.has(n) || taken.get(n) === p.d.id)).sort((x, y) => Math.abs(x - p.part) - Math.abs(y - p.part)).slice(0, 6);

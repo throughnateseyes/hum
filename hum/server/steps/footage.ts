@@ -53,6 +53,7 @@ For every clip and photo:
 
 Be honest about a plain or weak picture: say so in the subject rather than making it sound better. ${DATA_RULE}`;
 
+// (lists have no hard limit in these forms: an answer that breaks one is written again whole, and finish cuts it anyway)
 const WATCH_TOOL = {
   name: 'write_notes',
   description: 'The notes on every clip and photo, one entry each.',
@@ -68,18 +69,18 @@ const WATCH_TOOL = {
             subject: { type: 'string' },
             focusX: { type: 'number' },
             focusY: { type: 'number', description: 'From the top.' },
-            mood: { type: 'array', items: { type: 'string' }, maxItems: 4 },
+            mood: { type: 'array', items: { type: 'string' }, description: 'At most four.' },
             energy: { type: 'number' },
             camera: { type: 'string', enum: [...CAMERA] },
             size: { type: 'string', enum: [...SIZE] },
             ins: {
               type: 'array',
-              maxItems: 3,
+              description: 'At most three.',
               items: { type: 'object', properties: { at: { type: 'number' }, why: { type: 'string' } }, required: ['at', 'why'] },
             },
             hits: {
               type: 'array',
-              maxItems: 4,
+              description: 'At most four.',
               items: { type: 'object', properties: { n: { type: 'integer' }, what: { type: 'string' }, hard: { type: 'number' } }, required: ['n', 'what', 'hard'] },
             },
             faces: { type: 'boolean' },
@@ -261,7 +262,7 @@ const STORY_TOOL = {
           properties: {
             index: { type: 'integer' },
             moment: { type: 'string', enum: [...MOMENT_IDS] },
-            media: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+            media: { type: 'array', items: { type: 'string' }, description: 'At most three.' },
             footage: { type: 'boolean' },
             note: { type: 'string' },
           },
@@ -355,7 +356,7 @@ function readChoices(raw: unknown): { ids: string[]; lines: string } {
     ids.push(x.id);
     const serves = list(x.serves, 12).filter((m) => (MOMENT_IDS as readonly unknown[]).includes(m));
     // good for every moment says nothing
-    lines.push(`- ${x.id}: ${line(x.line, 160)}${serves.length && new Set(serves).size < MOMENT_IDS.length ? ` (best for ${serves.join(', ')})` : ''}`);
+    lines.push(`- ${x.id}: ${line(x.line, 300)}${serves.length && new Set(serves).size < MOMENT_IDS.length ? ` (best for ${serves.join(', ')})` : ''}`);
   }
   return { ids, lines: lines.join('\n') };
 }
@@ -365,7 +366,7 @@ const LAND_ON = ['start', 'word', 'beat', 'end'] as const;
 
 const SHOT_PROPS = {
   i: { type: 'integer', description: 'The part.' },
-  media: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'Keys. One, unless the style or treatment lays several out.' },
+  media: { type: 'array', items: { type: 'string' }, description: 'Keys, at most four. One, unless the style or treatment lays several out.' },
   from: { type: 'number', description: 'Clips only: the second of the first clip to start on. Leave out to carry on from where that clip last stopped.' },
   land: { type: 'integer', description: 'Clips only: the number of one of the first clip\'s moments, to land on the song in this part. Then leave out from.' },
   landOn: { type: 'string', enum: [...LAND_ON], description: 'With land: what it lands on. Leave out to let code choose.' },

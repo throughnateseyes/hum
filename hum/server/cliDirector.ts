@@ -45,12 +45,28 @@ interface CliJson {
   };
 }
 
+/** what the CLI had against an answer it sent back: the errors among the turns it streamed */
+function whyAgain(out: string): string {
+  const why: string[] = [];
+  for (const l of out.split('\n')) {
+    if (!l.includes('"tool_result"')) continue;
+    try {
+      const m = JSON.parse(l) as { message?: { content?: unknown } };
+      for (const c of Array.isArray(m.message?.content) ? (m.message.content as { type?: string; is_error?: boolean; content?: unknown }[]) : [])
+        if (c?.type === 'tool_result' && c.is_error) why.push((typeof c.content === 'string' ? c.content : JSON.stringify(c.content ?? '')).replace(/\s+/g, ' ').slice(0, 200));
+    } catch {
+      /* not a whole line */
+    }
+  }
+  return why.join(' | ') || 'no error given: an extra turn, perhaps words instead of the form';
+}
+
 /** what one call used, for the dev server's log. One answer is two turns (the answer, and the CLI taking it); more means it didn't fit its form and was written again */
-function usageLine(mode: string, model: string, effort: string, d: CliJson): string {
+function usageLine(mode: string, model: string, effort: string, d: CliJson, out: string): string {
   const u = d.usage ?? {};
   const n = (v: number | undefined) => String(v ?? 0);
   const again = (d.num_turns ?? 2) - 2;
-  return `[hum-director] ${mode} on ${model} (${effort}): in ${n(u.input_tokens)} new, ${n(u.cache_creation_input_tokens)} written to cache, ${n(u.cache_read_input_tokens)} from cache; out ${n(u.output_tokens)} (${n(u.output_tokens_details?.thinking_tokens)} thinking)${again > 0 ? `; written ${again + 1} times` : ''}`;
+  return `[hum-director] ${mode} on ${model} (${effort}): in ${n(u.input_tokens)} new, ${n(u.cache_creation_input_tokens)} written to cache, ${n(u.cache_read_input_tokens)} from cache; out ${n(u.output_tokens)} (${n(u.output_tokens_details?.thinking_tokens)} thinking)${again > 0 ? `; written ${again + 1} times (${whyAgain(out)})` : ''}`;
 }
 
 export function cliBackend(env: DirectorEnv): LocalBackend | null {
@@ -69,7 +85,9 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
       const args = [
         '-p',
         // pictures can only go in as streamed messages; plain text goes in as it always has
-        ...(pictures.length ? ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'] : ['--output-format', 'json']),
+        ...(pictures.length ? ['--input-format', 'stream-json'] : []),
+        // (every turn is streamed, so the log can say why an answer was written again)
+        '--output-format', 'stream-json', '--verbose',
         '--model', model,
         '--effort', req.effort,
         '--system-prompt', req.system,
@@ -121,7 +139,7 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
         } catch {
           data = null;
         }
-        if (data?.usage && !done) console.info(usageLine(req.mode, model, req.effort, data));
+        if (data?.usage && !done) console.info(usageLine(req.mode, model, req.effort, data, out));
         const text = `${data?.result ?? ''} ${err}`.toLowerCase();
         if (!data || data.is_error || data.subtype !== 'success') {
           if (/log ?in|logged out|not authenticated|invalid api key|oauth/.test(text)) {

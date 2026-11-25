@@ -61,7 +61,7 @@ Work like an art director with one idea and a small budget. A viewer should feel
 ${PUTS}
     Choose by what the picture is of: ground needs a visible floor, road or field and some empty space; between needs people or things near the camera to stand behind; far needs a skyline, hills or sky; wall needs a street or corridor seen along its length. Close-ups of faces and pictures without depth take none.
   - size: small, medium or large. enter: draw (it draws itself over the first beat or two: for a first sight, or a quiet moment), rise (it springs up on the cut: for a hit or a loud part), there (already standing: for a return).
-  - Where the room in a part is listed, it was measured in the picture with the part's words standing round the drawing: use only the puts listed, and no bigger than the size given. A part with none listed was not measured: it may have none, so prefer measured ones where they serve as well. Let the moments that matter most fall on parts with the most room, and spread the sizes: at least one large if any part holds one. Never two different things in one part, and not in neighbouring parts unless it is the same thing carrying on.
+  - Where the room in a part is listed, it was measured in the picture with the part's words standing round the drawing: use only the puts listed, and no bigger than the size given. A part with none listed was not measured: it may have little or none, so prefer measured ones where they serve as well, and ask for no more than medium there. Let the moments that matter most fall on parts with the most room, and spread the sizes: at least one large if any part holds one. Never two different things in one part, and not in neighbouring parts unless it is the same thing carrying on.
 
 Write plainly, sentence case, no exclamation marks, no dashes used as punctuation. ${DATA_RULE}`;
 
@@ -82,13 +82,13 @@ const ART_TOOL: StepTool = {
     type: 'object',
     properties: {
       thread: { type: 'string' },
-      rules: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+      rules: { type: 'array', items: { type: 'string' }, description: 'Two or three.' },
       hand: { type: 'string', enum: [...HAND_IDS] },
       colour: { type: 'boolean' },
       manner: { type: 'string' },
       things: {
         type: 'array',
-        maxItems: MOST_THINGS,
+        description: `At most ${MOST_THINGS}.`,
         items: {
           type: 'object',
           properties: { why: { type: 'string', description: 'What it stands for, at most 16 words.' }, start: DRAWING_PROPS, end: DRAWING_PROPS },
@@ -199,7 +199,8 @@ const art: Step = {
           const put = oneOf(x.put, DRAWN_PUTS, 'between');
           const size = oneOf(x.size, DRAWN_SIZES, 'medium');
           const held = room.get(part);
-          const fits = held ? inRoom(held, put, size) : { put, size };
+          // where others were measured and this one wasn't, large is a guess (with nothing measured there is nothing to go by)
+          const fits = held ? inRoom(held, put, size) : { put, size: room.size && size === 'large' ? ('medium' as const) : size };
           if (!fits) continue;
           seen.add(part);
           places.push({
@@ -234,7 +235,7 @@ Answer only for the parts where something is wrong:
 - move: another place or size would fix it. Give put and size.
 - remove: no place in this shot will hold it, or it fights what the shot is about. A cut with fewer, better drawings is the better cut, so do not be shy with this.
 - redraw: the drawing itself reads as something else, or is a tangle, wherever it stands. Give note, one sentence to the illustrator. At most two in the whole video.
-problem: what is wrong, at most 10 plain words. A still with no drawing to be seen in it found no room: leave it out unless its room lists another put, then move it there. Where room is listed, move only to a put and size it holds.
+problem: what is wrong, at most 10 plain words. A still with no drawing to be seen in it found no room: leave it out unless its room lists another put, then move it there. Where room is listed, move only to a put and size it holds. Every drawing already fits the room listed, so change one for how it looks, never to match the list.
 
 put is one of:
 ${PUTS}
