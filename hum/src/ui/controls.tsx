@@ -195,13 +195,15 @@ const sectionOpen = new Map<string, boolean>();
 
 /**
  * A titled group in a panel. With `collapsible`, the title opens and closes it; `right` holds a
- * control that sits on the title row (a switch, a value) and stays usable when it's closed.
+ * control that sits on the title row (a switch, a value) and stays usable when it's closed. With
+ * `value` it is a settings row: its name, what it is set to now, and a caret; the sub line shows once open.
  */
 export function Section({
   id,
   title,
   sub,
   right,
+  value,
   collapsible = false,
   defaultOpen = true,
   children,
@@ -210,6 +212,7 @@ export function Section({
   title: React.ReactNode;
   sub?: React.ReactNode;
   right?: React.ReactNode;
+  value?: React.ReactNode;
   collapsible?: boolean;
   defaultOpen?: boolean;
   children?: React.ReactNode;
@@ -220,17 +223,25 @@ export function Section({
     setOpenState(v);
   };
   const shown = !collapsible || open;
+  const row = collapsible && value !== undefined;
   const head = (
     <>
       <span className="sec-t">
-        {collapsible && <Caret open={open} />}
+        {collapsible && !row && <Caret open={open} />}
         {title}
       </span>
-      {sub && <span className="sec-s">{sub}</span>}
+      {row ? (
+        <span className="sec-v">
+          <span>{value}</span>
+          <Caret open={open} />
+        </span>
+      ) : (
+        sub && <span className="sec-s">{sub}</span>
+      )}
     </>
   );
   return (
-    <section className={`sec ${collapsible ? 'collapsible' : ''} ${shown ? 'open' : ''}`}>
+    <section className={`sec ${collapsible ? 'collapsible' : ''} ${row ? 'row' : ''} ${shown ? 'open' : ''}`}>
       <div className="sec-head">
         {collapsible ? (
           <button className="sec-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -241,8 +252,23 @@ export function Section({
         )}
         {right && <div className="sec-right">{right}</div>}
       </div>
-      {shown && children && <div className="sec-body">{children}</div>}
+      {shown && children && (
+        <div className="sec-body">
+          {row && sub && <p className="field-note sec-note">{sub}</p>}
+          {children}
+        </div>
+      )}
     </section>
+  );
+}
+
+/** rows that belong together, under a quiet label */
+export function Group({ label, children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <div className="grp" role="group" aria-label={label}>
+      {label && <span className="grp-l">{label}</span>}
+      {children}
+    </div>
   );
 }
 

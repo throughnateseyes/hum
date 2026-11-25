@@ -2,9 +2,9 @@
  * The render timeline's controls. "Render" (top bar, or by the song map) turns the map into a picker:
  * drag across it to choose a stretch (it snaps to bars and to the parts' edges; hold ⌥ for beats),
  * double-click a part to take the whole part, or use Best part / Whole song. Dragging scrubs: the
- * stage shows the moment under the edge being moved. The meter row underneath becomes the render
- * row: start and end (each settable to the playhead, I / O), which sizes, 30 or 60 fps, and the
- * button. While it renders the row is a progress bar, and the stage shows the frames as they're made.
+ * stage shows the moment under the edge being moved. The Render tab holds the controls: start and end
+ * (each settable to the playhead, I / O), which sizes, 30 or 60 fps, and the button. While it renders
+ * they give way to how far it is, and the stage shows the frames as they're made.
  */
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
@@ -13,7 +13,7 @@ import { pickClip } from '../audio/clipWindow';
 import { beatOffset } from '../audio/frameDsp';
 import type { TrackAnalysis } from '../core/types';
 import { sectionIndexAt, sectionNames } from '../state/plan';
-import { useStudio } from '../state/store';
+import { useStudio, type ClipProgress } from '../state/store';
 import { cancelRender, RENDER_SIZES, renderBlocker, renderVideos, setRenderPreview, type RenderSize } from '../render/timeline';
 import { beginScrub, endScrub, scrubTo, showMoment } from '../state/scrub';
 import './render.css';
@@ -274,23 +274,7 @@ export function RenderBar() {
     if (a && m.forSong !== a.duration) useRenderMode.setState({ range: bestPart(a), forSong: a.duration });
   }, [a]);
 
-  if (clip && clip.count !== undefined) {
-    const which = RENDER_SIZES.find((z) => `${z.w}×${z.h}` === clip.size);
-    return (
-      <div className="rb rb-run">
-        <div className="rb-bar">
-          <i style={{ transform: `scaleX(${clip.phase === 'prep' ? 0 : clip.frac})` }} />
-          <span>
-            {clip.phase === 'prep' ? 'Getting ready…' : `Rendering ${which?.id ?? clip.size}${clip.count > 1 ? ` · ${(clip.index ?? 0) + 1} of ${clip.count}` : ''} · ${Math.round(clip.frac * 100)}%`}
-          </span>
-        </div>
-        <span className="rb-hint">Esc cancels</span>
-        <button className="btn sm" onClick={cancelRender}>
-          Cancel
-        </button>
-      </div>
-    );
-  }
+  if (clip && clip.count !== undefined) return <RenderProgress clip={clip} />;
 
   const chosen = RENDER_SIZES.filter((z) => sizes.includes(z.id));
   const toggleSize = (id: SizeId) => {
@@ -309,49 +293,103 @@ export function RenderBar() {
   const why = blocked ?? (!range ? 'Drag across the song to pick a stretch' : !chosen.length ? 'Pick at least one size' : null);
   const what = range ? (range.label === 'your selection' ? 'Your selection' : cap(range.label)) : '';
 
+  const whole = !!a && !!range && range.start <= 0.05 && range.end >= a.duration - 0.05;
+  const best = !!range && !whole && range.label !== 'your selection';
   return (
     <div className="rb" tabIndex={-1} aria-label="Render a stretch of the song">
-      <div className="rb-picks">
-        <button className="btn sm" disabled={!a} onClick={() => a && useRenderMode.setState({ range: bestPart(a), forSong: a.duration })} title="The strongest 15–30 s: the biggest drop or hook">
-          Best part
-        </button>
-        <button className="btn sm" disabled={!a} onClick={() => a && useRenderMode.setState({ range: { start: 0, end: a.duration, label: 'the whole song' }, forSong: a.duration })}>
-          Whole song
-        </button>
-        {range ? (
+      <div className="rb-f">
+        <span className="rb-l">
+          Stretch
+          <span>{range ? fmtLen(range.end - range.start) : 'Drag across the timeline'}</span>
+        </span>
+        <div className="seg full" role="group" aria-label="Stretch">
+          <button className={best ? 'on' : ''} disabled={!a} onClick={() => a && useRenderMode.setState({ range: bestPart(a), forSong: a.duration })} title="The strongest 15 to 30 s: the biggest drop or hook">
+            Best part
+          </button>
+          <button className={whole ? 'on' : ''} disabled={!a} onClick={() => a && useRenderMode.setState({ range: { start: 0, end: a.duration, label: 'the whole song' }, forSong: a.duration })}>
+            Whole song
+          </button>
+        </div>
+        {range && (
           <div className="rb-io" role="group" aria-label="Start and end">
             <InOut edge="start" t={range.start} />
             <InOut edge="end" t={range.end} />
-            <span className="rb-len" title={what}>
-              {fmtLen(range.end - range.start)}
-              <span className="rb-what"> · {what}</span>
-            </span>
           </div>
-        ) : (
-          <span className="rb-hint">Drag across the song, or double-click a part</span>
         )}
+        <p className="field-note">{range && !whole ? `${what}. ` : ''}Drag across the timeline to change it, or double-click a part.</p>
       </div>
-      <div className="rb-opts">
+
+      <div className="rb-f">
+        <span className="rb-l">
+          Sizes
+          <span>{chosen.length > 1 ? `${chosen.length} videos` : (chosen[0]?.hint ?? 'Pick one or more')}</span>
+        </span>
         <div className="rb-sizes" role="group" aria-label="Sizes">
           {RENDER_SIZES.map((z) => (
             <label key={z.id} className={`rb-size ${sizes.includes(z.id) ? 'on' : ''}`} title={`${z.w}×${z.h} · ${z.hint}`}>
               <input type="checkbox" checked={sizes.includes(z.id)} onChange={() => toggleSize(z.id)} />
-              <i className="rb-shape" style={{ aspectRatio: `${z.w} / ${z.h}` }} />
+              <span className="rb-frame">
+                <i className="rb-shape" style={{ aspectRatio: `${z.w} / ${z.h}`, ...(z.w > z.h ? { width: 28 } : { height: 28 }) }} />
+              </span>
               {z.id}
             </label>
           ))}
         </div>
-        <div className="seg" role="group" aria-label="Frame rate">
+      </div>
+
+      <div className="rb-f rb-fps">
+        <span className="rb-l">
+          Frames a second
+          <span>{fps === 60 ? 'Smoother, takes about twice as long' : ''}</span>
+        </span>
+        <div className="seg full" role="group" aria-label="Frame rate">
           {([30, 60] as const).map((v) => (
-            <button key={v} className={fps === v ? 'on' : ''} onClick={() => setFps(v)}>
-              {v} fps
+            <button key={v} className={fps === v ? 'on' : ''} aria-pressed={fps === v} onClick={() => setFps(v)}>
+              {v}
             </button>
           ))}
         </div>
-        <button className="btn primary sm rb-go has-tip tip-left" disabled={!!why} data-tip={why ?? `Makes ${chosen.length === 1 ? 'an MP4' : `${chosen.length} MP4s, one after another`}. Nothing plays while it works, and every size shows exactly the same moments.`} onClick={go}>
-          Render {chosen.length > 1 ? `${chosen.length} videos` : 'video'}
+      </div>
+
+      <button className="btn primary rb-go" disabled={!!why} onClick={go}>
+        Render {chosen.length > 1 ? `${chosen.length} videos` : 'video'}
+      </button>
+      <p className="field-note rb-why">{why ?? 'Nothing plays while it works. Keep this tab in front: browsers slow down hidden ones.'}</p>
+    </div>
+  );
+}
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+/** the row while it renders: how far, how long it has been and has left, and Cancel */
+function RenderProgress({ clip }: { clip: ClipProgress }) {
+  const which = RENDER_SIZES.find((z) => `${z.w}×${z.h}` === clip.size);
+  const n = clip.count ?? 1;
+  const at = (clip.index ?? 0) + 1;
+  // the whole batch, not just the file being made
+  const all = clip.phase === 'prep' && at === 1 ? 0 : Math.min(1, ((clip.index ?? 0) + (clip.phase === 'save' ? 1 : clip.frac)) / n);
+  return (
+    <div className="rb-run" role="status" aria-live="off">
+      <div className="rb-pct">
+        <b>{Math.round(all * 100)}%</b>
+        <span className="spacer" />
+        <button className="btn sm" onClick={cancelRender} title="Esc">
+          Cancel
         </button>
       </div>
+      <div className="rb-bar">
+        <i style={{ transform: `scaleX(${all})` }} />
+      </div>
+      <div className="rb-info">
+        <span>{clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving the file' : `Rendering ${which?.id ?? clip.size}`}</span>
+        {n > 1 && (
+          <span>
+            Video {at} of {n}
+          </span>
+        )}
+        <span>{clock((clip.end - clip.start) * (clip.phase === 'prep' ? 0 : clip.frac))} of {clock(clip.end - clip.start)}</span>
+      </div>
+      <p className="field-note">Nothing plays while it works. Keep this tab in front: browsers slow down hidden ones.</p>
     </div>
   );
 }

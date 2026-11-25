@@ -56,6 +56,7 @@ export function DirectorPanel() {
   const mode: Mode = picked === 'plan' && !hasPlan ? 'preset' : picked;
   const modes: Mode[] = hasPlan ? ['preset', 'shader', 'plan'] : ['preset', 'shader'];
   const [busy, setBusy] = useState<Mode | null>(null);
+  const [open, setOpen] = useState(false);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
 
@@ -63,7 +64,7 @@ export function DirectorPanel() {
   useEffect(() => {
     const el = log.current;
     if (el && (chat.length || busy)) el.scrollTop = el.scrollHeight;
-  }, [chat.length, busy]);
+  }, [chat.length, busy, open]);
 
   // grow the input with its text (1–5 lines)
   useEffect(() => {
@@ -120,14 +121,42 @@ export function DirectorPanel() {
     setBusy(null);
   };
 
-  // a short history: the last few messages (the whole chat is kept, it just isn't all on screen)
-  const recent = chat.slice(-6);
+  // closed: the last answer, in two lines at most; open: the last messages, scrolling
+  const last = chat.length ? chat[chat.length - 1] : null;
+  // (a new video's answer opens with its idea, which the Video tab has at its top)
+  const idea = useStudio((s) => s.plan?.idea?.trim() ?? '');
+  const recent = open ? chat.slice(-20) : last && !busy ? [last] : [];
 
   return (
     <section className="director">
+      {(chat.length > 0 || busy) && (
+        <div className="dir-head">
+          <span className="grp-l">Director</span>
+          <span className="spacer" />
+          {chat.length > 0 && (
+            <button type="button" className="btn sm ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {open ? 'Show less' : 'History'}
+            </button>
+          )}
+          {open && !busy && chat.length > 0 && (
+            <button
+              className="btn icon sm ghost"
+              type="button"
+              title="Clear the history"
+              aria-label="Clear the history"
+              onClick={() => {
+                useStudio.getState().clearChat();
+                setOpen(false);
+              }}
+            >
+              <Trash width={13} height={13} />
+            </button>
+          )}
+        </div>
+      )}
       {(recent.length > 0 || busy) && (
-        <div className="dir-log" ref={log}>
-          {recent.map((m) => (m.role === 'user' ? <UserMsg key={m.id} m={m} /> : <BotMsg key={m.id} m={m} />))}
+        <div className={`dir-log ${open ? 'open' : ''}`} ref={log}>
+          {recent.map((m) => (m.role === 'user' ? <UserMsg key={m.id} m={m} /> : <BotMsg key={m.id} m={m} without={open ? '' : idea} />))}
           {busy && (
             <div className="msg bot">
               <div className="pending">
@@ -176,11 +205,6 @@ export function DirectorPanel() {
             ))}
           </div>
           <span className="spacer" />
-          {chat.length > 0 && !busy && (
-            <button className="btn icon sm ghost" type="button" title="Clear the history" aria-label="Clear the history" onClick={() => useStudio.getState().clearChat()}>
-              <Trash width={13} height={13} />
-            </button>
-          )}
           <button className="send" type="submit" disabled={!!busy || !prompt.trim()} title="Send (Enter)">
             {busy ? <span className="spin" /> : <Arrow width={14} height={14} />}
           </button>
@@ -200,7 +224,8 @@ function UserMsg({ m }: { m: ChatMsg }) {
   );
 }
 
-function BotMsg({ m }: { m: ChatMsg }) {
+function BotMsg({ m, without = '' }: { m: ChatMsg; without?: string }) {
+  const text = without && m.text.startsWith(without) ? m.text.slice(without.length).trim() : m.text;
   const presetId = useStudio((s) => s.presetId);
   const sceneId = useStudio((s) => s.sceneId);
   const preset = useStudio((s) => (m.presetId ? s.customPresets.find((p) => p.id === m.presetId) : undefined));
@@ -219,7 +244,7 @@ function BotMsg({ m }: { m: ChatMsg }) {
           {active && <span className="now">Showing</span>}
         </div>
       )}
-      <div className="msg-text">{m.text}</div>
+      {text && <div className="msg-text">{text}</div>}
       <div className="msg-meta">
         {sourceLabel(m)}
         {canApply && (

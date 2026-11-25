@@ -117,7 +117,7 @@ textarea:focus-visible {
 /* ───────── shell ───────── */
 .app {
   display: grid;
-  grid-template-columns: 256px minmax(0, 1fr) 304px;
+  grid-template-columns: 256px minmax(0, 1fr) 320px;
   grid-template-rows: 44px minmax(0, 1fr);
   height: 100%;
 }
@@ -1739,9 +1739,6 @@ div:hover > .card-del {
   justify-content: space-between;
   gap: var(--s-3);
   font-size: var(--fs-2);
-  color: var(--ink-2);
-}
-.vp-make > .field-note.vp-idea {
   color: var(--ink-2);
 }
 /* the moods wrap in the panel: no sideways scrolling here */

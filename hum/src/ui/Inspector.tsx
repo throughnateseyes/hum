@@ -18,6 +18,7 @@ import { RenderBar, toggleRenderMode, useRenderMode } from './RenderBar';
 import { saveStill } from './capture';
 import { PartPanel } from './PartPanel';
 import { VideoPanel } from './VideoPanel';
+import './right.css';
 
 /**
  * The right panel, by what you are changing: the whole Video, the Part picked on the timeline (or,
@@ -70,7 +71,8 @@ export function Inspector() {
           ))}
         </div>
       </div>
-      <div className="panel-body">
+      {/* (each tab starts at its top) */}
+      <div className="panel-body" key={shown}>
         {shown === 'video' && <VideoPanel />}
         {shown === 'part' && <PartTab />}
         {shown === 'render' && <RenderPanel />}
@@ -545,21 +547,27 @@ function SaveTake() {
 
 /* ───────────────────────── Render ───────────────────────── */
 
-/** Render: one quick clip for socials, then pick a stretch of the song, choose sizes, make the files */
+/** Render: a stretch of the song, the sizes, and Render; under it the one-click clip and a still */
 function RenderPanel() {
+  const rendering = useStudio((s) => !!s.clip);
+  // the stretch and sizes being made: the progress has the tab to itself
+  const many = useStudio((s) => s.clip?.count !== undefined);
   return (
     <div className="render-panel">
-      <ClipQuick />
-      <div className="rp-sep">
-        <span className="sub-label">Or pick a stretch and sizes</span>
-      </div>
-      <p className="hint">Drag across the timeline to choose a stretch, or double-click a part.</p>
       <RenderBar />
-      <div className="render-extra">
-        <button className="btn sm" onClick={() => void saveStill()}>
-          <Camera width={14} height={14} /> Save a still image
-        </button>
-      </div>
+      {!many && (
+        <div className="rp-quick">
+          <span className="grp-l">Quick</span>
+          <ClipQuick />
+          <button className="rp-item" disabled={rendering} onClick={() => void saveStill()}>
+            <Camera width={15} height={15} />
+            <span>
+              <b>Save a still</b>
+              <small>The picture on screen, as an image</small>
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -577,7 +585,7 @@ function ClipQuick() {
   return (
     <div className="rp-clip">
       <button
-        className={`btn clip rp-clip-btn ${clip ? 'on' : ''} ${blocked && !clip ? 'off' : ''}`}
+        className={`rp-item rp-clip-btn ${clip ? 'on' : ''} ${blocked && !clip ? 'off' : ''}`}
         style={clip ? ({ '--p': clip.phase === 'prep' ? 0 : clip.frac } as CSSProperties) : undefined}
         onClick={() => {
           if (clip) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -587,11 +595,13 @@ function ClipQuick() {
         aria-label={clip ? `Making clip, ${label}. Click to cancel` : 'Clip for socials: TikTok or Reels'}
         aria-disabled={!!blocked && !clip}
       >
-        <ClipIcon width={14} height={14} />
-        <span className="lbl-wide">{label}</span>
+        <ClipIcon width={15} height={15} />
+        <span>
+          <b>{label}</b>
+          <small>{clip ? 'Click or press Esc to stop' : (blocked ?? 'Vertical, the best 15 to 30 seconds')}</small>
+        </span>
         {clip && <span className="rp-clip-x">Cancel</span>}
       </button>
-      <p className="field-note">{clip ? 'Making the clip. Click or press Esc to stop.' : (blocked ?? 'A vertical clip of the best 15 to 30 seconds, ready for TikTok or Reels.')}</p>
     </div>
   );
 }

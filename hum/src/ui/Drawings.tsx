@@ -21,7 +21,7 @@ import { undo } from '../state/history';
 import { useStudio } from '../state/store';
 import { Section, SwitchRow } from './controls';
 import './drawings.css';
-import { DrawnHere } from './DrawnHere';
+import { DrawnHere, placedIn } from './DrawnHere';
 import { hereTarget, showMediaNote, targetWords } from './footageMedia';
 import { X } from './Icons';
 
@@ -416,12 +416,15 @@ function Panel() {
   const jobs = useJobsHere();
   const overlay = useStudio((s) => s.drawOverlay);
   const inScene = useStudio((s) => s.drawInScene);
+  useStudio((s) => s.plan);
+  useStudio((s) => s.partShot);
+  const stand = new Set(placedIn(useStudio.getState()).map((p) => p.drawn.id)).size;
   // the kinds this song has whose own look isn't already up
   const sceneId = useStudio((s) => s.sceneId);
   const sc = getScene(sceneId);
   const shows = Object.keys(PICTURE).filter((k) => here.some((d) => d.kind === k) && !(k === 'figure' ? sc?.usesFigures : sc?.usesDrawings));
   return (
-    <Section id="video.drawings" title="Drawings" sub="Drawings made for this song. They draw themselves as it plays.">
+    <Section id="video.drawings" title="Drawings" sub="Made for this song. They draw themselves as it plays." value={jobs.some((j) => j.state !== 'failed') ? 'Drawing…' : stand ? `${stand} in this video` : here.length ? `${here.length} made` : inScene ? 'On' : 'Off'} collapsible defaultOpen={false}>
       <div className="dr-panel">
         <Progress />
         <DrawnHere thumb={(d) => <DrawThumb d={d} replay={0} />} />

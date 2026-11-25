@@ -1,8 +1,8 @@
 /**
- * The Video tab of the right panel: everything that shapes the whole video. Make / Remake and the
- * moods first, then the finish (with the hand-drawn settings right under it when that finish is on,
- * since that's the one people come here for), how hard and how fast it moves, the pop-ups, the
- * transitions, the words and the song colours. The rarely touched switches sit under More.
+ * The Video tab of the right panel: everything that shapes the whole video. Make / Remake, the idea it
+ * had, and what the next Make goes by (the mood, how much footage); then one row a setting, each showing
+ * what it is set to and opening where it stands: the surface, the movement, what is on screen. The
+ * rarely touched switches sit under Settings.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { FINISHES, finishName, type FinishId } from '../core/direction';
@@ -19,8 +19,9 @@ import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
 import { DrawingsSection } from './Drawings';
-import { Field, Section, Seg, Slider, SwitchRow } from './controls';
+import { Field, Group, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
+import { MOODS } from '../presets/moods';
 import { MoodRow } from './Moods';
 import { TasteGroup } from './Taste';
 
@@ -28,19 +29,23 @@ export function VideoPanel() {
   return (
     <div className="vp">
       <MakeBlock />
-      <FramesSection />
-      <FinishSection />
-      <Section id="video.move" title="Movement">
-        <ImpactField />
-        <PaceField />
-        <SmoothField />
-      </Section>
-      <PopupSection />
-      <TransitionSection />
-      <WordsSection />
-      <ColourSection />
-      <DrawingsSection />
-      <MoreSection />
+      <Group label="Surface">
+        <FinishSection />
+        <ColourSection />
+        <FramesSection />
+      </Group>
+      <Group label="Movement">
+        <MoveSection />
+        <TransitionSection />
+      </Group>
+      <Group label="On screen">
+        <WordsSection />
+        <DrawingsSection />
+        <PopupSection />
+      </Group>
+      <Group>
+        <MoreSection />
+      </Group>
     </div>
   );
 }
@@ -96,33 +101,63 @@ function MakeBlock() {
           </button>
         </div>
       )}
-      {!planning && hasPlan && plan!.idea && (
-        <p className="field-note vp-idea" title="Claude’s idea for this video">
-          {plan!.idea}
-        </p>
-      )}
-      {!planning && hasPlan && about && (
-        <p className="field-note" title="What Claude hears in the words. The Breakdown (B) shows the feeling line by line.">
-          {about}
-        </p>
-      )}
+      {!planning && hasPlan && (plan!.idea || about) && <Story idea={plan!.idea ?? ''} about={about ?? ''} />}
       {!planning && makeNote && <p className="field-note">{makeNote}</p>}
       {!parts && (
         <p className="field-note">
           {!track ? 'Load a song first. Its parts show up on the timeline.' : track.source === 'mic' ? 'Videos need a song file, not live sound.' : 'Listening to the song…'}
         </p>
       )}
-      <MoodRow />
-      <MixField />
-      {hasPlan && (
-        <SwitchRow
-          label="Play the video plan"
-          note={planOn ? 'Looks change with each part of the song' : 'One look stays until you pick another'}
-          on={planOn}
-          onChange={(v) => useStudio.getState().set({ planOn: v, autoPilot: v ? false : useStudio.getState().autoPilot })}
-        />
+      {hasPlan && !planOn && (
+        <div className="vp-off">
+          <span>The video plan is off, so one look stays on.</span>
+          <button className="btn sm" onClick={() => useStudio.getState().set({ planOn: true, autoPilot: false })}>
+            Play it
+          </button>
+        </div>
+      )}
+      {!!parts && (
+        <div className="vp-next">
+          <MoodSection />
+          <MixField />
+        </div>
       )}
     </div>
+  );
+}
+
+/** what the video is about: the first lines of the idea, and the rest (with what the words say) on a click */
+function Story({ idea, about }: { idea: string; about: string }) {
+  const [open, setOpen] = useState(false);
+  const first = idea || about;
+  return (
+    <div className={`vp-story ${open ? 'open' : ''}`}>
+      <div className="vp-story-h">
+        <span className="grp-l">{idea ? 'The idea' : 'What the words say'}</span>
+        {(first.length > 120 || (idea && about)) && (
+          <button type="button" className="clamp-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Less' : 'More'}
+          </button>
+        )}
+      </div>
+      <p className="vp-idea">{first}</p>
+      {open && idea && about && (
+        <>
+          <span className="grp-l">What the words say</span>
+          <p className="vp-about">{about}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MoodSection() {
+  const hasPlan = useStudio((s) => validPlan(s.plan, s.analysis));
+  const mood = useStudio((s) => s.plan?.mood ?? null);
+  return (
+    <Section id="video.mood" title="Mood" sub="One tap plans the whole video again inside one world." value={hasPlan ? (MOODS.find((m) => m.id === mood)?.name ?? 'Any') : 'Any'} collapsible defaultOpen={!hasPlan}>
+      <MoodRow />
+    </Section>
   );
 }
 
@@ -142,9 +177,9 @@ function MixField() {
   const stale = validPlan(plan, analysis) && (plan.mix ?? 'most') !== mix;
   if (!ready) return null;
   return (
-    <Field label="Your footage" value={stale ? 'Remake to use it' : ''} tip="How much of the video is your own clips and photos, and how much is Hum’s looks.">
+    <Section id="video.mix" title="Your footage" sub={MIXES.find((m) => m.v === mix)?.tip} value={`${MIXES.find((m) => m.v === mix)?.label ?? ''}${stale ? ' · remake to use' : ''}`} collapsible defaultOpen={false}>
       <Seg value={mix} cols={2} options={MIXES} onChange={(v) => useStudio.getState().set({ mix: v })} label="How much of the video is your footage" />
-    </Field>
+    </Section>
   );
 }
 
@@ -193,7 +228,7 @@ function FinishSection() {
         ? 'Wobbly lines and flat inks, like hand animation. (H)'
         : (info?.tip ?? '');
   return (
-    <Section id="video.finish" title="Finish" sub="One surface over every look, like shooting it all on the same film">
+    <Section id="video.finish" title="Finish" sub="One surface over every look, like shooting it all on the same film." value={finish === 'auto' ? `Auto · ${finishName(now)}` : finishName(now)} collapsible defaultOpen={false}>
       <Seg value={finish} options={FINISH_OPTS} onChange={setFinish} cols={12} label="Finish" />
       <p className="field-note">{note}</p>
       {now === 'hand' && <HandSettings />}
@@ -219,7 +254,7 @@ function FramesSection() {
   const [hover, setHover] = useState<HandStyle['fps'] | null>(null);
   const note = hover !== null && hover !== fps ? (FRAMES.find((f) => f.v === hover)?.tip ?? '') : FRAMES_NOTE[fps];
   return (
-    <Section id="video.frames" title="Frames" sub="How smoothly the picture moves">
+    <Section id="video.frames" title="Frames" value={FRAMES.find((f) => f.v === fps)?.label ?? ''} collapsible defaultOpen={false}>
       <Seg value={fps} options={FRAMES} onChange={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })} onHover={setHover} label="Frames" />
       <p className="field-note">{note}</p>
     </Section>
@@ -256,6 +291,18 @@ function HandSettings() {
 }
 
 /* ───────── movement ───────── */
+
+function MoveSection() {
+  const impact = useStudio((s) => s.impact);
+  const pace = useStudio((s) => s.pace);
+  return (
+    <Section id="video.move" title="Impact and pace" value={`${Math.round(impact * 100)}% · ${PACES.find((p) => p.v === pace)?.label ?? ''}`} collapsible defaultOpen={false}>
+      <ImpactField />
+      <PaceField />
+      <SmoothField />
+    </Section>
+  );
+}
 
 function ImpactField() {
   const impact = useStudio((s) => s.impact);
@@ -312,7 +359,7 @@ function PopupSection() {
   const windowKind = useStudio((s) => s.windowKind);
   const set = useStudio((s) => s.set);
   return (
-    <Section id="video.pops" title="Pop-ups" sub="Little windows that pop in on drops and new parts">
+    <Section id="video.pops" title="Pop-ups" sub="Little windows that pop in on drops and new parts." value={POPUP_MODES.find((m) => m.v === popups)?.label ?? ''} collapsible defaultOpen={false}>
       <Field label="Show them" tip="In videos: while a video plan plays, busier on choruses and drops. Always: a few keep coming whatever is playing.">
         <Seg value={popups} options={POPUP_MODES} onChange={(v) => set({ popups: v })} label="Pop-ups" />
       </Field>
@@ -345,7 +392,7 @@ function TransitionSection() {
   const set = useStudio((s) => s.set);
   const info = TRANSITIONS.find((t) => t.id === transition);
   return (
-    <Section id="video.trans" title="Transitions" sub="How one look turns into the next">
+    <Section id="video.trans" title="Transitions" sub="How one look turns into the next." value={`${transition === 'auto' ? 'Auto' : (info?.name ?? transition)}${transition !== 'cut' && beats ? ` · ${beats === 0.5 ? '½' : beats} ${beats <= 1 ? 'beat' : 'beats'}` : ''}`} collapsible defaultOpen={false}>
       <Field
         label="Style"
         tip="Auto: long dissolves in calm parts, wipes on builds, quick pushes or hard cuts when it's loud. Pick one to use it for every change. Big drops always cut."
@@ -371,12 +418,12 @@ function TransitionSection() {
 
 /* ───────── words ───────── */
 
-const LYRIC_STYLES: { v: LyricStyle; label: string; tip: string }[] = [
-  { v: 'auto', label: 'Auto', tip: 'Each part of the song gets its own way of showing the words, like a lyric video' },
-  { v: 'subtitle', label: 'Subtitles', tip: 'A quiet caption low in the picture' },
-  { v: 'big', label: 'Big', tip: 'One line at a time, set large, each word shown as it is sung' },
-  { v: 'cutout', label: 'Collage', tip: 'Each word on its own scrap of printed paper' },
-  { v: 'off', label: 'Off', tip: 'No lyrics on the video' },
+const LYRIC_STYLES: { v: LyricStyle; label: string; span: number; tip: string }[] = [
+  { v: 'auto', label: 'Auto', span: 3, tip: 'Each part of the song gets its own way of showing the words, like a lyric video' },
+  { v: 'subtitle', label: 'Subtitles', span: 3, tip: 'A quiet caption low in the picture' },
+  { v: 'big', label: 'Big', span: 2, tip: 'One line at a time, set large, each word shown as it is sung' },
+  { v: 'cutout', label: 'Collage', span: 2, tip: 'Each word on its own scrap of printed paper' },
+  { v: 'off', label: 'Off', span: 2, tip: 'No lyrics on the video' },
 ];
 
 /** "Matches the finish" takes the whole first row; the four kits share the second */
@@ -403,10 +450,10 @@ function WordsSection() {
     set({ typeKit: v });
   };
   return (
-    <Section id="video.words" title="Words">
+    <Section id="video.words" title="Words" value={status === 'found' ? (LYRIC_STYLES.find((l) => l.v === style)?.label ?? '') : text.trim() ? 'Title' : 'No lyrics'} collapsible defaultOpen={false}>
       {status === 'found' && (
         <Field label="Lyrics" tip="How the song's words show on the video. More lyric settings (font, timing) are under Lyrics in the top bar.">
-          <Seg value={style} options={LYRIC_STYLES} onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })} label="Lyrics style" />
+          <Seg value={style} options={LYRIC_STYLES} cols={6} onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })} label="Lyrics style" />
         </Field>
       )}
       {status === 'found' && (
@@ -433,7 +480,7 @@ const SONG_COLORS: { v: SongColors; label: string }[] = [
 function ColourSection() {
   const songColors = useStudio((s) => s.songColors);
   return (
-    <Section id="video.colours" title="Song colours" sub="Makes a video of many looks feel like one piece">
+    <Section id="video.colours" title="Song colours" sub="Makes a video of many looks feel like one piece." value={SONG_COLORS.find((c) => c.v === songColors)?.label ?? ''} collapsible defaultOpen={false}>
       <Seg value={songColors} options={SONG_COLORS} onChange={(v) => useStudio.getState().set({ songColors: v })} label="Song colours" />
       <p className="field-note">
         {songColors === 'off' ? 'Each look keeps its own colours.' : songColors === 'blend' ? 'Every look leans toward the colours of the look used most.' : 'Every look uses the colours of the look used most.'}
@@ -447,6 +494,8 @@ function ColourSection() {
 function MoreSection() {
   const oneTap = useStudio((s) => s.oneTap);
   const autoPilot = useStudio((s) => s.autoPilot);
+  const planOn = useStudio((s) => s.planOn);
+  const hasPlan = useStudio((s) => validPlan(s.plan, s.analysis));
   const quality = useStudio((s) => s.quality);
   const set = useStudio((s) => s.set);
   // the quality governor (src/render/quality.ts) easing off right now; re-renders only when that changes
@@ -455,7 +504,15 @@ function MoreSection() {
     () => governor.easing,
   );
   return (
-    <Section id="video.more" title="More" collapsible defaultOpen={false}>
+    <Section id="video.more" title="Settings" value={quality < 1 ? `Quality ${Math.round(quality * 100)}%` : ''} collapsible defaultOpen={false}>
+      {hasPlan && (
+        <SwitchRow
+          label="Play the video plan"
+          note={planOn ? 'Looks change with each part of the song' : 'One look stays until you pick another'}
+          on={planOn}
+          onChange={(v) => set({ planOn: v, autoPilot: v ? false : useStudio.getState().autoPilot })}
+        />
+      )}
       <SwitchRow label="Make a video when a song loads" note="Drop a song and it plans the video and plays it from the top" on={oneTap} onChange={(v) => set({ oneTap: v })} />
       <SwitchRow label="Auto-pilot" note="Without a video plan, switch looks on drops and every 8 bars" on={autoPilot} onChange={(v) => set({ autoPilot: v })} />
       <Field

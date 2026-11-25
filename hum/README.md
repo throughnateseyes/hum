@@ -88,17 +88,19 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   small window beside the list (a look you fine-tuned for this video previews as you tuned it); click
   to use it, or drag it onto a part of the timeline.
 - **The right panel** has three tabs, by what you're changing:
-  - **Video**, the whole video: **Make a video** / **Remake video** and the moods; **Play the video
-    plan**; **Finish** (Auto, Clean, Hand-drawn, Film, Riso, Ink wash, Tape) with the hand-drawn
-    settings right under it when Hand-drawn is on (Frames, Inks, Wobble, Pencil lines, Paper,
-    Misprint); **Movement** (Impact, Pace); **Pop-ups** and what's in them; **Transitions** and
-    their length; **Words** (the lyrics style and the title text); **Song colours**; and, folded
-    under **More**, Make a video when a song loads, Auto-pilot, Your taste, Render quality and the
-    AI access code. The Director chat stays docked at the bottom of the panel.
+  - **Video**, the whole video: **Make a video** / **Remake video**, the idea it had, and what the next
+    one goes by (**Mood**, **Your footage**); then one row a setting, each showing what it is set to and
+    opening where it stands. Surface: **Finish** (Auto, Clean, Hand-drawn, Film, Riso, Ink wash, Tape)
+    with the hand-drawn settings right under it when Hand-drawn is on, **Song colours**, **Frames**.
+    Movement: **Impact and pace**, **Transitions** and their length. On screen: **Words** (the lyrics
+    style and the title text), **Drawings**, **Pop-ups** and what's in them. And **Settings**: Play the
+    video plan, Make a video when a song loads, Auto-pilot, Your taste, Render quality and the AI access
+    code. The Director chat stays docked at the bottom of the panel with its last answer in two lines;
+    **History** opens the rest.
   - **Part**, the part picked on the timeline (or the one playing when nothing is picked; with no
     video yet the tab says **Look** and is about the look on screen): its name, time and which shot of
-    its section it is; **Quick picks**, the five looks that fit it best, one click or `1`–`5` to swap;
-    **Play this part**, **Like**, **Reset this part** and **Undo**; its **Look** with that look's
+    its section it is, with arrows to the shot before and after; **Quick picks**, the five looks that fit it best, one click or `1`–`5` to swap;
+    **Play**, **Like** and **Reset**; its **Look** with that look's
     takes (a footage look shows its styles and Shuffle instead, see *Footage* below); **More looks**,
     every look by how well it fits, with moods and a search; **Hand-drawn** for this part (As the
     video / On / Off); **Pop-ups** (Auto / Off / Few / Lots, and Shuffle for a different deal of
@@ -180,7 +182,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   30 days). It steers the offline planner, auto-pilot, the quick picks, skips and the AI planner, but
   about one pick in five still explores, and every **Make a video** is a new take: renders are
   seeded and Hum remembers the last few plans per song so it doesn't repeat one. **Your taste**
-  (Video tab → More) says in plain words what Hum has learned, with a switch to turn learning off
+  (Video tab → Settings) says in plain words what Hum has learned, with a switch to turn learning off
   and a reset. It all stays in this browser (localStorage); the AI planner only gets a short summary
   (look ids, tags, section names and counts) with a plan you asked for.
 - **Breakdown** (the wave button at the end of the transport row, or `B`) shows how Hum took the song
@@ -416,7 +418,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   gets smaller before it is left out. **In this video** lists where each stands and why, and says when a
   shot had no room: go there, move it or take it out
   (`src/inside/drawn.ts`, `src/director/footageArt.ts`).
-- **Impact** (Video tab → Movement) sets how hard everything reacts: 0% is still, 200% is wild. Every
+- **Impact** (Video tab → Impact and pace) sets how hard everything reacts: 0% is still, 200% is wild. Every
   look also gets a built-in hit layer: a punch on kicks, a split on snares, a hit on the drop and
   tension during build-ups.
 - **Hand-drawn** (Video tab → Finish, or `H`; per part in the Part tab) runs every scene through a hand-made finish. It draws a
@@ -433,7 +435,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   a *Look*; switch to *New scene* → Claude writes a brand-new GLSL scene that's compiled live (errors
   come back in the chat); with a video made, *Video* changes it in plain words. A short tweak of the
   look on screen ("warmer", "less busy", "more grain") goes to the small model with a shorter catalog.
-- **Render quality** (Video tab → More) is the most detail Hum draws. When frames run late Hum
+- **Render quality** (Video tab → Settings) is the most detail Hum draws. When frames run late Hum
   eases off by itself, cheapest first: fewer pop-up scene windows, then the main picture drawn a
   little smaller, then effects at that size, then a lighter hand-drawn finish. It tries the detail
   back when there's room, and waits longer after each try that didn't hold, so it settles instead of
@@ -441,7 +443,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
 - **Thumbnails** for the built-in looks live in `src/assets/thumbs`. After changing looks, regenerate
   them from the browser console with a track playing: `await __hum.makeThumbs()`.
 - **Render** (the top bar's one dark button opens the Render tab; on a phone, Export) makes videos
-  without you timing a thing. **Clip for socials** at the top does it in one click: the song's best
+  without you timing a thing. **Clip for socials** does it in one click: the song's best
   15 to 30 seconds as a 1080×1920 vertical clip with sound. Or pick any stretch: while the tab is open
   the timeline turns into a picker: drag across it to choose a stretch (it snaps to bars and
   to the parts' edges; hold ⌥ to snap to beats), drag an edge or the middle to adjust, double-click a
@@ -462,7 +464,7 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   transitions, pop-ups, windows, lyrics and Song colours that playback shows there. Afterwards the
   look, the playhead and the stage are back as they were. Browsers that can't encode video themselves
   (no WebCodecs or AAC) fall back to recording the stretch live while it plays, and say so.
-- The camera icon in the top bar (and **Save a still image** in the Render tab) saves a PNG of the stage.
+- The camera icon in the top bar (and **Save a still** in the Render tab) saves a PNG of the stage.
 - **Full screen** from the stage itself: move the pointer over the picture (tap it on a touch screen)
   and a button fades in at its top-right corner, YouTube style, and out again when the pointer rests.
   Double-clicking the picture or `F` does the same. It's Perform: real fullscreen where the browser

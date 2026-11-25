@@ -138,7 +138,6 @@ function ExportPanel() {
       </button>
       {rendering && (
         <div className="ph-render">
-          <p className="ph-hint">Pick a stretch on the song map above, then the sizes to make.</p>
           <RenderBar />
         </div>
       )}

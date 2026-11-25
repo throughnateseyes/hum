@@ -2,14 +2,15 @@
  * The Part tab of the right panel: everything about the part (or parts) picked on the timeline, or
  * the part that is playing when nothing is picked; with no video plan, a line about the look on screen.
  *
- *   name, time, length     which section and shot it is
+ *   name, time, length     which section and shot it is, and the shot before and after it
+ *   actions                Play, Like, Reset (Undo is the transport's, state/history.ts)
  *   Picture                first, for a part whose look shows the person's clips or photos (footage and
  *                          photo looks): which one plays, as large thumbnails, then (footage) its style,
  *                          Shuffle, motion, treatment and framing, for this shot alone (FootagePicture.tsx)
  *   Quick picks            the five looks that fit this part best, as pictures: one click (or 1–5) swaps
- *   actions                Play this part, Like, Reset, Undo (the app's one history, state/history.ts)
  *   Look                   its picture and name, and its other takes (versions)
  *   More looks             the full Swap the look list, with moods and a search (PartSheet.tsx), folded away
+ *   then a row a setting, showing what it is here and opening in place:
  *   Hand-drawn             As the video / On / Off, for these parts only
  *   Pop-ups                Auto / Off / Few / Lots, and Shuffle for a different deal of them (popSeed.ts)
  *   Lyrics                 the lyric styles (lyricPlan.ts MEDIUM_CHOICES), parts with words sung only
@@ -19,7 +20,7 @@
  * between them shows no choice lit ("Mixed"). The changes go through state/partEdit.ts, like the
  * phone's part sheet; the panel engineer mounts "Fine-tune this look" under this.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 import { finishName } from '../core/direction';
 import type { TrackAnalysis } from '../core/types';
 import { takeName } from '../presets/fit';
@@ -29,7 +30,6 @@ import { sceneShowsWords } from '../scenes/three/songInfo';
 import { activeFinish } from '../state/direction';
 import { onFrame } from '../state/live';
 import { MEDIUM_CHOICES, vocalDensity, type LyricMedium } from '../state/lyricPlan';
-import { historyLabels, onHistoryChange, undo } from '../state/history';
 import { likePart, playPart, resetParts, setPartsHand, setPartsLook, setPartsLyric, setPartsPops, setPartsWords } from '../state/partEdit';
 import { findLook, listNames, makeVideo, partEdits, partNames, popsOf, sectionIndexAt, sectionNames, validPlan } from '../state/plan';
 import { parentsOf } from '../state/planCache';
@@ -41,7 +41,8 @@ import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { popSetFor } from '../arrange/types';
 import { ArrangeHere } from './arrange/ArrangeBar';
-import { Play } from './Icons';
+import { Section } from './controls';
+import { Chevron, Play } from './Icons';
 import { FootagePicture, ShuffleIcon } from './FootagePicture';
 import { lookParam, pictureKind, scrollToPicture, shownMedia, useMedia, usePartsTarget, useSoloTarget } from './footageMedia';
 import { Thumb } from './Library';
@@ -67,6 +68,14 @@ function common<T>(vals: T[]): T | 'mixed' {
 }
 
 /** the part playing now, updated when the song moves into another part */
+/** pick one part, the way a click on the timeline does */
+function pickPart(i: number) {
+  const a = useStudio.getState().analysis;
+  if (!a?.sections[i]) return;
+  useStudio.getState().set({ selectedParts: [i] });
+  audioEngine.seek(a.sections[i].start + 0.02);
+}
+
 function usePlayingPart(a: TrackAnalysis | null): number {
   const [i, setI] = useState(() => (a ? sectionIndexAt(a.sections, audioEngine.currentTime) : 0));
   useEffect(() => {
@@ -171,8 +180,6 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const partShot = useStudio((s) => s.partShot);
   const videoFinish = useStudio((s) => activeFinish(s));
   const busy = useStudio((s) => !!s.clip);
-  // the app's one undo (state/history.ts): the same step Cmd+Z and the transport's arrow take back
-  const undoText = useSyncExternalStore(onHistoryChange, historyLabels).undo;
   const n = a.sections.length;
   const one = parts.length === 1;
   const i = parts[0];
@@ -248,16 +255,22 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
             {!picked && ' · playing now'}
           </span>
         </div>
+        {one && (
+          <span className="pp-step">
+            <button className="btn icon sm ghost" disabled={i <= 0} onClick={() => pickPart(i - 1)} aria-label="The shot before" title="The shot before">
+              <Chevron width={13} height={13} style={{ transform: 'rotate(90deg)' }} />
+            </button>
+            <button className="btn icon sm ghost" disabled={i >= n - 1} onClick={() => pickPart(i + 1)} aria-label="The shot after" title="The shot after">
+              <Chevron width={13} height={13} style={{ transform: 'rotate(-90deg)' }} />
+            </button>
+          </span>
+        )}
       </div>
-
-      {picLook && <PartsPicture parts={parts} look={picLook} busy={busy} headingId={headingId} />}
-
-      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
 
       <div className="pp-actions">
         <button className="btn sm" onClick={() => playPart(i)} disabled={busy} title={`Jump to ${names[i]} and play it`}>
           <Play width={11} height={11} />
-          {one ? 'Play this part' : `Play from ${names[i]}`}
+          {one ? 'Play' : `Play from ${names[i]}`}
         </button>
         {one && plan.flat && look && (
           <button
@@ -273,18 +286,17 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         )}
         {anyEdit && (
           <button className="btn sm ghost" onClick={() => resetParts(parts)} disabled={busy} title={one ? 'Put back what the plan picked for this part' : 'Put back what the plan picked for these parts'}>
-            {one ? 'Reset this part' : 'Reset these parts'}
-          </button>
-        )}
-        {undoText && (
-          <button className="btn sm ghost" onClick={undo} disabled={busy} title={`Undo ${undoText} (⌘Z)`}>
-            Undo
+            Reset
           </button>
         )}
       </div>
       {changedWhat && <p className="pp-note">You changed the {changedWhat} here. A new plan keeps it.</p>}
       {!picked && <p className="pp-note">Click a part on the timeline to pick it. ⌘-click picks more than one.</p>}
       {busy && <p className="pp-note">A render is running: changes wait until it’s done.</p>}
+
+      {picLook && <PartsPicture parts={parts} look={picLook} busy={busy} headingId={headingId} />}
+
+      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
 
       <section className="pp-sec" aria-labelledby={`${headingId}-look`}>
         <div className="ps-h">
@@ -331,11 +343,8 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         {moreOpen && <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />}
       </div>
 
-      <section className="pp-sec" aria-labelledby={`${headingId}-hand`}>
-        <div className="ps-h">
-          <h3 id={`${headingId}-hand`}>Hand-drawn</h3>
-          <span>{hand === 'mixed' ? 'Mixed' : `The video is ${finishName(videoFinish).toLowerCase()}`}</span>
-        </div>
+      <div className="pp-rows">
+      <Section id="part.hand" title="Hand-drawn" sub={`The video is ${finishName(videoFinish).toLowerCase()}.`} value={hand === 'mixed' ? 'Mixed' : (HAND.find((o) => o.v === hand)?.label ?? '')} collapsible defaultOpen={false}>
         <div className="seg full" role="group" aria-label={`Hand-drawn in ${one ? names[i] : 'these parts'}`}>
           {HAND.map((o) => {
             const on = hand === o.v;
@@ -346,12 +355,16 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
             );
           })}
         </div>
-      </section>
+      </Section>
 
-      <section className="pp-sec" aria-labelledby={`${headingId}-pop`}>
-        <div className="ps-h">
-          <h3 id={`${headingId}-pop`}>Pop-ups</h3>
-          <span>{byHand ? 'Placed by hand' : pops === 'mixed' ? 'Mixed' : planned === 'mixed' ? 'Auto differs by part' : `Auto here is ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`}</span>
+      <Section
+        id="part.pops"
+        title="Pop-ups"
+        value={byHand ? 'Placed by hand' : pops === 'mixed' ? 'Mixed' : pops === null ? (planned === 'mixed' ? 'Auto' : `Auto · ${planned === 0 ? 'none' : planned === 1 ? 'a few' : 'lots'}`) : (POP_LEVELS.find((o) => o.v === pops)?.label ?? '')}
+        collapsible
+        defaultOpen={false}
+      >
+        <div className="pp-poprow">
           <button
             className="btn sm ghost pp-shuffle"
             disabled={busy || popups === 'off'}
@@ -374,14 +387,17 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
         </div>
         {popups === 'off' && <p className="pp-note">Pop-ups are switched off for the whole video (Video tab). Ones you place by hand still show.</p>}
         {one && <ArrangeHere part={i} />}
-      </section>
+      </Section>
 
       {synced && (
-        <section className="pp-sec" aria-labelledby={`${headingId}-lyr`}>
-          <div className="ps-h">
-            <h3 id={`${headingId}-lyr`}>Lyrics</h3>
-            {!sungParts.length ? <span>No words here</span> : medium === 'mixed' ? <span>Mixed</span> : !one && sungParts.length < parts.length ? <span>Parts with words only</span> : null}
-          </div>
+        <Section
+          id="part.lyrics"
+          title="Lyrics"
+          sub={sungParts.length > 0 && !one && sungParts.length < parts.length ? 'Parts with words only.' : undefined}
+          value={!sungParts.length ? 'No words here' : medium === 'mixed' ? 'Mixed' : (MEDIUM_CHOICES.find((o) => o.m === medium)?.label ?? 'Auto')}
+          collapsible
+          defaultOpen={false}
+        >
           {sungParts.length ? (
             <div className="seg grid2" role="group" aria-label={`How the lyrics show in ${one ? names[i] : 'these parts'}`}>
               {MEDIUM_CHOICES.filter((o) => o.m !== 'own' || ownOk || medium === 'own').map((o) => (
@@ -394,10 +410,11 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
             <p className="pp-note">No words are sung in {one ? 'this part' : 'these parts'}.</p>
           )}
           {sungParts.length > 0 && lyricStyle !== 'auto' && <p className="pp-note">Lyrics are set for the whole song right now. Picking a style here switches them to Auto.</p>}
-        </section>
+        </Section>
       )}
 
       {wordy && <WordsField key={`${parts.join(',')}|${words}`} parts={parts} value={words} disabled={busy} />}
+      </div>
     </div>
   );
 }
@@ -515,16 +532,10 @@ function WordsField({ parts, value, disabled }: { parts: number[]; value: string
     setPartsWords(parts, text);
   };
   return (
-    <section className="pp-sec">
-      <div className="ps-h">
-        <h3>
-          <label htmlFor="pp-words">Words</label>
-        </h3>
-        <span>{value === 'mixed' ? 'Different in each part' : value ? 'Yours' : 'From the song'}</span>
-      </div>
+    <Section id="part.words" title="Words" value={value === 'mixed' ? 'Mixed' : value || 'From the song'} collapsible defaultOpen={false}>
       <div className="pp-words">
         <input
-          id="pp-words"
+          aria-label="Words"
           className="txt"
           type="text"
           maxLength={120}
@@ -549,7 +560,7 @@ function WordsField({ parts, value, disabled }: { parts: number[]; value: string
         )}
       </div>
       <p className="pp-note">This look writes words of its own. What you type here is what it shows in {parts.length > 1 ? 'these parts' : 'this part'}.</p>
-    </section>
+    </Section>
   );
 }
 
