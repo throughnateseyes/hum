@@ -15,7 +15,8 @@ const best = (on: string, ...from: string[]) => from.reduce((a, b) => (part(b, o
 export function inkScheme(k: InkSet, p: ShotPalette): Scheme {
   const light = hexToLch(k.bg).l >= hexToLch(k.fg).l;
   const [paper, ink] = light ? [k.bg, k.fg] : [k.fg, k.bg];
-  return { name: 'inks', paper, ink, accent: k.accent, second: k.accent2, onAccent: best(k.accent, paper, ink), mid: k.accent2, cuts: schemeFor(p).cuts };
+  // small type on the accent is ink where that reads: no other ink lies between the two, so its edges stay clean
+  return { name: 'inks', paper, ink, accent: k.accent, second: k.accent2, onAccent: part(k.accent, ink) >= 0.3 ? ink : best(k.accent, paper, ink), mid: k.accent2, cuts: schemeFor(p).cuts };
 }
 
 export function inkInside(k: InkSet): InsidePalette {
