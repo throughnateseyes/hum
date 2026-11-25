@@ -1196,7 +1196,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   // ("Remake video", a mood and typed wishes always ask again), see planCache.ts
   const cacheKey = s.track ? planKey(s.track.name, a, s.lyrics) : null;
   // with clips or photos (and the line about frames on screen) the video is directed from them, in steps
-  const directed = mediaReady() && framesNoted();
+  const directed = directable();
   if (cacheKey && !wish.trim() && !opts.fresh && !mood) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     // a video saved before Claude had watched the footage is made again, from it
@@ -1208,6 +1208,8 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
       return;
     }
   }
+  // the background plan on its way (or just in, and not seen yet) is the one this Make would ask for
+  const ahead = !directed && !wish.trim() && !mood ? takeAhead(a) : null;
   s.set({ planning: true, makeNote: '' });
   let asked: { plan: VideoPlan; reason: string };
   let end = () => {};
@@ -1219,9 +1221,25 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
     end = made.end;
     check = made.check;
   } else {
-    asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
-    // clips nobody asked Claude about are still landed on the song (in this browser)
-    if (clipCount()) {
+    // clips nobody asked Claude about are still landed on the song (in this browser): read meanwhile
+    const timing = clipCount() ? import('../director/footageTiming').then((m) => m.beginTiming()) : null;
+    const song = new AbortController();
+    const off = useStudio.subscribe((x) => (!x.analysis || originalOf(x.analysis) !== a) && song.abort());
+    try {
+      const had = await ahead;
+      asked = had ? { plan: had, reason: '' } : await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood, signal: song.signal });
+    } catch (err) {
+      // another song went on: nobody is waiting for this one any more
+      if (song.signal.aborted) {
+        useStudio.getState().set({ planning: false });
+        return;
+      }
+      console.warn('the plan could not be asked for', err);
+      asked = { plan: await offlineVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id)), reason: '' };
+    } finally {
+      off();
+    }
+    if (timing) {
       const d = await import('../director/footageDirector');
       const run = d.beginMake();
       try {
@@ -1375,6 +1393,67 @@ function graphicFor(a: TrackAnalysis, i: number, picked: (string | null)[], carr
   return planLooks()
     .filter((p) => !playsClips(p) && !p.custom && !p.sceneId.startsWith('board-') && inWorld(p))
     .sort((x, y) => score(y) - score(x) || (x.id < y.id ? -1 : 1))[0]?.id;
+}
+
+/** a video made now would be directed from the person's footage, with a plan of its own */
+export const directable = () => mediaReady() && framesNoted();
+
+/** a plan asked for before anyone pressed anything (one-tap start) */
+export interface Ahead {
+  a: TrackAnalysis;
+  /** what it was asked with: the same means the same question */
+  key: string;
+  /** null: there is none to be had, or it was stopped */
+  plan: Promise<VideoPlan | null>;
+  stop: () => void;
+  stopped: boolean;
+  /** a Make has taken it over */
+  taken: boolean;
+}
+let aheadNow: Ahead | null = null;
+
+/** everything a plan request without a wish or a mood is made of, besides the song itself */
+function askedWith(a: TrackAnalysis): string {
+  const s = useStudio.getState();
+  return JSON.stringify([s.lyrics, clipCount(), photoCount(), s.mix, tasteSummary(a), planLooks().map((p) => p.id), feelingNow(s.lyrics).by]);
+}
+
+/** ask for Claude's plan quietly, ahead of any Make */
+export function planAhead(a: TrackAnalysis, offline: VideoPlan): Ahead {
+  const ctrl = new AbortController();
+  const ahead: Ahead = {
+    a,
+    key: askedWith(a),
+    plan: requestVideoPlan(a, useStudio.getState().lyrics, offline, { quiet: true, signal: ctrl.signal }).then(
+      (r) => (r.plan.source === 'claude' ? r.plan : null),
+      (err) => {
+        if (!ctrl.signal.aborted) console.warn('the plan in the background failed', err);
+        return null;
+      },
+    ),
+    stop: () => {
+      ahead.stopped = true;
+      ctrl.abort();
+    },
+    stopped: false,
+    taken: false,
+  };
+  aheadNow = ahead;
+  return ahead;
+}
+
+/** the background plan, when it answers just what a Make pressed now would ask and nobody has seen it yet */
+function takeAhead(a: TrackAnalysis): Promise<VideoPlan | null> | null {
+  const x = aheadNow;
+  aheadNow = null;
+  if (!x || x.stopped || x.a !== a || x.key !== askedWith(a)) return null;
+  x.taken = true;
+  return x.plan;
+}
+
+/** the background plan is on screen: a Make is to be a new take */
+export function aheadShown() {
+  aheadNow = null;
 }
 
 interface RequestOpts {
