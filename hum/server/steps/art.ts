@@ -10,7 +10,7 @@
  */
 import { HAND_IDS, isHandId } from '../../src/draw/format.js';
 import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, PUT_LINES, type Room } from '../../src/inside/drawnIds.js';
-import { DATA_RULE, describeSong, readMedia, readParts, wishLine } from './footage.js';
+import { DATA_RULE, describeSong, partsHead, readMedia, readParts, wishLine } from './footage.js';
 import type { Step, StepTool } from './types';
 
 type Obj = Record<string, unknown>;
@@ -153,7 +153,7 @@ const art: Step = {
         lines.length ? `Its words, each line once:\n${lines.join('\n')}` : 'It has no words.',
         text(body.paint, 160) ? `The colours everything is painted in: ${text(body.paint, 160)}` : '',
         `The person's media:\n${media.lines.join('\n')}`,
-        `Parts:\n${parts.lines.join('\n')}`,
+        `${partsHead(parts)}\n${parts.lines.join('\n')}`,
         `Parts offered for drawings: ${[...offered].join(', ')}`,
         room.size ? `The room in them:\n${[...room].map(([i, r]) => `part ${i}: ${roomLine(r)}`).join('\n')}` : '',
         have.size ? `Drawings the person already has for this song:\n${[...have.values()].join('\n')}` : 'The person has no drawings for this song yet.',

@@ -37,6 +37,8 @@ let auto: VideoPlan | null = null;
 const SWAP_LEAD = 2;
 /** how long Claude's request waits for the lyrics lookup (so it can fit the looks to the words) */
 const LYRICS_WAIT_MS = 8000;
+/** how long one wait for a video being made lasts (it is waited for again if it still is) */
+const MAKE_WAIT_MS = 60_000;
 
 /** a song started loading with one-tap on: show the progress state */
 export function beginStartup() {
@@ -139,13 +141,29 @@ function until(ok: (s: ReturnType<typeof useStudio.getState>) => boolean, ms: nu
   });
 }
 
-/** ask Claude for its take in the background and swap it in at the next part line */
+/**
+ * Ask Claude for its take in the background and swap it in at the next part line. A video being made
+ * asks for a plan of its own, so this one waits for it (and one already on its way is dropped): it is
+ * only wanted if that Make was cancelled.
+ */
 async function upgrade(a: TrackAnalysis, alive: () => boolean) {
   await until((s) => s.lyricsStatus !== 'searching', LYRICS_WAIT_MS, alive);
-  if (!alive() || useStudio.getState().plan !== auto || !auto) return;
-  // the fallback is the planner's own plan (per section), not its flattened parts
-  const base = auto.flat?.src ?? auto;
-  const { plan } = await requestVideoPlan(a, useStudio.getState().lyrics, base, { quiet: true });
+  let plan: VideoPlan | null = null;
+  while (!plan) {
+    while (useStudio.getState().planning && alive()) await until((s) => !s.planning, MAKE_WAIT_MS, alive);
+    if (!alive() || useStudio.getState().plan !== auto || !auto) return;
+    // the fallback is the planner's own plan (per section), not its flattened parts
+    const base = auto.flat?.src ?? auto;
+    const stop = new AbortController();
+    const off = useStudio.subscribe((s) => (s.planning || !alive()) && stop.abort());
+    try {
+      ({ plan } = await requestVideoPlan(a, useStudio.getState().lyrics, base, { quiet: true, signal: stop.signal }));
+    } catch (err) {
+      if (!stop.signal.aborted) throw err;
+    } finally {
+      off();
+    }
+  }
   if (!alive() || plan.source !== 'claude') return;
   // saved for next time even if it never plays this time
   keepPlan(plan, a);

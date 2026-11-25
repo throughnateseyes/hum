@@ -99,8 +99,12 @@ export function directorDevPlugin(options: { path?: string } = {}): Plugin {
             // your Claude subscription only answers this computer, even if the dev server is
             // opened to the network with --host; other devices need the API key
             const fromThisComputer = /^(::1|127\.|::ffff:127\.)/.test(ip);
-            const result = await handleDirector(body, ip, env, { local: fromThisComputer ? local : null });
-            send(res, result.status, result.json);
+            // cancelled in the browser, or the page is gone: nobody will read the answer, so don't pay for it
+            const gone = new AbortController();
+            res.on('close', () => !res.writableEnded && gone.abort());
+            const asked = local;
+            const result = await handleDirector(body, ip, env, { local: fromThisComputer && asked ? (q) => asked({ ...q, signal: gone.signal }) : null });
+            if (!gone.signal.aborted) send(res, result.status, result.json);
           } catch (err) {
             server.config.logger.error(`[hum-director] ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
             send(res, 500, { error: 'internal', note: 'Director crashed — see the dev server log.' });

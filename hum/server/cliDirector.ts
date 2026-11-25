@@ -35,6 +35,22 @@ interface CliJson {
   result?: string;
   structured_output?: unknown;
   api_error_status?: number | null;
+  num_turns?: number;
+  usage?: {
+    input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    output_tokens?: number;
+    output_tokens_details?: { thinking_tokens?: number };
+  };
+}
+
+/** what one call used, for the dev server's log. One answer is two turns (the answer, and the CLI taking it); more means it didn't fit its form and was written again */
+function usageLine(mode: string, model: string, effort: string, d: CliJson): string {
+  const u = d.usage ?? {};
+  const n = (v: number | undefined) => String(v ?? 0);
+  const again = (d.num_turns ?? 2) - 2;
+  return `[hum-director] ${mode} on ${model} (${effort}): in ${n(u.input_tokens)} new, ${n(u.cache_creation_input_tokens)} written to cache, ${n(u.cache_read_input_tokens)} from cache; out ${n(u.output_tokens)} (${n(u.output_tokens_details?.thinking_tokens)} thinking)${again > 0 ? `; written ${again + 1} times` : ''}`;
 }
 
 export function cliBackend(env: DirectorEnv): LocalBackend | null {
@@ -81,12 +97,19 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
         if (done) return;
         done = true;
         clearTimeout(timer);
+        req.signal?.removeEventListener('abort', stop);
         resolve(r);
+      };
+      const stop = () => {
+        child.kill('SIGTERM');
+        finish({ ok: false, status: 499, error: 'cancelled', note: 'Cancelled.' });
       };
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
         finish({ ok: false, status: 504, error: 'timeout', note: 'Claude took too long to answer.' });
       }, timeoutMs);
+      if (req.signal?.aborted) stop();
+      else req.signal?.addEventListener('abort', stop);
 
       child.stdout.on('data', (c: Buffer) => (out += c.toString('utf8')));
       child.stderr.on('data', (c: Buffer) => (err += c.toString('utf8')));
@@ -98,6 +121,7 @@ export function cliBackend(env: DirectorEnv): LocalBackend | null {
         } catch {
           data = null;
         }
+        if (data?.usage && !done) console.info(usageLine(req.mode, model, req.effort, data));
         const text = `${data?.result ?? ''} ${err}`.toLowerCase();
         if (!data || data.is_error || data.subtype !== 'success') {
           if (/log ?in|logged out|not authenticated|invalid api key|oauth/.test(text)) {
