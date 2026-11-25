@@ -22,6 +22,7 @@ import { bool, num, str } from '../../core/uniforms';
 import { ensureLyricFont, lyricFontVersion } from '../../render/lyricFonts';
 import { LEAD, showingAt, showings, type Showing } from '../../render/lyricTiming';
 import { partWordsAt } from '../../state/direction';
+import { songCredit } from '../../state/songName';
 import { useStudio } from '../../state/store';
 import { deal, fitIn, inset, pageOf, PAGE_MAX, ratioOf, safeBox, secondsOf, shapeOf, spanAt, splitOf, steady, sungIn, type Box, type Placed, type Span, type Split } from './layout';
 import { Sprite } from './sprite';
@@ -406,7 +407,7 @@ export const sketchbook: SceneDef = {
     const blank = (n: Now) => {
       const st = useStudio.getState();
       const sung = wordsBy(n) === 'here' ? wordsNow(n) : [];
-      const title = (st.lyrics?.title || st.track?.name || '').replace(/\.\w{2,4}$/, '');
+      const { title } = songCredit(st);
       const words = sung.length || wordsBy(n) === 'layer' || !bool(n.f.params, 'words', true) ? sung : title.split(/\s+/).filter(Boolean).slice(0, 8).map((text, i) => ({ text, t: n.span.start + i * 0.2 }));
       const face = FACE_FOR.pen;
       showWords(setLine(words, safeBox(n.W, n.H), face, Math.min(n.W, n.H) * 0.16, 4, 'center', 'middle'), face, n);

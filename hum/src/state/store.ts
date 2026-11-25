@@ -23,6 +23,7 @@ import { presetToLook, lookToPreset, type LookState } from '../presets/apply';
 import { PRESETS } from '../presets';
 import { loadPlaced, NOTHING, savePlaced, type Placed } from '../arrange/types';
 import { loadDrawParts, saveDrawParts } from '../draw/parts';
+import { loadSongName, saveSongName, type SongName } from './songName';
 import type { DrawingAsset, DrawPart } from '../draw/types';
 import { uid } from './modulation';
 import type { VideoPlan } from './plan';
@@ -108,6 +109,8 @@ export interface TrackInfo {
 export interface StudioState extends LookState {
   presetId: string | null;
   track: TrackInfo | null;
+  /** what the person calls the song that is loaded (null: what its file's name says; see songName.ts) */
+  songName: SongName | null;
   analysis: TrackAnalysis | null;
   analyzing: boolean;
   photos: PhotoAsset[];
@@ -535,6 +538,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   drawings: [],
   drawTrash: [],
   drawParts: [],
+  songName: null,
   placed: NOTHING,
   drawOverlay: persisted.drawOverlay ?? true,
   drawInScene: persisted.drawInScene ?? true,
@@ -709,10 +713,11 @@ useStudio.subscribe((s, prev) => {
   const song = s.track?.name ?? '';
   if (song !== tweakSong) {
     tweakSong = song;
-    useStudio.setState({ tweaks: loadTweaks(song), drawParts: loadDrawParts(song), placed: loadPlaced(song) });
+    useStudio.setState({ tweaks: loadTweaks(song), drawParts: loadDrawParts(song), placed: loadPlaced(song), songName: loadSongName(song) });
     return;
   }
   if (s.tweaks !== prev.tweaks) saveTweaks(song, s.tweaks);
   if (s.drawParts !== prev.drawParts) saveDrawParts(song, s.drawParts);
   if (s.placed !== prev.placed) savePlaced(song, s.placed);
+  if (s.songName !== prev.songName) saveSongName(song, s.songName);
 });

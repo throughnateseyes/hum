@@ -262,7 +262,7 @@ export function cleanTitle(raw: string): string {
   // (Official Video), [Lyrics], (feat. Someone)... but keep (Live), (Acoustic), (Remix) etc.
   for (let k = 0; k < 3; k++) t = t.replace(/\s*[([{【]([^)\]}】]*)[)\]}】]/g, (m, inner: string) => (JUNK.test(inner) ? ' ' : m));
   t = t.replace(/\s+(ft|feat|featuring)\.?\s.*$/i, ''); // feat. outside brackets
-  t = t.replace(/\s+\b(hd|hq|4k|8k|1080p|720p|mv|m\/v|official( music)? video|lyrics?)\b\s*$/i, '');
+  t = t.replace(/\s+\b(hd|hq|4k|8k|1080p|720p|mv|m\/v|official( music| lyrics?)? (video|audio|visuali[sz]er)|lyrics?)\b\s*$/i, '');
   t = t.replace(/["“”«»]/g, '').replace(/(^|\s)'|'(\s|$)/g, '$1$2');
   return t.replace(/\s{2,}/g, ' ').replace(/^[\s\-–—:|·]+|[\s\-–—:|·]+$/g, '').trim();
 }

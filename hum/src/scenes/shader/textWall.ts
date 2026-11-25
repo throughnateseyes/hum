@@ -8,6 +8,7 @@
 import { defineCanvasScene } from '../../core/sceneHelpers';
 import { num, str } from '../../core/uniforms';
 import type { FrameContext, LyricLine, ParamDef } from '../../core/types';
+import { songCredit } from '../../state/songName';
 import { useStudio } from '../../state/store';
 
 const SANS = "'Inter Variable', Inter, 'Helvetica Neue', Arial, sans-serif";
@@ -101,14 +102,14 @@ function sourceWords(f: FrameContext): { text: string; line: number; word: numbe
   // no lyrics: the song's own facts
   let title = '';
   try {
-    title = useStudio.getState().track?.name ?? '';
+    title = songCredit(useStudio.getState()).title;
   } catch {
     /* */
   }
   const a = f.analysis;
   const words: string[] = [];
   const push = (s: string | undefined) => s && words.push(...s.split(/\s+/).filter(Boolean));
-  push(title.replace(/\.[a-z0-9]{2,4}$/i, ''));
+  push(title);
   push(typed.join(' '));
   if (a) {
     push(a.character?.genre);
@@ -282,7 +283,7 @@ export const textWall = defineCanvasScene<St>({
       lines ? `${lines.length}:${lines[0].text}:${lines[lines.length - 1].text}` : `x${f.analysis?.bpm ?? 0}:${f.text}`,
       (() => {
         try {
-          return useStudio.getState().track?.name ?? '';
+          return songCredit(useStudio.getState()).title;
         } catch {
           return '';
         }

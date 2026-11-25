@@ -19,6 +19,7 @@ import type { Cut } from './footageStills';
 import { INSIDE_PALETTES, PALETTE_LINES } from '../inside/palettes';
 import { layShot, sameVideo, type ShotCue } from '../shot/partShots';
 import { findLook, validPlan, type VideoPlan } from '../state/plan';
+import { songCredit } from '../state/songName';
 import { useStudio } from '../state/store';
 import { requestStep } from './client';
 import { playsClips } from './footage';
@@ -96,7 +97,7 @@ export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: St
     'art',
     {
       wish: o.wish,
-      title: o.lyrics?.title ?? songName(s),
+      title: songCredit(s).title || songName(s),
       track: { summary: a.summary, bpm: a.bpm, tags: a.tags },
       ...(a.character ? { character: { genre: a.character.genre, mood: a.character.mood } } : {}),
       about: curvesNow(a, o.lyrics).about ?? '',

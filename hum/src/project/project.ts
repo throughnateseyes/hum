@@ -123,7 +123,7 @@ function readLink(): Link | null {
 
 /* ───────── following what the person changes ───────── */
 
-const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'smoothSlow', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
+const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'songName', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'smoothSlow', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
 
 useStudio.subscribe((s, prev) => {
   if (opening) return;
@@ -519,7 +519,7 @@ function applyVideo(f: ProjectFile) {
   const n = s.analysis?.sections.length ?? 0;
   const fits = <T>(a: T[] | null) => (a && a.length === n ? a : null);
   if (s.track && s.analysis) bringDeals(s.track.name, s.analysis, v.popDeals);
-  s.set({ partPops: fits(v.partPops), partHand: fits(v.partHand), partWords: fits(v.partWords), partShot: fits(v.partShot), tweaks: v.tweaks, drawParts: v.drawParts, placed: v.placed, text: v.text });
+  s.set({ partPops: fits(v.partPops), partHand: fits(v.partHand), partWords: fits(v.partWords), partShot: fits(v.partShot), tweaks: v.tweaks, drawParts: v.drawParts, songName: v.songName, placed: v.placed, text: v.text });
   setSoloShotQuietly(v.soloShot);
   if (!v.planOn && v.look && getScene(v.look.sceneId)) {
     const look = [...useStudio.getState().customPresets, ...PRESETS].find((p) => p.id === v.look!.presetId);

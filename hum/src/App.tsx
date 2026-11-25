@@ -16,6 +16,8 @@ import { Inspector } from './ui/Inspector';
 import { Library } from './ui/Library';
 import { PeekWindow } from './ui/Peek';
 import { LyricsChip } from './ui/Lyrics';
+import { SongNameFields } from './ui/SongName';
+import { songLabel } from './state/songName';
 import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
 import { noteHandPick } from './state/taste';
@@ -314,6 +316,7 @@ function RenderButton() {
  */
 function SourceMenu({ onOpenFiles }: { onOpenFiles: () => void }) {
   const track = useStudio((s) => s.track);
+  const label = useStudio(songLabel);
   const analysis = useStudio((s) => s.analysis);
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -351,7 +354,7 @@ function SourceMenu({ onOpenFiles }: { onOpenFiles: () => void }) {
             <span style={{ fontSize: 8 }}>♪</span>
           ) : null}
         </span>
-        <span className="name">{track ? track.name : 'Choose a song'}</span>
+        <span className="name">{track ? label || track.name : 'Choose a song'}</span>
         {track && analysis && (
           <span className="meta">
             {Math.round(analysis.bpm)} bpm · {analysis.tags.slice(0, 3).join(', ')}
@@ -361,6 +364,8 @@ function SourceMenu({ onOpenFiles }: { onOpenFiles: () => void }) {
       </button>
       {open && (
         <div className="menu" role="menu">
+          <SongNameFields onDone={() => setOpen(false)} />
+          {track && track.source !== 'mic' && <div className="menu-sep" />}
           <div className="menu-h">Demos</div>
           {DEMO_TRACKS.map((d) => (
             <button key={d.id} role="menuitem" className={`menu-item ${track?.id === d.id ? 'on' : ''}`} onClick={pick(() => void loadDemo(d.id))}>

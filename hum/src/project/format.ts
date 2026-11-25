@@ -25,6 +25,7 @@ import { dealsHere } from '../state/popSeed';
 import { okShot, originalOf } from '../state/planCache';
 import type { VideoPlan } from '../state/plan';
 import { photoBlob } from '../state/saved';
+import { cleanSongName, type SongName } from '../state/songName';
 import { settingsOf, type StudioState } from '../state/store';
 import type { TweakTable } from '../state/tweaks';
 import { safeName } from './places';
@@ -63,6 +64,7 @@ export interface ProjectFile {
     soloShot: PartShot | null;
     tweaks: TweakTable;
     drawParts: DrawPart[];
+    songName: SongName | null;
     placed: Placed;
     popDeals: Record<string, number>;
     text: string;
@@ -144,6 +146,7 @@ export async function collect(s: StudioState, id: string, name: string, song: { 
         soloShot: s.soloShot,
         tweaks: s.tweaks,
         drawParts: s.drawParts,
+        songName: s.songName,
         placed: s.placed,
         popDeals: track && s.analysis ? dealsHere(track.name, s.analysis) : {},
         text: s.text,
@@ -317,6 +320,7 @@ export function readProject(text: string): ProjectFile {
       soloShot: okShot(v.soloShot) ? (v.soloShot as PartShot) : null,
       tweaks: isObj(v.tweaks) ? (v.tweaks as TweakTable) : {},
       drawParts: cleanDrawParts(v.drawParts),
+      songName: cleanSongName(v.songName),
       placed: cleanPlaced(v.placed),
       popDeals: isObj(v.popDeals) ? Object.fromEntries(Object.entries(v.popDeals).filter((e): e is [string, number] => /^\d{1,9}$/.test(e[0]) && typeof e[1] === 'number')) : {},
       text: str(v.text, 400),

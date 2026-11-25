@@ -18,6 +18,7 @@ import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
 import { activeFinish, playingDirection, setFinish } from '../state/direction';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
+import { changeLyrics } from './lyricsOpen';
 import { DrawingsSection } from './Drawings';
 import { Field, Group, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
@@ -451,6 +452,11 @@ function WordsSection() {
   };
   return (
     <Section id="video.words" title="Words" value={status === 'found' ? (LYRIC_STYLES.find((l) => l.v === style)?.label ?? '') : text.trim() ? 'Title' : 'No lyrics'} collapsible defaultOpen={false}>
+      {(status === 'found' || status === 'plain' || status === 'none') && (
+        <button className="btn sm ghost" onClick={changeLyrics}>
+          {status === 'none' ? 'Find lyrics…' : 'Wrong lyrics? Change them…'}
+        </button>
+      )}
       {status === 'found' && (
         <Field label="Lyrics" tip="How the song's words show on the video. More lyric settings (font, timing) are under Lyrics in the top bar.">
           <Seg value={style} options={LYRIC_STYLES} cols={6} onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })} label="Lyrics style" />

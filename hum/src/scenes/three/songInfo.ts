@@ -5,6 +5,7 @@
  */
 import type { FrameContext, LyricLine } from '../../core/types';
 import { lineAt } from '../../audio/lyrics';
+import { songCredit } from '../../state/songName';
 import { useStudio } from '../../state/store';
 
 export interface SongInfo {
@@ -30,16 +31,12 @@ export const strip = (s: string) =>
 export function songInfo(): SongInfo {
   try {
     const s = useStudio.getState();
-    const name = strip(s.track?.name ?? '');
-    let title = (s.lyrics?.title || '').trim();
-    let artist = (s.lyrics?.artist || '').trim();
-    if (!title) {
-      const m = name.match(/^(.+?)\s+[-–—]\s+(.+)$/);
-      if (m) {
-        title = m[2];
-        if (!artist) artist = m[1];
-      } else title = name;
-    }
+    // what the person calls it, else the file's name; the lyrics found may be another song's, so they only
+    // say who sings it when they agree on the title
+    const own = songCredit(s);
+    const title = strip(own.title);
+    const same = s.lyrics?.title && s.lyrics.title.trim().toLowerCase() === title.toLowerCase();
+    let artist = own.artist || (same ? (s.lyrics?.artist ?? '').trim() : '');
     if (!artist && s.track?.source === 'demo') artist = 'Hum demo';
     if (!artist && s.track?.source === 'mic') artist = 'Live';
     return { title: title || 'Untitled', artist: artist || 'Unknown artist', artistKnown: !!artist };

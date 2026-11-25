@@ -51,6 +51,8 @@ import { footageNeed, partSequence, planFootage, type PartOptions, type Sequence
 import { SLOW, slowMotion } from '../../shot/slowmo';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
+import { songCredit } from '../../state/songName';
+import { MAX_LETTERS } from '../../shot/type';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
 import { wordsIn } from '../../inside/lines';
 import { drawnIn } from '../../inside/cast';
@@ -149,10 +151,14 @@ function beforeOf(flat: Flat, i: number): { start: number; end: number; layout: 
   return { start: last.start, end: last.end, layout: last.layout, treatment: last.treatment ?? 'none' };
 }
 
-/** the song's title, without the artist */
+/** the song's title as a line of type holds it: whole words up to MAX_LETTERS, '' when the person keeps it off */
 export function songTitle(): string {
-  const name = useStudio.getState().track?.name ?? '';
-  return (name.includes(' - ') ? name.split(' - ').slice(1).join(' - ') : name).replace(/\.[a-z0-9]{2,4}$/i, '').trim();
+  const s = useStudio.getState();
+  if (s.songName?.hidden) return '';
+  const { title } = songCredit(s);
+  if (title.length <= MAX_LETTERS) return title;
+  const cut = title.slice(0, MAX_LETTERS + 1);
+  return cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')).replace(/[\s&,(\-–—]+$/, '') : title.slice(0, MAX_LETTERS);
 }
 
 /** the colours of the video's inside shots: the look's own pick, the plan's, or one that goes with the song */
@@ -179,7 +185,8 @@ function wordsKey(): number {
 /** `always`: in a song with lyrics too (the Inside shot a video opens on) */
 export function titleWords(always = false): string[] {
   if (!always && useStudio.getState().lyrics?.lines.length) return [];
-  return songTitle()
+  const s = useStudio.getState();
+  return (s.songName?.hidden ? '' : songCredit(s).title)
     .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
     .split(/[\s_\-–—]+/)
     .map((w) => w.replace(/[^\p{L}\p{N}'’!?&]/gu, '').toUpperCase())

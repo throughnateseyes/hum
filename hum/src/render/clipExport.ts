@@ -1,6 +1,7 @@
 import { audioEngine } from '../audio/engine';
 import { pickClip, type ClipWindow } from '../audio/clipWindow';
 import { live } from '../state/live';
+import { songLabel } from '../state/songName';
 import { useStudio, type StudioState } from '../state/store';
 import { Recorder, download } from './recorder';
 
@@ -145,7 +146,7 @@ export async function exportClip(
       const ext = type.includes('mp4') ? 'mp4' : 'webm';
       const blob = new Blob(chunks, { type });
       restore();
-      const name = `${slug(before.track?.name ?? 'hum')}-clip.${ext}`;
+      const name = `${slug(songLabel(st) || 'hum')}-clip.${ext}`;
       if (onDone) onDone({ blob, name });
       else {
         download(blob, name);

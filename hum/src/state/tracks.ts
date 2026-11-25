@@ -434,6 +434,29 @@ export async function applyLrclibRecord(r: LrclibRecord) {
   void autoSync(token);
 }
 
+/**
+ * The words corrected by hand. With as many lines as before every line keeps its time (and, with as many
+ * words, each word its own), so nothing has to be listened to; otherwise they are timed by listening.
+ */
+export function editLyrics(text: string) {
+  const l = useStudio.getState().lyrics;
+  const rows = text.split(/\r?\n/).map((x) => x.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (!l?.lines.length || rows.length !== l.lines.filter((x) => x.text.trim()).length) return void syncPastedLyrics(text);
+  let n = 0;
+  const lines = l.lines.map((x): LyricLine => {
+    if (!x.text.trim()) return x;
+    const said = rows[n++];
+    if (said === x.text.replace(/\s+/g, ' ').trim()) return x;
+    const words = said.split(' ');
+    const { words: had, ...rest } = x;
+    return { ...rest, text: said, ...(had?.length === words.length ? { words: had.map((w, i) => ({ ...w, text: words[i] })) } : {}) };
+  });
+  if (lines.every((x, i) => x === l.lines[i])) return;
+  useStudio.getState().set({ lyrics: { ...l, lines, source: 'pasted', plain: rows.join('\n') }, lyricsStatus: 'found' });
+  saveLyrics();
+  useStudio.getState().flash('Lyrics corrected, their timing kept');
+}
+
 /** move every line by dt seconds (the offset slider) */
 export function shiftAllLyrics(dt: number) {
   const l = useStudio.getState().lyrics;

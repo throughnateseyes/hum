@@ -11,6 +11,7 @@ import type { TrackAnalysis } from '../core/types';
 import { postDirector } from '../director/access';
 import { sectionNames } from '../state/plan';
 import { originalOf } from '../state/planCache';
+import { songCredit } from '../state/songName';
 import { useStudio, type StudioState } from '../state/store';
 import { figureProof } from '../figures';
 import { validateFigure, type Figure } from '../figures/format';
@@ -109,7 +110,7 @@ export function songLines(s: StudioState): string[] {
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 function songFacts(s: StudioState, a: TrackAnalysis | null) {
-  if (!a) return { title: s.lyrics?.title ?? songName(s) };
+  if (!a) return { title: songCredit(s).title || songName(s) };
   const names = sectionNames(a.sections);
   const top = a.sections.reduce((m, x, i) => (x.energy > a.sections[m].energy ? i : m), 0);
   const moments = [
@@ -119,7 +120,7 @@ function songFacts(s: StudioState, a: TrackAnalysis | null) {
   ].filter(Boolean);
   const c = a.character;
   return {
-    title: s.lyrics?.title ?? songName(s),
+    title: songCredit(s).title || songName(s),
     bpm: a.bpm,
     summary: a.summary,
     feeling: a.tags.slice(0, 10).join(', '),

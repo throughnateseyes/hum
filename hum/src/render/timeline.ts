@@ -22,6 +22,7 @@ import { live } from '../state/live';
 import { planSequencerState, restorePlanSequencer } from '../state/plan';
 import { quality } from './quality';
 import { autopilotTick } from '../state/autopilot';
+import { songLabel } from '../state/songName';
 import { useStudio, type StudioState } from '../state/store';
 import { songBuffer } from '../state/tracks';
 import { Stage } from './stage';
@@ -351,7 +352,7 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
   const end = Math.min(buf!.duration, req.end);
   const job = { ...req, start, end };
   const track = st.track;
-  const songName = track?.name ?? 'hum';
+  const songName = songLabel(st) || 'hum';
   const before = {
     look: snapLook(),
     seq: planSequencerState(),

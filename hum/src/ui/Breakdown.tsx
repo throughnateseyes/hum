@@ -8,6 +8,7 @@ import type { Curves } from '../feeling';
 import { onFrame } from '../state/live';
 import { sectionNames } from '../state/plan';
 import { originalOf } from '../state/planCache';
+import { songLabel } from '../state/songName';
 import { useStudio } from '../state/store';
 import { X } from './Icons';
 import { useLandings, type Landing } from './landings';
@@ -52,6 +53,7 @@ export function Breakdown() {
   const analysis = useStudio((s) => s.analysis);
   const analyzing = useStudio((s) => s.analyzing);
   const track = useStudio((s) => s.track);
+  const label = useStudio(songLabel);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -73,10 +75,10 @@ export function Breakdown() {
     <section className="bd" role="dialog" aria-label="Song breakdown">
       {analysis ? (
         // the song's own sections, not the video's shots (every shot is a part of its own: flatPlan.ts)
-        <BreakdownBody a={originalOf(analysis)} name={track?.name ?? 'This song'} />
+        <BreakdownBody a={originalOf(analysis)} name={label || 'This song'} />
       ) : (
         <>
-          <BdHeader title={track?.name ?? 'No song yet'} />
+          <BdHeader title={label || 'No song yet'} />
           <div className="bd-empty">
             {!track
               ? 'Load a song (drop a file anywhere, or pick a demo) and Hum will take it apart here.'

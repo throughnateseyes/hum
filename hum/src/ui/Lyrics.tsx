@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { songCredit } from '../state/songName';
+import { closeLyrics, openLyrics, useLyricsOpen, type LyricsMode } from './lyricsOpen';
+import './songName.css';
 import { audioEngine } from '../audio/engine';
 import { isLrclibRef, lrclibById, searchLrclib, type LrclibRecord } from '../audio/lyrics';
 import { LYRIC_FONTS, useStudio, type LyricStyle, type LyricsOnBoards, type LyricsSync } from '../state/store';
-import { applyLrclibRecord, canAutoSync, canSyncLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, setLyricsAutoSync, shiftAllLyrics, stopSyncing, syncPastedLyrics } from '../state/tracks';
+import { applyLrclibRecord, canAutoSync, canSyncLyrics, editLyrics, forgetSavedLyrics, hasSavedLyrics, retryLyrics, saveLyrics, setLyricsAutoSync, shiftAllLyrics, stopSyncing, syncPastedLyrics } from '../state/tracks';
 import { LYRIC_FONT_NAME, previewFamily } from '../render/lyricFonts';
 import { Slider, Toggle } from './controls';
 
@@ -28,31 +31,45 @@ function syncLabel(p: NonNullable<LyricsSync>) {
   return 'Getting ready…';
 }
 
-type Mode = 'main' | 'paste' | 'search';
+/** the first words of a set of lyrics, to tell one from another by */
+const opening = (text: string) =>
+  text
+    .split(/\r?\n/)
+    .map((x) => x.replace(/\[[^\]]*\]|<[^>]*>/g, '').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' / ');
 
 /**
  * Lyrics beside the track name. Lyrics are found on their own (the file's tags, then LRCLIB). The
  * panel keeps to what matters: sync by listening (the one main action), the style and the font.
- * Searching, pasting, nudging and tap timing sit under More.
+ * Change swaps wrong lyrics for others (found again, pasted or corrected by hand); nudging and tap timing sit
+ * under More.
  */
 export function LyricsChip() {
   const status = useStudio((s) => s.lyricsStatus);
   const style = useStudio((s) => s.lyricStyle);
   const sync = useStudio((s) => s.lyricsSync);
-  const [open, setOpen] = useState(false);
-  const [wide, setWide] = useState(false);
+  const open = useLyricsOpen((s) => s.open);
+  const wide = useLyricsOpen((s) => s.mode !== 'main');
+  const setOpen = (v: boolean) => (v ? openLyrics() : closeLyrics());
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const close = (e: PointerEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
+      if (!box.current?.contains(e.target as Node)) closeLyrics();
     };
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
 
-  if (status === 'idle' && !sync) return null;
+  // (a song that went away while its lyrics were open)
+  const none = status === 'idle' && !sync;
+  useEffect(() => {
+    if (none) closeLyrics();
+  }, [none]);
+  if (none) return null;
 
   const canListen = canSyncLyrics();
   const label = sync
@@ -79,7 +96,7 @@ export function LyricsChip() {
       </button>
       {open && (
         <div className={`lyr-pop ${wide ? 'wide' : ''}`}>
-          <LyricsBody onClose={() => setOpen(false)} onMode={(m) => setWide(m === 'search')} />
+          <LyricsBody onClose={closeLyrics} />
         </div>
       )}
     </div>
@@ -108,7 +125,7 @@ export function LyricsPanel({ onClose }: { onClose: () => void }) {
 }
 
 /** what the lyrics popover holds: the lyrics found, sync, style and font, and More */
-function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mode) => void }) {
+function LyricsBody({ onClose }: { onClose: () => void }) {
   const status = useStudio((s) => s.lyricsStatus);
   const lyrics = useStudio((s) => s.lyrics);
   const note = useStudio((s) => s.lyricsNote);
@@ -119,15 +136,17 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
   const matched = useStudio((s) => s.lyricsMatched);
   const query = useStudio((s) => s.lyricsQuery);
   const autoSync = useStudio((s) => s.lyricsAutoSync);
-  const [mode, setModeState] = useState<Mode>('main');
+  const mode = useLyricsOpen((s) => s.mode);
+  const own = useStudio((s) => s.songName);
+  const credit = useStudio((s) => songCredit(s).title);
+  const creditArtist = useStudio((s) => songCredit(s).artist);
   const [more, setMore] = useState(false);
   const [text, setText] = useState('');
   const [offset, setOffset] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const setMode = (m: Mode) => {
-    setModeState(m);
-    onMode?.(m);
-  };
+  const setMode = (m: LyricsMode) => useLyricsOpen.setState({ mode: m });
+  // the panel opens on its first view next time
+  useEffect(() => () => useLyricsOpen.setState({ mode: 'main' }), []);
   const setOpen = (v: boolean) => {
     if (!v) onClose();
   };
@@ -153,10 +172,11 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
     setOpen(false);
     if (lyrics && words) void syncPastedLyrics(words, { source: lyrics.source, title: lyrics.title, artist: lyrics.artist });
   };
-  const startPaste = () => {
-    setText(words);
-    setMode('paste');
+  const startEdit = (from: string) => {
+    setText(from);
+    setMode('edit');
   };
+  const same = !!lyrics?.lines.length && text.split(/\r?\n/).filter((x) => x.trim()).length === lyrics.lines.filter((x) => x.text.trim()).length;
   const changeOffset = (v: number) => {
     shiftAllLyrics(v - offset);
     setOffset(v);
@@ -184,38 +204,74 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
                 Stop
               </button>
             </>
-          ) : mode === 'search' ? (
-            <LyricsSearch
-              initial={{ artist: lyrics?.artist ?? query.artist ?? '', title: lyrics?.title ?? query.title ?? '' }}
-              onBack={() => setMode('main')}
-              onPicked={() => setOpen(false)}
-            />
-          ) : mode === 'paste' ? (
+          ) : mode === 'change' ? (
             <>
-              <div className="lyr-h">Paste lyrics</div>
+              <LyricsSearch
+                initial={{ artist: own?.artist || creditArtist || query.artist || '', title: own?.title || credit || query.title || '' }}
+                now={lyrics ? opening(words) : ''}
+                onBack={() => setMode('main')}
+                onPicked={() => setOpen(false)}
+              />
+              <div className="lyr-others">
+                {words && canListen && (
+                  <button className="btn sm" onClick={() => startEdit(words)}>
+                    Fix the words
+                  </button>
+                )}
+                {canListen && (
+                  <button className="btn sm" onClick={() => startEdit('')}>
+                    Paste my own
+                  </button>
+                )}
+                {hasSavedLyrics() && (
+                  <button
+                    className="btn sm ghost"
+                    title="Drop the lyrics kept for this song and look again"
+                    onClick={() => {
+                      setMode('main');
+                      forgetSavedLyrics();
+                    }}
+                  >
+                    Start over
+                  </button>
+                )}
+              </div>
+            </>
+          ) : mode === 'edit' ? (
+            <>
+              <button className="lyr-back" onClick={() => setMode('change')}>
+                ← Back
+              </button>
+              <div className="lyr-h">{words ? 'Your lyrics' : 'Paste lyrics'}</div>
               <textarea className="txt lyr-paste" autoFocus placeholder={'One line per line, as it’s sung.'} value={text} onChange={(e) => setText(e.target.value)} />
               <div className="lyr-row">
                 <button
                   className="btn sm primary"
                   disabled={!text.trim()}
                   onClick={() => {
-                    setMode('main');
                     setOpen(false);
-                    void syncPastedLyrics(text);
+                    if (same) editLyrics(text);
+                    else void syncPastedLyrics(text);
                   }}
                 >
-                  Sync by listening
-                </button>
-                <button className="btn sm ghost" onClick={() => setMode('main')}>
-                  Cancel
+                  {same ? 'Save' : 'Sync by listening'}
                 </button>
               </div>
+              <p className="lyr-p">{same ? 'As many lines as before, so each keeps its time.' : 'Hum listens to the song to time these.'}</p>
             </>
           ) : (
             <>
-              <div className="lyr-top">
-                {who && <div className="lyr-h">{who}</div>}
-                <div className="lyr-status">{status1}</div>
+              <div className="lyr-card">
+                <div className="lyr-top">
+                  {who && <div className="lyr-h">{who}</div>}
+                  <div className="lyr-status">{status1}</div>
+                  {words && <p className="lyr-lines">{opening(words)}</p>}
+                </div>
+                {(status === 'found' || status === 'plain' || status === 'instrumental') && (
+                  <button className="btn sm lyr-change" title="These aren’t right: find others, paste your own or fix the words" onClick={() => setMode('change')}>
+                    Change
+                  </button>
+                )}
               </div>
 
               {(status === 'found' || status === 'plain') && canListen && (
@@ -224,7 +280,7 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
                 </button>
               )}
               {status === 'none' && (
-                <button className="btn primary lyr-main" onClick={() => setMode('search')}>
+                <button className="btn primary lyr-main" onClick={() => setMode('change')}>
                   Find lyrics
                 </button>
               )}
@@ -300,14 +356,6 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
                         Tap timing
                       </button>
                     )}
-                    <button className="btn sm" onClick={() => setMode('search')}>
-                      Search
-                    </button>
-                    {canListen && (
-                      <button className="btn sm" onClick={startPaste}>
-                        Paste
-                      </button>
-                    )}
                     {status === 'none' && (
                       <button
                         className="btn sm"
@@ -332,30 +380,6 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
                       </div>
                     </div>
                   )}
-                  {(status === 'found' || status === 'plain') &&
-                    (hasSavedLyrics() ? (
-                      <button
-                        className="btn sm ghost lyr-wrong"
-                        onClick={() => {
-                          setOpen(false);
-                          forgetSavedLyrics();
-                        }}
-                      >
-                        Forget my lyrics for this song
-                      </button>
-                    ) : (
-                      lyrics?.source !== 'pasted' && (
-                        <button
-                          className="btn sm ghost lyr-wrong"
-                          onClick={() => {
-                            useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: `Hidden: these were for “${who}”.`, lyricsMatched: null });
-                            setMode('search');
-                          }}
-                        >
-                          Wrong song?
-                        </button>
-                      )
-                    ))}
                 </div>
               )}
             </>
@@ -364,8 +388,11 @@ function LyricsBody({ onClose, onMode }: { onClose: () => void; onMode?: (m: Mod
   );
 }
 
-/** Artist + Song fields that search LRCLIB, or a lrclib.net link; click a result to use it */
-function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string; title: string }; onBack: () => void; onPicked: () => void }) {
+/**
+ * Lyrics to swap in: LRCLIB is asked at once for the song's own name, each result shows how it opens so the
+ * right one can be told at a glance, and the one in use is marked. A lrclib.net link works in the Song field.
+ */
+function LyricsSearch({ initial, now, onBack, onPicked }: { initial: { artist: string; title: string }; now: string; onBack: () => void; onPicked: () => void }) {
   const [artist, setArtist] = useState(initial.artist);
   const [title, setTitle] = useState(initial.title);
   const [busy, setBusy] = useState(false);
@@ -401,9 +428,21 @@ function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string
     setBusy(false);
   };
 
+  // the search is made as the view opens, so the choices are there without typing
+  const first = useRef(true);
+  useEffect(() => {
+    if (!first.current) return;
+    first.current = false;
+    if (initial.artist.trim() || initial.title.trim()) void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <>
-      <div className="lyr-h">Search lyrics</div>
+      <button className="lyr-back" onClick={onBack}>
+        ← Back
+      </button>
+      <div className="lyr-h">Which lyrics are right?</div>
       <form
         className="lyr-form"
         onSubmit={(e) => {
@@ -417,14 +456,11 @@ function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string
         </label>
         <label>
           <span>Song</span>
-          <input className="txt" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Song name, or a lrclib.net link" />
+          <input className="txt" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Song name, or a lrclib.net link" />
         </label>
         <div className="lyr-row">
           <button className="btn sm primary" type="submit" disabled={busy || (!artist.trim() && !title.trim())}>
             {busy ? 'Searching…' : 'Search'}
-          </button>
-          <button className="btn sm ghost" type="button" onClick={onBack}>
-            Back
           </button>
         </div>
       </form>
@@ -435,8 +471,10 @@ function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string
           {results.map((r) => {
             const timed = !!(r.syncedLyrics || r.lyricsfile);
             const diff = duration ? r.duration - duration : 0;
+            const start = opening(r.syncedLyrics || r.plainLyrics || '');
+            const inUse = !!start && start === now;
             return (
-              <button key={r.id} className="lyr-res" disabled={busy} onClick={() => void pick(r)}>
+              <button key={r.id} className={`lyr-res ${inUse ? 'now' : ''}`} disabled={busy} onClick={() => void pick(r)}>
                 <b>
                   {r.artistName} — {r.trackName}
                 </b>
@@ -444,7 +482,8 @@ function LyricsSearch({ initial, onBack, onPicked }: { initial: { artist: string
                   {[r.albumName, fmtLen(r.duration)].filter(Boolean).join(' · ')}
                   {Math.abs(diff) > 2 && <em> ({diff > 0 ? '+' : '−'}{fmtLen(Math.abs(diff))} vs this file)</em>}
                 </span>
-                <i className={`lyr-tag ${r.instrumental ? 'inst' : timed ? 'timed' : 'words'}`}>{r.instrumental ? 'instrumental' : timed ? 'timed' : 'words only'}</i>
+                {start && <span className="lyr-lines">{start}</span>}
+                <i className={`lyr-tag ${r.instrumental ? 'inst' : timed ? 'timed' : 'words'}`}>{inUse ? 'in use' : r.instrumental ? 'instrumental' : timed ? 'timed' : 'words only'}</i>
               </button>
             );
           })}
