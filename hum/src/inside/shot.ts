@@ -13,7 +13,8 @@ import { kindOf } from '../draw/kinds';
 import { clamp01, dice, since, smooth } from '../shot/time';
 import { DrawnInPlace, handSeat, seats, seatsAt, spotOf, type Drawn, type Seat, type SeatWhere } from './drawn';
 import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type HandPut, type Room } from './drawnIds';
-import { Forms, type FormSpec } from './forms';
+import type { FormId, FormWish } from './formIds';
+import { Forms } from './forms';
 import { spotAt } from './spot';
 import { noteSeat } from './seated';
 import { chunksOf, keepFor, place, standing, type Keep, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
@@ -67,7 +68,7 @@ export interface InsideSpec {
   /** a drawing that stands in this shot */
   drawn?: Drawn | null;
   /** a form that stands in this shot, or is pulled out of it (forms.ts) */
-  form?: FormSpec | null;
+  form?: FormWish | null;
 }
 
 interface WordMesh {
@@ -446,14 +447,35 @@ export class InsideShot {
     return [new THREE.Color(first), new THREE.Color(second)];
   }
 
+  /** the first of the forms the shot asks for that its picture has room for (one the person picked stands anyhow) */
   private addForm() {
     const s = this.spec;
-    if (!s.form) return;
-    // a form is the one thing in its shot: nothing made up beside it
-    this.extras.clear();
+    const wish = s.form;
+    if (!wish || !s.scene || s.drawn) return;
     const at = (t: number) => spotAt(s.scene, this.lensAt(t), s.clipAt(t), this.crop, this.cuts2.near * this.cuts2.near * 0.75);
-    this.form = new Forms(s.form, { scene: s.scene, span: this.span, layout: s.layout, start: s.start, end: s.end, beat: s.beat, kicks: s.kicks, snares: s.snares, aspect: s.aspect, nearCut: this.cuts2.near, lens: this.lensAt(s.start), spot: at(s.start + (s.end - s.start) * 0.45), late: at(s.end - 0.05), who: (t) => at(t).mask, dim: 1 - clamp01((s.cuts[1] - 0.28) / 0.14) }, (v, f, u, e) => this.material(v, f, u, e));
-    this.place.add(this.form.group);
+    const spot = at(s.start + (s.end - s.start) * 0.45);
+    const late = at(s.end - 0.05);
+    const l = this.lensAt(s.start);
+    const fits = (id: FormId) => {
+      if (id === 'rings') return !!spot.body && Math.abs((spot.body.x0 + spot.body.x1) / 2 - 0.5) < 0.36;
+      if (id === 'frames') return spot.open > 7 && s.scene!.sure.horizon > 0.3 && l.vp.x > 0.1 && l.vp.x < 0.9 && l.vp.y > 0.1 && l.vp.y < 0.85;
+      return s.scene!.ground > 0.06 && s.scene!.sure.horizon > 0.3;
+    };
+    for (const id of wish.ids) {
+      if (!wish.asked && !fits(id)) continue;
+      const form = new Forms({ form: id, level: wish.level }, { scene: s.scene, span: this.span, layout: s.layout, start: s.start, end: s.end, beat: s.beat, kicks: s.kicks, aspect: s.aspect, lens: l, spot, late, dim: 1 - clamp01((s.cuts[1] - 0.28) / 0.14), words: this.standing.length > 0, travel: this.lensAt(s.end).ahead }, (v, f, u, e) => this.material(v, f, u, e));
+      if (!wish.asked && form.count < 3 && id === 'blocks') {
+        form.dispose();
+        continue;
+      }
+      // a form is the one thing in its shot: nothing made up beside it
+      this.extras.clear();
+      this.form = form;
+      this.place.add(form.group);
+      // what is said is read over it, not cut up by it (people still pass in front of both)
+      for (const st of this.standing) st.group.traverse((o) => o instanceof THREE.Mesh && ((o.material as THREE.Material).depthTest = false));
+      return;
+    }
   }
 
   private addRays() {

@@ -2,8 +2,7 @@
  * What the forms of an inside shot (forms.ts) are drawn with. Solid ones take their light from the clip:
  * the side of the frame that is bright is the side they are lit from, what they face they pick up, and far
  * off they fade into what is round them. Where the picture is painted in flat colours they are too, in
- * three tones. Ones lifted from the picture are marched through per pixel: the shape of the people, or the
- * marks on the ground, pulled into the third dimension.
+ * three tones. The crossing is marched through per pixel: the light marks of the ground, pulled up.
  */
 export const FORM_LIGHT = /* glsl */ `
 vec3 around(vec2 at, float r) {
@@ -29,15 +28,9 @@ export const FORM_VERT = /* glsl */ `
 varying vec3 vN;
 varying vec3 vP;
 varying float vW;
-uniform float uPluck, uTime;
 void main() {
   vec3 p = position;
   vec4 w = modelMatrix * vec4(p, 1.0);
-  // a string plucked: it swings most in its middle
-  if (uPluck > 0.0) {
-    float m = sin(clamp(uv.y, 0.0, 1.0) * 3.14159);
-    w.x += m * uPluck * sin(uTime * 34.0 + w.z * 3.1 + float(int(w.x * 7.0)));
-  }
   vP = w.xyz;
   vN = normalize(mat3(modelMatrix) * normal);
   gl_Position = projectionMatrix * viewMatrix * w;
@@ -103,69 +96,6 @@ void main() {
   float a = uAlpha * (1.0 - smoothstep(me * 1.22, me * 1.45, n)) * smoothstep(me * 0.5, me * 0.72, n);
   if (a < 0.01) discard;
   gl_FragColor = vec4(uInk * 0.0, a);
-}
-`;
-
-/** what stands in the shot, pulled back toward the vanishing point as a solid */
-export const EXTRUDE_FRAG = (CLIP: string) => /* glsl */ `
-precision highp float;
-varying vec2 vUv;
-uniform sampler2D tNear;
-uniform vec2 uRes;
-uniform float uZScale;
-${CLIP}
-uniform vec2 uVp, uDrift;
-uniform sampler2D tWho;
-uniform vec3 uGround, uA, uB, uInk;
-uniform float uCut, uDepth, uBands, uPhase, uAlpha, uCel, uTwist;
-const int N = 110;
-float standing(vec2 f) {
-  if (f.x < 0.0 || f.x > 1.0 || f.y < 0.0 || f.y > 1.0 || texture2D(tWho, f).r < 0.4) return 0.0;
-  float n = texture2D(tNear, f).r;
-  float g = max(0.0, uGround.x * f.x + uGround.y * f.y + uGround.z);
-  return (n > uCut && n > g * 1.14) ? n : 0.0;
-}
-vec2 back(float q) {
-  float s = 1.0 + uDepth * q;
-  vec2 asp = vec2(uRes.x / uRes.y, 1.0);
-  float c = cos(uTwist * q), k = sin(uTwist * q);
-  vec2 d = (vUv - uDrift * q - uVp) * asp;
-  return uVp + mat2(c, k, -k, c) * d / asp * s;
-}
-void main() {
-  float here = texture2D(tNear, vUv).r;
-  if (standing(vUv) > 0.0) discard;
-  float hit = 0.0, k = 0.0, was = 0.0;
-  for (int i = 1; i <= N; i++) {
-    float q = float(i) / float(N);
-    q = q * (0.35 + 0.65 * q);
-    float n = standing(back(q));
-    float s = 1.0 + uDepth * q;
-    bool on = n > 0.0 && here < n / s * 1.2 + 0.003;
-    if (on && uBands > 0.5 && fract(q * uBands - uPhase) > 0.3) on = false;
-    if (on) { hit = 1.0; k = q; break; }
-    was = q;
-  }
-  if (hit < 0.5) discard;
-  for (int i = 0; i < 6; i++) {
-    float m = (was + k) * 0.5;
-    if (standing(back(m)) > 0.0) k = m; else was = m;
-  }
-  vec2 at = back(k);
-  vec2 e = 5.0 / uRes;
-  vec2 g = vec2(standing(at + vec2(e.x, 0.0)) - standing(at - vec2(e.x, 0.0)), standing(at + vec2(0.0, e.y)) - standing(at - vec2(0.0, e.y)));
-  vec2 nrm = length(g) > 1e-4 ? -normalize(g) : vec2(0.0, 0.4);
-  float lit = 0.5 + 0.5 * dot(nrm, normalize(vec2(-0.5, 0.85)));
-  // the side of it carries the colour at its edge, pulled along
-  vec3 own = texture2D(tFootage, clipUv(mix(at, uVp, 0.0) - nrm * 6.0 / uRes)).rgb;
-  vec3 far = texture2D(tFootage, clipUv(vUv)).rgb;
-  vec3 nat = (own * 0.75 + uA * 0.22) * mix(0.45, 1.35, lit);
-  nat = mix(nat, far, smoothstep(0.25, 1.0, k) * 0.75);
-  vec3 cel = mix(uA, uB, smoothstep(0.0, 0.8, k));
-  cel = lit > 0.62 ? cel : mix(cel, uInk, lit > 0.34 ? 0.3 : 0.6);
-  vec3 c = mix(nat, cel, uCel);
-  float a = uAlpha * (1.0 - smoothstep(0.8, 1.0, k) * (1.0 - uCel));
-  gl_FragColor = vec4(c * a, a);
 }
 `;
 

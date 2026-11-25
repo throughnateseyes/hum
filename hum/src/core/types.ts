@@ -425,6 +425,8 @@ export interface PartShot {
   inks?: string;
   /** Inside only: the words that stand in the picture when nothing is sung there (a few, in order) */
   say?: string;
+  /** Inside only: the 3D form that stands in the picture, 'none' for none (missing: by the song; inside/formIds.ts) */
+  form?: string;
   /** Inside only: a drawing that stands in the picture (null: none here, over the director's) */
   drawn?: DrawnShot | null;
   /** a kept part's place when it was kept (its number, and the number of its first shot): what is arranged by place stays as it was */

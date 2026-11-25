@@ -328,7 +328,8 @@ export function cleanSettings(j: any): Partial<StudioState> {
     lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
     oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
     drawOverlay: typeof j.drawOverlay === 'boolean' ? j.drawOverlay : undefined,
-    drawInScene: typeof j.drawInScene === 'boolean' ? j.drawInScene : undefined,
+    // (kept under a new name when it became off unless asked for)
+    drawInScene: typeof j.drawAuto === 'boolean' ? j.drawAuto : undefined,
   };
 }
 
@@ -385,7 +386,7 @@ export function settingsOf(s: StudioState) {
     finishPicked: s.finishPicked,
     oneTap: s.oneTap,
     drawOverlay: s.drawOverlay,
-    drawInScene: s.drawInScene,
+    drawAuto: s.drawInScene,
   };
 }
 
@@ -553,7 +554,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   songName: null,
   placed: NOTHING,
   drawOverlay: persisted.drawOverlay ?? true,
-  drawInScene: persisted.drawInScene ?? true,
+  drawInScene: persisted.drawInScene ?? false,
   tweaks: loadTweaks(''),
   startup: null,
   needsTap: false,

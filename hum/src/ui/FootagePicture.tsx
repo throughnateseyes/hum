@@ -25,6 +25,7 @@
 import { useState } from 'react';
 import type { ParamDef, TrackAnalysis } from '../core/types';
 import { getScene } from '../scenes';
+import { FORM_IDS, FORMS, isForm } from '../inside/formIds';
 import { offIn, styleOn, treatmentOn } from '../shot/graphics';
 import { activeFinish } from '../state/direction';
 import { inked } from '../state/inks';
@@ -227,6 +228,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const treatNote = hover !== null ? (treats.find((o) => o.v === hover)?.tip ?? '') : ownTreat === null ? (planned ? 'As planned.' : 'Follows the look.') : ownTreat === MIXED ? 'Different in each part.' : `Set for ${t.scope}.`;
 
   const inks = common(shots.map((r) => r?.inks ?? null));
+  const form = common(shots.map((r) => r?.form ?? null));
   const graphics = common(shots.map((r) => r?.graphics ?? null));
 
   // a style or treatment picked for these shots that their graphics don't allow
@@ -318,6 +320,28 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
             label={`Graphics over ${t.scope}`}
             onChange={(v) => t.set({ graphics: v === 'on' || v === 'off' ? v : undefined })}
           />
+
+          {(style === 'inside' || style === 'auto' || style === MIXED) && (
+            <>
+              <div className="pp-sub-h pp-gap">
+                <span>3D form</span>
+                <span>{form === MIXED ? 'Mixed' : form === 'none' ? 'None here' : isForm(form) ? `${FORMS[form].label} here` : 'By the song'}</span>
+              </div>
+              <Seg
+                value={form === MIXED ? MIXED : (form ?? 'song')}
+                options={[
+                  { v: 'song', label: 'By the song', tip: 'Hum puts one in the big moments, where the picture has room' },
+                  { v: 'none', label: 'None', tip: 'No form in this shot' },
+                  ...FORM_IDS.map((id) => ({ v: id as string, label: FORMS[id].label, tip: FORMS[id].tip })),
+                ]}
+                cols={3}
+                disabled={busy || graphics === 'off'}
+                label={`3D form in ${t.scope}`}
+                onChange={(v) => t.set({ form: v === 'song' ? undefined : v })}
+              />
+              {style !== 'inside' && isForm(form) && <p className="pp-note pp-hint">Forms stand in Inside shots. Pick the Inside style to see it.</p>}
+            </>
+          )}
 
           {inked(finish) && (
             <div className="pp-fold">

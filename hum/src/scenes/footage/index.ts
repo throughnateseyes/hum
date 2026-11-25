@@ -57,6 +57,7 @@ import { songCredit } from '../../state/songName';
 import { MAX_LETTERS } from '../../shot/type';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
 import { wordsIn } from '../../inside/lines';
+import { formIn } from '../../state/forms';
 import { drawnIn } from '../../inside/cast';
 import { drawnKey } from '../../inside/drawnIds';
 import { readingHeld, readingOf } from '../../inside/readings';
@@ -639,7 +640,7 @@ class FootageLook implements SceneInstance {
       seq = drawnWith(seq, off);
       const { partStart } = seq;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inks: (pal, at) => graphicInks(at, pal), inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - partStart) < 0.05), drawn: drawnIn } });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inks: (pal, at) => graphicInks(at, pal), inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - partStart) < 0.05), drawn: drawnIn, form: (shot, clip) => formIn(shot, a, this.deckIds[this.deck.indexOf(clip)] ?? null) } });
       for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];

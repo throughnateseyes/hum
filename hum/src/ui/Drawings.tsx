@@ -430,8 +430,8 @@ function Panel() {
         <DrawnHere thumb={(d) => <DrawThumb d={d} replay={0} />} />
         <Shelf list={here} jobs={jobs} />
         <SwitchRow
-          label="Draw into the scene"
-          note="When you make a video from your footage, Claude picks a few drawings with a job in the story, uses yours where they fit, and stands them in the shots"
+          label="Claude adds drawings"
+          note="When you make a video from your footage, Claude also draws a few things for the story and stands them in the shots. Off, only the ones you ask for are drawn"
           on={inScene}
           onChange={(v) => useStudio.getState().set({ drawInScene: v })}
         />

@@ -43,6 +43,7 @@ import { hasRange, noteInside, type Reading } from '../inside/reading';
 import { InsideShot } from '../inside/shot';
 import type { SungWord } from '../inside/layout';
 import type { Drawn } from '../inside/drawn';
+import type { FormWish } from '../inside/formIds';
 import { drawnKey, type Room } from '../inside/drawnIds';
 
 export interface StageClip {
@@ -84,7 +85,7 @@ export interface StageOptions {
    *  shot (replaying seconds of a look to catch up would stall the cut) */
   live?: boolean;
   /** Inside: the colours of the whole video, and the words that stand in a shot */
-  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean }; drawn?: (shot: Shot) => Drawn | null };
+  inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean }; drawn?: (shot: Shot) => Drawn | null; form?: (shot: Shot, clip: StageClip) => FormWish | null };
   /** the inks a drawn or printed finish prints this clip's shots in, at song time t (null: the clip's own scheme) */
   inks?: (p: ShotPalette, t: number) => InkSet | null;
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
@@ -480,7 +481,8 @@ export class ShotStage {
     const [from, to] = this.clipRange(rig);
     const read = hasRange(scene, from, to);
     const drawn = this.insideOf?.drawn?.(shot) ?? null;
-    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}${hasEdges(scene, from, to) ? '+' : ''}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}|${drawn ? `${drawn.asset.id}:${drawnKey(drawn)}` : ''}`;
+    const form = this.insideOf?.form?.(shot, clip) ?? null;
+    const key = `${read ? `${scene!.id}:${scene!.zScale.toFixed(3)}` : '-'}${hasEdges(scene, from, to) ? '+' : ''}|${focus.x.toFixed(3)}|${focus.y.toFixed(3)}|${zoom.toFixed(3)}|${drawn ? `${drawn.asset.id}:${drawnKey(drawn)}` : ''}|${form ? `${form.ids.join()}:${form.level.toFixed(2)}:${form.asked}` : ''}`;
     if (rig.inside?.key === key) return rig.inside.shot;
     rig.inside?.shot.dispose();
     const seq = this.seq!;
@@ -514,6 +516,7 @@ export class ShotStage {
       flip: curve.flip,
       growAt: (t) => this.pictureMotion(rig, t, focus.x, zoom).grow,
       drawn,
+      form,
     });
     rig.inside = { shot: made, key };
     return made;
