@@ -55,7 +55,9 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   straight away and never waits on the network; meanwhile lyrics are looked up and Claude makes a
   take of its own in the background (when the director is reachable and allowed, without asking
   for an access code). Claude's plan takes over at the next part change (two seconds early, so the
-  transition lands on the line), unless you've already changed the video yourself; lyrics that
+  transition lands on the line), unless you've already changed the video yourself. Pressing **Make a
+  video** before it arrives drops it, since that asks for a plan of its own (if you cancel that one,
+  it is asked for again). Lyrics that
   turn up later are timed in as they arrive. A song Claude has planned before plays its saved plan
   at once. The tap or drop that loaded the song is what lets it play; if the browser still won't
   start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Video
@@ -562,6 +564,8 @@ start-up delay, measured once per session, so sound and picture line up to the s
   look almost alike. The Director gets one line per family with its fit, pairs, clashes and takes
   (`compactLooks` in `server/planPrompt.ts`; the format is explained once in the cached system
   prompt), and the shortlist sends 30 families with up to 3 takes each (`src/director/shortlist.ts`).
+  When every section is footage (the mix is *Only*, or the story gave them all to it) and nothing was
+  typed, just the footage looks go, with the boards that may open a section.
   At 300 looks that's 37% fewer characters than one line per look.
 - **Shared engines for scenes:** `tnoise` / `tfbm` read a shared noise texture (several times cheaper
   than computed noise; `src/core/noise.ts`), and `Flock` (`src/core/flock.ts`) steers a few thousand
@@ -638,6 +642,9 @@ can't be reached, the counts drop to memory for that request instead of failing.
 as `[hum-director] plan on claude-sonnet-5-5 for sam: $0.0213 (today $0.53) · …tokens…` in the
 function logs. Your Claude
 subscription in `npm run dev` skips the limits and the access codes (it only answers your own computer).
+There, each call is logged in the dev server as `[hum-director] shots on sonnet (low): in …; out …`,
+which also says when an answer didn't fit its form and was written again. Cancelling in the browser, or
+closing the page, stops Claude working on the call.
 
 In the app, an AI action that comes back needing a code opens a small box (`src/ui/AccessGate.tsx`,
 logic in `src/director/access.ts`): the code is checked with the free `mode: "check"` request (no
@@ -655,6 +662,13 @@ prompt cache because someone asked within the last 5 minutes):
 | Describe a feeling → look | Sonnet 5.5 | ~14,400 (13,000 cacheable) / ~800 | ≈ $0.044 cold, $0.011 warm |
 | Tweak the look on screen ("warmer") | Haiku 5.5 | ≤ 14,400 / ~800 | ≈ $0.002 |
 | A new GLSL scene | Sonnet 5.5 | ~7,000 (mostly cacheable) / up to 16,000 | ≈ $0.05–0.10 |
+
+A video directed from your own footage is a run of smaller calls (`server/steps`). For a one-minute song
+with five clips and four drawings, estimated from a recorded run without Claude's thinking: about 30,000
+Sonnet tokens in and 2,600 out for the story, the looks, the shots, the drawings' places and the checks;
+12,000 Haiku tokens in for watching and looking (watching is kept, so only the first time); and 15,000
+Opus tokens in and 8,500 out for the drawings, which is most of the cost. The stills sent to be checked
+go on sheets no bigger than the stills that are on them.
 
 Which model does what (all optional, `server/models.ts`):
 

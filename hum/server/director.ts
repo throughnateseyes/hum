@@ -49,6 +49,8 @@ export interface LocalRequest {
   tier?: Tier;
   /** JPEGs that go before the prompt */
   images?: StepImage[];
+  /** the browser stopped waiting: Claude stops working on it too */
+  signal?: AbortSignal;
 }
 export type LocalResult = { ok: true; output: unknown } | { ok: false; status: number; error: string; note: string };
 export type LocalBackend = (req: LocalRequest) => Promise<LocalResult>;

@@ -166,7 +166,7 @@ function readMedia(raw: unknown): { lines: string[]; seconds: Map<string, number
   for (const m of list(raw, MAX_MEDIA)) {
     if (!isObj(m)) continue;
     const k = key(m.key);
-    const subject = line(m.subject, 140);
+    const subject = line(m.subject, 140).replace(/\.+$/, '');
     if (!k || seconds.has(k) || !subject) continue;
     const clip = m.kind === 'clip';
     const len = clip ? num(m.seconds, 0.1, 36000, 1) : 0;
@@ -190,7 +190,9 @@ function describeSong(body: Obj): string {
   const lines: string[] = [];
   const summary = line(t.summary, 900);
   if (summary) lines.push(summary);
-  if (typeof t.bpm === 'number') lines.push(`${Math.round(num(t.bpm, 30, 300, 120))} beats a minute.`);
+  const bpm = typeof t.bpm === 'number' ? Math.round(num(t.bpm, 30, 300, 120)) : 0;
+  // the summary usually says it
+  if (bpm && !summary.includes(`${bpm} BPM`)) lines.push(`${bpm} beats a minute.`);
   const genre = line(c.genre, 40);
   if (genre) lines.push(`Genre: ${genre}${line(c.mood, 30) ? `, ${line(c.mood, 30)}` : ''}.`);
   const tags = list(t.tags, 14).map((x) => line(x, 24)).filter(Boolean).join(', ');
@@ -333,7 +335,8 @@ function readChoices(raw: unknown): { ids: string[]; lines: string } {
     if (!isObj(x) || typeof x.id !== 'string' || !/^[a-z][a-z0-9-]{0,23}$/.test(x.id) || ids.includes(x.id)) continue;
     ids.push(x.id);
     const serves = list(x.serves, 12).filter((m) => (MOMENT_IDS as readonly unknown[]).includes(m));
-    lines.push(`- ${x.id}: ${line(x.line, 160)}${serves.length ? ` (best for ${serves.join(', ')})` : ''}`);
+    // good for every moment says nothing
+    lines.push(`- ${x.id}: ${line(x.line, 160)}${serves.length && new Set(serves).size < MOMENT_IDS.length ? ` (best for ${serves.join(', ')})` : ''}`);
   }
   return { ids, lines: lines.join('\n') };
 }
@@ -395,12 +398,15 @@ interface Parts {
   /** the parts an answer may change, and how long each is */
   open: Map<number, number>;
   words: Set<number>;
+  /** any of them says what it shows now */
+  shown: boolean;
 }
 
 function readParts(raw: unknown): Parts {
   const lines: string[] = [];
   const open = new Map<number, number>();
   const words = new Set<number>();
+  let shown = false;
   for (const x of list(raw, MAX_PARTS)) {
     if (!isObj(x) || typeof x.i !== 'number' || !Number.isInteger(x.i) || x.i < 0 || x.i > 400 || open.has(x.i)) continue;
     const len = num(x.seconds, 0.05, 600, 1);
@@ -409,12 +415,16 @@ function readParts(raw: unknown): Parts {
     const sung = line(x.words, 120);
     if (sung) words.add(x.i);
     const now = isObj(x.now) ? describeShot(x.now) : '';
+    shown ||= !!now;
     lines.push(
       `part ${x.i}: section ${Math.round(num(x.section, 0, 99, 0))}, ${round(len, 10)} s, energy ${round(num(x.energy, 0, 1, 0.5))}, ${kind}${line(x.look, 60) ? ` (${line(x.look, 60)})` : ''}${x.lands === true ? ', lands on a hit' : ''}${x.leads === true ? ', ends on a drop' : ''}${now ? `, now: ${now}` : ''}${line(x.felt, 180) ? `, ${line(x.felt, 180)}` : ''}${sung ? `, words: "${sung}"` : ''}`,
     );
   }
-  return { lines, open, words };
+  return { lines, open, words, shown };
 }
+
+/** how the parts are headed: what a `now` leaves out is said here once */
+const partsHead = (p: Parts) => (p.shown ? 'Parts (now: what it shows, with treatment none and motion play unless another is named, and where it looks, from the left and the top):' : 'Parts:');
 
 /** a shot as the app says it plays now, in a few words */
 function describeShot(x: Obj): string {
@@ -424,11 +434,11 @@ function describeShot(x: Obj): string {
     typeof x.from === 'number' ? `from ${round(num(x.from, 0, 36000, 0), 10)}s` : '',
     line(x.moment, 12),
     line(x.style, 24),
-    line(x.treatment, 24),
-    line(x.motion, 24),
+    x.treatment === 'none' ? '' : line(x.treatment, 24),
+    x.motion === 'play' ? '' : line(x.motion, 24),
     line(x.say, 28) ? `says "${line(x.say, 28)}"` : '',
     typeof x.zoom === 'number' ? `zoom ${round(num(x.zoom, 1, 3, 1), 10)}` : '',
-    typeof x.focusX === 'number' ? `focus ${round(num(x.focusX, 0, 1, 0.5))},${round(num(x.focusY, 0, 1, 0.5))} from top left` : '',
+    typeof x.focusX === 'number' ? `focus ${round(num(x.focusX, 0, 1, 0.5))},${round(num(x.focusY, 0, 1, 0.5))}` : '',
   ];
   return bits.filter(Boolean).join(' ');
 }
@@ -474,7 +484,7 @@ function readCut(body: Obj) {
   const sections = list(st.sections, MAX_SECTIONS)
     .map((x, i) =>
       isObj(x) && (MOMENT_IDS as readonly unknown[]).includes(x.moment)
-        ? `section ${i}: ${line(x.label, 12)} ${String(x.moment)}${list(x.media, 3).map(key).filter(Boolean).length ? `, pictures ${list(x.media, 3).map(key).filter(Boolean).join(' ')}` : ''}${line(x.note, 140) ? `. ${line(x.note, 140)}` : ''}`
+        ? `section ${i}: ${line(x.label, 12) ? `${line(x.label, 12)} ` : ''}${String(x.moment)}${list(x.media, 3).map(key).filter(Boolean).length ? `, pictures ${list(x.media, 3).map(key).filter(Boolean).join(' ')}` : ''}${line(x.note, 140) ? `. ${line(x.note, 140)}` : ''}`
         : '',
     )
     .filter(Boolean);
@@ -488,7 +498,7 @@ function readCut(body: Obj) {
     `Treatments (the picture itself):\n${treatments.lines}`,
     `Motions (clips only):\n${motions.lines}`,
     `The person's media:\n${media.lines.join('\n')}`,
-    `Parts:\n${parts.lines.join('\n')}`,
+    `${partsHead(parts)}\n${parts.lines.join('\n')}`,
   ].filter(Boolean);
   return { media, parts, text: text.join('\n\n'), allowed: { open: parts.open, words: parts.words, media: media.seconds, styles: styles.ids, treatments: treatments.ids, motions: motions.ids } };
 }
@@ -587,4 +597,4 @@ const review: Step = {
 export const FOOTAGE_STEPS: Record<string, Step> = { watch, story, shots, review };
 
 // the art steps read the same song, media and parts (art.ts)
-export { DATA_RULE, describeSong, readMedia, readParts, wishLine };
+export { DATA_RULE, describeSong, partsHead, readMedia, readParts, wishLine };

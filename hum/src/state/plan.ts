@@ -1393,6 +1393,8 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
   const footage = mediaReady();
   const mix = footage ? useStudio.getState().mix : 'most';
   const inWorld = (p: Preset) => inMood(p, mood) || (playsClips(p) && footage);
+  // cost: when every section is footage, the looks it could not use stay home (boards may open a section)
+  const allFootage = footage && !wish.trim() && (mix === 'only' || (mix === 'most' && !!opts.story?.sections.every((x) => x.footage)));
   // cost: the looks that suit this song (the full list when there's a wish), see shortlist.ts
   // cost: the families that suit this song (all of them when there's a wish), each family on one
   // compressed line with its takes and its fit (see shortlist.ts and server/planPrompt.ts)
@@ -1406,7 +1408,7 @@ export async function requestVideoPlan(a: TrackAnalysis, lyr: Lyrics | null, off
         keep: [...(taste ? [...taste.liked.map((x) => x.id), ...taste.avoid] : []), ...(footage ? planLooks().filter(playsClips).map((p) => p.id) : [])],
         categoryOf: (p) => getScene(p.sceneId)?.category ?? '',
       },
-    ),
+    ).filter((p) => !allFootage || playsClips(p) || (mix !== 'only' && getScene(p.sceneId)?.category === 'board')),
     a,
   );
   let plan: VideoPlan = offline;

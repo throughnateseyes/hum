@@ -222,10 +222,10 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
       }
     };
 
+    const shown = parts.filter((i) => run.seqs[i]);
     let drawn = 0;
-    for (const i of parts) {
-      const seq = run.seqs[i];
-      if (!seq) continue;
+    for (const i of shown) {
+      const seq = run.seqs[i]!;
       const t = seq.start + (seq.end - seq.start) * AT;
       const shot = seq.shots.find((x) => t < x.end) ?? seq.shots[seq.shots.length - 1];
       const here = [...deck];
@@ -244,9 +244,12 @@ export async function stillSheets(cut: Cut, parts: number[], signal: AbortSignal
       stage.draw(t, focus, null, own?.zoom ?? 1);
       const k = drawn % PER_SHEET;
       if (k === 0) {
+        // no bigger than the stills on it: an empty cell costs as much to look at as a full one
+        const on = Math.min(PER_SHEET, shown.length - drawn);
+        const cols = Math.min(COLS, on);
         const c = document.createElement('canvas');
-        c.width = w * COLS + 4 * (COLS - 1);
-        c.height = (h + 4) * Math.ceil(PER_SHEET / COLS);
+        c.width = w * cols + 4 * (cols - 1);
+        c.height = (h + 4) * Math.ceil(on / COLS) - 4;
         sheets.push(c);
       }
       const g = sheets[sheets.length - 1].getContext('2d')!;
