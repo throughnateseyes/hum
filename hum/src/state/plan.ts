@@ -91,6 +91,8 @@ export interface VideoPlan {
    * the planner's plan, by time; dealt to the parts as `shots` when the plan is flattened (flatPlan.ts).
    */
   cues?: ShotCue[];
+  /** the cues are Hum's own, worked out at the Pace it was made at: a part they don't fit is dealt afresh */
+  dealt?: boolean;
   shots?: (PartShot | null)[];
   /** the colours footage's Inside shots are painted in, one set for the whole video (src/inside/palettes.ts); missing on plans made before it */
   paint?: string;
@@ -1199,7 +1201,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     // a video saved before Claude had watched the footage is made again, from it
     // (nor does a video made at another mix come back when the mix was changed since)
-    if (saved && (!directed || saved.cues || saved.flat?.src.cues) && (!mediaReady() || (saved.mix ?? 'most') === s.mix)) {
+    if (saved && (!directed || (saved.cues && !saved.dealt) || (saved.flat?.src.cues && !saved.flat.src.dealt)) && (!mediaReady() || (saved.mix ?? 'most') === s.mix)) {
       void startPlan(saved, a, `Your saved video for this song (no new request). Remake video asks Claude for a fresh take. ${saved.note}`.trim(), { restore: true });
       const on = useStudio.getState();
       if (on.plan && on.analysis) watchPlan(cacheKey, on.plan, on.analysis);
@@ -1218,7 +1220,20 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
     end = made.end;
     check = made.check;
     draw = made.draw;
-  } else asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
+  } else {
+    asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
+    // clips nobody asked Claude about are still landed on the song (in this browser)
+    if (clipCount()) {
+      const d = await import('../director/footageDirector');
+      const run = d.beginMake();
+      try {
+        asked = { ...asked, plan: await d.timeHere(withBase(asked.plan, a), a, { keep: opts.keepEdits === false ? null : (useStudio.getState().plan ?? prev), lyrics: s.lyrics }, run) };
+      } catch {
+        // stopped: the video goes on with its clips as they are dealt
+      }
+      run.end();
+    }
+  }
   const reason = asked.reason;
   const plan = withBase(asked.plan, a);
   // the song may have changed while Claude was thinking
@@ -1270,7 +1285,8 @@ async function directVideo(
     const lyrics = useStudio.getState().lyrics;
     const { story, closed } = await d.findStory(a, lyrics, o.wish, run);
     const offline = freshLocalPlan(a, o.mood?.id);
-    if (closed) return { plan: await offlineVideoPlan(a, lyrics, offline), reason: '', end: run.end, check: null };
+    const byHum = async (p: VideoPlan) => d.timeHere(p, a, { keep: o.keepEdits === false ? null : (useStudio.getState().plan ?? prev), lyrics }, run);
+    if (closed) return { plan: await byHum(withBase(await offlineVideoPlan(a, lyrics, offline), a)), reason: '', end: run.end, check: null };
     run.say('Choosing looks');
     const asked = await requestVideoPlan(a, lyrics, offline, {
       wish: o.wish,
@@ -1302,7 +1318,7 @@ async function directVideo(
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
     const look = art;
     return {
-      plan,
+      plan: chosen ? plan : await byHum(plan),
       reason: asked.reason,
       end: run.end,
       check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null,

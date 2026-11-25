@@ -71,7 +71,20 @@ export interface Shot {
   say?: string;
   /** Inside: a drawing that stands in the picture */
   drawn?: DrawnShot;
+  /** something in the clip lands on the song here (src/timing): the song second, the clip second, and what the speed does round it */
+  hit?: { at: number; clip: number; ramp: RampId };
 }
+
+/**
+ * What the speed does round something that lands:
+ *   land    rushes up to it, all but stops on it, and lets go again
+ *   sink    eases down into it and hangs there
+ *   burst   hangs back, and bursts off it
+ *   ride    nothing: the shot runs as its moment says, and it lands all the same
+ */
+export type RampId = 'land' | 'sink' | 'burst' | 'ride';
+export const RAMP_IDS: readonly RampId[] = ['land', 'sink', 'burst', 'ride'];
+export const isRamp = (v: unknown): v is RampId => RAMP_IDS.includes(v as RampId);
 
 export interface Sequence {
   start: number;
@@ -299,7 +312,30 @@ export interface ShotCurve {
   alt(t: number): number;
 }
 
+/** the speed `s` a shot would run at, bent by what lands at `h.at` */
+function ramped(s: number, t: number, h: NonNullable<Shot['hit']>, beat: number): number {
+  const d = (t - h.at) / beat;
+  if (h.ramp === 'ride' || d < -4 || d > 6) return s;
+  if (h.ramp === 'land') {
+    if (d < 0) return s + (Math.max(2.3, Math.min(3.4, s * 1.9)) - s) * easeInCubic(clamp01(1 + d / 2));
+    return Math.max(0.1, s * (0.16 + 0.84 * smooth(0.9, 2.6, d)));
+  }
+  if (h.ramp === 'sink') {
+    const down = d < 0 ? smooth(-2, 0, d) : d < 0.5 ? 1 : Math.exp(-(d - 0.5) / 1.6);
+    return s - (s - Math.min(s, Math.max(0.14, s * 0.3))) * down;
+  }
+  if (d < 0) return s - (s - Math.min(s, Math.max(0.12, s * 0.28))) * smooth(-2.4, -0.6, d);
+  return s + 2.3 * Math.exp(-d / 1.5);
+}
+
 function speedOf(shot: Shot, seq: Sequence, freeze: number) {
+  const s = plainSpeedOf(shot, seq, freeze);
+  const h = shot.hit;
+  if (!h) return s;
+  return (t: number): number => (shot.arrive === 'hit' && t < shot.start + freeze ? 0 : ramped(s(t), t, h, seq.beat));
+}
+
+function plainSpeedOf(shot: Shot, seq: Sequence, freeze: number) {
   const { beat, kicks } = seq;
   return (t: number): number => {
     if (shot.kind !== 'footage') return 0.5;
@@ -344,6 +380,14 @@ function tableOf(shot: Shot, seq: Sequence): Table {
   const sum = new Float32Array(n + 1);
   for (let i = 0; i < n; i++) sum[i + 1] = sum[i] + speed(shot.start + (i + 0.5) * STEP) * STEP;
   return { shot, freeze, speed, sum, n };
+}
+
+/** the seconds of clip a shot has played through by song time t, before any slowing for a short clip */
+export function footageUpTo(seq: Sequence, shot: Shot, t: number): number {
+  const tab = tableOf(shot, seq);
+  const x = (Math.min(shot.end, Math.max(shot.start, t)) - shot.start) / STEP;
+  const i = Math.min(tab.n - 1, Math.max(0, Math.floor(x)));
+  return tab.sum[i] + (tab.sum[i + 1] - tab.sum[i]) * clamp01(x - i);
 }
 
 /** the seconds of clip a footage shot plays through (before any slowing for a short clip) */

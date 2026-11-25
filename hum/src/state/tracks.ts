@@ -552,6 +552,7 @@ export async function restoreSession() {
   const clips = await recallClips();
   if (clips.length && !useStudio.getState().clips.length) useStudio.getState().addClips(clips);
   keepClipsSaved();
+  void import('../timing/quiet').then((m) => m.readClipsQuietly());
   // photos too, each under the id it had, so a part that picked one still finds it
   const saved = await recallPhotos();
   if (saved.length && !useStudio.getState().photos.length) {

@@ -33,6 +33,7 @@ export function VideoPanel() {
       <Section id="video.move" title="Movement">
         <ImpactField />
         <PaceField />
+        <SmoothField />
       </Section>
       <PopupSection />
       <TransitionSection />
@@ -282,6 +283,14 @@ function PaceField() {
       <Seg value={pace} options={PACES} onChange={(v) => useStudio.getState().set({ pace: v })} label="Pace" />
     </Field>
   );
+}
+
+/** clips running slowly glide between their frames; only once there are clips */
+function SmoothField() {
+  const clips = useStudio((s) => s.clips.length > 0);
+  const on = useStudio((s) => s.smoothSlow);
+  if (!clips) return null;
+  return <SwitchRow label="Smooth slow motion" note="Slow clips glide instead of stepping from frame to frame" on={on} onChange={(v) => useStudio.getState().set({ smoothSlow: v })} />;
 }
 
 /* ───────── pop-ups ───────── */

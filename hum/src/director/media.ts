@@ -9,12 +9,15 @@
 import type { ClipAsset, MediaMeasure, MediaNotes, PhotoAsset } from '../core/types';
 import { deckIdsOf } from '../shot/run';
 import { ask, NOTES } from '../state/saved';
+import { readMotion } from '../timing';
 import { useStudio } from '../state/store';
 import { requestStep } from './client';
 import { PHOTOS_PER_SHEET, breathe, photoSheet, sampleClip } from './mediaSample';
 
-/** raised when the notes change shape: media is then watched again */
-const VERSION = 1;
+/** raised when the notes change shape: that media is then watched again (older notes are used until it has been) */
+const VERSION = { clip: 2, photo: 1 };
+const OLDEST = 1;
+const isFresh = (n: MediaNotes | undefined) => !!n && n.v >= VERSION[n.kind];
 /** sheets in one request, and requests on their way at once */
 const SHEETS = 3;
 const IN_FLIGHT = 3;
@@ -25,7 +28,7 @@ let recalled: Promise<void> | null = null;
 /** bring the notes kept from before into memory (once) */
 export function recallNotes(): Promise<void> {
   recalled ??= ask<MediaNotes[]>(NOTES, 'readonly', (s) => s.getAll()).then((r) => {
-    for (const n of r.value ?? []) if (n && typeof n.id === 'string' && n.v === VERSION && n.measure && !known.has(n.id)) known.set(n.id, n);
+    for (const n of r.value ?? []) if (n && typeof n.id === 'string' && n.v >= OLDEST && n.v <= VERSION[n.kind] && n.measure && !known.has(n.id)) known.set(n.id, n);
   });
   return recalled;
 }
@@ -43,16 +46,18 @@ export function keepNotes(n: MediaNotes) {
 export async function bringNotes(list: MediaNotes[]) {
   await recallNotes();
   for (const n of list) {
-    if (n.v !== VERSION || known.has(n.id)) continue;
     const kind = n.kind === 'photo' ? 'photo' : 'clip';
+    if (!(n.v >= OLDEST && n.v <= VERSION[kind]) || known.has(n.id)) continue;
+    const hits = (Array.isArray(n.hits) ? n.hits : []).filter((h) => isObj(h) && typeof h.at === 'number' && Number.isFinite(h.at) && h.at >= 0).slice(0, 4);
     const at = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).slice(0, 400) : []);
     const m = n.measure;
     const clean = readNotes(
-      // read as Claude's answer is: that one counts from the top
-      { ...n, focusY: typeof n.focusY === 'number' ? 1 - n.focusY : undefined },
-      { key: '', id: n.id, kind, seconds: 36000, width: 0, height: 0, sheet: 0, measure: { at: at(m.at), motion: at(m.motion), bright: num(m.bright, 0, 1, 0.5), shake: num(m.shake, 0, 1, 0) } },
+      // read as Claude's answer is: that one counts from the top, and names a moment by its number
+      { ...n, focusY: typeof n.focusY === 'number' ? 1 - n.focusY : undefined, hits: hits.map((h, k) => ({ ...h, n: k + 1 })) },
+      { key: '', id: n.id, kind, seconds: 36000, width: 0, height: 0, sheet: 0, measure: { at: at(m.at), motion: at(m.motion), bright: num(m.bright, 0, 1, 0.5), shake: num(m.shake, 0, 1, 0) }, moments: hits.map((h) => ({ at: h.at, saw: '' })) },
     );
-    if (clean) keepNotes(clean);
+    // (notes from before its moments were named stay so: the clip is watched again when a video is made)
+    if (clean) keepNotes({ ...clean, v: n.v });
   }
 }
 
@@ -69,8 +74,10 @@ export function ownMedia(): ({ kind: 'clip'; id: string; clip: ClipAsset } | { k
   return out;
 }
 
-/** how many of them Claude has not seen yet */
-export const unwatched = () => ownMedia().filter((m) => !known.has(m.id)).length;
+const freshCount = () => [...known.values()].filter(isFresh).length;
+
+/** how many of them Claude has not seen yet (or only in a way that is no longer enough) */
+export const unwatched = () => ownMedia().filter((m) => !isFresh(known.get(m.id))).length;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
@@ -86,6 +93,7 @@ interface Sent {
   height: number;
   sheet: number;
   measure: MediaMeasure;
+  moments: { at: number; saw: string }[];
 }
 
 const shapeOf = (w: number, h: number) => (w > h * 1.15 ? 'wide' : h > w * 1.15 ? 'tall' : 'square');
@@ -98,7 +106,7 @@ function readNotes(raw: unknown, sent: Sent): MediaNotes | null {
   const ins = Array.isArray(raw.ins) ? raw.ins : [];
   return {
     id: sent.id,
-    v: VERSION,
+    v: VERSION[sent.kind],
     kind: sent.kind,
     subject,
     focusX: num(raw.focusX, 0, 1, 0.5),
@@ -116,6 +124,18 @@ function readNotes(raw: unknown, sent: Sent): MediaNotes | null {
             .filter((x) => typeof x.at === 'number' && Number.isFinite(x.at))
             .slice(0, 3)
             .map((x) => ({ at: num(x.at, 0, Math.max(0, sent.seconds - 0.6), 0), why: text(x.why, 80) })),
+    ...(sent.kind === 'clip'
+      ? {
+          hits: (Array.isArray(raw.hits) ? raw.hits : [])
+            .filter(isObj)
+            .flatMap((x) => {
+              const at = typeof x.n === 'number' ? sent.moments[Math.round(x.n) - 1]?.at : undefined;
+              const what = text(x.what, 70);
+              return at === undefined || !what ? [] : [{ at, what, hard: num(x.hard, 0, 1, 0.5) }];
+            })
+            .slice(0, 4),
+        }
+      : {}),
     faces: raw.faces === true,
     text: raw.text === true,
     measure: sent.measure,
@@ -139,7 +159,7 @@ export interface WatchResult {
 export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (done: number, of: number) => void } = {}): Promise<WatchResult> {
   await recallNotes();
   const { signal } = opts;
-  const todo = ownMedia().filter((m) => !known.has(m.id));
+  const todo = ownMedia().filter((m) => !isFresh(known.get(m.id)));
   if (!todo.length) return { missed: 0, reason: '' };
   let done = 0;
   let reason = '';
@@ -159,7 +179,7 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
       'watch',
       {
         images: sheets,
-        media: sent.map((x) => ({ key: x.key, kind: x.kind, seconds: x.seconds, shape: shapeOf(x.width, x.height), sheet: x.sheet, ...x.measure })),
+        media: sent.map((x) => ({ key: x.key, kind: x.kind, seconds: x.seconds, shape: shapeOf(x.width, x.height), sheet: x.sheet, ...x.measure, ...(x.moments.length ? { moments: x.moments } : {}) })),
       },
       { signal },
     );
@@ -192,25 +212,28 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
     if (gate) await gate;
     if (refused) return;
     while (flying.size >= IN_FLIGHT) await Promise.race(flying);
-    const before = known.size;
+    const before = freshCount();
     const p: Promise<void> = send(pics, items).finally(() => flying.delete(p));
     flying.add(p);
     // a failure is caught by whoever waits for it; this stops the browser calling it unhandled meanwhile
     p.catch(() => undefined);
     gate ??= p.then(() => {
-      refused = known.size === before;
+      refused = freshCount() === before;
     });
     gate.catch(() => undefined);
   };
 
   let n = 0;
+  const patience = performance.now() + 90000;
   for (const job of jobs) {
     if (refused) break;
     try {
       if ('clip' in job) {
         const key = String.fromCharCode(65 + (n++ % 26));
-        const got = await sampleClip(job.clip, key, signal);
-        sent.push({ key, id: job.clip.id, kind: 'clip', seconds: job.clip.duration, width: job.clip.width, height: job.clip.height, sheet: sheets.length, measure: got.measure });
+        // what happens in it is found first, so the sheet can show it (a clip that takes too long is watched without)
+        const motion = await Promise.race([readMotion(job.clip), new Promise<null>((r) => setTimeout(() => r(null), Math.max(0, patience - performance.now())))]);
+        const got = await sampleClip(job.clip, key, motion, signal);
+        sent.push({ key, id: job.clip.id, kind: 'clip', seconds: job.clip.duration, width: job.clip.width, height: job.clip.height, sheet: sheets.length, measure: got.measure, moments: got.moments });
         sheets.push(got.jpeg);
       } else {
         const keyed = job.photos.map((photo, i) => ({ photo, key: `P${i + 1}` }));
@@ -218,7 +241,7 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
         if (sent.some((x) => x.kind === 'photo')) await launch();
         const got = await photoSheet(keyed, signal);
         keyed.forEach(({ photo, key }, i) =>
-          sent.push({ key, id: photo.id, kind: 'photo', seconds: 0, width: photo.width, height: photo.height, sheet: sheets.length, measure: { at: [], motion: [], bright: got.bright[i], shake: 0 } }),
+          sent.push({ key, id: photo.id, kind: 'photo', seconds: 0, width: photo.width, height: photo.height, sheet: sheets.length, measure: { at: [], motion: [], bright: got.bright[i], shake: 0 }, moments: [] }),
         );
         sheets.push(got.jpeg);
       }
@@ -234,6 +257,6 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
   await launch();
   await Promise.all(flying);
   if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-  const missed = todo.filter((m) => !known.has(m.id)).length;
+  const missed = todo.filter((m) => !isFresh(known.get(m.id))).length;
   return { missed, reason: missed ? reason || 'Claude did not say anything about some of your files.' : '', closed };
 }

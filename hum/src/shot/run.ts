@@ -31,7 +31,7 @@ import { useStudio } from '../state/store';
 import type { Colour } from './kit';
 import { isMoment } from '../moments';
 import { isMotion } from './motion';
-import { footageNeed, hatsIn, layoutOf, type Sequence, type Shot } from './sequence';
+import { footageNeed, footageUpTo, hatsIn, isRamp, layoutOf, type RampId, type Sequence, type Shot } from './sequence';
 import { shotOfPart } from './partShots';
 import { styleForShot, type StyleId } from './styles';
 import { treatmentForShot, type TreatmentId } from './treatments';
@@ -55,6 +55,8 @@ export interface RunPart {
   media?: number[];
   /** the second of its first clip the part starts on (missing: carries on from where that clip stopped) */
   from?: number;
+  /** something in the first clip that lands on the song: its second, how long after the part starts, and the ramp (src/timing) */
+  hit?: { clip: number; on: number; ramp: RampId };
   /** what the part is meant to feel like (src/moments) */
   moment?: string;
   /** Inside: the words that stand in the picture when nothing is sung */
@@ -137,6 +139,16 @@ export function footageRun(o: RunInput): Run {
     return { from, k: 1 };
   };
 
+  /** the stretch of clip c that puts its second `clip` on the song second `at` of a shot (null: the clip has no room for it) */
+  const landing = (c: number, seq: Sequence, shot: Shot, at: number, clip: number): { from: number; k: number } | null => {
+    const before = footageUpTo(seq, shot, at);
+    const k = slowedToFit(before, footageNeed(seq, shot) - before, clip, o.clips[c] ?? 1e6);
+    if (k < 0.2) return null;
+    const from = clip - before * k;
+    cursor[c] = from + footageNeed(seq, shot) * k;
+    return { from, k };
+  };
+
   let ordinal = 0;
   let prevStyle: StyleId | '' = '';
   let prevTreat: TreatmentId | '' = '';
@@ -210,9 +222,15 @@ export function footageRun(o: RunInput): Run {
       // a part with its own pictures takes them in turn from its first; the rest are dealt round the deck
       const c = mine.length ? mine[j % mine.length] : ordinal % count;
       shot.footageIndex = c;
+      const at = o2.hit && mine.length && c === mine[0] ? start + o2.hit.on : -1;
+      // what lands at the very end of a shot belongs to it, not to the next
+      const lands = at >= 0 && (at >= shot.start - 0.001 || j === 0) && (at < shot.end - 0.02 || lastShot) ? o2.hit! : null;
+      if (lands) shot.hit = { at: Math.min(shot.end, Math.max(shot.start, at)), clip: lands.clip, ramp: lands.ramp };
+      const landed = shot.hit ? landing(c, seq, shot, shot.hit.at, shot.hit.clip) : null;
+      if (!landed) delete shot.hit;
       const need = footageNeed(seq, shot);
       // the part's chosen second is for its first shot; the ones after carry on
-      const own = take(c, need, j === 0 && mine.length ? o2.from : undefined);
+      const own = landed ?? take(c, need, j === 0 && mine.length ? o2.from : undefined);
       shot.clipFrom = own.from;
       shot.clipRate = own.k;
       if (style === 'split') {
@@ -241,6 +259,10 @@ export function footageRun(o: RunInput): Run {
   });
   return { seqs };
 }
+
+/** how far a shot is slowed so that a clip has the seconds it needs before and after the one that lands (1: not at all) */
+export const slowedToFit = (before: number, after: number, clip: number, length: number): number =>
+  Math.min(1, before > 1e-3 ? Math.max(0, clip - 0.03) / before : 1, after > 1e-3 ? Math.max(0, length - 0.2 - clip) / after : 1);
 
 /**
  * Where a part is cut inside: one shot, unless the part is long (over 1.5 shots and over 8 beats),
@@ -295,6 +317,8 @@ export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds
     ...(media.length ? { media } : {}),
     // a start belongs to the first picture of the list it was chosen with: gone if that picture is
     ...(typeof own.from === 'number' && media.length && deckIds[media[0]] === own.media?.[0] ? { from: own.from } : {}),
+    // and so does what lands
+    ...(typeof own.hit === 'number' && typeof own.on === 'number' && media.length && deckIds[media[0]] === own.media?.[0] ? { hit: { clip: own.hit, on: own.on, ramp: isRamp(own.ramp) ? own.ramp : 'ride' } } : {}),
     ...(isMoment(own.moment) ? { moment: own.moment } : {}),
     ...(own.say ? { say: own.say } : {}),
     ...(own.drawn ? { drawn: own.drawn } : {}),

@@ -34,6 +34,8 @@ import { framesSent } from './footageNotice';
 import { dealMix } from './mix';
 import { momentShots } from './footageShots';
 import { notesOf, ownMedia, recallNotes, unwatched, watchMedia } from './media';
+import { beginTiming, landable, readClips, timeCut } from './footageTiming';
+import type { AccentKind, Wanted } from '../timing';
 
 /** one Make: what stops it and how it says where it is */
 export interface MakeRun {
@@ -116,7 +118,7 @@ function seenMedia(): Seen[] {
 }
 
 const mediaBody = (seen: Seen[]) =>
-  seen.map(({ key, seconds, notes: n }) => ({
+  seen.map(({ key, id, seconds, notes: n }) => ({
     key,
     kind: n.kind,
     seconds: r2(seconds),
@@ -130,6 +132,7 @@ const mediaBody = (seen: Seen[]) =>
     faces: n.faces,
     text: n.text,
     ins: n.ins.map((x) => ({ at: r2(x.at), why: x.why })),
+    ...(n.kind === 'clip' ? { moments: landable(id, n) } : {}),
   }));
 
 const idsOf = (keys: unknown, seen: Seen[], max: number): string[] => {
@@ -187,6 +190,8 @@ const vocabulary = (lyr: Lyrics | null) => ({
  * AI here, or no access code, so nothing further should ask).
  */
 export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: string, run: MakeRun): Promise<{ story: Story | null; closed: boolean }> {
+  // (what happens in the clips before how far away things are in them: the watching shows Claude the first)
+  beginTiming();
   void import('./footageDepth').then((m) => m.beginDepth());
   // what the words mean is read while the pictures are watched
   const reading = readFeeling(a, lyr, run.signal).catch(() => false);
@@ -197,6 +202,8 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
     const clips = media.some((m) => m.kind === 'clip');
     const what = clips ? (media.some((m) => m.kind === 'photo') ? 'footage' : 'clips') : 'photos';
     framesSent();
+    // what happens in the clips is found first: the sheets show it
+    await readClips(run);
     const w = await watchMedia({ signal: run.signal, onProgress: (done, of) => run.say(`Watching your ${what}`, Math.min(of, done + 1), of) });
     if (w.missed) {
       if (w.closed && !seenMedia().length) {
@@ -208,6 +215,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   }
   const seen = seenMedia();
   if (!seen.length) return { story: null, closed: false };
+  await readClips(run);
   run.say('Feeling the song');
   await reading;
   if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -359,8 +367,10 @@ export function cutBody(cut: { plan: VideoPlan; analysis: TrackAnalysis; hand: (
   };
 }
 
+const LAND_ON: Partial<Record<string, AccentKind>> = { start: 'in', word: 'word', beat: 'bar', end: 'out' };
+
 /** one shot from Claude, checked again here: only ids this browser has, numbers inside their ranges */
-export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot; why: string; lyric?: LyricMedium } | null {
+export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot; why: string; lyric?: LyricMedium; wanted?: Wanted } | null {
   if (!isObj(x) || typeof x.i !== 'number' || !Number.isInteger(x.i)) return null;
   const media = idsOf(x.media, seen, 4);
   const moment = text(x.moment, 20);
@@ -376,6 +386,8 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
   const fy = n(x.focusY, 0, 1);
   const focused = fx !== undefined && fy !== undefined;
   const say = text(x.say, 28);
+  const land = first.seconds && typeof x.land === 'number' ? landable(first.id, first.notes)[Math.round(x.land) - 1] : undefined;
+  const landOn = LAND_ON[text(x.landOn, 8)];
   const lyric = text(x.lyric, 12) as LyricMedium;
   return {
     i: x.i,
@@ -393,6 +405,7 @@ export function readShot(x: unknown, seen: Seen[]): { i: number; shot: PartShot;
       ...(zoom !== undefined && zoom > 1.01 ? { zoom } : {}),
     },
     why: text(x.why, 110),
+    ...(land ? { wanted: { clip: land.at, ...(landOn ? { on: landOn } : {}) } } : {}),
     ...(LYRIC_MEDIUMS.includes(lyric) && lyric !== 'own' && lyric !== 'none' ? { lyric } : {}),
   };
 }
@@ -452,13 +465,48 @@ export async function chooseShots(plan: VideoPlan, a: TrackAnalysis, o: { keep: 
   }
   fewerPlain(got, cut.analysis, o.lyrics, told.paint);
   const rest = momentShots(cut.plan.flat?.src ?? told, cut.analysis, cut.plan.looks, findLook, curvesFor(told, a, o.lyrics));
+  const timed = timeCut(
+    { ...cut, shotAt: (i) => layShot(open.has(i) ? (got.get(i)?.shot ?? rest[i]) : cut.plan.shots?.[i], cut.hand?.[i]) },
+    { open, free: new Set([...open].filter((i) => !got.has(i))), wanted: new Map([...got].flatMap(([i, g]) => (g.wanted ? [[i, g.wanted] as const] : []))) },
+  );
   const cues: ShotCue[] = cut.analysis.sections.flatMap((sec, i) => {
     const g = got.get(i);
     const shot = g?.shot ?? rest[i];
     if (!shot) return [];
-    return [{ at: sec.start, end: sec.end, shot, ...(g?.why ? { why: g.why } : {}), ...(g?.lyric ? { lyric: g.lyric } : {}) }];
+    return [{ at: sec.start, end: sec.end, shot: timed[i] ? withTiming(shot, timed[i]!) : shot, ...(g?.why ? { why: g.why } : {}), ...(g?.lyric ? { lyric: g.lyric } : {}) }];
   });
   return { plan: { ...told, cues }, chosen: { cut, cues, open: [...open] } };
+}
+
+/** a choice with what timing decided about it: its clip, its second and what lands */
+function withTiming(shot: PartShot, t: PartShot): PartShot {
+  const { from: _f, hit: _h, on: _o, ramp: _r, ...rest } = shot;
+  const moved = t.media?.[0] !== undefined && t.media[0] !== shot.media?.[0];
+  return {
+    ...rest,
+    ...(moved ? { media: t.media, ...(t.focusX !== undefined ? { focusX: t.focusX, focusY: t.focusY } : {}) } : {}),
+    ...(t.from !== undefined ? { from: t.from } : {}),
+    ...(t.hit !== undefined ? { hit: t.hit, on: t.on, ramp: t.ramp } : {}),
+  };
+}
+
+/**
+ * A plan whose shots nobody chose (Claude couldn't, or wasn't asked): Hum's own choices, with a clip for
+ * every part and what happens in it landed on the song. As it was when there is no clip to time.
+ */
+export async function timeHere(plan: VideoPlan, a: TrackAnalysis, o: { keep: VideoPlan | null; lyrics: Lyrics | null }, run: MakeRun): Promise<VideoPlan> {
+  if (plan.cues || plan.flat || !plan.moments || !(await readClips(run))) return plan;
+  const cut = cutNow(plan, a, o.keep);
+  if (!cut) return plan;
+  const rest = momentShots(cut.plan.flat?.src ?? plan, cut.analysis, cut.plan.looks, findLook, curvesFor(plan, a, o.lyrics));
+  const open = new Set(cut.analysis.sections.flatMap((_, i) => (rest[i] && !cut.hand?.[i]?.media?.length && !cut.kept[i] ? [i] : [])));
+  if (!open.size) return plan;
+  const timed = timeCut({ ...cut, shotAt: (i) => layShot(open.has(i) ? rest[i] : cut.plan.shots?.[i], cut.hand?.[i]) }, { open, free: open });
+  const cues: ShotCue[] = cut.analysis.sections.flatMap((sec, i) => {
+    const shot = rest[i];
+    return shot && open.has(i) ? [{ at: sec.start, end: sec.end, shot: timed[i] ? withTiming(shot, timed[i]!) : shot }] : [];
+  });
+  return { ...plan, cues, dealt: true };
 }
 
 /* ───────── review ───────── */
@@ -518,15 +566,25 @@ export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; part
     return;
   }
   const at = new Map<number, ShotCue>();
+  const wanted = new Map<number, Wanted>();
   for (const x of Array.isArray(r.json.weak) ? r.json.weak : []) {
     const g = readShot(x, seen);
     const cue = g && stills.parts.includes(g.i) ? chosen.cues.find((c) => Math.abs(c.at - chosen.cut.analysis.sections[g.i].start) < 0.06) : undefined;
     // a shot made Inside stays it
     if (g && cue?.shot.style === 'inside' && g.shot.style === 'plain') g.shot = { ...g.shot, style: 'inside', treatment: 'none' };
+    if (g?.wanted && cue && !at.has(g.i)) wanted.set(g.i, g.wanted);
     // (and keeps the drawing that stands in it: that has a look of its own, footageArt.ts)
     if (g && cue && !at.has(g.i)) at.set(g.i, { ...cue, shot: { ...g.shot, ...(cue.shot.drawn && g.shot.style === 'inside' ? { drawn: cue.shot.drawn } : {}) }, ...(g.why ? { why: g.why } : {}) });
   }
   if (!at.size) return;
+  // what the new ones show lands on the song too, the rest of the cut as it is
+  const open = new Set(chosen.cut.analysis.sections.flatMap((sec, i) => ([...at.values()].some((c) => Math.abs(c.at - sec.start) < 0.06) ? [i] : [])));
+  const now = (i: number) => ([...at.values()].find((c) => Math.abs(c.at - chosen.cut.analysis.sections[i].start) < 0.06) ?? null)?.shot ?? shotAtPart(chosen, i);
+  const timed = timeCut({ ...chosen.cut, shotAt: (i) => layShot(now(i), chosen.cut.hand?.[i]) }, { open, wanted });
+  for (const [k, c] of at) {
+    const i = chosen.cut.analysis.sections.findIndex((sec) => Math.abs(c.at - sec.start) < 0.06);
+    if (timed[i]) at.set(k, { ...c, shot: withTiming(c.shot, timed[i]!) });
+  }
   const starts = [...at.values()].map((c) => c.at);
   // a picture never changes under the person's eyes: wait until none of its parts is on
   for (let k = 0; k < 150; k++) {

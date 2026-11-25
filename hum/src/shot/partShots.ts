@@ -21,11 +21,20 @@ export function layShot(planned: PartShot | null | undefined, hand: PartShot | n
   // the director's framing and start were for its own picture: another picture is shown as it is
   if (hand.media?.length && hand.media[0] !== planned.media?.[0]) {
     delete under.from;
+    dropHit(under);
     delete under.focusX;
     delete under.focusY;
     delete under.zoom;
   }
+  // a start chosen by hand goes before what the director landed
+  if (hand.from !== undefined) dropHit(under);
   return { ...under, ...hand };
+}
+
+function dropHit(s: PartShot) {
+  delete s.hit;
+  delete s.on;
+  delete s.ramp;
 }
 
 /** what the director chose for part i (null: nothing, or an older plan) */
@@ -68,6 +77,7 @@ export function shotsFromCues(cues: ShotCue[], bounds: number[]): (PartShot | nu
 
 export function withoutStart(s: PartShot): PartShot {
   const { from: _from, ...rest } = s;
+  dropHit(rest);
   // its drawing is found standing there, rather than arriving again
   return rest.drawn ? { ...rest, drawn: { ...rest.drawn, enter: 'there' } } : rest;
 }

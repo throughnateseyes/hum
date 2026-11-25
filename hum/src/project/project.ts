@@ -123,7 +123,7 @@ function readLink(): Link | null {
 
 /* ───────── following what the person changes ───────── */
 
-const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
+const WATCH = ['plan', 'planOn', 'partPops', 'partHand', 'partWords', 'partShot', 'soloShot', 'tweaks', 'drawParts', 'placed', 'text', 'lyrics', 'drawings', 'drawTrash', 'clips', 'photos', 'analysis', 'aspect', 'sensitivity', 'impact', 'lyricStyle', 'lyricsOnBoards', 'lyricFont', 'typeKit', 'hand', 'popups', 'windowKind', 'songColors', 'pace', 'mix', 'smoothSlow', 'transition', 'transitionBeats', 'finish', 'drawOverlay', 'drawInScene'] as const satisfies readonly (keyof StudioState)[];
 
 useStudio.subscribe((s, prev) => {
   if (opening) return;

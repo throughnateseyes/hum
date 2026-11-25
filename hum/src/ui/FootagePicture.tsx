@@ -6,6 +6,7 @@
  *
  *   Picture         large thumbnails, first thing under the part's name: one click uses that one,
  *                   "Add another" (or Cmd-click) puts several in, with a line on what several do
+ *   Landing         what in the clip lands on the song, when something does, and a way to let it just play
  *   Style           footage looks: Auto (follow the look) or one of the footage styles
  *   Shuffle         another arrangement of the same style; Previous steps back once
  *   Motion          footage looks, when the scene has it: what a clip does in time
@@ -28,7 +29,9 @@ import { useStudio } from '../state/store';
 import { Seg } from './controls';
 import { Framing } from './Framing';
 import { canShow, pictureKind, useMedia, type PictureKind, type ShotTarget } from './footageMedia';
+import { useLandings, type Landing } from './landings';
 import { MediaPicker } from './MediaPicker';
+import { fmtTime } from './song';
 
 /** a line for each treatment the scene doesn't describe itself */
 const TREATMENT_TIPS: Record<string, string> = {
@@ -140,6 +143,43 @@ export function ShotStyle({ t, busy }: { t: ShotTarget; busy: boolean }) {
   );
 }
 
+const LANDS_ON: Record<Landing['on'], string> = { drop: 'on the drop', cut: 'right on the cut', out: 'right before the next cut', word: 'on a word', beat: 'on the beat' };
+const LANDS_HOW: Record<Landing['ramp'], string> = {
+  land: 'The clip rushes up to it and all but stops on it.',
+  sink: 'The clip eases into it and hangs there.',
+  burst: 'The clip hangs back and bursts off it.',
+  ride: 'The clip runs through it at its own speed.',
+};
+
+/** what in the part's clip lands on the song, with a way to let the clip just play */
+function LandingLine({ t, busy }: { t: ShotTarget; busy: boolean }) {
+  const part = Number(t.key);
+  const mine = useLandings().filter((l) => l.part === part);
+  const hand = t.shots[0];
+  if (!mine.length) {
+    // what was landed, put aside by hand
+    const aside = t.planned[0]?.hit !== undefined && hand?.from !== undefined && (!hand.media?.length || hand.media[0] === t.planned[0]?.media?.[0]);
+    if (!aside) return null;
+    return (
+      <p className="pp-note">
+        {'The clip just plays here. '}
+        <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ from: undefined })}>
+          Land it on the song again
+        </button>
+      </p>
+    );
+  }
+  const l = mine[0];
+  return (
+    <p className="pp-note" title={`${l.second.toFixed(1)} s into the clip, at ${fmtTime(l.at)} of the song`}>
+      {`${l.what ? `${l.what[0].toUpperCase()}${l.what.slice(1)}, ` : 'Lands '}${LANDS_ON[l.on]} at ${fmtTime(l.at)}. ${LANDS_HOW[l.ramp]} `}
+      <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ from: Math.round(l.from * 100) / 100 })}>
+        Let it just play
+      </button>
+    </p>
+  );
+}
+
 /** what several pictures do in one shot, for the style and treatment it plays */
 function severalLine(kind: PictureKind, style: string, treat: string): string {
   if (kind === 'photos') return 'Several photos: the look moves from one to the next as the song plays.';
@@ -215,6 +255,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
       ) : (
         <p className="pp-note">{footage ? 'No clips or photos yet. Add them in the Library’s Footage and Photos tabs, then pick which one plays here.' : 'No photos yet. Add them in the Library’s Photos tab, then pick which one this look shows.'}</p>
       )}
+      {footage && !t.solo && t.shots.length === 1 && <LandingLine t={t} busy={busy} />}
       {gone && <p className="pp-note">The picture picked here is no longer in your library. Pick another, or go back to Automatic.</p>}
 
       {footage && (

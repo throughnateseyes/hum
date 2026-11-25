@@ -102,11 +102,14 @@ export function flattenPlan(plan: VideoPlan, a: TrackAnalysis, pace: Pace, lyric
     base: { looks: baseLooks, rotate: looks.map(() => null), lyric: fp.base?.lyric ?? planBase(fp, cut).lyric },
     flat: { src: p, pace },
     // what each footage part shows: the director's choices, or what its moment asks for
-    ...(p.cues ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook, curvesFor(p, a, lyrics)) } : {}),
+    ...(p.cues && !(p.dealt && p.moments) ? { shots: shotsFromCues(p.cues, bounds) } : p.moments ? { shots: momentShots(p, cut, looks, findLook, curvesFor(p, a, lyrics)) } : {}),
   };
-  if (p.cues) underCues(flat, p.cues, bounds);
+  // Hum's own cues were worked out for the parts as they were cut then
+  if (p.cues && p.dealt && flat.shots) flat.shots = flat.shots.map((sh, k) => p.cues!.find((c) => Math.abs(c.at - bounds[k]) < 0.06 && Math.abs(c.end - (bounds[k + 1] ?? cut.duration)) < 0.3)?.shot ?? sh);
+  if (p.cues && !p.dealt) underCues(flat, p.cues, bounds);
   // the cues stay with the planner's plan, where a new Pace finds them
   delete flat.cues;
+  delete flat.dealt;
   // (and so does what the words feel like)
   delete flat.feeling;
   delete flat.interludes;

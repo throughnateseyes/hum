@@ -383,7 +383,11 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   which lays the same style out another way, with **Previous** to go back one. Style and Shuffle
   belong to the look, so they change every part that plays it (the hint under the button says so),
   they're kept with the video and Undo takes them back (`src/scenes/footage`, `src/shot`).
-- **Slow motion** (no switch to find): where a shot runs a clip slowly, Hum draws the moments between
+- **Landings.** Hum finds the moments inside each clip (a jump, a stop, someone leaving the frame, the
+  light changing) on this computer, and a Make lands them on the song: on a drop, a word, a cut or a
+  beat, with the speed bent round them. The Part tab says what a part lands on and can let the clip
+  just play; the Breakdown marks them all (`src/timing`).
+- **Slow motion** (*Smooth slow motion* in the Video tab, on by default): where a shot runs a clip slowly, Hum draws the moments between
   the clip's frames, so it glides instead of holding each frame and stepping. On the graphics chip it
   works out how everything moved from one frame to the next, both ways, and moves both frames to the
   moment in between; where it can't tell (a crowd that jumps, a sign that changes) it melts softly from

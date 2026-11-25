@@ -47,7 +47,7 @@ import { paletteFromPixels } from '../../shot/palette';
 import { shotOfPart } from '../../shot/partShots';
 import { MAX_OPEN, MAX_STILLS, addedAt, footageRun, planParts, runPartOf, sigOf, withOwn, type Run, type RunPart } from '../../shot/run';
 import { footageNeed, partSequence, planFootage, type PartOptions, type Sequence } from '../../shot/sequence';
-import { SLOW } from '../../shot/slowmo';
+import { SLOW, slowMotion } from '../../shot/slowmo';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
@@ -124,7 +124,7 @@ const params: ParamDef[] = [
 ];
 
 /** the run's key for a part: its settings and its own pictures */
-const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${drawnKey(r.drawn)}` : ''}`;
+const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.hit ? `!${r.hit.clip}:${r.hit.on}:${r.hit.ramp}` : ''}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${drawnKey(r.drawn)}` : ''}`;
 
 /**
  * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video
@@ -448,6 +448,12 @@ if (import.meta.env.DEV) {
 }
 
 /* ───────── the look ───────── */
+
+// Smooth slow motion, as the Video tab has it
+slowMotion.on = useStudio.getState().smoothSlow;
+useStudio.subscribe((s) => {
+  slowMotion.on = s.smoothSlow;
+});
 
 let born = 0;
 /** whether each part opens on a clip running slowly, worked out once */

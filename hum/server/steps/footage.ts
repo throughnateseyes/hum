@@ -39,7 +39,7 @@ const WATCH_MEDIA = 18;
 
 const WATCH_SYSTEM = `You watch a person's own video clips and photos for the editor of their music video, and write short working notes the editor will cut from without seeing the pictures.
 
-Each sheet holds either six frames of one clip in order, each labelled with the clip's letter and the second it was taken, or several photos, each labelled with its own key. Under each clip the app gives what it measured: how much the picture moves at each second (0 still, 1 a lot), how bright it is and how much the camera shakes.
+Each sheet holds either six or twelve frames of one clip in order, each labelled with the clip's letter and the second it was taken, or several photos, each labelled with its own key. On a sheet of twelve, frames labelled like A1 before and A1 are a moment the app measured in clip A: a little before it, and as it happens (A1 and A1 after where something begins). Under each clip the app gives what it measured: how much the picture moves at each second (0 still, 1 a lot), how bright it is and how much the camera shakes.
 
 For every clip and photo:
 - subject: what is actually in the picture, concrete and specific, at most 14 words ("an empty two-lane road at noon, seen from a moving car"), never a mood. For an abstract picture, say what shapes and colours it is.
@@ -48,6 +48,7 @@ For every clip and photo:
 - energy: 0 still and quiet, 0.5 steady movement, 1 frantic. Judge the picture's movement and tension, using the measured movement.
 - camera and size: what the camera does, and how close it is.
 - ins: for a clip, up to three seconds a shot could start on, best first, each with why in at most 8 words (something arrives, the light changes, movement picks up, the frame is clean). Use seconds inside the clip, at least a second apart, early enough to leave two seconds of clip after them. If the clip is only good for part of its length, keep to that part. For a photo, none.
+- hits: for a clip with numbered moments, the ones that really happen in the frames, so that a drop or a beat could land on them. n is the moment's number; what says what happens in at most 8 words ("an umbrella leaves and shows the street", "they jump"); hard is 0 to 1: 1 is an impact, a leap, a face turning to us, something suddenly revealed; 0.5 somebody enters, passes or stops; 0.2 a small shift. Compare the two frames: someone gone from the front of the picture, a view that opens up, a crossing that fills are all moments. Leave out only one where nothing you can name changes, and answer with an empty list for a clip or photo without numbered moments.
 - faces: a person's face is visible and readable. text: words are visible in the picture.
 
 Be honest about a plain or weak picture: say so in the subject rather than making it sound better. ${DATA_RULE}`;
@@ -76,10 +77,15 @@ const WATCH_TOOL = {
               maxItems: 3,
               items: { type: 'object', properties: { at: { type: 'number' }, why: { type: 'string' } }, required: ['at', 'why'] },
             },
+            hits: {
+              type: 'array',
+              maxItems: 4,
+              items: { type: 'object', properties: { n: { type: 'integer' }, what: { type: 'string' }, hard: { type: 'number' } }, required: ['n', 'what', 'hard'] },
+            },
             faces: { type: 'boolean' },
             text: { type: 'boolean' },
           },
-          required: ['key', 'subject', 'focusX', 'focusY', 'mood', 'energy', 'camera', 'size', 'ins', 'faces', 'text'],
+          required: ['key', 'subject', 'focusX', 'focusY', 'mood', 'energy', 'camera', 'size', 'ins', 'hits', 'faces', 'text'],
         },
       },
     },
@@ -91,7 +97,7 @@ const watch: Step = {
   maxImages: WATCH_SHEETS,
   prepare(body, images) {
     if (!images) return 'There is nothing to watch.';
-    const media = new Map<string, { kind: 'clip' | 'photo'; seconds: number }>();
+    const media = new Map<string, { kind: 'clip' | 'photo'; seconds: number; moments: number }>();
     const lines: string[] = [];
     for (const m of list(body.media, WATCH_MEDIA)) {
       if (!isObj(m)) continue;
@@ -100,12 +106,13 @@ const watch: Step = {
       if (!k || media.has(k) || sheet < 0) continue;
       const kind = m.kind === 'clip' ? 'clip' : 'photo';
       const seconds = kind === 'clip' ? num(m.seconds, 0.1, 36000, 1) : 0;
-      media.set(k, { kind, seconds });
+      const moments = kind === 'clip' ? list(m.moments, 4).filter(isObj) : [];
+      media.set(k, { kind, seconds, moments: moments.length });
       const pairs = list(m.at, 12)
         .map((t, i) => `${round(num(t, 0, 36000, 0), 10)}s ${round(num(list(m.motion, 12)[i], 0, 1, 0))}`)
         .join(', ');
       lines.push(
-        `Sheet ${sheet + 1}: ${kind} ${k}, ${line(m.shape, 12) || 'wide'}${kind === 'clip' ? `, ${round(seconds, 10)} s long. Movement: ${pairs || 'not measured'}. Shake ${round(num(m.shake, 0, 1, 0))}.` : '.'} Brightness ${round(num(m.bright, 0, 1, 0.5))}.`,
+        `Sheet ${sheet + 1}: ${kind} ${k}, ${line(m.shape, 12) || 'wide'}${kind === 'clip' ? `, ${round(seconds, 10)} s long. Movement: ${pairs || 'not measured'}. Shake ${round(num(m.shake, 0, 1, 0))}.` : '.'} Brightness ${round(num(m.bright, 0, 1, 0.5))}.${moments.length ? ` Moments: ${moments.map((x, i) => `${k}${i + 1} at ${round(num(x.at, 0, seconds, 0), 10)}s, ${line(x.saw, 50)}`).join('; ')}.` : ''}`,
       );
     }
     if (!media.size) return 'There is nothing to watch.';
@@ -116,7 +123,7 @@ const watch: Step = {
       prompt: lines.join('\n'),
       tool: WATCH_TOOL,
       // room for a little thinking besides the answer
-      maxTokens: 2500 + media.size * 350,
+      maxTokens: 2500 + media.size * 420,
       finish(output) {
         if (!isObj(output)) return null;
         const notes: Obj[] = [];
@@ -139,6 +146,14 @@ const watch: Step = {
             camera: oneOf(n.camera, CAMERA, 'still'),
             size: oneOf(n.size, SIZE, 'medium'),
             ins: m.kind === 'photo' ? [] : list(n.ins, 3).filter(isObj).filter((x) => typeof x.at === 'number').map((x) => ({ at: round(num(x.at, 0, last, 0)), why: line(x.why, 70) })),
+            ...(m.moments
+              ? {
+                  hits: list(n.hits, 4)
+                    .filter(isObj)
+                    .filter((x) => typeof x.n === 'number' && Number.isInteger(x.n) && x.n >= 1 && x.n <= m.moments && !!line(x.what, 70))
+                    .map((x) => ({ n: x.n, what: line(x.what, 70), hard: round(num(x.hard, 0, 1, 0.5)) })),
+                }
+              : {}),
             faces: n.faces === true,
             text: n.text === true,
           });
@@ -160,8 +175,9 @@ const MOMENT_LINES = MOMENTS.map((m) => `- ${m.id}: ${m.line}`).join('\n');
 const clock = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
 
 /** the person's media as notes, one line each; `seconds` by key (0 for a photo) */
-function readMedia(raw: unknown): { lines: string[]; seconds: Map<string, number> } {
+function readMedia(raw: unknown): { lines: string[]; seconds: Map<string, number>; moments: Map<string, number> } {
   const seconds = new Map<string, number>();
+  const moments = new Map<string, number>();
   const lines: string[] = [];
   for (const m of list(raw, MAX_MEDIA)) {
     if (!isObj(m)) continue;
@@ -176,11 +192,14 @@ function readMedia(raw: unknown): { lines: string[]; seconds: Map<string, number
       .map((x) => `${round(num(x.at, 0, len, 0), 10)}s ${line(x.why, 70)}`)
       .join('; ');
     const mood = list(m.mood, 4).map((x) => line(x, 20)).filter(Boolean).join(', ');
+    const hits = clip ? list(m.moments, 6).filter(isObj) : [];
+    moments.set(k, hits.length);
+    const happens = hits.map((x, i) => `${i + 1} at ${round(num(x.at, 0, len, 0), 10)}s ${line(x.what, 70)}`).join('; ');
     lines.push(
-      `${k}: ${clip ? `clip, ${round(len, 10)} s` : 'photo (a still)'}. ${subject}. ${mood ? `Feels ${mood}. ` : ''}Energy ${round(num(m.energy, 0, 1, 0.4))}, brightness ${round(num(m.bright, 0, 1, 0.5))}, ${line(m.size, 12)}, camera ${line(m.camera, 12)}${num(m.shake, 0, 1, 0) > 0.45 ? ' (shaky)' : ''}.${m.faces === true ? ' A face is visible.' : ''}${m.text === true ? ' Words are visible in it.' : ''}${ins ? ` Good starts: ${ins}.` : ''}`,
+      `${k}: ${clip ? `clip, ${round(len, 10)} s` : 'photo (a still)'}. ${subject}. ${mood ? `Feels ${mood}. ` : ''}Energy ${round(num(m.energy, 0, 1, 0.4))}, brightness ${round(num(m.bright, 0, 1, 0.5))}, ${line(m.size, 12)}, camera ${line(m.camera, 12)}${num(m.shake, 0, 1, 0) > 0.45 ? ' (shaky)' : ''}.${m.faces === true ? ' A face is visible.' : ''}${m.text === true ? ' Words are visible in it.' : ''}${ins ? ` Good starts: ${ins}.` : ''}${happens ? ` Moments: ${happens}.` : ''}`,
     );
   }
-  return { lines, seconds };
+  return { lines, seconds, moments };
 }
 
 /** the song in a few lines */
@@ -338,10 +357,15 @@ function readChoices(raw: unknown): { ids: string[]; lines: string } {
   return { ids, lines: lines.join('\n') };
 }
 
+/** what something in a clip can land on: where the part comes in, the word that matters, a bar inside it, its last frame */
+const LAND_ON = ['start', 'word', 'beat', 'end'] as const;
+
 const SHOT_PROPS = {
   i: { type: 'integer', description: 'The part.' },
   media: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'Keys. One, unless the style or treatment lays several out.' },
   from: { type: 'number', description: 'Clips only: the second of the first clip to start on. Leave out to carry on from where that clip last stopped.' },
+  land: { type: 'integer', description: 'Clips only: the number of one of the first clip\'s moments, to land on the song in this part. Then leave out from.' },
+  landOn: { type: 'string', enum: [...LAND_ON], description: 'With land: what it lands on. Leave out to let code choose.' },
   moment: { type: 'string', enum: [...MOMENT_IDS] },
   style: { type: 'string' },
   treatment: { type: 'string' },
@@ -360,6 +384,7 @@ const SHOT_RULES = `How the shots work:
 - style is how the words and graphics meet the picture. treatment is how the picture itself is broken down. inside is what this video is made of: the words live in the footage, the place changes colour with the song, and its moment decides how much (a hush only darkens the picture behind one line, a release floods everything behind the people). Most parts are inside, about seven in ten, always with treatment none: every part with words unless there is a reason, every part that lands, the first and the last. The rest are exceptions placed on purpose: plain for a face or a first sight that should be looked at undisturbed, one other style, treatment or motion as an accent in a loud section (each kind seen once before one is repeated). Never two exceptions in a row, and never a heavy style and a heavy treatment together. inside needs room: prefer pictures with depth (a street, a view, people in front of something) and zoom 1 for it.
 - say: in an inside part with no words, you may have one to three words stand in the picture, when the idea has a word worth seeing there (a place, the title, one word of the idea). In a song with lyrics at most three parts of the whole video, in one without at most one part in three. Plain words, no slogans, never words from the pictures.
 - from: choose the second that makes the shot. Prefer the good starts in the notes, or continue a clip by leaving it out. Do not start two shots of a clip on the same second.
+- land: the notes number the moments in each clip where something happens. Name one and code lands it on the song to the frame, rushing up to it and hanging on it as the part's moment asks. This is the strongest thing a cut can do, so choose the part and the clip for it: on a drop, something that begins, opens or is revealed right then (start; the drop itself goes before any word sung after it); inside a loud part, an impact, a stop or the top of a movement on its strong bar (beat); in a part with a line that matters, a gesture or a turn on the word (word); out of a part, the first half of a movement the next shot answers (end). Use it in every part that lands on a hit and wherever a clip offers something true to the song, about one part in two, and land each moment once. A moment that means nothing to the idea is not worth landing.
 - Do not put the same picture in neighbouring parts unless it clearly carries on, and do not let two pictures take turns through a whole section: bring the others in, as a second sight or a close detail. Spread pictures out, bring one back when the song returns, and keep the one held back for the big moment until then.
 - Match energy: a still or slow picture in a frantic part needs zoom or a treatment, a shaky one does not belong in a hush. A photo is a still that only drifts, so it suits short or quiet parts, and at most two parts of a section.
 - zoom above 1 crops in on the subject. Use it to make a second shot of the same clip a different shot, to get closer as the song builds, or for a detail. Sizes should vary from shot to shot.
@@ -421,7 +446,7 @@ function describeShot(x: Obj): string {
   const keys = list(x.media, 4).map(key).filter(Boolean).join('+');
   const bits = [
     keys,
-    typeof x.from === 'number' ? `from ${round(num(x.from, 0, 36000, 0), 10)}s` : '',
+    typeof x.land === 'number' ? `lands ${Math.round(num(x.land, 1, 9, 1))}${line(x.landOn, 8) ? ` on ${line(x.landOn, 8)}` : ''}` : typeof x.from === 'number' ? `from ${round(num(x.from, 0, 36000, 0), 10)}s` : '',
     line(x.moment, 12),
     line(x.style, 24),
     line(x.treatment, 24),
@@ -434,7 +459,7 @@ function describeShot(x: Obj): string {
 }
 
 /** one shot from Claude, with only what this request offered */
-function cleanShot(x: unknown, o: { open: Map<number, number>; words: Set<number>; media: Map<string, number>; styles: string[]; treatments: string[]; motions: string[] }): Obj | null {
+function cleanShot(x: unknown, o: { open: Map<number, number>; words: Set<number>; media: Map<string, number>; moments: Map<string, number>; styles: string[]; treatments: string[]; motions: string[] }): Obj | null {
   if (!isObj(x) || typeof x.i !== 'number' || !o.open.has(x.i)) return null;
   if (!(MOMENT_IDS as readonly unknown[]).includes(x.moment)) return null;
   const media = [...new Set(list(x.media, 4).map(key).filter((k) => o.media.has(k)))];
@@ -445,12 +470,15 @@ function cleanShot(x: unknown, o: { open: Map<number, number>; words: Set<number
   const treatment = pick(x.treatment, o.treatments);
   const motion = pick(x.motion, o.motions);
   const focused = typeof x.focusX === 'number' && typeof x.focusY === 'number';
+  const land = typeof x.land === 'number' && Number.isInteger(x.land) && x.land >= 1 && x.land <= (o.moments.get(media[0]) ?? 0) ? x.land : 0;
+  const landOn = oneOf(x.landOn, ['', ...LAND_ON] as const, '');
   const why = line(x.why, 110);
   const say = style === 'inside' && !o.words.has(x.i) ? line(x.say, 28) : '';
   return {
     i: x.i,
     media,
     ...(seconds > 0 && typeof x.from === 'number' && Number.isFinite(x.from) ? { from: round(num(x.from, 0, Math.max(0, seconds - 0.6), 0)) } : {}),
+    ...(land ? { land, ...(landOn ? { landOn } : {}) } : {}),
     moment: x.moment,
     ...(style ? { style } : {}),
     ...(style === 'inside' ? { treatment: 'none' } : treatment ? { treatment } : {}),
@@ -490,7 +518,7 @@ function readCut(body: Obj) {
     `The person's media:\n${media.lines.join('\n')}`,
     `Parts:\n${parts.lines.join('\n')}`,
   ].filter(Boolean);
-  return { media, parts, text: text.join('\n\n'), allowed: { open: parts.open, words: parts.words, media: media.seconds, styles: styles.ids, treatments: treatments.ids, motions: motions.ids } };
+  return { media, parts, text: text.join('\n\n'), allowed: { open: parts.open, words: parts.words, media: media.seconds, moments: media.moments, styles: styles.ids, treatments: treatments.ids, motions: motions.ids } };
 }
 
 function cleanShots(raw: unknown, o: Parameters<typeof cleanShot>[1]): Obj[] {

@@ -4,14 +4,11 @@
  * this browser: nothing is sent anywhere). It waits a minute at the most; what is missing then is read
  * while the video plays.
  */
-import { curvesFor } from './feeling';
 import { readingOf } from '../inside/readings';
-import { insideRanges, titleWords } from '../scenes/footage';
-import { deckIdsOf, footageRun, runPartOf, withOwn } from '../shot/run';
-import { findLook } from '../state/plan';
-import { originalOf, parentsOf } from '../state/planCache';
+import { insideRanges } from '../scenes/footage';
 import { useStudio } from '../state/store';
 import type { Cut } from './footageStills';
+import { runOfCut } from './footageTiming';
 import { ownMedia } from './media';
 
 const MOST_MS = 60000;
@@ -23,17 +20,8 @@ export function beginDepth() {
 
 /** what the cut's inside shots show, picture by picture */
 function rangesOf(cut: Cut): { id: string; range: [number, number] }[] {
-  const s = useStudio.getState();
-  const deckIds = deckIdsOf(s.clips, s.photos);
-  const parts = cut.analysis.sections.map((_, i) => {
-    const look = cut.plan.looks[i] ? findLook(cut.plan.looks[i]!) : undefined;
-    if (!look || look.sceneId !== 'footage') return null;
-    return withOwn(runPartOf({ ...(look.sceneParams ?? {}), ...(s.tweaks[look.id]?.sceneParams ?? {}) }), cut.shotAt(i), deckIds);
-  });
-  const clips = deckIds.map((id) => s.clips.find((c) => c.id === id)?.duration ?? 1e6).map((d) => Math.round(d * 100) / 100);
-  if (!clips.length) return [];
-  const run = footageRun({ analysis: cut.analysis, sections: originalOf(cut.analysis).sections, parents: parentsOf(cut.analysis), parts, clips, words: titleWords(), feel: curvesFor(cut.plan, cut.analysis, useStudio.getState().lyrics) });
-  return run.seqs.flatMap((seq) => (seq ? insideRanges(seq).map((x) => ({ id: deckIds[x.clip % deckIds.length], range: x.range })) : []));
+  const r = runOfCut(cut);
+  return r ? r.run.seqs.flatMap((seq) => (seq ? insideRanges(seq).map((x) => ({ id: r.deckIds[x.clip % r.deckIds.length], range: x.range })) : [])) : [];
 }
 
 /** the first two (they play at once), then every fifth, and the ones between: what time allows is from all over the song */
