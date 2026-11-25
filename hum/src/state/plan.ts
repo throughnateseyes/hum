@@ -108,6 +108,8 @@ export interface VideoPlan {
   idea?: string;
   /** parts the person liked (K): a later skip or a remake that keeps changes leaves them alone */
   liked?: boolean[];
+  /** parts marked Keep: a remake (fresh or not), an edit from the chat and the checks leave them exactly as they are */
+  kept?: boolean[];
 }
 
 export interface FlatInfo {
@@ -919,15 +921,31 @@ export function pickLook(p: Preset) {
   if (s.planOn && validPlan(s.plan, s.analysis)) {
     const t = audioEngine.currentTime;
     const i = sectionIndexAt(s.analysis!.sections, t);
-    assignLook(i, p.id, true);
+    // a look the director just made in the chat is only tried over a part that is kept
+    const asked = s.chat[s.chat.length - 1];
+    const made = asked?.role === 'user' && asked.mode === 'preset' && s.customPresets[0]?.id === p.id;
+    if (made && s.plan!.kept?.[i]) s.flash(`${partNames(s.analysis!)[i]} is kept, so the new look is only tried over it`);
+    else assignLook(i, p.id, true);
     // keep the pick on screen until the next shot rather than rotating away from it at once
-    const now = useStudio.getState();
-    if (now.plan) {
-      const shots = planShots(now.plan, now.analysis!, now.pace, now.lyrics);
-      const k = shotIndexAt(shots, t);
-      hold = { plan: now.plan, from: t, until: shots[k + 1]?.t ?? Infinity };
-    }
+    holdShot(t);
   }
+  s.applyPreset(songTinted(p));
+}
+
+/** what is on screen at song time t stays until the next shot */
+function holdShot(t: number) {
+  const now = useStudio.getState();
+  if (!now.plan) return;
+  const shots = planShots(now.plan, now.analysis!, now.pace, now.lyrics);
+  const k = shotIndexAt(shots, t);
+  hold = { plan: now.plan, from: t, until: shots[k + 1]?.t ?? Infinity };
+}
+
+/** show a look over the part playing, until the next shot, without putting it in (releaseHold ends it) */
+export function tryLook(p: Preset) {
+  const s = useStudio.getState();
+  if (!s.planOn || !validPlan(s.plan, s.analysis)) return;
+  holdShot(audioEngine.currentTime);
   s.applyPreset(songTinted(p));
 }
 
@@ -1712,6 +1730,7 @@ export function recutParts(s: Pick<StudioState, 'analysis' | 'plan' | 'partPops'
       ...(p.shotBars ? { shotBars: pick(p.shotBars, null) } : {}),
       ...(p.transitions ? { transitions: pick(p.transitions, null) } : {}),
       ...(p.liked ? { liked: pick(p.liked, false) } : {}),
+      ...(p.kept ? { kept: pick(p.kept, false) } : {}),
       // a part that starts inside an old one carries its picture on rather than starting it again
       ...(p.shots ? { shots: from.map((j, k) => (p.shots![j] ? (sameStart[k] ? p.shots![j] : withoutStart(p.shots![j]!)) : null)) } : {}),
       ...(p.moments ? { moments: pick(p.moments, null) } : {}),

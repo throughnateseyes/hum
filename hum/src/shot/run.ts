@@ -63,6 +63,8 @@ export interface RunPart {
   say?: string;
   /** Inside: a drawing that stands in the picture */
   drawn?: DrawnShot;
+  /** the place it is arranged for (a kept part; missing: where it is) */
+  pin?: { part: number; shot: number };
 }
 
 export interface RunInput {
@@ -211,8 +213,8 @@ export function footageRun(o: RunInput): Run {
         rampBeats: Math.min(RAMP, Math.max(1, beats / 2)),
         colour: o2.colour,
         style,
-        layout: layoutOf(o2.seed, i, j),
-        word: o.words.length ? o.words[ordinal % o.words.length] : '',
+        layout: layoutOf(o2.seed, o2.pin?.part ?? i, j),
+        word: o.words.length ? o.words[(o2.pin ? o2.pin.shot + j : ordinal) % o.words.length] : '',
         treatment,
         motion,
         ...(moment ? { moment } : {}),
@@ -322,6 +324,7 @@ export function withOwn(look: RunPart, own: PartShot | null | undefined, deckIds
     ...(isMoment(own.moment) ? { moment: own.moment } : {}),
     ...(own.say ? { say: own.say } : {}),
     ...(own.drawn ? { drawn: own.drawn } : {}),
+    ...(own.pin ? { pin: own.pin } : {}),
   };
 }
 

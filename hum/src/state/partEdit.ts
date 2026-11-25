@@ -337,6 +337,7 @@ export function resetParts(is: number[]) {
   const rotate = a.sections.map((_, j) => plan.rotate?.[j] ?? null);
   let lyricPlan = plan.lyricPlan;
   const liked = plan.liked ? plan.liked.map((v, j) => v && !parts.includes(j)) : undefined;
+  const kept = plan.kept ? plan.kept.map((v, j) => v && !parts.includes(j)) : undefined;
   for (const i of parts) {
     if (!b.looks[i] || findLook(b.looks[i])) {
       looks[i] = b.looks[i];
@@ -349,7 +350,7 @@ export function resetParts(is: number[]) {
       lyricPlan = { ...lyricPlan, parts: lp };
     }
   }
-  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}), ...(liked ? { liked } : {}) }, a, parts);
+  let next = ensureDropCuts({ ...plan, looks, rotate, ...(lyricPlan ? { lyricPlan } : {}), ...(liked ? { liked } : {}), ...(kept ? { kept } : {}) }, a, parts);
   // pop-ups, hand-drawn and words go back too (one Undo step with the rest)
   const n = a.sections.length;
   const partPops = withValue(s.partPops, n, parts, null);
@@ -505,6 +506,40 @@ export function likePart(i: number, on: boolean): boolean {
   const liked = a.sections.map((_, j) => (j === i ? on : !!plan.liked?.[j]));
   const next: VideoPlan = { ...plan, liked };
   if (!liked.some(Boolean)) delete next.liked;
+  commit(next);
+  return true;
+}
+
+/**
+ * Mark parts Keep (or let them go again): a remake, an edit from the chat and the checks leave a kept part
+ * exactly as it is. `pin` says what each shows by its own choice only, so that nothing dealt by its place
+ * in the video can change it later: what goes under the person's own choices, and what goes over.
+ */
+export function keepParts(is: number[], on: boolean, pin: (i: number) => { shot: PartShot | null; hand: PartShot | null } | null = () => null): boolean {
+  const cur = current();
+  if (!cur || !cur.plan.flat) return false;
+  const { plan, a } = cur;
+  const parts = partsIn(is, a).filter((i) => !!plan.kept?.[i] !== on);
+  if (!parts.length) return false;
+  const kept = a.sections.map((_, j) => (parts.includes(j) ? on : !!plan.kept?.[j]));
+  const next: VideoPlan = { ...plan, kept };
+  if (!kept.some(Boolean)) delete next.kept;
+  let hands: (PartShot | null)[] | null = null;
+  if (on) {
+    const was = useStudio.getState().partShot;
+    const shots = a.sections.map((_, j) => plan.shots?.[j] ?? null);
+    hands = a.sections.map((_, j) => (was?.length === a.sections.length ? (was[j] ?? null) : null));
+    for (const i of parts) {
+      const p = pin(i);
+      if (!p) continue;
+      shots[i] = p.shot;
+      hands[i] = p.hand;
+    }
+    if (shots.some((x, j) => x !== (plan.shots?.[j] ?? null))) next.shots = shots;
+    if (hands.every((x, j) => x === (was?.[j] ?? null))) hands = null;
+    if (plan.lyricPlan) next.lyricPlan = { ...plan.lyricPlan, parts: plan.lyricPlan.parts.map((p, j) => (p && parts.includes(j) ? { ...p, at: p.at ?? j } : p)) };
+  }
+  if (hands) useStudio.getState().set({ partShot: hands.some((x) => x !== null) ? hands : null });
   commit(next);
   return true;
 }

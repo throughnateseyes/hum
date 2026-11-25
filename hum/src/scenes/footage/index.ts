@@ -124,7 +124,7 @@ const params: ParamDef[] = [
 ];
 
 /** the run's key for a part: its settings and its own pictures */
-const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.hit ? `!${r.hit.clip}:${r.hit.on}:${r.hit.ramp}` : ''}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${drawnKey(r.drawn)}` : ''}`;
+const partKey = (r: RunPart) => `${sigOf(r)}${r.media?.length ? `#${r.media.join('.')}` : ''}${r.from === undefined ? '' : `@${r.from}`}${r.hit ? `!${r.hit.clip}:${r.hit.on}:${r.hit.ramp}` : ''}${r.moment ? `~${r.moment}` : ''}${r.say ? `"${r.say}` : ''}${r.drawn ? `&${r.drawn.id}.${drawnKey(r.drawn)}` : ''}${r.pin ? `^${r.pin.part}.${r.pin.shot}` : ''}`;
 
 /**
  * Where a part is centred and how far it is pushed in: its own framing (`own`: partShot[i] in a video

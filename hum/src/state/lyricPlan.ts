@@ -43,6 +43,8 @@ export interface LyricPart {
   /** Subtitle / Sparse only; unset means Sparse in the picture and Subtitle low */
   place?: LyricPlace;
   why?: string;
+  /** a kept part's number when it was kept: its words are dealt as that part's */
+  at?: number;
 }
 
 export interface LyricPlan {
@@ -334,7 +336,7 @@ export function chooseForLine(plan: LyricPlan, a: TrackAnalysis, lines: LyricLin
   const si = sectionAt(a.sections, line.t);
   const sec = a.sections[si];
   const part = plan.parts[si] ?? { medium: sec.label === 'chorus' || sec.label === 'drop' ? 'big' : 'subtitle' };
-  const base = { family: plan.family, motion: plan.motion, section: si, seed: (plan.seed ^ (li * 2654435761)) >>> 0, partSeed: (plan.seed ^ ((si + 1) * 40503)) >>> 0, place: 'low' as LyricPlace };
+  const base = { family: plan.family, motion: plan.motion, section: si, seed: (plan.seed ^ (li * 2654435761)) >>> 0, partSeed: (plan.seed ^ (((part.at ?? si) + 1) * 40503)) >>> 0, place: 'low' as LyricPlace };
   if (look.own === 'carries' && !show) return { ...base, medium: 'own', moment: null, why: 'this look shows the words itself' };
   let medium = part.medium;
   let why = part.why ?? '';

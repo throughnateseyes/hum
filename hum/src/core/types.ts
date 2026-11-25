@@ -421,6 +421,8 @@ export interface PartShot {
   say?: string;
   /** Inside only: a drawing that stands in the picture (null: none here, over the director's) */
   drawn?: DrawnShot | null;
+  /** a kept part's place when it was kept (its number, and the number of its first shot): what is arranged by place stays as it was */
+  pin?: { part: number; shot: number };
 }
 
 /* ───────────────────────── Scenes ───────────────────────── */
