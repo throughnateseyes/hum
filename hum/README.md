@@ -530,6 +530,26 @@ slice to its AAC encoder (48 kHz stereo, 40 ms fade in, 350 ms fade out); `src/r
 the MP4 (moov first, so it plays while it downloads, and an edit list that skips the AAC encoder's
 start-up delay, measured once per session, so sound and picture line up to the sample).
 
+What a render waits on is mostly the GPU. Two things keep it from waiting on more than that:
+
+- **Clips are decoded in order** (`src/shot/frameSource.ts`). A player put on a second begins again at
+  the whole picture before it, every frame. A render instead reads the clip's own index
+  (`src/shot/mp4In.ts`; only the index is read into memory, the pictures 4 MB at a time) and keeps one
+  WebCodecs decoder running along the file, a few pictures ahead, so the next ones decode while this
+  one is drawn. It stands in for the player only where it gives the very same picture: the same rule
+  for which picture a second falls on, and for each clip a few pictures checked against the player's, to
+  the byte, when a render first shows it. Anything else (WebM, pieces of a stream, odd edit lists, a codec
+  the browser won't decode this way, a decoder that fails) is seeked, as live and as before. At most
+  three decoders are open at once, with a dozen or so pictures each.
+- **The legibility guard is read only when words ask** (`FrameProbe` in `src/render/legibility.ts`).
+  Reading the picture back makes the render wait until the GPU has drawn everything it was given, so a
+  frame with no words on it isn't read.
+
+While it works the store's `clip` (`ClipProgress`) says how far it is (`frac`), and `elapsed`, `left`
+(about how many seconds for everything asked for, every size; unset for the first few seconds, until
+it can be trusted) and `speed` (2 is two seconds of video a second). `src/render/timeLeft.ts` works
+them out and puts `left` in words (`timeLeftText`: "about 4 min left").
+
 - `src/core/` — the contracts (`types.ts`), the shared GLSL header + function library (`glsl.ts`),
   and helpers to define scenes (`defineShaderScene`, `defineCanvasScene`, `defineThreeScene`).
 - **Feel** (`src/core/feel.ts`, `frame.feel`, `uFeel*` in shaders) is what keeps looks in agreement.
