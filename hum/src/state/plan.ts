@@ -1212,14 +1212,12 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   let asked: { plan: VideoPlan; reason: string };
   let end = () => {};
   let check: (() => Promise<void>) | null = null;
-  let draw: (() => void) | undefined;
   if (directed) {
     const made = await directVideo(a, prev, { wish, mood, keepEdits: opts.keepEdits });
     if (!made) return;
     asked = made;
     end = made.end;
     check = made.check;
-    draw = made.draw;
   } else {
     asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
     // clips nobody asked Claude about are still landed on the song (in this browser)
@@ -1251,7 +1249,6 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   now.set({ planning: false });
   const idea = plan.idea ? `${plan.idea} ` : '';
   void startPlan(plan, a, plan.source === 'claude' ? `${idea}${plan.note}` : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
-  if (draw) void draw();
   // the check runs while the video plays; its step line goes when it is done
   if (check) void check().then(end, end);
   else end();
@@ -1271,7 +1268,7 @@ async function directVideo(
   a: TrackAnalysis,
   prev: VideoPlan | null,
   o: { wish: string; mood?: Mood; keepEdits?: boolean },
-): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null; draw?: () => void } | null> {
+): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null } | null> {
   const d = await import('../director/footageDirector');
   const run = d.beginMake();
   const sameSong = () => {
@@ -1297,38 +1294,38 @@ async function directVideo(
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
-    let art: Art | null = null;
+    let art: Promise<Art | null> = Promise.resolve(null);
     let stills: { sheets: string[]; parts: number[] } | null = null;
     if (chosen) {
-      const { artOpen, directArt } = await import('../director/footageArt');
+      const { directArt } = await import('../director/footageArt');
       // what can be drawn where depends on the depth of the shots; the stills of the cut need no drawings
       await d.depthFor(chosen, run);
       const checking = d.stillsFor(chosen, run);
-      if (artOpen()) run.say('Deciding what to draw');
-      [art, stills] = await Promise.all([
-        directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint }, run).catch((err: unknown) => {
-          if (!run.signal.aborted) console.warn('no drawings were chosen', err);
-          return null;
-        }),
-        checking,
-      ]);
-      if (art) chosen.cues = plan.cues = art.cues;
+      // the room for drawings is measured now, while nothing plays on it; no drawing is made before the video is
+      // on, so what Claude decides to draw needn't hold it up (joinArt)
+      let measured = () => {};
+      const room = new Promise<void>((r) => (measured = r));
+      art = directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint, measured }, run).catch((err: unknown) => {
+        if (!run.signal.aborted) console.warn('no drawings were chosen', err);
+        return null;
+      });
+      void art.then(measured);
+      [stills] = await Promise.all([checking, room]);
     }
-    if (art) plan.art = art.art;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const look = art;
+    d.storyUsed();
     return {
       plan: chosen ? plan : await byHum(plan),
       reason: asked.reason,
       end: run.end,
-      check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null,
-      // what is missing is drawn while the video plays, and looked at where it stands once it is in
-      draw: look
-        ? () => {
-            look.begin();
-            void import('../director/footageArt').then((m) => m.reviewArt(look.art));
+      // while it plays: the weak shots are replaced, and the drawings take their places (then are drawn, and looked at)
+      check: chosen
+        ? async () => {
+            const { joinArt } = await import('../director/footageArt');
+            const checked = stills ? d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : Promise.resolve();
+            await Promise.all([checked, joinArt(chosen, art, checked, run)]);
           }
-        : undefined,
+        : null,
     };
   } catch (err) {
     if (!run.signal.aborted) {

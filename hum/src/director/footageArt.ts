@@ -9,7 +9,7 @@
  */
 import { audioEngine } from '../audio/engine';
 import type { Lyrics, TrackAnalysis } from '../core/types';
-import { makeDrawings, newDrawingId, redraw, songLines, useDrawJobs } from '../draw/jobs';
+import { dropDrawings, makeDrawings, newDrawingId, redraw, songLines, useDrawJobs } from '../draw/jobs';
 import { cleanStyle, drawingNow, drawingsHere, drawOpen, songName } from '../draw/session';
 import type { DrawIdea, DrawStyle } from '../draw/types';
 import { DRAWN_ENTERS, DRAWN_PUTS, DRAWN_SIZES, inRoom, type DrawnPut, type DrawnShot, type Room } from '../inside/drawnIds';
@@ -66,8 +66,11 @@ async function roomIn(cut: Cut, parts: { part: number; ratio?: number }[], signa
   }
 }
 
-/** the drawings of the video about to go on. Null when there are to be none. */
-export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: Story | null; lyrics: Lyrics | null; wish: string; paint?: string }, run: MakeRun): Promise<Art | null> {
+/**
+ * The drawings of the video about to go on. Null when there are to be none. `measured`: the pictures have been
+ * gone through, and only Claude is being waited for.
+ */
+export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: Story | null; lyrics: Lyrics | null; wish: string; paint?: string; measured?: () => void }, run: MakeRun): Promise<Art | null> {
   if (!artOpen()) return null;
   const s = useStudio.getState();
   const secs = chosen.cut.analysis.sections;
@@ -88,6 +91,7 @@ export async function directArt(chosen: Chosen, a: TrackAnalysis, o: { story: St
     .map((d, i) => ({ key: `D${i + 1}`, d }));
   const paint = INSIDE_PALETTES.find((p) => p.id === o.paint);
   const last = s.plan?.art?.drawings.map((d) => d.name) ?? [];
+  o.measured?.();
   const r = await requestStep(
     'art',
     {
@@ -180,6 +184,33 @@ export function readArt(
   };
 }
 
+/**
+ * The drawings take their places in the video they were chosen for, once it is on and its cut has been checked:
+ * never in a picture while it is on screen. What is missing is drawn meanwhile. Drawings still being made for
+ * the video it replaced are let go of.
+ */
+export async function joinArt(chosen: Chosen, coming: Promise<Art | null>, checked: Promise<void>, run: MakeRun): Promise<void> {
+  const mine = () => {
+    const s = useStudio.getState();
+    return !run.signal.aborted && s.plan?.flat?.src.cues === chosen.cues && !!s.analysis && validPlan(s.plan, s.analysis) ? s : null;
+  };
+  const now = mine();
+  if (!now) return;
+  dropDrawings((id) => [...(now.plan!.shots ?? []), ...(now.partShot ?? [])].some((x) => x?.drawn?.id === id));
+  if (artOpen()) run.say('Deciding what to draw');
+  const art = await coming;
+  if (!art || !mine()) return;
+  art.begin();
+  await checked.catch(() => {});
+  // (a shot the check made something else of has no place for one)
+  const spans: Span[] = art.cues.flatMap((c) => (c.shot.drawn && cueOf(chosen.cues, c.at)?.shot.style === 'inside' ? [{ at: c.at, end: c.end, id: c.shot.drawn.id, next: c.shot.drawn, fresh: true }] : []));
+  // one that isn't drawn yet changes nothing on screen
+  await offScreen(spans.filter((x) => drawingNow(x.id, drawingsHere())));
+  if (!mine()) return;
+  chosen.cues = applyArt(spans, art.art) ?? chosen.cues;
+  void reviewArt(art.art);
+}
+
 /* ───────── looking at them where they stand ───────── */
 
 /** the drawing of part i in the plan that is on */
@@ -199,6 +230,12 @@ function drawn(art: VideoArt, mine: () => boolean): Promise<boolean> {
   });
 }
 
+/** resolves once no video is being made (false: this one went off first): the one being made will most likely take its place, and then there is nothing to look at */
+async function settled(mine: () => boolean): Promise<boolean> {
+  while (mine() && useStudio.getState().planning) await new Promise((r) => setTimeout(r, 700));
+  return mine();
+}
+
 /**
  * Once every drawing is in, Claude sees the finished shots and moves, takes out or has drawn again what
  * looks stuck on: one round, like the check of the cut. Only on the video it was made for, and never
@@ -213,6 +250,7 @@ export async function reviewArt(art: VideoArt): Promise<void> {
     return ok;
   };
   if (!(await drawn(art, mine))) return;
+  if (!(await settled(mine))) return;
   await rehouse(mine, gone.signal).catch(() => {});
   if (!mine()) return;
   const s = useStudio.getState();
@@ -228,14 +266,14 @@ export async function reviewArt(art: VideoArt): Promise<void> {
   const some = parts.slice(0, MOST_STILLS);
   // a picture is drawn while nothing else needs the graphics card, where that can be had
   for (let k = 0; k < 40 && audioEngine.playing && mine(); k++) await new Promise((r) => setTimeout(r, 500));
-  if (!mine()) return;
+  if (!(await settled(mine))) return;
   const { stillSheets } = await import('./footageStills');
   const off = useStudio.subscribe(() => void mine());
   try {
     const cut: Cut = { plan, analysis: s.analysis!, shotAt: (i) => layShot(plan.shots?.[i], s.partShot?.[i]) };
     const room = await roomIn(cut, some.map(({ part, ratio }) => ({ part, ratio })), gone.signal);
     const sheets = await stillSheets(cut, some.map((p) => p.part), gone.signal);
-    if (!sheets.length) return;
+    if (!sheets.length || !(await settled(mine))) return;
     const r = await requestStep('artReview', { thread: art.thread, places: some.map(({ id: _id, ratio: _r, ...p }) => ({ ...p, ...(room.has(p.part) ? { room: room.get(p.part) } : {}) })), images: sheets }, { signal: gone.signal, quiet: true });
     if (!r.ok || !mine()) return;
     const changes = (Array.isArray(r.json.changes) ? r.json.changes : []).filter(isObj);
@@ -341,7 +379,8 @@ interface Span {
   fresh?: boolean;
 }
 
-function applyArt(spans: Span[]) {
+/** puts them in the plan that is on; with `art`, they are the drawings of this video from now on. The cues it has then */
+function applyArt(spans: Span[], art?: VideoArt): ShotCue[] | undefined {
   const s = useStudio.getState();
   const plan = s.plan!;
   const fix = <T extends { drawn?: DrawnShot | null }>(shot: T, at: number): T => {
@@ -353,5 +392,7 @@ function applyArt(spans: Span[]) {
   const shots = plan.shots?.map((x, i) => (x ? fix(x, s.analysis!.sections[i].start) : x));
   const src = plan.flat?.src;
   const cues = src?.cues?.map((c) => ({ ...c, shot: fix(c.shot, c.at) }));
-  s.set({ plan: { ...plan, ...(shots ? { shots } : {}), ...(plan.flat && src && cues ? { flat: { ...plan.flat, src: { ...src, cues } } } : {}) } });
+  const its = art ? { art } : {};
+  s.set({ plan: { ...plan, ...its, ...(shots ? { shots } : {}), ...(plan.flat && src && cues ? { flat: { ...plan.flat, src: { ...src, ...its, cues } } } : {}) } });
+  return cues;
 }
