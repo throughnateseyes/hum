@@ -14,6 +14,7 @@ import { beatOffset } from '../audio/frameDsp';
 import type { TrackAnalysis } from '../core/types';
 import { sectionIndexAt, sectionNames } from '../state/plan';
 import { useStudio, type ClipProgress } from '../state/store';
+import { timeLeftText } from '../render/timeLeft';
 import { cancelRender, RENDER_SIZES, renderBlocker, renderVideos, setRenderPreview, type RenderSize } from '../render/timeline';
 import { beginScrub, endScrub, scrubTo, showMoment } from '../state/scrub';
 import './render.css';
@@ -372,6 +373,7 @@ function RenderProgress({ clip }: { clip: ClipProgress }) {
     <div className="rb-run" role="status" aria-live="off">
       <div className="rb-pct">
         <b>{Math.round(all * 100)}%</b>
+        <span className="rb-left">{clip.phase === 'rec' ? timeLeftText(clip.left) : ''}</span>
         <span className="spacer" />
         <button className="btn sm" onClick={cancelRender} title="Esc">
           Cancel
@@ -388,11 +390,15 @@ function RenderProgress({ clip }: { clip: ClipProgress }) {
           </span>
         )}
         <span>{clock((clip.end - clip.start) * (clip.phase === 'prep' ? 0 : clip.frac))} of {clock(clip.end - clip.start)}</span>
+        {clip.phase === 'rec' && clip.speed !== undefined && <span>{speedText(clip.speed)}</span>}
       </div>
       <p className="field-note">Nothing plays while it works. Keep this tab in front: browsers slow down hidden ones.</p>
     </div>
   );
 }
+
+/** "0.6× real time": how much video a second of waiting makes */
+const speedText = (x: number) => `${x >= 9.5 ? Math.round(x) : x.toFixed(1)}× real time`;
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
