@@ -2,7 +2,7 @@
  * Where a drawing can stand in an inside shot, how big it is and how it arrives: the ids a part's setting
  * and the art director's answer are checked against (no drawing code here; the server reads this too).
  */
-import { cleanSpots, SHAPES, STANDING_SIZE, type Spots } from '../arrange/types';
+import { cleanSpots, SHAPES, STANDING_SIZE, type Spots } from '../arrange/types.js';
 
 export const DRAWN_PUTS = ['ground', 'between', 'far', 'wall'] as const;
 export type DrawnPut = (typeof DRAWN_PUTS)[number];
