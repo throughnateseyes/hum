@@ -54,9 +54,9 @@ export const css = (c: RGB, a = 1) => `rgba(${Math.round(c[0])},${Math.round(c[1
 
 /** the shrunken frame: sRGB luma and linear luminance per cell, row 0 at the top */
 export class FrameProbe {
-  readonly luma = new Float32Array(PROBE_W * PROBE_H);
-  readonly L = new Float32Array(PROBE_W * PROBE_H);
-  /** bumps every time a new frame has been read */
+  private readonly lumas = new Float32Array(PROBE_W * PROBE_H);
+  private readonly Ls = new Float32Array(PROBE_W * PROBE_H);
+  /** bumps every time a new frame has been read (or, where reading waits for the GPU, can be) */
   version = 0;
   private rt = new THREE.WebGLRenderTarget(PROBE_W, PROBE_H, {
     type: THREE.UnsignedByteType,
@@ -69,6 +69,29 @@ export class FrameProbe {
   private busy = false;
   /** read back without waiting a frame where the browser allows it (off in the dev harness: it steps faster than real time) */
   readAsync = true;
+
+  /**
+   * Where reading back means waiting for the GPU to draw everything it was given (a render), it isn't read
+   * until the words ask about it: a frame with no words on it doesn't wait.
+   */
+  private unread: THREE.WebGLRenderer | null = null;
+
+  get luma() {
+    if (this.unread) this.pull();
+    return this.lumas;
+  }
+
+  get L() {
+    if (this.unread) this.pull();
+    return this.Ls;
+  }
+
+  private pull() {
+    const r = this.unread!;
+    this.unread = null;
+    r.readRenderTargetPixels(this.rt, 0, 0, PROBE_W, PROBE_H, this.buf);
+    this.ingest();
+  }
 
   /** shrink `tex` into the probe every `every` frames and read it back (asynchronously where possible) */
   sample(r: THREE.WebGLRenderer, tex: THREE.Texture, blit: (t: THREE.Texture, target: THREE.WebGLRenderTarget | null) => void, every = 2) {
@@ -102,7 +125,10 @@ export class FrameProbe {
     if (this.readAsync && ar.readRenderTargetPixelsAsync) {
       this.busy = true;
       ar.readRenderTargetPixelsAsync(this.rt, 0, 0, PROBE_W, PROBE_H, this.buf)
-        .then(() => this.ingest())
+        .then(() => {
+          this.ingest();
+          this.version++;
+        })
         .catch(() => {
           this.readAsync = false;
         })
@@ -110,8 +136,8 @@ export class FrameProbe {
           this.busy = false;
         });
     } else {
-      r.readRenderTargetPixels(this.rt, 0, 0, PROBE_W, PROBE_H, this.buf);
-      this.ingest();
+      this.unread = r;
+      this.version++;
     }
   }
 
@@ -126,14 +152,14 @@ export class FrameProbe {
         const G = b[k + 1] / 255;
         const B = b[k + 2] / 255;
         const i = y * PROBE_W + x;
-        this.luma[i] = 0.2126 * R + 0.7152 * G + 0.0722 * B;
-        this.L[i] = 0.2126 * lin(R) + 0.7152 * lin(G) + 0.0722 * lin(B);
+        this.lumas[i] = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+        this.Ls[i] = 0.2126 * lin(R) + 0.7152 * lin(G) + 0.0722 * lin(B);
       }
     }
-    this.version++;
   }
 
   dispose() {
+    this.unread = null;
     this.rt.dispose();
   }
 }
@@ -160,6 +186,7 @@ function cells(r: Rect) {
 
 export function regionStats(p: Pick<FrameProbe, 'luma' | 'L'>, r: Rect): RegionStats {
   const { x0, x1, y0, y1 } = cells(r);
+  const { luma, L } = p;
   const Ls: number[] = [];
   let sum = 0;
   let sumY = 0;
@@ -169,17 +196,17 @@ export function regionStats(p: Pick<FrameProbe, 'luma' | 'L'>, r: Rect): RegionS
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = y * PROBE_W + x;
-      const v = p.luma[i];
-      Ls.push(p.L[i]);
-      sum += p.L[i];
+      const v = luma[i];
+      Ls.push(L[i]);
+      sum += L[i];
       sumY += v;
       sumY2 += v * v;
       if (x + 1 < x1) {
-        edge += Math.abs(v - p.luma[i + 1]);
+        edge += Math.abs(v - luma[i + 1]);
         ne++;
       }
       if (y + 1 < y1) {
-        edge += Math.abs(v - p.luma[i + PROBE_W]);
+        edge += Math.abs(v - luma[i + PROBE_W]);
         ne++;
       }
     }
@@ -199,6 +226,7 @@ export function regionStats(p: Pick<FrameProbe, 'luma' | 'L'>, r: Rect): RegionS
 /** share of the cells in `r` where `ink` falls under `target` contrast once `plate` covers `cover` of the picture */
 export function badShare(p: Pick<FrameProbe, 'luma'>, r: Rect, inkL: number, plate: RGB, cover: number, target: number, edge = 0): number {
   const { x0, x1, y0, y1 } = cells(r);
+  const { luma } = p;
   const pY = (0.2126 * plate[0] + 0.7152 * plate[1] + 0.0722 * plate[2]) / 255;
   // busy pictures need more contrast to read; backings calm them down
   const need = target * (1 + Math.min(1.2, edge * (1 - cover) * 9));
@@ -206,7 +234,7 @@ export function badShare(p: Pick<FrameProbe, 'luma'>, r: Rect, inkL: number, pla
   let n = 0;
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
-      const v = p.luma[y * PROBE_W + x] * (1 - cover) + pY * cover;
+      const v = luma[y * PROBE_W + x] * (1 - cover) + pY * cover;
       if (ratio(inkL, lin(v)) < need) bad++;
       n++;
     }
