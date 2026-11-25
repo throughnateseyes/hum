@@ -396,6 +396,18 @@ export function footageNeed(seq: Sequence, shot: Shot): number {
   return tab.sum[tab.n];
 }
 
+/** the seconds of its clip a shot shows, first to last */
+export function shownOf(shot: Shot, curve: Pick<ShotCurve, 'footage'>): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i <= 24; i++) {
+    const c = curve.footage(shot.start + ((shot.end - shot.start) * i) / 24);
+    lo = Math.min(lo, c);
+    hi = Math.max(hi, c);
+  }
+  return [Math.max(0, lo), hi];
+}
+
 /**
  * Speed curves for every shot, and for the footage shots a stretch of a clip each. `clips` are the
  * clip lengths in seconds (at least one; shots take them in turn). A shot whose stretch was decided

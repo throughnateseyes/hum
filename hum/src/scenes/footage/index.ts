@@ -55,7 +55,7 @@ import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
 import { wordsIn } from '../../inside/lines';
 import { drawnIn } from '../../inside/cast';
 import { drawnKey } from '../../inside/drawnIds';
-import { readingOf } from '../../inside/readings';
+import { readingHeld, readingOf } from '../../inside/readings';
 import { STYLE_IDS, STYLE_NAMES } from '../../shot/styles';
 import { TREATMENT_IDS, TREATMENT_NAMES, type TreatmentId } from '../../shot/treatments';
 import { originalOf, parentsOf } from '../../state/planCache';
@@ -397,7 +397,8 @@ function readAhead(flat: Flat, deck: StageClip[], t: number) {
       for (const { clip, range } of insideRanges(seq)) {
         if (reading !== flat) return;
         // (a video being made reads its own first, when nobody is watching this one)
-        while (useStudio.getState().planning && !audioEngine.playing) await new Promise((r) => setTimeout(r, 500));
+        // (and so does a render)
+        while ((useStudio.getState().planning && !audioEngine.playing) || readingHeld()) await new Promise((r) => setTimeout(r, 500));
         await deck[clip % deck.length]?.reading?.need([range]);
       }
   })();
@@ -482,6 +483,9 @@ class FootageLook implements SceneInstance {
   private part = -1;
   /** song time prepare() last put the clips on (a render), or null */
   private preparedFor: number | null = null;
+  /** the shots whose depth a render has waited for */
+  private depthFor = '';
+  private gone = false;
   private readonly focus = { x: 0.5, y: 0.55 };
   private zoom = 1;
 
@@ -727,6 +731,12 @@ class FootageLook implements SceneInstance {
     for (const p of this.held.values()) if (p.ready) p.footage.byFrame();
     if (!this.sync(frame.analysis, frame.params, frame.photos, songTime)) return;
     await this.stillsReady(useStudio.getState().clips);
+    // the depth was read before the render began; what it could not know of (auto-pilot cutting here) is read now
+    if (this.depthFor !== this.builtKey) {
+      this.depthFor = this.builtKey;
+      await frame.hold(this.stage.readInside());
+    }
+    if (this.gone) return;
     await this.stage.settle(songTime);
   }
 
@@ -745,6 +755,7 @@ class FootageLook implements SceneInstance {
   }
 
   dispose() {
+    this.gone = true;
     this.stage.dispose();
     this.stage.release();
     for (const k of this.held.keys()) release(this.renderer, k);

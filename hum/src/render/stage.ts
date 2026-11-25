@@ -142,6 +142,8 @@ interface FrameStep {
 
 /** how long a render waits for one scene's prepare (real ms) before drawing the frame without it */
 const PREPARE_TIMEOUT_MS = 4000;
+/** the longest it waits for what a prepare asked to be held for (PrepareContext.hold) before doing the same */
+const HOLD_TIMEOUT_MS = 180000;
 /** how far ahead of a cut the next look starts compiling (see Stage.lookAhead) */
 const LOOK_AHEAD_S = 7;
 
@@ -770,11 +772,14 @@ export class Stage {
   }
 
   private pendingStep: FrameStep | null = null;
+  /** told when a prepare begins and ends a wait the frame is held for (a render's progress) */
+  onHold: ((on: boolean) => void) | null = null;
   private prepState = new WeakMap<SceneInstance, { pending: boolean; warned: boolean }>();
 
   /**
    * One scene's prepare, made safe: an error is logged once and the frame draws anyway, and a
-   * prepare that takes longer than PREPARE_TIMEOUT_MS (real time) is given up on for this frame.
+   * prepare that takes longer than PREPARE_TIMEOUT_MS (real time, not counting what it asked the frame
+   * to be held for) is given up on for this frame.
    * While one is still stuck we don't call it again, so a hung scene costs one wait, not one per frame.
    */
   private async prepareOne(live: Live, songTime: number): Promise<void> {
@@ -798,7 +803,30 @@ export class Stage {
       analysis: st0.analysis,
       // the photos the person chose for the part playing (or the look on its own), else all of them
       photos: chosenPhotosAt(st0, songTime) ?? (st0.photos.length ? st0.photos : [this.placeholder]),
+      hold: async (p: Promise<unknown>) => {
+        clearTimeout(timer);
+        if (!over) arm(HOLD_TIMEOUT_MS);
+        this.onHold?.(true);
+        try {
+          await p;
+        } finally {
+          this.onHold?.(false);
+          clearTimeout(timer);
+          if (!over) arm(PREPARE_TIMEOUT_MS);
+        }
+      },
     };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let over = false;
+    let giveUp = () => {};
+    const arm = (ms: number) => {
+      timer = setTimeout(() => {
+        warn(`took over ${ms / 1000} s to get ready`);
+        giveUp();
+      }, ms);
+    };
+    const timeout = new Promise<void>((res) => (giveUp = res));
+    arm(PREPARE_TIMEOUT_MS);
     const run = new Promise<void>((res) => res(inst.prepare!(songTime, frame))).then(
       () => {
         state.pending = false;
@@ -808,16 +836,10 @@ export class Stage {
         warn('failed to get ready', e);
       },
     );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<void>((res) => {
-      timer = setTimeout(() => {
-        warn(`took over ${PREPARE_TIMEOUT_MS / 1000} s to get ready`);
-        res();
-      }, PREPARE_TIMEOUT_MS);
-    });
     try {
       await Promise.race([run, timeout]);
     } finally {
+      over = true;
       clearTimeout(timer);
     }
   }

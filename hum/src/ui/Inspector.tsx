@@ -581,7 +581,7 @@ function ClipQuick() {
   const blocked = useStudio((s) => clipBlocker(s));
   const flash = useStudio((s) => s.flash);
   const len = clip ? clip.end - clip.start : 0;
-  const label = !clip ? 'Clip for socials' : clip.phase === 'prep' ? 'Finding the drop…' : clip.phase === 'save' ? 'Saving…' : `${Math.floor(clip.frac * len)} / ${Math.round(len)} s`;
+  const label = !clip ? 'Clip for socials' : clip.phase === 'prep' ? 'Finding the drop…' : clip.phase === 'depth' ? `Reading depth${clip.of ? ` ${clip.n}/${clip.of}` : '…'}` : clip.phase === 'save' ? 'Saving…' : `${Math.floor(clip.frac * len)} / ${Math.round(len)} s`;
   return (
     <div className="rp-clip">
       <button

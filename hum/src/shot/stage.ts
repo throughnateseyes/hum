@@ -24,7 +24,7 @@ import { LookPlayer } from './lookPlayer';
 import { schemeFor, type Scheme, type ShotPalette } from './palette';
 import { usesRing, withMotion, type MotionCurve, type MotionId } from './motion';
 import { FrameRing, RATE, type RingFrame } from './ring';
-import { planFootage, type Sequence, type Shot } from './sequence';
+import { planFootage, shownOf, type Sequence, type Shot } from './sequence';
 import { SLOW, slowMotionOf, slowMotionUsers, stepping, type SlowMotion } from './slowmo';
 import type { Anchor } from './stills';
 import { STYLES } from './styles';
@@ -444,20 +444,17 @@ export class ShotStage {
 
   /** the seconds of its clip a shot shows */
   private clipRange(rig: Rig): [number, number] {
-    const { shot, curve } = rig;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (let i = 0; i <= 24; i++) {
-      const c = curve.footage(shot.start + ((shot.end - shot.start) * i) / 24);
-      lo = Math.min(lo, c);
-      hi = Math.max(hi, c);
-    }
-    return [Math.max(0, lo), hi];
+    return shownOf(rig.shot, rig.curve);
   }
 
   /** the seconds of each clip the inside shots of this run show */
   insideNeeds(): { clip: StageClip; range: [number, number] }[] {
     return this.rigs.filter((r) => r.shot.style === 'inside' && r.clip).map((r) => ({ clip: r.clip!, range: this.clipRange(r) }));
+  }
+
+  /** wait for the depth of every inside shot of this run */
+  async readInside(): Promise<void> {
+    await Promise.all(this.insideNeeds().map(({ clip, range }) => clip.reading?.need([range])));
   }
 
   /** the room for a drawing in the longest inside shot of this run (null: none, or its depth isn't read) */

@@ -558,6 +558,18 @@ slice to its AAC encoder (48 kHz stereo, 40 ms fade in, 350 ms fade out); `src/r
 the MP4 (moov first, so it plays while it downloads, and an edit list that skips the AAC encoder's
 start-up delay, measured once per session, so sound and picture line up to the sample).
 
+Before the first frame, the depth of every Inside shot in the stretch is read (`readStretch` in
+`src/director/footageDepth.ts`, run-up included), however long that takes: a render started before a
+clip was read draws the same frames as one started after. It shows as a step of its own ("Reading the
+depth of your footage", the shot and of how many), Esc stops it, and it isn't counted in the time left.
+What was read is kept, so the next render starts at once. A shot is drawn without depth only when its
+clip can't be read (the model can't be had, a clip that won't open, or nothing heard for three minutes);
+the next render tries again. Nothing is read ahead for the screen while a render draws
+(`holdReading`, `src/inside/readings.ts`). A shot nobody could know of beforehand (Auto-pilot cutting to
+footage) holds its frame until its depth is in (`PrepareContext.hold`); every other wait for a scene to
+get ready is still given up on after 4 s. A clip whose depth is read from scratch again (other browser
+storage) comes out a little different, and what stands in the picture can move.
+
 What a render waits on is mostly the GPU. Two things keep it from waiting on more than that:
 
 - **Clips are decoded in order** (`src/shot/frameSource.ts`). A player put on a second begins again at
@@ -573,7 +585,8 @@ What a render waits on is mostly the GPU. Two things keep it from waiting on mor
   Reading the picture back makes the render wait until the GPU has drawn everything it was given, so a
   frame with no words on it isn't read.
 
-While it works the store's `clip` (`ClipProgress`) says how far it is (`frac`), and `elapsed`, `left`
+While it works the store's `clip` (`ClipProgress`) says what it is at (`phase`; in `depth`, `n` of `of` shots
+are read), how far it is (`frac`), and `elapsed`, `left`
 (about how many seconds for everything asked for, every size; unset for the first few seconds, until
 it can be trusted) and `speed` (2 is two seconds of video a second). `src/render/timeLeft.ts` works
 them out and puts `left` in words (`timeLeftText`: "about 4 min left").

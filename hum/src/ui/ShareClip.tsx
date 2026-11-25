@@ -176,7 +176,7 @@ export function ShareClip() {
             <i style={{ transform: `scaleX(${clip.phase === 'prep' ? 0.02 : clip.frac})` }} />
           </div>
           <div className="share-run-row">
-            <span>{clip.phase === 'prep' ? 'Getting ready…' : clip.phase === 'save' ? 'Saving…' : `Making your clip · ${Math.round(clip.frac * 100)}%`}</span>
+            <span>{clip.phase === 'prep' ? 'Getting ready…' : clip.phase === 'depth' ? 'Reading the depth of your footage…' : clip.phase === 'save' ? 'Saving…' : `Making your clip · ${Math.round(clip.frac * 100)}%`}</span>
             <button className="btn share-cancel" onClick={stop}>
               Cancel
             </button>

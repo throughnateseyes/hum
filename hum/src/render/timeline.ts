@@ -7,7 +7,9 @@
  * frame, so the same stretch gives the same frames every time and at every size. The video plan's
  * cuts, transitions, Song colours, pop-ups, scene windows and lyrics all come out where playback puts
  * them. Each video starts drawing a few seconds early (thrown away) so Feel, flocks, wind and windows
- * have settled by the first frame, and listening starts earlier still so the levels have too.
+ * have settled by the first frame, and listening starts earlier still so the levels have too. The depth
+ * its Inside shots are drawn from is read first (director/footageDepth.ts, readStretch), so whether it
+ * had been read before never shows.
  *
  * Frames go straight into the browser's H.264 encoder and the song's slice into its AAC encoder
  * (render/encode.ts), and out comes an MP4 per size. Afterwards the look, the plan's memory, the
@@ -25,6 +27,7 @@ import { songBuffer } from '../state/tracks';
 import { Stage } from './stage';
 import { download } from './recorder';
 import { encodeAudio, offlineBlocker, sliceSong, VideoFileWriter, videoConfig } from './encode';
+import { holdReading } from '../inside/readings';
 import { exportClip } from './clipExport';
 import { frameWeight, RenderClock, type RenderTime } from './timeLeft';
 
@@ -70,6 +73,8 @@ export interface RenderResult {
 const DRAW_PREROLL = 3;
 /** how much earlier listening starts, so levels, energy and the beat have settled (s) */
 const LISTEN_PREROLL = 12;
+/** how far past the end a look coming in is shown (s; see pick in scenes/footage) */
+const LOOK_AHEAD = 1.5;
 /** the render clock's scene time at song time 0 (keeps scene time positive through the run-up) */
 const TIME_BASE = 10;
 /** the dice: every frame of every render rolls from this and the frame's place in the song */
@@ -205,7 +210,21 @@ interface Shared {
   mono: Float32Array;
 }
 
-async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, audio: Awaited<ReturnType<typeof encodeAudio>>, onFrame: (frac: number, drawn: number) => void, isCancelled: () => boolean): Promise<Blob> {
+/** wait for `p`, unless the render is cancelled first */
+async function unlessCancelled(p: Promise<void>, isCancelled: () => boolean): Promise<void> {
+  let done = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const end = p.finally(() => (done = true));
+  end.catch(() => undefined);
+  while (!done) {
+    const tick = new Promise<void>((r) => (timer = setTimeout(r, 120)));
+    await Promise.race([end, tick]);
+    clearTimeout(timer);
+    if (isCancelled()) throw new Cancelled();
+  }
+}
+
+async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, audio: Awaited<ReturnType<typeof encodeAudio>>, onFrame: (frac: number, drawn: number) => void, onHold: (on: boolean) => void, isCancelled: () => boolean): Promise<Blob> {
   const { w, h } = size;
   const fps = req.fps;
   const cfg = await videoConfig(w, h, fps);
@@ -219,6 +238,7 @@ async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, a
   (stage.renderer as unknown as { readRenderTargetPixelsAsync?: unknown }).readRenderTargetPixelsAsync = undefined;
   stage.setOutputSize({ w, h });
   stage.resetClock(0);
+  stage.onHold = onHold;
   const writer = new VideoFileWriter(cfg, fps, audio);
   try {
     const frames = new OfflineAudioFrames(shared.pcm, s0.analysis, { sensitivity: s0.sensitivity, bpmOverride: audioEngine.bpmOverride, mono: shared.mono });
@@ -246,8 +266,7 @@ async function renderOne(req: RenderRequest, size: RenderSize, shared: Shared, a
       // the sequencers run and any cut lands first, so a scene cut to on this frame exists to be prepared
       inRenderWorld(stage, songFrame, now, (phase) => stage.beginFrame({ now, dt: 1 / fps, audio: a, phase }));
       // footage scenes seek their videos here: on the real clock, with real timers, so `seeked` fires
-      await stage.prepareFrame(t);
-      if (isCancelled()) throw new Cancelled();
+      await unlessCancelled(stage.prepareFrame(t), isCancelled);
       inRenderWorld(
         stage,
         songFrame,
@@ -360,6 +379,8 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
   // the quality governor sits still while frames are made (the busy GPU isn't the live stage lagging)
   quality.freeze(true);
   audioEngine.pause();
+  // the depth this draws from is read first, and nothing else is read into it while it draws
+  holdReading(true);
   const saved: string[] = [];
   const kept: RenderResult['files'] = [];
   let failure: string | null = null;
@@ -374,6 +395,14 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
     const pcm = { channels, sampleRate: buf!.sampleRate };
     const mono = downmix(pcm);
     const audio = await encodeAudio(sliceSong(pcm, start, end));
+    const stopped = () => cancelled || useStudio.getState().track !== track;
+    const { readStretch } = await import('../director/footageDepth');
+    // (a little past the end: a look coming in over a transition shows its shot before its cut)
+    await readStretch(start - each.pre / req.fps, end + LOOK_AHEAD, {
+      stopped,
+      say: (p) => set({ phase: 'depth', frac: p.frac, start, end, size: sizeLabel(job.sizes[0]), index: 0, count, n: p.n, of: p.of, loading: p.loading }),
+    });
+    if (stopped()) throw new Cancelled();
     for (let i = 0; i < count; i++) {
       if (cancelled) throw new Cancelled();
       const size = job.sizes[i];
@@ -385,6 +414,20 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
       show(0);
       let lastFrac = -1;
       let lastShown = 0;
+      // what the frame in hand waits for (a clip's depth nobody could know of beforehand) isn't time it takes to draw
+      let heldAt = 0;
+      let holds = 0;
+      let soon: ReturnType<typeof setTimeout> | undefined;
+      const onHold = (on: boolean) => {
+        holds += on ? 1 : -1;
+        if (on && holds === 1) {
+          heldAt = performance.now();
+          soon = setTimeout(() => !stopped() && set({ phase: 'depth', frac: Math.max(0, lastFrac), start, end, size: sizeLabel(size), index: i, count, n: 0, of: 0 }), 300);
+        } else if (!on && holds === 0) {
+          clearTimeout(soon);
+          clock.waited(performance.now() - heldAt);
+        }
+      };
       const past = weights.slice(0, i).reduce((sum, x) => sum + x, 0) * (each.pre + each.total);
       const blob = await renderOne(job, size, { pcm, mono }, audio, (f, drawn) => {
         const now = performance.now();
@@ -393,7 +436,7 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
         lastShown = now;
         time = clock.at(now, past + weights[i] * drawn, i * (each.pre + each.total) + drawn);
         show(f);
-      }, () => cancelled || useStudio.getState().track !== track);
+      }, onHold, stopped);
       if (useStudio.getState().track !== track) throw new Cancelled();
       const name = renderFileName(songName, start, end, size);
       if (req.keep) kept.push({ blob, name, size });
@@ -412,6 +455,7 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
     restorePlanSequencer(before.seq);
     useStudio.getState().set({ clip: null });
     quality.freeze(false);
+    holdReading(false);
     onScreen?.start();
     if (useStudio.getState().track === track) {
       audioEngine.seek(before.time);

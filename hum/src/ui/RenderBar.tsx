@@ -362,13 +362,15 @@ export function RenderBar() {
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-/** the row while it renders: how far, how long it has been and has left, and Cancel */
+/** the row while it renders: the depth being read first, then how far, how long it has been and has left, and Cancel */
 function RenderProgress({ clip }: { clip: ClipProgress }) {
   const which = RENDER_SIZES.find((z) => `${z.w}×${z.h}` === clip.size);
   const n = clip.count ?? 1;
   const at = (clip.index ?? 0) + 1;
   // the whole batch, not just the file being made
-  const all = clip.phase === 'prep' && at === 1 ? 0 : Math.min(1, ((clip.index ?? 0) + (clip.phase === 'save' ? 1 : clip.frac)) / n);
+  // reading depth comes before the frames, and fills a bar of its own
+  const depth = clip.phase === 'depth' && !!clip.of;
+  const all = depth ? clip.frac : clip.phase === 'prep' && at === 1 ? 0 : Math.min(1, ((clip.index ?? 0) + (clip.phase === 'save' ? 1 : clip.frac)) / n);
   return (
     <div className="rb-run" role="status" aria-live="off">
       <div className="rb-pct">
@@ -383,19 +385,30 @@ function RenderProgress({ clip }: { clip: ClipProgress }) {
         <i style={{ transform: `scaleX(${all})` }} />
       </div>
       <div className="rb-info">
-        <span>{clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving the file' : `Rendering ${which?.id ?? clip.size}`}</span>
-        {n > 1 && (
+        <span>{clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'depth' ? depthText(clip) : clip.phase === 'save' ? 'Saving the file' : `Rendering ${which?.id ?? clip.size}`}</span>
+        {n > 1 && clip.phase !== 'depth' && (
           <span>
             Video {at} of {n}
           </span>
         )}
-        <span>{clock((clip.end - clip.start) * (clip.phase === 'prep' ? 0 : clip.frac))} of {clock(clip.end - clip.start)}</span>
+        {clip.phase === 'depth' ? (
+          depth && (
+            <span>
+              Shot {clip.n} of {clip.of}
+            </span>
+          )
+        ) : (
+          <span>{clock((clip.end - clip.start) * (clip.phase === 'prep' ? 0 : clip.frac))} of {clock(clip.end - clip.start)}</span>
+        )}
         {clip.phase === 'rec' && clip.speed !== undefined && <span>{speedText(clip.speed)}</span>}
       </div>
       <p className="field-note">Nothing plays while it works. Keep this tab in front: browsers slow down hidden ones.</p>
     </div>
   );
 }
+
+/** what is being read before the frames are made */
+const depthText = (clip: ClipProgress) => (clip.loading ? 'Getting the depth reader' : 'Reading the depth of your footage');
 
 /** "0.6× real time": how much video a second of waiting makes */
 const speedText = (x: number) => `${x >= 9.5 ? Math.round(x) : x.toFixed(1)}× real time`;

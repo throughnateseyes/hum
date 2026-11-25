@@ -475,6 +475,8 @@ export interface PrepareContext {
   params: ParamValues;
   analysis: TrackAnalysis | null;
   photos: PhotoAsset[];
+  /** wait for something the picture is wrong without, however long it takes (a clip's depth): the render says so while it waits */
+  hold(p: Promise<unknown>): Promise<void>;
 }
 
 export interface SceneInstance {

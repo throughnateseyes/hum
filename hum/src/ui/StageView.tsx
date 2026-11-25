@@ -115,7 +115,7 @@ export function StageView() {
           )}
           {clip && (
             <span className="hud-pill rec">
-              <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
+              <i /> {clip.phase === 'prep' ? 'Getting ready' : clip.phase === 'depth' ? 'Reading depth' : clip.phase === 'save' ? 'Saving' : clip.count !== undefined ? 'Rendering' : 'Clip'} · {clip.size ?? '1080×1920'}
               {clip.count !== undefined && clip.count > 1 ? ` (${(clip.index ?? 0) + 1} of ${clip.count})` : ''} · Esc cancels
             </span>
           )}

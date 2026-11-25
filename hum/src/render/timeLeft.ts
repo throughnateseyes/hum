@@ -68,6 +68,15 @@ export class RenderClock {
     this.shownAt = now;
     return { elapsed, left: work >= this.total ? 0 : this.shown, speed: (all.frames * (1 - RECENT_SHARE) + recent.frames * RECENT_SHARE) / this.fps };
   }
+
+  /** `ms` went by without drawing (waiting for a clip's depth): it doesn't count as time frames take */
+  waited(ms: number) {
+    if (this.from < 0) return;
+    this.from += ms;
+    this.shownAt += ms;
+    for (const m of this.marks) m.at += ms;
+  }
+
   private first: { work: number; frames: number } | null = null;
 }
 

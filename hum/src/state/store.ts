@@ -62,7 +62,8 @@ export type LyricsSync = { stage: 'prepare' | 'download' | 'listening'; frac: nu
 export type Startup = { step: 'listen' | 'plan'; since: number; duration: number } | null;
 
 export interface ClipProgress {
-  phase: 'prep' | 'rec' | 'save';
+  /** 'depth': reading the depth its Inside shots are drawn from (a render; `frac` is of that) */
+  phase: 'prep' | 'depth' | 'rec' | 'save';
   frac: number;
   /** the stretch of the song being recorded (s) */
   start: number;
@@ -77,6 +78,10 @@ export interface ClipProgress {
   left?: number;
   /** how fast it goes against the song: 2 makes two seconds of video a second; undefined until it can be trusted */
   speed?: number;
+  /** while depth is read: the shot, of how many (0: not known yet), and whether the model is still coming down */
+  n?: number;
+  of?: number;
+  loading?: boolean;
 }
 
 export interface ChatMsg {
