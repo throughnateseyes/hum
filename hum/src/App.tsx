@@ -20,6 +20,8 @@ import { TapSync } from './ui/TapSync';
 import { pickLook } from './state/plan';
 import { noteHandPick } from './state/taste';
 import { applyQuickPick, likeShot, skipShot } from './ui/shotActions';
+import { ProjectMenu } from './ui/ProjectMenu';
+import { guarded, openDir, save } from './project/project';
 import { StageView } from './ui/StageView';
 import { Breakdown } from './ui/Breakdown';
 import { nudgeVolume, toggleMute, useVolumeSync } from './ui/Volume';
@@ -60,6 +62,13 @@ export default function App() {
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        // a name being typed is taken first
+        if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('proj-name')) document.activeElement.blur();
+        if (!useStudio.getState().clip && !e.repeat) void save();
+        return;
+      }
       const t = e.target as HTMLElement;
       if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
       const s = useStudio.getState();
@@ -140,7 +149,7 @@ export default function App() {
         e.preventDefault();
         dragDepth.current = 0;
         setOver(false);
-        void handleFiles(e.dataTransfer.files);
+        dropped(e.dataTransfer);
       }}
       style={{ position: 'relative' }}
     >
@@ -168,6 +177,21 @@ export default function App() {
   );
 }
 
+/** files dropped on the page, or a project's folder */
+function dropped(dt: DataTransfer) {
+  const files = Array.from(dt.files);
+  const item = dt.items[0] as (DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> }) | undefined;
+  // a folder looks like a file with no type; it has to be asked about now, while the drop is on
+  if (files.length === 1 && !files[0].type && item?.getAsFileSystemHandle && !/\.\w{2,5}$/.test(files[0].name)) {
+    void item.getAsFileSystemHandle().then(
+      (h) => (h?.kind === 'directory' ? guarded(() => void openDir(h as FileSystemDirectoryHandle)) : handleFiles(files)),
+      () => handleFiles(files),
+    );
+    return;
+  }
+  void handleFiles(files);
+}
+
 function shuffle() {
   const s = useStudio.getState();
   const pool = PRESETS.filter((p) => p.id !== s.presetId && lookShows(p));
@@ -192,13 +216,14 @@ function Topbar() {
         </div>
         <SourceMenu onOpenFiles={openFiles} />
         <LyricsChip />
+        <ProjectMenu />
         <button className="btn icon ghost has-tip tip-below" data-tip="Open audio or photos" aria-label="Open audio or photos" onClick={openFiles}>
           <Upload width={15} height={15} />
         </button>
         <input
           ref={input}
           type="file"
-          accept="audio/*,image/*"
+          accept="audio/*,image/*,.hum"
           multiple
           hidden
           onChange={(e) => {
@@ -235,13 +260,14 @@ function PhoneTopbar() {
         <span className="brand-mark" />
       </div>
       <SourceMenu onOpenFiles={openFiles} />
+      <ProjectMenu />
       <button className="btn icon ghost ph-open" aria-label="Open a song" onClick={openFiles}>
         <Upload width={18} height={18} />
       </button>
       <input
         ref={input}
         type="file"
-        accept="audio/*,video/*,image/*"
+        accept="audio/*,video/*,image/*,.hum"
         multiple
         hidden
         onChange={(e) => {

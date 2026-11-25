@@ -20,7 +20,10 @@ function readParts(): Record<string, unknown> {
 }
 
 export function loadDrawParts(song: string): DrawPart[] {
-  const raw = song ? readParts()[song] : null;
+  return cleanDrawParts(song ? readParts()[song] : null);
+}
+
+export function cleanDrawParts(raw: unknown): DrawPart[] {
   if (!Array.isArray(raw)) return [];
   return raw.slice(0, 200).flatMap((p: Record<string, unknown> | null) => {
     const from = num(p?.from);

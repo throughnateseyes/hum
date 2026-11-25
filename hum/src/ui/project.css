@@ -1,0 +1,129 @@
+/* the project's pill and menu in the top bar (ProjectMenu.tsx) */
+.proj {
+  flex: 0 1 auto;
+}
+.proj-pill {
+  max-width: 240px;
+  padding-left: var(--s-2);
+  color: var(--ink-2);
+  background: transparent;
+}
+.proj-pill svg:first-child {
+  flex: none;
+}
+.proj-pill .name {
+  color: var(--ink);
+}
+.proj-pill .meta {
+  flex: none;
+}
+.proj-pill.wants .meta {
+  color: var(--accent);
+}
+.proj .menu {
+  width: 272px;
+}
+.proj-name {
+  margin: var(--s-1) var(--s-1) 2px;
+  padding: 5px var(--s-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-4);
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+}
+.proj-name:hover {
+  border-color: var(--line);
+}
+.proj-name:focus {
+  border-color: var(--line-2);
+  background: #fff;
+  outline: none;
+}
+.proj-note {
+  margin: 0 var(--s-2) var(--s-2);
+  font-size: var(--fs-2);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.menu[role='dialog'] .proj-note {
+  margin-top: var(--s-2);
+}
+.proj-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: 0 var(--s-2) var(--s-2);
+}
+.menu-item .proj-key {
+  margin-left: auto;
+}
+.proj-fwd {
+  transform: rotate(-90deg);
+  width: 14px;
+}
+.proj-back {
+  transform: rotate(90deg);
+}
+.proj-list {
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+}
+
+/* little room: the folder alone, with a dot when it needs something */
+@media (max-width: 1180px) {
+  .trackpill.proj-pill {
+    position: relative;
+  }
+  .trackpill.proj-pill .name,
+  .trackpill.proj-pill .meta,
+  .trackpill.proj-pill .caret {
+    display: none;
+  }
+  .trackpill.proj-pill.wants::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+}
+/* the phone: one button beside the song */
+.app.phone .ph-top .src.proj {
+  flex: none;
+}
+.app.phone .ph-top .trackpill.proj-pill {
+  width: 44px;
+  min-height: 44px;
+  justify-content: center;
+  padding: 0;
+}
+.app.phone .ph-top .trackpill.proj-pill svg:first-child {
+  width: 18px;
+  height: 18px;
+}
+.app.phone .ph-top .trackpill.proj-pill.wants::after {
+  top: 9px;
+  right: 8px;
+}
+.app.phone .ph-top .src.proj .menu {
+  left: auto;
+  right: -52px;
+  width: min(300px, calc(100vw - 28px));
+}
+.app.phone .ph-top .src.proj .menu .btn,
+.app.phone .ph-top .proj-name {
+  min-height: 44px;
+}
+.app.phone .ph-top .proj-name {
+  font-size: 16px;
+}
+.app.phone .ph-top .proj-key {
+  display: none;
+}

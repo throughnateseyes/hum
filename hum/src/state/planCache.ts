@@ -172,6 +172,20 @@ function writeAll(list: Entry[]) {
   }
 }
 
+/** does this plan fit the song as it is heard now, with every look in it still there? */
+export function planFits(p: VideoPlan, a: TrackAnalysis, lookExists: (id: string) => boolean): boolean {
+  // a plan with the person's own part lines fits the song cut at those lines
+  const cut = cutAnalysis(a, p.bounds);
+  return (
+    !!cut &&
+    p.looks.length === cut.sections.length &&
+    Math.abs(p.duration - a.duration) < 0.5 &&
+    p.looks.every((id) => !id || lookExists(id)) &&
+    (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&
+    (p.interludes ?? []).every((id) => !id || lookExists(id))
+  );
+}
+
 /**
  * The saved plan for this song, if it still fits the analysis and every look it uses still exists
  * (a look the person deleted makes the plan unusable, so it's dropped).
@@ -181,16 +195,7 @@ export function savedPlan(key: string, a: TrackAnalysis, lookExists: (id: string
   const e = list.find((x) => x.key === key);
   if (!e) return null;
   const p = e.plan;
-  // a plan with the person's own part lines fits the song cut at those lines
-  const cut = cutAnalysis(a, p.bounds);
-  const ok =
-    !!cut &&
-    p.looks.length === cut.sections.length &&
-    Math.abs(p.duration - a.duration) < 0.5 &&
-    p.looks.every((id) => !id || lookExists(id)) &&
-    (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&
-    (p.interludes ?? []).every((id) => !id || lookExists(id));
-  if (!ok) {
+  if (!planFits(p, a, lookExists)) {
     writeAll(list.filter((x) => x !== e));
     return null;
   }
@@ -260,11 +265,11 @@ const PART_OK: Record<PartField, (v: unknown) => boolean> = {
 };
 
 /** a saved footage picture record (store.partShot) still reads as one */
-function okShot(v: unknown): boolean {
+export function okShot(v: unknown, most = 40): boolean {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   const r = v as Record<string, unknown>;
   const num = (k: string, lo: number, hi: number) => r[k] === undefined || (typeof r[k] === 'number' && (r[k] as number) >= lo && (r[k] as number) <= hi);
-  const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= 40);
+  const text = (k: string) => r[k] === undefined || (typeof r[k] === 'string' && (r[k] as string).length <= most);
   const media = r.media === undefined || (Array.isArray(r.media) && r.media.length <= 50 && r.media.every((x) => typeof x === 'string'));
   return text('style') && text('treatment') && text('motion') && text('moment') && text('say') && (r.drawn === undefined || r.drawn === null || !!cleanDrawn(r.drawn)) && media && num('from', 0, 36000) && num('seed', 1, 999) && num('focusX', 0, 1) && num('focusY', 0, 1) && num('zoom', 1, 3);
 }

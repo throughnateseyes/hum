@@ -46,6 +46,15 @@ function keep(key: string, f: SongFeeling) {
   }
 }
 
+/** what Claude read in these words (null: it hasn't), for a project to carry */
+export const feelingFor = (lyr: Lyrics | null): SongFeeling | null => kept().find((x) => x.key === songOf(lyr))?.f ?? null;
+
+/** what a project says the words feel like, unless it is known here */
+export function bringFeeling(lyr: Lyrics | null, f: unknown) {
+  const key = songOf(lyr);
+  if (key && isFeeling(f) && !feelingFor(lyr)) keep(key, f);
+}
+
 const byWords = new WeakMap<Lyrics, SongFeeling>();
 const NONE: SongFeeling = { v: 1, by: 'hum', about: '', lines: {} };
 

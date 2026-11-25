@@ -39,6 +39,23 @@ export function keepNotes(n: MediaNotes) {
   void ask(NOTES, 'readwrite', (s) => s.put(n));
 }
 
+/** what a project says Claude saw in its files, where it isn't known here */
+export async function bringNotes(list: MediaNotes[]) {
+  await recallNotes();
+  for (const n of list) {
+    if (n.v !== VERSION || known.has(n.id)) continue;
+    const kind = n.kind === 'photo' ? 'photo' : 'clip';
+    const at = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).slice(0, 400) : []);
+    const m = n.measure;
+    const clean = readNotes(
+      // read as Claude's answer is: that one counts from the top
+      { ...n, focusY: typeof n.focusY === 'number' ? 1 - n.focusY : undefined },
+      { key: '', id: n.id, kind, seconds: 36000, width: 0, height: 0, sheet: 0, measure: { at: at(m.at), motion: at(m.motion), bright: num(m.bright, 0, 1, 0.5), shake: num(m.shake, 0, 1, 0) } },
+    );
+    if (clean) keepNotes(clean);
+  }
+}
+
 /** the clips and photos a video can use, in the order footage looks deal them (never the placeholder) */
 export function ownMedia(): ({ kind: 'clip'; id: string; clip: ClipAsset } | { kind: 'photo'; id: string; photo: PhotoAsset })[] {
   const s = useStudio.getState();

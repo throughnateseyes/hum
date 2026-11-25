@@ -23,6 +23,16 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   menu in the top bar. Under that, the screen asks for an **AI access code** when the site wants one:
   with a code Claude directs the video, without one Hum's built-in director does, and everything else
   works the same. The code is kept in this browser; change or forget it under Video → More.
+- **Save it as a project** (the folder button in the top bar, ⌘S; `src/project`). In Chrome and Edge a
+  project is a folder you choose, anywhere you like: the song, the clips and photos as you added them,
+  the drawings, the words, the video and every choice in it, all in plain files. Once saved it keeps
+  itself saved, a moment after each change. Each ⌘S, and each remake, keeps the version before it in
+  `versions/` (the last 30), under **Earlier versions**. Any browser can also **Save as one file**
+  (`.hum`, really a zip) to send or back up; drop it, or a project folder, on the page to open it. It
+  opens the same on another computer, and asks Claude for nothing. A folder changed somewhere else is
+  never written over without asking, loading another song starts a new project, and a clip taken out
+  of the video stays in the folder. After a reload Chrome may want one click (**Reconnect**) before Hum
+  writes there again. What was read of the clips' depth isn't saved: it is read again when needed.
 - **It comes back after a reload.** The song, your video clips and the video you made (your changes
   included) are kept in this browser (`src/state/saved.ts`: the files in IndexedDB, the plan in
   localStorage), so a reload or a closed tab picks up where you were, with a short "Bringing back"

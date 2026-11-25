@@ -86,7 +86,7 @@ export function Welcome() {
       <input
         ref={input}
         type="file"
-        accept="audio/*,video/*,image/*"
+        accept="audio/*,video/*,image/*,.hum"
         multiple
         hidden
         onChange={(e) => {

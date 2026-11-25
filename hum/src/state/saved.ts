@@ -13,7 +13,7 @@
  */
 import type { ClipAsset, PartShot, PhotoAsset, TrackAnalysis } from '../core/types';
 import type { VideoPlan } from './plan';
-import { cutAnalysis } from './planCache';
+import { planFits } from './planCache';
 import { useStudio } from './store';
 
 const DB_NAME = 'hum';
@@ -180,15 +180,7 @@ export function recallPlan(name: string, a: TrackAnalysis, lookExists: (id: stri
     const j = JSON.parse(localStorage.getItem(PLAN_KEY) ?? 'null') as { name?: unknown; plan?: VideoPlan } | null;
     const p = j?.plan;
     if (!j || j.name !== name || !p || !Array.isArray(p.looks)) return null;
-    const cut = cutAnalysis(a, p.bounds);
-    const ok =
-      !!cut &&
-      p.looks.length === cut.sections.length &&
-      Math.abs(p.duration - a.duration) < 0.5 &&
-      p.looks.every((id) => !id || lookExists(id)) &&
-      (p.rotate ?? []).every((r) => !r || r.every(lookExists)) &&
-      (p.interludes ?? []).every((id) => !id || lookExists(id));
-    return ok ? p : null;
+    return planFits(p, a, lookExists) ? p : null;
   } catch {
     return null;
   }
@@ -242,7 +234,7 @@ export async function recallPhotos(): Promise<{ id: string; file: File }[]> {
 }
 
 /** the picture as it was loaded (already scaled down), as a JPEG */
-function photoBlob(p: PhotoAsset): Promise<Blob | null> {
+export function photoBlob(p: PhotoAsset): Promise<Blob | null> {
   return new Promise((resolve) => {
     try {
       const c = document.createElement('canvas');

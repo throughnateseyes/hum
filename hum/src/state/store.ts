@@ -266,89 +266,101 @@ export function cleanHand(h: unknown): HandStyle | undefined {
 }
 
 const LS_KEY = 'hum.v1';
+const ASPECTS: Aspect[] = ['fill', '16:9', '9:16', '1:1', '4:5'];
+
+/** settings as they were kept, with anything that doesn't hold left out */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function cleanSettings(j: any): Partial<StudioState> {
+  return {
+    aspect: ASPECTS.includes(j.aspect as Aspect) ? (j.aspect as Aspect) : undefined,
+    sensitivity: typeof j.sensitivity === 'number' ? j.sensitivity : undefined,
+    quality: typeof j.quality === 'number' ? j.quality : undefined,
+    impact: typeof j.impact === 'number' ? j.impact : undefined,
+    volume: typeof j.volume === 'number' ? Math.min(1, Math.max(0, j.volume)) : undefined,
+    muted: typeof j.muted === 'boolean' ? j.muted : undefined,
+    directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
+    directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
+    hand: cleanHand(j.hand),
+    popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
+    windowKind: j.windowKind === 'instruments' || j.windowKind === 'looks' || j.windowKind === 'both' ? (j.windowKind as WindowKind) : undefined,
+    songColors: j.songColors === 'off' || j.songColors === 'blend' || j.songColors === 'match' ? (j.songColors as SongColors) : undefined,
+    pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
+    mix: isMix(j.mix) ? j.mix : undefined,
+    transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
+    transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
+    // a finish only sticks once the person has picked one (an old saved Auto doesn't count)
+    finish: j.finishPicked === true && (j.finish === 'auto' || isFinishId(j.finish)) ? j.finish : undefined,
+    finishPicked: j.finishPicked === true,
+    // a style only sticks once the user has picked one; before that every song gets Auto
+    lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
+    lyricStylePicked: j.lyricStylePicked === true,
+    lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
+    lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
+    typeKit: TYPE_KITS.includes(j.typeKit) ? (j.typeKit as TypeKitSetting) : undefined,
+    lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
+    oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
+    drawOverlay: typeof j.drawOverlay === 'boolean' ? j.drawOverlay : undefined,
+    drawInScene: typeof j.drawInScene === 'boolean' ? j.drawInScene : undefined,
+  };
+}
+
 function loadPersisted(): Partial<StudioState> {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return {};
     const j = JSON.parse(raw);
     return {
+      ...cleanSettings(j),
       customPresets: Array.isArray(j.customPresets) ? j.customPresets : [],
       customShaders: Array.isArray(j.customShaders) ? j.customShaders : [],
-      aspect: j.aspect ?? undefined,
-      sensitivity: typeof j.sensitivity === 'number' ? j.sensitivity : undefined,
-      quality: typeof j.quality === 'number' ? j.quality : undefined,
-      impact: typeof j.impact === 'number' ? j.impact : undefined,
-      volume: typeof j.volume === 'number' ? Math.min(1, Math.max(0, j.volume)) : undefined,
-      muted: typeof j.muted === 'boolean' ? j.muted : undefined,
       chat: Array.isArray(j.chat) ? j.chat : [],
-      directorOpen: typeof j.directorOpen === 'boolean' ? j.directorOpen : undefined,
-      directorHeight: typeof j.directorHeight === 'number' ? j.directorHeight : undefined,
-      hand: cleanHand(j.hand),
-      popups: j.popups === 'off' || j.popups === 'always' || j.popups === 'video' ? (j.popups as PopupMode) : undefined,
-      windowKind: j.windowKind === 'instruments' || j.windowKind === 'looks' || j.windowKind === 'both' ? (j.windowKind as WindowKind) : undefined,
-      songColors: j.songColors === 'off' || j.songColors === 'blend' || j.songColors === 'match' ? (j.songColors as SongColors) : undefined,
-      pace: j.pace === 'slow' || j.pace === 'fast' || j.pace === 'song' ? (j.pace as Pace) : undefined,
-      mix: isMix(j.mix) ? j.mix : undefined,
-      transition: j.transition === 'auto' || isTransitionId(j.transition) ? j.transition : undefined,
-      transitionBeats: typeof j.transitionBeats === 'number' && j.transitionBeats >= 0 && j.transitionBeats <= 8 ? j.transitionBeats : undefined,
-      // a finish only sticks once the person has picked one (an old saved Auto doesn't count)
-      finish: j.finishPicked === true && (j.finish === 'auto' || isFinishId(j.finish)) ? j.finish : undefined,
-      finishPicked: j.finishPicked === true,
-      // a style only sticks once the user has picked one; before that every song gets Auto
-      lyricStyle: j.lyricStylePicked && ['off', 'subtitle', 'big', 'cutout', 'auto'].includes(j.lyricStyle) ? (j.lyricStyle as LyricStyle) : undefined,
-      lyricStylePicked: j.lyricStylePicked === true,
-      lyricsOnBoards: j.lyricsOnBoards === 'show' || j.lyricsOnBoards === 'hide' ? (j.lyricsOnBoards as LyricsOnBoards) : undefined,
-      lyricFont: LYRIC_FONTS.includes(j.lyricFont) ? (j.lyricFont as LyricFont) : undefined,
-      typeKit: TYPE_KITS.includes(j.typeKit) ? (j.typeKit as TypeKitSetting) : undefined,
-      lyricsAutoSync: typeof j.lyricsAutoSync === 'boolean' ? j.lyricsAutoSync : undefined,
-      oneTap: typeof j.oneTap === 'boolean' ? j.oneTap : undefined,
-      drawOverlay: typeof j.drawOverlay === 'boolean' ? j.drawOverlay : undefined,
-      drawInScene: typeof j.drawInScene === 'boolean' ? j.drawInScene : undefined,
     };
   } catch {
     return {};
   }
 }
 /** the most clips kept at once (each is a decoded video file in memory) */
-const MAX_CLIPS = 12;
+export const MAX_CLIPS = 12;
+
+/** everything the person has set, as it is kept */
+export function settingsOf(s: StudioState) {
+  return {
+    customPresets: s.customPresets,
+    customShaders: s.customShaders,
+    aspect: s.aspect,
+    sensitivity: s.sensitivity,
+    quality: s.quality,
+    impact: s.impact,
+    volume: s.volume,
+    muted: s.muted,
+    chat: s.chat.slice(-60),
+    directorOpen: s.directorOpen,
+    directorHeight: s.directorHeight,
+    lyricStyle: s.lyricStyle,
+    lyricStylePicked: s.lyricStylePicked,
+    lyricsOnBoards: s.lyricsOnBoards,
+    lyricFont: s.lyricFont,
+    typeKit: s.typeKit,
+    lyricsAutoSync: s.lyricsAutoSync,
+    hand: { ...s.hand, v: 2 },
+    popups: s.popups,
+    windowKind: s.windowKind,
+    songColors: s.songColors,
+    pace: s.pace,
+    mix: s.mix,
+    transition: s.transition,
+    transitionBeats: s.transitionBeats,
+    finish: s.finish,
+    finishPicked: s.finishPicked,
+    oneTap: s.oneTap,
+    drawOverlay: s.drawOverlay,
+    drawInScene: s.drawInScene,
+  };
+}
 
 function persist(s: StudioState) {
   try {
-    localStorage.setItem(
-      LS_KEY,
-      JSON.stringify({
-        customPresets: s.customPresets,
-        customShaders: s.customShaders,
-        aspect: s.aspect,
-        sensitivity: s.sensitivity,
-        quality: s.quality,
-        impact: s.impact,
-        volume: s.volume,
-        muted: s.muted,
-        chat: s.chat.slice(-60),
-        directorOpen: s.directorOpen,
-        directorHeight: s.directorHeight,
-        lyricStyle: s.lyricStyle,
-        lyricStylePicked: s.lyricStylePicked,
-        lyricsOnBoards: s.lyricsOnBoards,
-        lyricFont: s.lyricFont,
-        typeKit: s.typeKit,
-        lyricsAutoSync: s.lyricsAutoSync,
-        hand: { ...s.hand, v: 2 },
-        popups: s.popups,
-        windowKind: s.windowKind,
-        songColors: s.songColors,
-        pace: s.pace,
-        mix: s.mix,
-        transition: s.transition,
-        transitionBeats: s.transitionBeats,
-        finish: s.finish,
-        finishPicked: s.finishPicked,
-        oneTap: s.oneTap,
-        drawOverlay: s.drawOverlay,
-        drawInScene: s.drawInScene,
-      }),
-    );
+    localStorage.setItem(LS_KEY, JSON.stringify(settingsOf(s)));
   } catch {
     /* storage may be unavailable */
   }
@@ -599,10 +611,10 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   addClips: (c) =>
     set((s) => {
-      const all = [...s.clips, ...c];
-      const dropped = all.slice(0, Math.max(0, all.length - MAX_CLIPS));
-      for (const d of dropped) URL.revokeObjectURL(d.url);
-      return { clips: all.slice(dropped.length) };
+      // past the most there is room for, the ones already here stay: a video may be made of them
+      const room = Math.max(0, MAX_CLIPS - s.clips.length);
+      for (const d of c.slice(room)) URL.revokeObjectURL(d.url);
+      return room ? { clips: [...s.clips, ...c.slice(0, room)] } : {};
     }),
   removeClip: (id) =>
     set((s) => {

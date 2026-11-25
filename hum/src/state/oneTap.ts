@@ -68,7 +68,7 @@ export async function tapToPlay() {
  * The song is analysed: plan its video and play it from the top. `current` says whether this song is
  * still the one loaded (a newer load makes it false).
  */
-export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts: { offline?: boolean } = {}) {
+export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts: { offline?: boolean; plan?: VideoPlan | null } = {}) {
   const my = run;
   // the playing analysis is the song cut at the video's parts (flatPlan.ts): the same song is alive
   const alive = () => {
@@ -77,6 +77,12 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts
   };
   const st = useStudio.getState();
   st.set({ startup: { step: 'plan', since: performance.now(), duration: a.duration } });
+
+  // a project that was opened: its own video
+  if (opts.plan) {
+    await go(withBase(opts.plan, a), a, `The video of this project. ${opts.plan.note}`.trim(), false, true);
+    return;
+  }
 
   // a song brought back by a reload gets the video it had, with any changes made by hand
   if (opts.offline) {

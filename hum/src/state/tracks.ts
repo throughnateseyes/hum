@@ -2,15 +2,18 @@ import { audioEngine } from '../audio/engine';
 import { analyzeTrack } from '../audio/analysis';
 import { findLyrics, toLyrics, type LrclibRecord } from '../audio/lyrics';
 import { alignLyrics, cancelListening, ListenCancelled, listenForWords, offsetByVocals, shift, spreadLyrics, type HeardWord } from '../audio/align';
-import type { LyricLine, Lyrics } from '../core/types';
+import type { LyricLine, Lyrics, TrackAnalysis } from '../core/types';
 import { readTags } from '../audio/tags';
 import { DEMO_TRACKS } from '../audio/demoTracks';
 import { lookShows } from '../director/footage';
+import { findLook } from './plan';
 import { PRESETS } from '../presets';
 import { loadPhoto } from '../scenes/photo/loadPhoto';
 import { loadClip, looksLikeVideo } from '../shot/clips';
 import { startDrawings } from '../draw/session';
-import { useStudio, type TrackInfo } from './store';
+import type { VideoPlan } from './plan';
+import { planFits } from './planCache';
+import { MAX_CLIPS, useStudio, type TrackInfo } from './store';
 import { beginStartup, endStartup, planAndPlay, startupKnows, tapToPlay } from './oneTap';
 import { forgetSong, keepClipsSaved, keepPhotosSaved, keepPlanSaved, recallClips, recallPhotos, recallSong, rememberSong } from './saved';
 
@@ -23,9 +26,17 @@ let loadToken = 0;
  * Call it straight from the tap, click or drop that chose the song: that gesture is what lets the
  * song play once it's ready.
  */
-export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean; restored?: boolean } = {}) {
+export interface OpenedProject {
+  plan: VideoPlan | null;
+  /** what Hum heard in the song, when it was saved with it */
+  analysis: TrackAnalysis | null;
+  lyrics: { lyrics: Lyrics | null; status: string; note: string; matched: number | null };
+}
+
+export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?: boolean; restored?: boolean; project?: OpenedProject } = {}) {
   const token = ++loadToken;
-  const oneTap = useStudio.getState().oneTap && opts.autoTheme !== false;
+  const project = opts.project;
+  const oneTap = project ? !!project.plan : useStudio.getState().oneTap && opts.autoTheme !== false;
   // the last song's lyrics may still be being listened to: stop that, it's no use now
   cancelListening();
   lastFile = info.source === 'file' ? { blob, name: info.name } : null;
@@ -50,8 +61,10 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     songBuf = buf;
     if (info.source === 'file') lastBuf = buf;
     // lyrics are looked up alongside the analysis (demo tracks are instrumental)
-    if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
-    const analysis = await analyzeTrack(
+    if (project) bringLyrics(project.lyrics);
+    else if (info.source === 'file') void lookUpLyrics(blob, info.name, buf.duration, token);
+    const heard = project?.analysis && Math.abs(project.analysis.duration - buf.duration) < 0.5 ? project.analysis : null;
+    const analysis = heard ?? await analyzeTrack(
       buf,
       [...PRESETS, ...useStudio.getState().customPresets].filter(lookShows).map((p) => ({ id: p.id, tags: p.tags })),
     );
@@ -59,8 +72,12 @@ export async function loadTrack(blob: Blob, info: TrackInfo, opts: { autoTheme?:
     audioEngine.setAnalysis(analysis);
     useStudio.getState().set({ analysis, analyzing: false });
     // it opened and it's a song: keep it for the next time the page loads (saved.ts)
-    if (!opts.restored) void rememberSong(info.source === 'demo' ? { name: info.name, source: 'demo', id: info.id } : { name: info.name, source: 'file', blob });
-    if (oneTap) {
+    if (!opts.restored || project) void rememberSong(info.source === 'demo' ? { name: info.name, source: 'demo', id: info.id } : { name: info.name, source: 'file', blob });
+    if (project) {
+      const fits = project.plan && planFits(project.plan, analysis, (id) => !!findLook(id));
+      if (fits) await planAndPlay(analysis, () => token === loadToken, { offline: true, plan: project.plan });
+      else endStartup();
+    } else if (oneTap) {
       // no parts to plan (a very short or very even sound): just play it
       if (analysis.sections.length) void planAndPlay(analysis, () => token === loadToken, { offline: opts.restored });
       else {
@@ -126,6 +143,19 @@ export async function lookUpLyrics(blob: Blob, name: string, duration: number, t
     if (token === loadToken) useStudio.getState().set({ lyrics: null, lyricsStatus: 'none', lyricsNote: 'Lyrics lookup failed.' });
   }
 }
+
+/** the words as a project has them: nothing is looked up */
+function bringLyrics(l: OpenedProject['lyrics']) {
+  const status = l.lyrics ? (l.lyrics.synced ? 'found' : 'plain') : l.status === 'instrumental' ? 'instrumental' : 'none';
+  useStudio.getState().set({ lyrics: l.lyrics, lyricsStatus: status, lyricsNote: l.note, lyricsMatched: l.matched });
+  if (l.lyrics) {
+    autoTried.add(l.lyrics);
+    saveLyrics();
+  }
+}
+
+/** the file of the song that is loaded (a demo is made from code: it has none) */
+export const songFile = () => lastFile;
 
 /** the decoded audio of the loaded song or demo (the render timeline makes its videos from it) */
 let songBuf: AudioBuffer | null = null;
@@ -491,6 +521,15 @@ export function forgetSavedLyrics() {
   void lookUpLyrics(lastFile.blob, lastFile.name, lastBuf.duration);
 }
 
+/** a demo's sound, made from code */
+export function demoBlob(id: string): Blob | null {
+  const d = DEMO_TRACKS.find((t) => t.id === id);
+  if (!d) return null;
+  let blob = demoCache.get(id);
+  if (!blob) demoCache.set(id, (blob = d.render()));
+  return blob;
+}
+
 export async function loadDemo(id: string) {
   const d = DEMO_TRACKS.find((t) => t.id === id);
   if (!d) return;
@@ -522,6 +561,8 @@ export async function restoreSession() {
   keepPhotosSaved();
   // and the drawings, where they are allowed
   startDrawings();
+  // the project that was open is read from its folder, where the browser still has leave
+  if (await (await import('../project/project')).resume()) return keepPlanSaved();
   const song = await recallSong();
   // something was opened while we were looking: that wins
   if (!song || useStudio.getState().track) return keepPlanSaved();
@@ -536,6 +577,19 @@ export async function restoreSession() {
   }
   // only now: the saved video has been read (or passed over), so a newer one may take its place
   keepPlanSaved();
+}
+
+/** no song: the page as it first opens */
+export function unloadSong() {
+  cancelListening();
+  loadToken++;
+  songBuf = null;
+  lastBuf = null;
+  lastFile = null;
+  endStartup();
+  void forgetSong();
+  audioEngine.clear();
+  useStudio.getState().set({ track: null, needsTap: false, analysis: null, analyzing: false, plan: null, partPops: null, partHand: null, partWords: null, partShot: null, planOn: false, selectedParts: [], text: '', lyrics: null, lyricsStatus: 'idle', lyricsNote: '', lyricsSync: null, lyricsMatched: null, lyricsQuery: {}, tapSync: false });
 }
 
 export async function useMic() {
@@ -607,7 +661,12 @@ async function loadClips(videos: File[]) {
   );
   const clips = made.filter((c) => c !== null);
   if (!clips.length) return;
+  const room = Math.max(0, MAX_CLIPS - useStudio.getState().clips.length);
   addClips(clips);
+  if (clips.length > room) {
+    flash(room ? `Added ${room}. A video can have ${MAX_CLIPS} clips: remove one to add another.` : `A video can have ${MAX_CLIPS} clips. Remove one to add another.`);
+    return;
+  }
   // a video already planned without clips doesn't change by itself: say how to bring them in
   const st = useStudio.getState();
   const planned = !!st.plan && !st.plan.looks.some((id) => id?.startsWith('footage'));
@@ -621,6 +680,11 @@ export async function addClipFiles(files: FileList | File[]) {
 }
 
 export async function handleFiles(files: FileList | File[]) {
+  const project = Array.from(files).find((f) => /\.hum$/i.test(f.name));
+  if (project) {
+    const p = await import('../project/project');
+    return p.guarded(() => void p.openFile(project));
+  }
   // a drop is a gesture: use it to let the song start once it's planned (a picked file was unlocked by the tap that opened the picker)
   audioEngine.unlock();
   const list = Array.from(files);

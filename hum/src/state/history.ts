@@ -134,6 +134,11 @@ function startOver(s: StudioState) {
   changed();
 }
 
+/** what is on now is where history starts (a project was opened: none of it is an edit) */
+export function forgetHistory() {
+  startOver(useStudio.getState());
+}
+
 function follow() {
   if (restoring) return;
   const s = useStudio.getState();

@@ -174,6 +174,19 @@ export class AudioEngine {
     this.resetState();
   }
 
+  /** nothing loaded any more */
+  clear() {
+    this.stopMic();
+    this.el.pause();
+    if (this.el.src.startsWith('blob:')) URL.revokeObjectURL(this.el.src);
+    this.el.removeAttribute('src');
+    this.el.load();
+    this.kind = 'none';
+    this.held = null;
+    this.dsp.setAnalysis(null, 0);
+    this.resetState();
+  }
+
   stopMic() {
     this.micSource?.disconnect();
     this.micStream?.getTracks().forEach((t) => t.stop());

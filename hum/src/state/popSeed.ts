@@ -101,6 +101,17 @@ export function popDealsVersion(): number {
   return version;
 }
 
+/** every reshuffle made in this song, by where the part starts (a project carries them) */
+export const dealsHere = (name: string, a: TrackAnalysis): Record<string, number> => ({ ...dealsFor(songKey(name, a)) });
+
+/** a song's reshuffles as a project has them */
+export function bringDeals(name: string, a: TrackAnalysis, deals: Record<string, number>) {
+  const song = songKey(name, a);
+  cache = { song, deals: { ...deals } };
+  version++;
+  saveDeals(song, deals);
+}
+
 /** deal these parts a different set of pop-ups (the Part panel's "Shuffle pop-ups") */
 export function reshufflePops(parts: number[]): void {
   const a = useStudio.getState().analysis;
@@ -117,6 +128,10 @@ export function reshufflePops(parts: number[]): void {
   }
   if (!changed) return;
   version++;
+  saveDeals(song, deals);
+}
+
+function saveDeals(song: string, deals: Record<string, number>) {
   try {
     const all = readAll();
     delete all[song];
