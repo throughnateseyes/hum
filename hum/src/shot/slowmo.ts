@@ -404,7 +404,7 @@ export class SlowMotion {
     if (!span.end && !ready) {
       // only a frame near by: the clip itself, if that is nearer
       const off = Math.max(span.start.at - t, t - span.start.at - span.start.lasts);
-      if (off > 0 && Math.abs(f.video.currentTime - t) < off) return null;
+      if (off > 0 && Math.abs(f.now - t) < off) return null;
     }
     span.start.used = ++this.clock;
     if (!span.end) return span.start.rt.texture;

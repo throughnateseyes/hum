@@ -71,6 +71,12 @@ export interface ClipProgress {
   size?: string;
   index?: number;
   count?: number;
+  /** seconds since it began */
+  elapsed?: number;
+  /** about how many seconds are left for everything asked for (every size); undefined until it can be trusted. `timeLeftText` (render/timeLeft.ts) puts it in words */
+  left?: number;
+  /** how fast it goes against the song: 2 makes two seconds of video a second; undefined until it can be trusted */
+  speed?: number;
 }
 
 export interface ChatMsg {

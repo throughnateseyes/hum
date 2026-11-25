@@ -280,7 +280,7 @@ useStudio.subscribe((s, prev) => {
     }
 });
 
-function lease(renderer: THREE.WebGLRenderer, key: string, url: string): Player {
+function lease(renderer: THREE.WebGLRenderer, key: string, url: string, file: Blob): Player {
   let pool = players.get(renderer);
   if (!pool) {
     players.set(renderer, (pool = new Map()));
@@ -291,7 +291,7 @@ function lease(renderer: THREE.WebGLRenderer, key: string, url: string): Player 
     const made: Player = { footage: new Footage(), ready: false, users: 0 };
     p = made;
     pool.set(key, made);
-    made.footage.load(url).then(
+    made.footage.load(url, file).then(
       () => {
         made.ready = true;
       },
@@ -505,13 +505,13 @@ class FootageLook implements SceneInstance {
     // the deck's order is the order of deckIdsOf (src/shot/run.ts), with the clips still opening left out
     const wanted = clips.slice(0, MAX_OPEN);
     // with one clip, Split shows two moments of it: a second player on it
-    const keys = new Map<string, string>();
-    for (const c of wanted) keys.set(this.poolKey(c.id, false), c.url);
-    if (wanted.length === 1) keys.set(this.poolKey(wanted[0].id, true), wanted[0].url);
+    const keys = new Map<string, ClipAsset>();
+    for (const c of wanted) keys.set(this.poolKey(c.id, false), c);
+    if (wanted.length === 1) keys.set(this.poolKey(wanted[0].id, true), wanted[0]);
     let changed = false;
-    for (const [k, url] of keys) {
+    for (const [k, c] of keys) {
       if (this.held.has(k)) continue;
-      this.held.set(k, lease(this.renderer, k, url));
+      this.held.set(k, lease(this.renderer, k, c.url, c.file));
       changed = true;
     }
     for (const k of [...this.held.keys()]) {
@@ -723,6 +723,8 @@ class FootageLook implements SceneInstance {
       await Promise.allSettled(waiting);
       this.syncDeck(useStudio.getState().clips, frame.photos);
     }
+    // the clips are asked for frame by frame from here on
+    for (const p of this.held.values()) if (p.ready) p.footage.byFrame();
     if (!this.sync(frame.analysis, frame.params, frame.photos, songTime)) return;
     await this.stillsReady(useStudio.getState().clips);
     await this.stage.settle(songTime);
