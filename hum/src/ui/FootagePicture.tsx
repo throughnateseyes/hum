@@ -25,6 +25,7 @@
 import { useState } from 'react';
 import type { ParamDef, TrackAnalysis } from '../core/types';
 import { getScene } from '../scenes';
+import { offIn, styleOn, treatmentOn } from '../shot/graphics';
 import { activeFinish } from '../state/direction';
 import { inked } from '../state/inks';
 import { setPartsShot } from '../state/partEdit';
@@ -228,6 +229,14 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const inks = common(shots.map((r) => r?.inks ?? null));
   const graphics = common(shots.map((r) => r?.graphics ?? null));
 
+  // a style or treatment picked for these shots that their graphics don't allow
+  const graphicsOff = useStudio((s) => s.graphicsOff);
+  const blocked = shots.flatMap((r) => {
+    const off = offIn(r, graphicsOff);
+    return [r?.style && !styleOn(r.style, off) ? r.style : '', r?.treatment && !treatmentOn(r.treatment, off) ? r.treatment : ''].filter(Boolean);
+  })[0];
+  const hidden = blocked ? blocked[0].toUpperCase() + blocked.slice(1) : '';
+
   // motion: the scene's own setting, when it has one (clips only)
   const motions = selectOptions(t.sceneId, 'motion', MOTION_TIPS);
   const lookMotion = String(t.lookValue('motion') ?? motions[0]?.v ?? 'play');
@@ -274,6 +283,14 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
             <span>{shots.some((r) => r?.style || r?.seed) ? `Set for ${t.scope}` : asLook}</span>
           </div>
           <ShotStyle t={t} busy={busy} />
+          {hidden && (
+            <p className="pp-note pp-hint">
+              {hidden} is off here, so the clip plays clean.{' '}
+              <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ graphics: 'on' })}>
+                Allow it here
+              </button>
+            </p>
+          )}
 
           {motions.length > 0 && hasClip && (
             <>

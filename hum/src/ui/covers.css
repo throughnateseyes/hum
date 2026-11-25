@@ -58,6 +58,9 @@
 .ink-sw i:first-child {
   flex: 1.8;
 }
+.ink > .ink-sw {
+  margin-bottom: 10px;
+}
 .ink-clips {
   display: grid;
   gap: 4px;

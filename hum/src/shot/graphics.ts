@@ -17,7 +17,7 @@ type GraphicTreatment = Exclude<TreatmentId, 'none'>;
 export type GraphicId = GraphicStyle | `t-${GraphicTreatment}` | 'words';
 
 const STYLE: [GraphicStyle, string, string][] = [
-  ['slab', 'Band', 'A flat band along one edge, sliding over on each bar'],
+  ['slab', 'Slab', 'A flat band along one edge, sliding over on each bar'],
   ['window', 'Window', 'A flat field with your clip in an opening'],
   ['poster', 'Poster', 'One huge word with your clip inside its letters'],
   ['grid', 'Grid', 'The picture cut into cells on the beat'],

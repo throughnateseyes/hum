@@ -150,12 +150,14 @@ export function inksFrom(tones: string[], paper: 'light' | 'dark', glow = 0): In
   const gc = grey ? 0.004 : 0.02;
   // the lighter of the two accents is the one whose hue is naturally light, so nothing turns to mud
   const up = airy(h1.h) > airy(h2.h) + 0.15;
-  const set = paper === 'light' ? { bg: 0.955 + Math.min(0, glow) * 0.025, fg: 0.23, lo: 0.52, hi: 0.76, mid: 0.4 } : { bg: 0.19, fg: 0.95, lo: 0.6, hi: 0.8, mid: 0.4 };
+  const set = paper === 'light' ? { bg: 0.955 + Math.min(0, glow) * 0.025, fg: 0.2, lo: 0.57, hi: 0.79, mid: 0.4 } : { bg: 0.19, fg: 0.95, lo: 0.6, hi: 0.81, mid: 0.4 };
+  // a yellow is only yellow when it is light: any darker and it is olive
+  const at = (h: number, l: number) => l + (apart(h, 103) < 22 ? (l === set.hi ? 0.07 : 0.12) : 0);
   return {
     bg: lchToHex({ l: set.bg, c: paper === 'light' ? gc : gc * 1.6, h: ground.h }),
     fg: lchToHex({ l: set.fg, c: paper === 'light' ? (grey ? 0.006 : 0.05) : gc, h: paper === 'light' ? deep.h : ground.h }),
-    accent: lchToHex({ l: up ? set.hi : set.lo, c: chroma(h1, 0.1, 0.21), h: h1.h }),
-    accent2: lchToHex({ l: up ? set.lo : set.hi, c: chroma(h2, 0.08, 0.18), h: h2.h }),
+    accent: lchToHex({ l: at(h1.h, up ? set.hi : set.lo), c: chroma(h1, 0.1, 0.21), h: h1.h }),
+    accent2: lchToHex({ l: at(h2.h, up ? set.lo : set.hi), c: chroma(h2, 0.08, 0.18), h: h2.h }),
     muted: lchToHex({ l: set.mid, c: chroma(h3, 0.06, 0.14), h: h3.h }),
   };
 }
