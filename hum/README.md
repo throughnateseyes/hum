@@ -149,6 +149,28 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   shots around it (liked or not) stay as they are. `K` likes it: a liked shot is kept by a later skip
   next to it and by a remake. Both work in full screen too (the bar has **Like** and **Skip**), and in
   the timeline's right-click menu. Both also teach Hum your taste.
+- **Keep a part, redo it, or pick another choice.** Three ways to steer the director part by part
+  without remaking the video (`src/director/control.ts`; one ready piece of panel for each in
+  `src/ui/control`: `PartKeep`, `PartRedo`, `PartChoices`).
+  **Keep** holds a part exactly as it is: its look and shot, its edges and the cuts inside it, its
+  drawing, pop-ups, lyric style and the words it says. It comes through **Remake video** (fresh ones
+  too), a new pace, edits asked for in words and the director's reviews; Claude is told which parts
+  are kept and what they show, and cuts around them. Parts are found again by their times
+  (`keptOnly` and `carryEdits` in `src/state/flatPlan.ts`), the new cut's edges move onto theirs, and
+  what Hum would otherwise deal a run by its place (layout, word) is pinned on the shot
+  (`PartShot.pin`). You can still change a kept part yourself; **Reset** lets it go. It is stored with
+  the plan (`plan.kept`), so it is undoable and saved with the song and with projects.
+  **Redo this part** makes another choice for one part (or up to eight picked ones), with a wish in
+  plain words if you have one. One small Claude request (`server/steps/redo.ts`, the smallest model)
+  sees the story's idea, the parts on either side, what is kept, the notes on your media, what the
+  song means there and what was tried before. The answer is checked and timed by the same code as a
+  whole video, must differ from what's there, and is one undo step. It can be cancelled. When Claude
+  can't be reached, or has nothing different to offer, Hum takes its own next choice, so it always
+  does something. It stays the director's choice: the next remake may change it unless you keep it.
+  **Other choices** offers up to four different ones for a part, worked out on the device with no
+  request (`src/director/choices.ts`): another of your clips, another moment of the same one, another
+  treatment or frame, or other looks that fit the part and its neighbours. Pointing at one tries it on
+  the stage without touching the video; choosing it is a change by hand, one undo step.
 - **Changes are kept as you make them.** There is no Save button: every change (a swapped look, a
   split, a slider, a finish) is kept for the song at once and comes back after full screen, a remake
   or a reload. Looks you fine-tune keep their tweaks for this video in every shot that uses them
