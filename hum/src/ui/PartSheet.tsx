@@ -28,6 +28,8 @@ import { historyLabels, onHistoryChange, undo } from '../state/history';
 import { playPart, resetPart, setPartLook, setPartLyric, setPartPopsLevel } from '../state/partEdit';
 import { findLook, LABEL_NAME, makeVideo, partEdits, partEnergy, popsOf, sectionNames, validPlan } from '../state/plan';
 import { useStudio } from '../state/store';
+import { PartKeep } from './control/PartKeep';
+import { PartRedo } from './control/PartRedo';
 import { Play, X } from './Icons';
 import { STATIC_THUMBS, Thumb } from './Library';
 import { MoodChips } from './Moods';
@@ -417,6 +419,7 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
           <Play width={11} height={11} />
           Play this part
         </button>
+        <PartKeep parts={[i]} disabled={busy} />
         {edit && (
           <button className="btn sm ghost" onClick={() => refocus(() => resetPart(i))} disabled={busy} title="Put back what the plan picked for this part">
             Reset this part
@@ -430,6 +433,8 @@ function PartBody({ i, a, headingId, grab }: { i: number; a: TrackAnalysis; head
       </div>
       {changedWhat && <p className="ps-note">You changed the {changedWhat} here. A new plan keeps it.</p>}
       {busy && <p className="ps-note">A render is running: changes wait until it’s done.</p>}
+
+      {hasPlan && <PartRedo parts={[i]} />}
 
       {!hasPlan && (
         <div className="ps-noplan">

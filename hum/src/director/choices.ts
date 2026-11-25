@@ -29,6 +29,8 @@ export interface Choice {
   part: number;
   /** a few plain words ("The bridge clip", "Closer on the subject") */
   label: string;
+  /** a word or two, for under its picture ("Closer", the clip's name) */
+  short: string;
   /** a line more, where there is something to say (what is in the picture, what the look is) */
   detail: string;
   /** what to show as its picture: a clip or photo with where to look, or a look */
@@ -97,7 +99,7 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
   const at = { focusX: shot.focusX ?? focusOf(notes).focusX, focusY: shot.focusY ?? focusOf(notes).focusY };
   const moment: MomentId = now.moment ?? (sec.energy > 0.6 ? 'rush' : 'drift');
   const drawn = laidAt(v, i)?.drawn;
-  const make = (key: string, label: string, detail: string, patch: Partial<PartShot>, pic: { id: string; focusX: number; focusY: number; zoom: number }): Choice => ({ id: `${i}:${key}`, part: i, label, detail, thumb: { kind: 'media', ...pic }, patch });
+  const make = (key: string, label: string, short: string, detail: string, patch: Partial<PartShot>, pic: { id: string; focusX: number; focusY: number; zoom: number }): Choice => ({ id: `${i}:${key}`, part: i, label, short, detail, thumb: { kind: 'media', ...pic }, patch });
 
   /* another picture */
   const others = ownMedia().filter((m) => m.id !== id);
@@ -113,6 +115,7 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
     return make(
       `media-${m.id}`,
       pictureWords(m.id),
+      nameOf(m.id) || (m.kind === 'clip' ? 'Clip' : 'Photo'),
       n ? clip(n.subject, 80) : '',
       // what was chosen for the picture before doesn't go with this one
       { media: [m.id], from, focusX: f.focusX, focusY: f.focusY, zoom: undefined, ...(drawn ? { drawn: null } : {}) },
@@ -126,8 +129,8 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
   const framing: Choice[] = [];
   if (id) {
     const f = focusOf(notes);
-    if (zoom < close - 0.25) framing.push(make('closer', notes?.faces ? 'Closer on the face' : 'Closer on the subject', notes ? clip(notes.subject, 80) : '', { focusX: f.focusX, focusY: f.focusY, zoom: close }, { id, ...f, zoom: close }));
-    if (zoom > 1.2) framing.push(make('whole', 'The whole picture', 'Not pushed in', { ...at, zoom: 1 }, { id, ...at, zoom: 1 }));
+    if (zoom < close - 0.25) framing.push(make('closer', notes?.faces ? 'Closer on the face' : 'Closer on the subject', 'Closer', notes ? clip(notes.subject, 80) : '', { focusX: f.focusX, focusY: f.focusY, zoom: close }, { id, ...f, zoom: close }));
+    if (zoom > 1.2) framing.push(make('whole', 'The whole picture', 'Whole', 'Not pushed in', { ...at, zoom: 1 }, { id, ...at, zoom: 1 }));
   }
 
   /* another style */
@@ -148,12 +151,12 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
     grid: 'Cut into cells on the beat',
     split: 'Panels side by side',
   };
-  const styled = (id ? ownStyles : []).slice(0, 3).map((x) => make(`style-${x}`, `Style: ${STYLE_NAMES[x]}`, words[x], { style: x, ...(x === 'inside' ? { treatment: 'none' } : {}) }, { id, ...at, zoom }));
+  const styled = (id ? ownStyles : []).slice(0, 3).map((x) => make(`style-${x}`, `Style: ${STYLE_NAMES[x]}`, STYLE_NAMES[x], words[x], { style: x, ...(x === 'inside' ? { treatment: 'none' } : {}) }, { id, ...at, zoom }));
 
   /* another stretch of the same clip */
   const here = shot.from ?? shot.hit ?? 0;
   const later = id ? startsIn(id, need, [here])[0] : undefined;
-  const stretch = later === undefined ? [] : [make(`from-${later}`, here < later ? 'Later in the same clip' : 'Earlier in the same clip', `From ${later.toFixed(1)} s`, { media: shot.media, from: later, ...at, ...(zoom > 1 ? { zoom } : {}) }, { id, ...at, zoom })];
+  const stretch = later === undefined ? [] : [make(`from-${later}`, here < later ? 'Later in the same clip' : 'Earlier in the same clip', here < later ? 'Later' : 'Earlier', `From ${later.toFixed(1)} s`, { media: shot.media, from: later, ...at, ...(zoom > 1 ? { zoom } : {}) }, { id, ...at, zoom })];
 
   // one of each kind first, then what is left
   const rows = [pictures, framing, styled, stretch];
@@ -181,7 +184,7 @@ function lookChoices(v: Playing, now: PartNow): Choice[] {
     const fam = familyIdOf(look);
     if (families.has(fam)) continue;
     families.add(fam);
-    out.push({ id: `${i}:look-${x}`, part: i, label: look.name, detail: clip(familyOf(look).blurb || look.description, 80), thumb: { kind: 'look', look }, look: x });
+    out.push({ id: `${i}:look-${x}`, part: i, label: look.name, short: look.name, detail: clip(familyOf(look).blurb || look.description, 80), thumb: { kind: 'look', look }, look: x });
     if (out.length >= 12) break;
   }
   return out;

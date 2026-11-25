@@ -1,18 +1,22 @@
 import { setKept, useKept } from '../../director/control';
-import { SwitchRow } from '../controls';
+import { Lock } from '../Icons';
 
 /** Keep: the parts picked come through a remake and the director's changes exactly as they are */
-export function PartKeep({ parts }: { parts: number[] }) {
+export function PartKeep({ parts, disabled }: { parts: number[]; disabled?: boolean }) {
   const { on, some, can } = useKept(parts);
   if (!can) return null;
-  const many = parts.length > 1;
+  const what = parts.length > 1 ? 'These parts' : 'This part';
   return (
-    <SwitchRow
-      label={many ? 'Keep these parts' : 'Keep this part'}
-      note={on ? 'Remake and the director leave it as it is' : some ? 'Some of them are kept' : undefined}
-      tip="A kept part comes through Remake video, changes asked for in the chat and the director’s own checks exactly as it is. You can still change it by hand."
-      on={on}
-      onChange={(v) => setKept(parts, v)}
-    />
+    <button
+      type="button"
+      className={`btn sm ghost pp-keep ${on ? 'on' : ''}`}
+      aria-pressed={on ? true : some ? 'mixed' : false}
+      disabled={disabled}
+      onClick={() => setKept(parts, !on)}
+      title={on ? 'Kept: Remake, the chat and the director’s own checks leave it exactly as it is. Click to let it change again.' : `${what} will come through Remake, the chat and the director’s own checks exactly as now. You can still change it by hand.`}
+    >
+      <Lock width={12} height={12} />
+      {on ? 'Kept' : some ? 'Keep all' : 'Keep'}
+    </button>
   );
 }

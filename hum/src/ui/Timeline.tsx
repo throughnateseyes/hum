@@ -43,7 +43,8 @@ import { ContextMenu, MOD, type MenuItem } from './ContextMenu';
 import { canShow, giveMedia, MEDIA_MIME, mediaOf, pictureKind, showPicture, shownMedia, type MediaItem } from './footageMedia';
 import { MediaNote } from './MediaPicker';
 
-import { Plus } from './Icons';
+import { setKept } from '../director/control';
+import { Lock, Plus } from './Icons';
 import { LOOK_MIME, STATIC_THUMBS } from './Library';
 import { useLayout } from './layout';
 import { togglePartSheet } from './PartSheet';
@@ -825,8 +826,9 @@ function PartsRow({
         const isSel = selected.includes(i);
         const hand = partHand?.length === n ? partHand[i] : null;
         const liked = hasPlan && !!plan.liked?.[i];
+        const kept = hasPlan && !!plan.kept?.[i];
         const shown = preview ?? look;
-        const tip = `${names[i]} · ${fmtTime(sec.start)}–${fmtTime(sec.end)} · ${look ? look.name : 'no look yet'}${liked ? ' · liked' : ''}${edits[i] ? ' · changed by you' : ''}${why ? ` · ${why}` : ''}`;
+        const tip = `${names[i]} · ${fmtTime(sec.start)}–${fmtTime(sec.end)} · ${look ? look.name : 'no look yet'}${kept ? ' · kept' : ''}${liked ? ' · liked' : ''}${edits[i] ? ' · changed by you' : ''}${why ? ` · ${why}` : ''}`;
         // a plain colour when it's too thin for a picture
         // a footage or photo part shows the clip or photo it plays
         const pic = !preview && hasPlan ? shownMedia(useStudio.getState(), i, media) : null;
@@ -843,7 +845,7 @@ function PartsRow({
             className={`tln-part ${shown ? 'has-look' : 'no-look'} ${size} ${isSel ? 'sel' : ''} ${preview ? 'preview' : ''} ${over?.i === i ? 'over' : ''} ${mTarget ? (mOk ? 'm-over' : 'm-no') : ''} ${pic ? 'has-media' : ''} ${edits[i] ? 'edited' : ''} ${liked ? 'liked' : ''}`}
             style={{ left: `${(sec.start / a.duration) * 100}%`, width: `${(len / a.duration) * 100}%` }}
             data-part={i}
-            aria-label={`${names[i]}, ${fmtTime(sec.start)} to ${fmtTime(sec.end)}, ${look ? look.name : 'no look yet'}${liked ? ', liked' : ''}${mine.length > 1 ? `, ${mine.length} shots` : ''}`}
+            aria-label={`${names[i]}, ${fmtTime(sec.start)} to ${fmtTime(sec.end)}, ${look ? look.name : 'no look yet'}${kept ? ', kept' : ''}${liked ? ', liked' : ''}${mine.length > 1 ? `, ${mine.length} shots` : ''}`}
             title={dragging || mine.length > 1 ? undefined : tip}
             onClick={(e) => click(e, i)}
             onDoubleClick={() => !blade && !phone && playPart(i)}
@@ -952,8 +954,9 @@ function PartsRow({
                 </span>
               )}
             </span>
-            {size !== 'tiny' && (liked || edits[i] || hand !== null) && (
+            {size !== 'tiny' && (kept || liked || edits[i] || hand !== null) && (
               <span className="tln-marks">
+                {kept && <Lock className="tln-kept" width={10} height={10} strokeWidth={2.4} aria-label="kept" />}
                 {liked && <HeartMark />}
                 {hand !== null && size === '' && <HandMark on={hand} />}
                 {edits[i] && <span className="tln-edit" aria-label="changed by you" />}
@@ -1154,6 +1157,13 @@ function PartMenu({ at, a, onClose }: { at: MenuAt; a: TrackAnalysis; onClose: (
       ],
     },
     { kind: 'sep' },
+    {
+      label: many ? 'Keep these parts' : 'Keep this part',
+      hint: plan?.flat ? 'Remake and the director leave it exactly as it is' : noPlan,
+      checked: hasPlan && sel.every((j) => !!plan.kept?.[j]),
+      disabled: !hasPlan || !plan.flat,
+      onSelect: () => void setKept(sel, !sel.every((j) => !!plan?.kept?.[j])),
+    },
     {
       label: many ? 'Reset these parts' : 'Reset this part',
       hint: sel.some((j) => edits[j]) ? 'Put back what the plan picked' : 'Nothing changed here yet',

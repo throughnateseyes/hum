@@ -472,3 +472,26 @@
 .dir-log:not(.open) .msg.bot:not(.err) .msg-meta:not(:has(button)) {
   display: none;
 }
+
+/* ── Part: keep it, or have the director choose it again ── */
+.pp-keep.on {
+  color: var(--accent);
+}
+.pp-redo {
+  margin-top: 10px;
+}
+.pp-redo-row {
+  display: flex;
+  gap: 6px;
+}
+.pp-redo-row .txt {
+  flex: 1;
+  min-width: 0;
+}
+.pp-choices {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tln-kept {
+  flex: none;
+  color: var(--ink);
+}

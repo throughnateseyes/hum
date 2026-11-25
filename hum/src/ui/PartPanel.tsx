@@ -3,7 +3,9 @@
  * the part that is playing when nothing is picked; with no video plan, a line about the look on screen.
  *
  *   name, time, length     which section and shot it is, and the shot before and after it
- *   actions                Play, Like, Reset (Undo is the transport's, state/history.ts)
+ *   actions                Play, Like, Keep (the director leaves it alone), Reset (Undo is the transport's)
+ *   Redo                   the director chooses it again, with a wish in plain words (director/control.ts)
+ *   Other choices          up to four, for a part that shows the person's media: rest on one to try it
  *   Picture                first, for a part whose look shows the person's clips or photos (footage and
  *                          photo looks): which one plays, as large thumbnails, then (footage) its style,
  *                          Shuffle, motion, treatment and framing, for this shot alone (FootagePicture.tsx)
@@ -41,6 +43,9 @@ import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
 import { popSetFor } from '../arrange/types';
 import { ArrangeHere } from './arrange/ArrangeBar';
+import { PartChoices } from './control/PartChoices';
+import { PartKeep } from './control/PartKeep';
+import { PartRedo } from './control/PartRedo';
 import { Section } from './controls';
 import { Chevron, Play } from './Icons';
 import { FootagePicture, ShuffleIcon } from './FootagePicture';
@@ -67,7 +72,6 @@ function common<T>(vals: T[]): T | 'mixed' {
   return vals.every((v) => v === vals[0]) ? vals[0] : 'mixed';
 }
 
-/** the part playing now, updated when the song moves into another part */
 /** pick one part, the way a click on the timeline does */
 function pickPart(i: number) {
   const a = useStudio.getState().analysis;
@@ -76,6 +80,7 @@ function pickPart(i: number) {
   audioEngine.seek(a.sections[i].start + 0.02);
 }
 
+/** the part playing now, updated when the song moves into another part */
 function usePlayingPart(a: TrackAnalysis | null): number {
   const [i, setI] = useState(() => (a ? sectionIndexAt(a.sections, audioEngine.currentTime) : 0));
   useEffect(() => {
@@ -284,6 +289,7 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
             {liked ? 'Liked' : 'Like'}
           </button>
         )}
+        <PartKeep parts={parts} disabled={busy} />
         {anyEdit && (
           <button className="btn sm ghost" onClick={() => resetParts(parts)} disabled={busy} title={one ? 'Put back what the plan picked for this part' : 'Put back what the plan picked for these parts'}>
             Reset
@@ -293,6 +299,9 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
       {changedWhat && <p className="pp-note">You changed the {changedWhat} here. A new plan keeps it.</p>}
       {!picked && <p className="pp-note">Click a part on the timeline to pick it. ⌘-click picks more than one.</p>}
       {busy && <p className="pp-note">A render is running: changes wait until it’s done.</p>}
+
+      <PartRedo parts={parts} />
+      {one && picLook && <PartChoices part={i} />}
 
       {picLook && <PartsPicture parts={parts} look={picLook} busy={busy} headingId={headingId} />}
 

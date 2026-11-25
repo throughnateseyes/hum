@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { MOST_REDO, redoParts, useKept, useRedo } from '../../director/control';
 import { useStudio } from '../../state/store';
-import { Field } from '../controls';
 
 /** Redo: the director chooses the parts picked again, with a wish in plain words when there is one */
 export function PartRedo({ parts }: { parts: number[] }) {
@@ -14,14 +13,15 @@ export function PartRedo({ parts }: { parts: number[] }) {
   const go = () => void redoParts(parts, wish);
   // what it says belongs to the parts it was about
   const mine = on.some((i) => parts.includes(i));
-  const line = kept ? (many ? 'These parts are kept. Let one go to redo it.' : 'This part is kept. Let it go to redo it.') : parts.length > MOST_REDO ? `At most ${MOST_REDO} parts at a time.` : mine || running ? note : '';
+  const line = kept ? '' : parts.length > MOST_REDO ? `At most ${MOST_REDO} parts at a time.` : mine || running ? note : '';
   return (
-    <Field label={many ? 'Redo these parts' : 'Redo this part'} tip="The director chooses this again, and leaves the rest of the video as it is. Say what you want, or leave it empty for another take.">
+    <section className="pp-redo" aria-label={many ? 'Redo these parts' : 'Redo this part'}>
+      <div className="pp-redo-row">
       <input
         className="txt"
         value={wish}
         maxLength={300}
-        placeholder="Closer on the face, calmer, the bridge clip"
+        placeholder={kept ? 'Kept as it is' : 'Closer, calmer, another clip…'}
         aria-label="What you want instead"
         disabled={kept}
         onChange={(e) => setWish(e.target.value)}
@@ -29,13 +29,12 @@ export function PartRedo({ parts }: { parts: number[] }) {
           if (e.key === 'Enter' && !running && !busy && !kept) go();
         }}
       />
-      <div className="save-row">
         {running ? (
-          <button type="button" className="btn sm" onClick={cancel}>
+          <button type="button" className="btn" onClick={cancel}>
             <span className="spin" /> Stop
           </button>
         ) : (
-          <button type="button" className="btn sm" disabled={busy || kept} onClick={go}>
+          <button type="button" className="btn" disabled={busy || kept} onClick={go} title={`The director chooses ${many ? 'these parts' : 'this part'} again and leaves the rest of the video as it is. Say what you want, or leave it empty for another take.`}>
             Redo
           </button>
         )}
@@ -45,6 +44,6 @@ export function PartRedo({ parts }: { parts: number[] }) {
           {line}
         </p>
       )}
-    </Field>
+    </section>
   );
 }

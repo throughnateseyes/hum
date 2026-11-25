@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { applyChoice, endPreview, previewChoice, useChoices, type Choice } from '../../director/control';
 import { useStudio } from '../../state/store';
-import { Field } from '../controls';
 import { useMedia } from '../footageMedia';
 import { Thumb } from '../Library';
 
@@ -25,28 +24,28 @@ export function PartChoices({ part }: { part: number }) {
   if (!choices.length) return null;
   const picture = (c: Choice) => {
     if (c.thumb.kind === 'look') return <Thumb p={c.thumb.look} />;
-    const { id, focusX, focusY } = c.thumb;
+    const { id, focusX, focusY, zoom } = c.thumb;
+    const at = `${focusX * 100}% ${(1 - focusY) * 100}%`;
     const src = media.find((m) => m.id === id)?.thumb;
-    return src ? <img src={src} alt="" loading="lazy" style={{ objectPosition: `${focusX * 100}% ${(1 - focusY) * 100}%` }} /> : null;
+    return src ? <img src={src} alt="" loading="lazy" style={{ objectPosition: at, ...(zoom > 1 ? { transform: `scale(${zoom})`, transformOrigin: at } : {}) }} /> : null;
   };
   return (
-    <Field label="Other choices" tip="Rest on one to see it where the part plays. Nothing changes until you click.">
-      <div className="cards" onMouseLeave={stop}>
+    <section className="pp-quick" aria-label="Other choices for this part">
+      <div className="ps-h">
+        <h3>Other choices</h3>
+        <span>Rest on one to try it</span>
+      </div>
+      <div className="pp-qrow pp-choices" onMouseLeave={stop}>
         {choices.map((c) => (
-          <button key={c.id} type="button" className="card" disabled={busy} onMouseEnter={() => rest(c)} onFocus={(e) => e.currentTarget.matches(':focus-visible') && previewChoice(c)} onBlur={stop} onClick={() => {
+          <button key={c.id} type="button" className="pp-q" title={c.detail ? `${c.label}: ${c.detail}` : c.label} disabled={busy} onMouseEnter={() => rest(c)} onFocus={(e) => e.currentTarget.matches(':focus-visible') && previewChoice(c)} onBlur={stop} onClick={() => {
               clearTimeout(wait.current);
               applyChoice(c);
             }}>
-            <span className="thumb">{picture(c)}</span>
-            <span>
-              <span className="title">
-                <span>{c.label}</span>
-              </span>
-              {c.detail && <span className="desc">{c.detail}</span>}
-            </span>
+            <span className="pp-qpic">{picture(c)}</span>
+            <span className="pp-qn">{c.short}</span>
           </button>
         ))}
       </div>
-    </Field>
+    </section>
   );
 }
