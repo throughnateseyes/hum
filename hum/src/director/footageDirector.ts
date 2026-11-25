@@ -166,7 +166,7 @@ const STYLE_LINES: Record<string, string> = {
   caption: 'the footage with a small slate in one corner',
   poster: 'one enormous word on a flat field, the footage seen only inside its letters',
   window: 'a flat colour field with one large opening, the footage inside it',
-  slab: 'one huge flat shape cropping the footage from an edge',
+  slab: 'a flat band of the accent cropping the footage from one edge',
   grid: 'the frame cut into cells that fill and empty on the beat, the footage in some',
   split: 'two or three panels side by side, each another crop or picture (give it two media)',
 };

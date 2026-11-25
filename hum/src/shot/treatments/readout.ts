@@ -388,7 +388,7 @@ export class Readout {
     // the stamp across the top: the song, the time, the bar
     const m = Math.round(short * 0.035);
     const stamp = Math.max(10, Math.round(short * 0.03));
-    const title = (f.labels.title || 'HUM').slice(0, 16);
+    const title = f.labels.title.slice(0, 16);
     const time = clock(f.t, true);
     L.add(title, m, h - m - stamp, stamp, ink);
     L.add(time, Math.round(w / 2 - (time.length * stamp * 0.62) / 2), h - m - stamp, stamp, ink);

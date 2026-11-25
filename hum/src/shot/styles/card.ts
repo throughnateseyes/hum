@@ -20,7 +20,7 @@ export const card: StyleFactory = (ctx) => {
   const caps = lines.map((l) => Math.min(width / lineWidth(l, 1), (g.y1 - g.y0) * (g.portrait ? 0.16 : 0.24)));
   const lead = 0.16;
   const rule = new Flat(group, s.accent, 'rect', 5);
-  const small = cornerLine(group, ctx, ctx.labels.title || 'HUM', s.paper, 'tl');
+  const small = cornerLine(group, ctx, ctx.labels.title, s.paper, 'tl');
 
   return {
     object: group,

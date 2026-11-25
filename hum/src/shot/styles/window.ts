@@ -6,7 +6,6 @@
  *
  * The opening, by the shot's layout number:
  *   bleed    a rectangle running off three edges of the frame
- *   disc     a circle as wide as the margins allow, centred in its two thirds
  *   inset    a rectangle inside the margins, on the grid's lines
  * and the word below the picture or above it.
  *
@@ -27,8 +26,8 @@ export const window: StyleFactory = (ctx) => {
   const field = fieldFor(ctx);
   const group = new THREE.Group();
   const mask = new THREE.Group();
-  const shape = choose(ctx, ['bleed', 'disc', 'inset', 'bleed'] as const);
-  const hole = new Flat(mask, MASK_A, shape === 'disc' ? 'disc' : 'rect', 1);
+  const shape = choose(ctx, ['bleed', 'inset'] as const);
+  const hole = new Flat(mask, MASK_A, 'rect', 1);
   const { halfW: W, halfH: H } = g;
   const wordBelow = ((ctx.layout >> 3) & 1) === 0;
 
@@ -41,11 +40,7 @@ export const window: StyleFactory = (ctx) => {
     const y0 = below ? -H + stripH : -H - 0.01;
     const y1 = below ? H + 0.01 : H - stripH;
     if (shape === 'bleed') return { x0: -W - 0.01, x1: W + 0.01, y0, y1 };
-    if (shape === 'inset') return { x0: g.x0, x1: g.x1, y0: below ? y0 + g.margin * 0.5 : g.y0, y1: below ? g.y1 : y1 - g.margin * 0.5 };
-    // disc: as wide as the margins, never taller than its two thirds
-    const r = Math.min((g.x1 - g.x0) / 2, (y1 - y0) / 2 - g.margin * 0.5);
-    const cy = (y0 + y1) / 2;
-    return { x0: -r, x1: r, y0: cy - r, y1: cy + r };
+    return { x0: g.x0, x1: g.x1, y0: below ? y0 + g.margin * 0.5 : g.y0, y1: below ? g.y1 : y1 - g.margin * 0.5 };
   };
 
   const word = (ctx.word || ctx.labels.title || 'HUM').toUpperCase();
@@ -78,8 +73,7 @@ export const window: StyleFactory = (ctx) => {
         y0: lerp(full.y0, lerp(from.y0, to.y0, k), shut),
         y1: lerp(full.y1, lerp(from.y1, to.y1, k), shut),
       };
-      if (shape === 'disc') hole.disc((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2, ((box.x1 - box.x0) / 2) * (1 + (1 - shut) * 0.6));
-      else hole.rect(box.x0, box.y0, box.x1, box.y1);
+      hole.rect(box.x0, box.y0, box.x1, box.y1);
 
       // the word on the field, standing on the bottom margin (or under the top one), and the slate
       // between it and the picture

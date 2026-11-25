@@ -147,7 +147,7 @@ function footageChoices(v: Playing, now: PartNow, picked: Map<number, PartShot>)
     caption: 'A small slate in one corner',
     poster: 'One word, the picture inside its letters',
     window: 'A flat field with the picture in an opening',
-    slab: 'One big shape over the picture',
+    slab: 'A flat band along one edge',
     grid: 'Cut into cells on the beat',
     split: 'Panels side by side',
   };

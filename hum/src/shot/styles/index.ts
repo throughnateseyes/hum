@@ -8,7 +8,7 @@
  *   caption  the footage alone, with a small accent slate on one corner        (quiet parts)
  *   poster   one word enormous on a flat field, the footage inside the letters
  *   window   a flat field with one large opening, the footage inside it
- *   slab     one huge accent shape cropping the footage from an edge
+ *   slab     a flat accent band cropping the footage from an edge
  *   grid     the frame cut into cells that fill and empty on the beat
  *   split    two or three panels of the same clip, each a different crop
  *

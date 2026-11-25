@@ -50,7 +50,7 @@ export const poster: StyleFactory = (ctx) => {
 
   // small type: the song and the part, on the two corners the word leaves free
   const low = ((ctx.layout >> 1) & 1) === 1;
-  const small = [cornerLine(group, ctx, ctx.labels.title || 'HUM', field.text, low ? 'tl' : 'bl'), cornerLine(group, ctx, `${ctx.labels.part} ${ctx.labels.time}`, field.text, low ? 'tr' : 'br')];
+  const small = [cornerLine(group, ctx, ctx.labels.title, field.text, low ? 'tl' : 'bl'), cornerLine(group, ctx, `${ctx.labels.part} ${ctx.labels.time}`, field.text, low ? 'tr' : 'br')];
 
   /* tower: one line (or two side by side) as tall as the short side allows, standing whole in the frame */
   const tl: TypeLine[] = [];
