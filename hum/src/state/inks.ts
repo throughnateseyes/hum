@@ -3,6 +3,7 @@ import { getPalette, PALETTES } from '../core/palettes';
 import type { ClipAsset, ClipPalette, Palette, PartShot, TrackAnalysis } from '../core/types';
 import { hasTones, INK_ROLES, inksFrom, lateTones, tonesFromPixels, tonesOf, type InkSet } from '../shot/inks';
 import { shotOfPart } from '../shot/partShots';
+import { activeFinish } from './direction';
 import { originalOf } from './planCache';
 import { useStudio } from './store';
 
@@ -98,6 +99,28 @@ export function inksAt(t: number, shown: ClipPalette | null): Palette | null {
   return named(`${mode} ${k.paper} ${glow} ${tones.join('')}`, () => inksFrom(tones, k.paper, glow));
 }
 
+/** inksAt, only where a finish prints in inks: what the footage's own graphics are drawn in */
+export function graphicInks(t: number, p: ClipPalette): Palette | null {
+  const s = useStudio.getState();
+  const f = activeFinish(s, t);
+  if (!inked(f) || (f === 'hand' && s.hand.inks === 0)) return null;
+  return inksAt(t, p);
+}
+/** changes whenever graphicInks could answer differently at t (besides the clips) */
+let round = 0;
+let last: unknown[] = [];
+export function inksKey(t: number): string {
+  const s = useStudio.getState();
+  const f = activeFinish(s, t);
+  if (!inked(f) || (f === 'hand' && s.hand.inks === 0)) return '';
+  if (last[0] !== s.inkColors || last[1] !== s.clips) {
+    last = [s.inkColors, s.clips];
+    round++;
+  }
+  return `${round}.${read}.${shotRecordAt(t)?.inks ?? ''}`;
+}
+let read = 0;
+
 /** read the tones of clips added before tones were (from their library stills); true when any were read */
 export async function readTones(clips: ClipAsset[]): Promise<boolean> {
   let any = false;
@@ -118,6 +141,7 @@ export async function readTones(clips: ClipAsset[]): Promise<boolean> {
     const tones = tonesFromPixels(g.getImageData(0, 0, 64, 64).data);
     if (tones.length) {
       lateTones(c.palette, tones);
+      read++;
       any = true;
     }
   }

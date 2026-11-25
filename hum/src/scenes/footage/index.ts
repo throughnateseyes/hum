@@ -52,6 +52,7 @@ import { SLOW, slowMotion } from '../../shot/slowmo';
 import { ShotStage, warmShots, type StageClip } from '../../shot/stage';
 import { anchorsOf, grabStill, type Anchor } from '../../shot/stills';
 import { drawnWith, offIn } from '../../shot/graphics';
+import { graphicInks, inksKey } from '../../state/inks';
 import { songCredit } from '../../state/songName';
 import { MAX_LETTERS } from '../../shot/type';
 import { INSIDE_PALETTES, insidePalette } from '../../inside/palettes';
@@ -622,7 +623,7 @@ class FootageLook implements SceneInstance {
     this.part = index;
     const size = `${this.width}x${this.height}`;
     const paint = paintNow(p, a).id;
-    const say = wordsKey();
+    const say = `${wordsKey()}|${inksKey(t)}`;
     const off = offIn(flat ? shotOfPart(index) : solo, useStudio.getState().graphicsOff);
     const key = flat ? `f|${flat.key}|${off.join(' ')}|${index}|${title}|${this.deckKey}|${size}|${paint}|${say}` : `${a.duration}|${a.sections.length}|${off.join(' ')}|${index}|${partKey(mine)}|${words.join(' ')}|${title}|${this.deckKey}|${size}|${paint}|${say}`;
     // the first footage look on this renderer compiles every shader the shots use, once
@@ -638,7 +639,7 @@ class FootageLook implements SceneInstance {
       seq = drawnWith(seq, off);
       const { partStart } = seq;
       const t0 = performance.now();
-      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - partStart) < 0.05), drawn: drawnIn } });
+      this.stage.build({ seq, analysis: a, clips: this.deck, echo: (i) => this.echo[i] ?? null, title, lookId: '', tellStore: false, live: true, before: flat ? beforeOf(flat, index) : undefined, inks: (pal, at) => graphicInks(at, pal), inside: { palette: paintNow(p, a), words: (shot) => wordsIn(shot, bool(p, 'words', true) ? titleWords(true) : [], Math.abs(shot.start - partStart) < 0.05), drawn: drawnIn } });
       for (const { clip, range } of this.stage.insideNeeds()) void clip.reading?.need([range]);
       if (import.meta.env.DEV) {
         const sh = seq.shots[0];

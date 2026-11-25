@@ -21,6 +21,8 @@ import { CAM_Z, FOV, frameSize, toneOf, type Bed, type Labels, type StyleContext
 import { lean } from '../feeling';
 import { cameraOf } from '../moments';
 import { LookPlayer } from './lookPlayer';
+import { inkInside, inkScheme } from './inkDress';
+import type { InkSet } from './inks';
 import { schemeFor, type Scheme, type ShotPalette } from './palette';
 import { usesRing, withMotion, type MotionCurve, type MotionId } from './motion';
 import { FrameRing, RATE, type RingFrame } from './ring';
@@ -83,6 +85,8 @@ export interface StageOptions {
   live?: boolean;
   /** Inside: the colours of the whole video, and the words that stand in a shot */
   inside?: { palette: InsidePalette; words: (shot: Shot) => { words: SungWord[]; sung: boolean; hush?: boolean }; drawn?: (shot: Shot) => Drawn | null };
+  /** the inks a drawn or printed finish prints this clip's shots in, at song time t (null: the clip's own scheme) */
+  inks?: (p: ShotPalette, t: number) => InkSet | null;
   /** the footage shot just before this run, when it is one (a moshed cut is pushed by its motion) */
   before?: { start: number; end: number; layout: number; treatment: TreatmentId };
 }
@@ -149,6 +153,7 @@ export class ShotStage {
   /** draws inside shots; made when a shot first needs it */
   private insidePass: InsidePass | null = null;
   private insideOf: StageOptions['inside'];
+  private inkOf: StageOptions['inks'];
   private analysis: TrackAnalysis | null = null;
   private labels: Labels = { title: '', part: '', time: '', tempo: '' };
 
@@ -198,6 +203,7 @@ export class ShotStage {
     this.labels = labels;
     this.analysis = o.analysis;
     this.insideOf = o.inside;
+    this.inkOf = o.inks;
 
     for (const shot of seq.shots) {
       // a card takes the colours of the footage it leads into; a look, of the footage it follows
@@ -205,7 +211,8 @@ export class ShotStage {
       const clip = shot.kind === 'footage' ? clipOf(shot) : null;
       const alt = altOf(shot);
       const palette = (clip ?? (neighbour ? clipOf(neighbour) : o.clips[0])).palette;
-      const scheme = schemeFor(palette);
+      const inks = o.inks?.(palette, shot.start + 0.01) ?? null;
+      const scheme = inks ? inkScheme(inks, palette) : schemeFor(palette);
       // a clip's motion (a photo has none: it ignores the setting)
       const motion = clip?.footage && shot.motion && shot.motion !== 'play' ? shot.motion : undefined;
       const curve = withMotion(curves[shot.index], shot, seq, motion ?? 'play');
@@ -478,6 +485,7 @@ export class ShotStage {
     rig.inside?.shot.dispose();
     const seq = this.seq!;
     this.insidePass ??= new InsidePass(this.renderer, this.width, this.height);
+    const inks = this.inkOf?.(clip.palette, shot.start + 0.01) ?? null;
     const set = this.insideOf?.words(shot) ?? { words: shot.word ? [{ text: shot.word, t: shot.start, end: shot.end }] : [], sung: false };
     const made = new InsideShot(this.insidePass, {
       scene: read ? scene : null,
@@ -495,7 +503,7 @@ export class ShotStage {
       layout: shot.layout,
       arrive: shot.arrive,
       leave: shot.leave,
-      palette: this.insideOf?.palette ?? insidePalette(undefined, 0),
+      palette: inks ? inkInside(inks) : (this.insideOf?.palette ?? insidePalette(undefined, 0)),
       cuts: rig.scheme.cuts,
       words: set.words,
       sung: set.sung,
