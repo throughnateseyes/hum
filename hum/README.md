@@ -154,15 +154,17 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   next to it and by a remake. Both work in full screen too (the bar has **Like** and **Skip**), and in
   the timeline's right-click menu. Both also teach Hum your taste.
 - **Keep a part, redo it, or pick another choice.** Three ways to steer the director part by part
-  without remaking the video (`src/director/control.ts`; one ready piece of panel for each in
-  `src/ui/control`: `PartKeep`, `PartRedo`, `PartChoices`).
+  without remaking the video, in the Part tab (`src/director/control.ts`; the pieces are in
+  `src/ui/control`: `PartKeep`, `PartRedo`, `PartChoices`). Keep is in the timeline's right-click menu
+  and the phone's part sheet too.
   **Keep** holds a part exactly as it is: its look and shot, its edges and the cuts inside it, its
   drawing, pop-ups, lyric style and the words it says. It comes through **Remake video** (fresh ones
   too), a new pace, edits asked for in words and the director's reviews; Claude is told which parts
   are kept and what they show, and cuts around them. Parts are found again by their times
   (`keptOnly` and `carryEdits` in `src/state/flatPlan.ts`), the new cut's edges move onto theirs, and
   what Hum would otherwise deal a run by its place (layout, word) is pinned on the shot
-  (`PartShot.pin`). You can still change a kept part yourself; **Reset** lets it go. It is stored with
+  (`PartShot.pin`). You can still change a kept part yourself; pressing
+  **Kept** lets it go, and so does **Reset**. It is stored with
   the plan (`plan.kept`), so it is undoable and saved with the song and with projects.
   **Redo this part** makes another choice for one part (or up to eight picked ones), with a wish in
   plain words if you have one. One small Claude request (`server/steps/redo.ts`, the smallest model)
