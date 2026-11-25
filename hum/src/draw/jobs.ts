@@ -177,6 +177,13 @@ export function makeDrawings(list: { id: string; idea: DrawIdea }[], style: Draw
   pump();
 }
 
+/** stop what is being drawn for shots that are gone (a video took the place of the one it was for); what the person asked for stays */
+export function dropDrawings(wanted: (id: string) => boolean) {
+  const song = songName(useStudio.getState());
+  const gone = useDrawJobs.getState().jobs.filter((j) => j.as && j.song === song && j.state !== 'failed' && !wanted(j.as));
+  for (const j of gone) cancelJob(j.id);
+}
+
 /** one object Claude chose, checked: its lines and sections become the song's own words and times */
 function ideaFrom(raw: unknown, lines: string[], a: TrackAnalysis | null): DrawIdea | null {
   if (!raw || typeof raw !== 'object') return null;

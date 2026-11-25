@@ -6,7 +6,8 @@
  *        → the offline plan right away (never waits for the network), played from the top
  *        → in the background: Claude's plan (when it's reachable and allowed without asking for a
  *          code), sent once the lyrics lookup has settled so it can fit the words, then swapped in
- *          just before the next part starts, so the change lands on a part line
+ *          just before the next part starts, so the change lands on a part line. Not with footage
+ *          there: a Make directs from that, with a plan of its own, so only the words are read for it
  *        → lyrics that arrive later get a lyric plan of their own (the words are re-timed as usual)
  *
  * A Claude plan made for the song before plays at once instead (free, saved in this browser).
@@ -22,7 +23,7 @@ import { audioEngine } from '../audio/engine';
 import type { TrackAnalysis } from '../core/types';
 import { onFrame } from './live';
 import { putOn } from './flatPlan';
-import { findLook, keepPlan, offlineVideoPlan, requestVideoPlan, savedPlanFor, sectionIndexAt, sectionNames, startPlan, withBase, withLyricsNow, type VideoPlan } from './plan';
+import { aheadShown, directable, findLook, keepPlan, offlineVideoPlan, planAhead, savedPlanFor, sectionIndexAt, sectionNames, startPlan, withBase, withLyricsNow, type Ahead, type VideoPlan } from './plan';
 import { originalOf } from './planCache';
 import { recallPlan } from './saved';
 import { useStudio } from './store';
@@ -106,7 +107,7 @@ export async function planAndPlay(a: TrackAnalysis, current: () => boolean, opts
   const offline = withBase(await offlineVideoPlan(a, st.lyrics), a);
   if (!alive()) return;
   // a song brought back after a reload never asks Claude by itself: nobody chose to spend that
-  await go(offline, a, opts.offline ? `${offline.note} This is the song from last time, planned here on your computer. Remake video asks Claude for its take.` : `${offline.note} Claude is planning a take of its own in the background; it takes over at a part change if it's ready.`, !opts.offline);
+  await go(offline, a, opts.offline ? `${offline.note} This is the song from last time, planned here on your computer. Remake video asks Claude for its take.` : directable() ? `${offline.note} This one is Hum’s own. Remake video has Claude direct one from your footage.` : `${offline.note} Claude is planning a take of its own in the background; it takes over at a part change if it's ready.`, !opts.offline);
   if (!alive()) return;
   followLyrics(a, alive);
   if (!opts.offline) void upgrade(a, alive);
@@ -143,32 +144,40 @@ function until(ok: (s: ReturnType<typeof useStudio.getState>) => boolean, ms: nu
 
 /**
  * Ask Claude for its take in the background and swap it in at the next part line. A video being made
- * asks for a plan of its own, so this one waits for it (and one already on its way is dropped): it is
- * only wanted if that Make was cancelled.
+ * asks for a plan of its own, so this one waits for it, and one already on its way is dropped (unless that
+ * Make asks for the very same thing, and takes it over: plan.ts takeAhead). One directed from the person's
+ * footage always has its own, so with footage there nothing is asked here.
  */
 async function upgrade(a: TrackAnalysis, alive: () => boolean) {
   await until((s) => s.lyricsStatus !== 'searching', LYRICS_WAIT_MS, alive);
+  const here = () => alive() && !!auto && useStudio.getState().plan === auto;
+  if (directable()) {
+    // what its words mean, which such a Make will want (kept by the words, so it is asked once ever)
+    const { readFeeling } = await import('../director/feeling');
+    const stop = new AbortController();
+    const off = useStudio.subscribe(() => !alive() && stop.abort());
+    if (here()) await readFeeling(a, useStudio.getState().lyrics, stop.signal).catch(() => false);
+    off();
+  }
+  let ahead: Ahead | null = null;
   let plan: VideoPlan | null = null;
   while (!plan) {
-    while (useStudio.getState().planning && alive()) await until((s) => !s.planning, MAKE_WAIT_MS, alive);
-    if (!alive() || useStudio.getState().plan !== auto || !auto) return;
+    while ((useStudio.getState().planning || directable()) && here()) await until((s) => (!s.planning && !directable()) || !here(), MAKE_WAIT_MS, alive);
+    if (!here()) return;
     // the fallback is the planner's own plan (per section), not its flattened parts
-    const base = auto.flat?.src ?? auto;
-    const stop = new AbortController();
-    const off = useStudio.subscribe((s) => (s.planning || !alive()) && stop.abort());
-    try {
-      ({ plan } = await requestVideoPlan(a, useStudio.getState().lyrics, base, { quiet: true, signal: stop.signal }));
-    } catch (err) {
-      if (!stop.signal.aborted) throw err;
-    } finally {
-      off();
-    }
+    const mine = (ahead = planAhead(a, auto!.flat?.src ?? auto!));
+    const off = useStudio.subscribe((s) => (mine.taken ? !alive() : s.planning || directable() || !alive()) && mine.stop());
+    plan = await mine.plan;
+    off();
+    if (mine.taken) return;
+    // (it can't be had: the offline plan plays on)
+    if (!plan && !mine.stopped) return;
   }
-  if (!alive() || plan.source !== 'claude') return;
+  if (!alive()) return;
   // saved for next time even if it never plays this time
   keepPlan(plan, a);
   if (useStudio.getState().plan !== auto) return;
-  swapAtPartLine(plan, a, alive);
+  swapAtPartLine(plan, a, () => alive() && !ahead!.taken);
 }
 
 function swapAtPartLine(plan: VideoPlan, a: TrackAnalysis, alive: () => boolean) {
@@ -186,6 +195,7 @@ function swapAtPartLine(plan: VideoPlan, a: TrackAnalysis, alive: () => boolean)
     const nearLine = i < secs.length - 1 && secs[i].end - t <= SWAP_LEAD;
     if (!fresh && !nearLine) return;
     off();
+    aheadShown();
     rememberPlan(a, planSignature(plan));
     auto = putOn(plan, a).plan;
     const from = fresh ? 0 : i + 1;

@@ -56,8 +56,10 @@ With neither, an offline heuristic director answers. See [docs/DIRECTOR.md](docs
   take of its own in the background (when the director is reachable and allowed, without asking
   for an access code). Claude's plan takes over at the next part change (two seconds early, so the
   transition lands on the line), unless you've already changed the video yourself. Pressing **Make a
-  video** before it arrives drops it, since that asks for a plan of its own (if you cancel that one,
-  it is asked for again). Lyrics that
+  video** before it has been seen plays that one, when Make would ask for the very same thing (no wish, no
+  mood, nothing changed since); otherwise it is dropped, since that Make asks for a plan of its own. With
+  footage added (and the line about frames seen) Claude makes no take in the background: a Make directs one
+  from the footage, with its own plan. Only the song's words are read for it then, once. Lyrics that
   turn up later are timed in as they arrive. A song Claude has planned before plays its saved plan
   at once. The tap or drop that loaded the song is what lets it play; if the browser still won't
   start the sound, a big **Tap to play** button appears. **Make a video when a song loads** (Video
@@ -699,7 +701,23 @@ prompt cache because someone asked within the last 5 minutes):
 | Tweak the look on screen ("warmer") | Haiku 5.5 | ≤ 14,400 / ~800 | ≈ $0.002 |
 | A new GLSL scene | Sonnet 5.5 | ~7,000 (mostly cacheable) / up to 16,000 | ≈ $0.05–0.10 |
 
-A video directed from your own footage is a run of smaller calls (`server/steps`). For a one-minute song
+A video directed from your own footage is a run of smaller calls (`server/steps`), in this order. Each waits only
+for what it is told:
+
+1. The words are read (`feel`) while this computer finds what happens in the clips and makes their sheets, which
+   are then watched (`watch`, three to a request, the requests side by side once Claude is known to answer here).
+2. `story`, then the looks (`plan`, told the story), then `shots` (told the cut the looks make). Meanwhile this
+   computer reads the depth of the seconds Claude's notes say are good to start on, a short stretch at a time.
+3. What the chosen shots show beyond that is read for depth (a minute at the most), the stills for the check are
+   drawn and the room for drawings is measured. Then the video goes on.
+4. While it plays: `review` (the cut) and `art` (what to draw, and where), side by side. The drawings take their
+   places once the cut is checked, are made (`draw`), and are looked at where they stand (`artReview`).
+
+What Claude saw in a file, what it read in the words, what happens in a clip and the depth read are kept, so a
+remake asks only for 2 to 4. A story whose Make was stopped is used by the next Make that asks the very same
+thing. Drawings still being made for a video that was made again are stopped.
+
+For a one-minute song
 with five clips and four drawings, estimated from a recorded run without Claude's thinking: about 30,000
 Sonnet tokens in and 2,600 out for the story, the looks, the shots, the drawings' places and the checks;
 12,000 Haiku tokens in for watching and looking (watching is kept, so only the first time); and 15,000

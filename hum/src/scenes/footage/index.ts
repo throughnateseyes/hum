@@ -40,6 +40,7 @@
 import { curvesFor } from '../../director/feeling';
 import * as THREE from 'three';
 import type { ClipAsset, FrameContext, ParamDef, ParamValues, PartShot, PhotoAsset, PrepareContext, SceneDef, SceneInit, SceneInstance, TrackAnalysis } from '../../core/types';
+import { audioEngine } from '../../audio/engine';
 import { bool, num, str } from '../../core/uniforms';
 import { Footage } from '../../shot/footage';
 import { MOTION_HINT, MOTION_IDS, MOTION_NAMES } from '../../shot/motion';
@@ -395,6 +396,8 @@ function readAhead(flat: Flat, deck: StageClip[], t: number) {
     for (const seq of order)
       for (const { clip, range } of insideRanges(seq)) {
         if (reading !== flat) return;
+        // (a video being made reads its own first, when nobody is watching this one)
+        while (useStudio.getState().planning && !audioEngine.playing) await new Promise((r) => setTimeout(r, 500));
         await deck[clip % deck.length]?.reading?.need([range]);
       }
   })();

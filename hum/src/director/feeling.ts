@@ -78,10 +78,45 @@ export function curvesFor(plan: VideoPlan | null | undefined, a: TrackAnalysis, 
   return isFeeling(f) ? curvesOf(originalOf(a), f, lyr) : null;
 }
 
-/** have Claude read the words, unless it has; false when it couldn't (nothing is lost: the word list stands in) */
+/** the words being read now, and how many are waiting for that */
+const asking = new Map<string, { read: Promise<boolean>; stop: AbortController; waiting: number }>();
+
+/**
+ * Have Claude read the words, unless it has; false when it couldn't (nothing is lost: the word list stands
+ * in). Asked for twice at once it is read once, and stopped when nobody waits for it any more.
+ */
 export async function readFeeling(a: TrackAnalysis, lyr: Lyrics | null, signal: AbortSignal): Promise<boolean> {
   const key = songOf(lyr);
   if (!key || kept().some((x) => x.key === key)) return true;
+  let one = asking.get(key);
+  if (!one) {
+    const stop = new AbortController();
+    const mine = { read: askFeeling(key, a, lyr, stop.signal), stop, waiting: 0 };
+    asking.set(key, (one = mine));
+    const gone = () => asking.get(key) === mine && asking.delete(key);
+    mine.read.then(gone, gone);
+  }
+  const here = one;
+  here.waiting++;
+  let leave = () => {};
+  const left = new Promise<never>((_, no) => {
+    leave = () => no(new DOMException('Cancelled', 'AbortError'));
+    if (signal.aborted) leave();
+    else signal.addEventListener('abort', leave);
+  });
+  try {
+    return await Promise.race([here.read, left]);
+  } finally {
+    signal.removeEventListener('abort', leave);
+    if (--here.waiting === 0) {
+      here.stop.abort();
+      // (whoever asks next starts afresh rather than joining one that is stopping)
+      if (asking.get(key) === here) asking.delete(key);
+    }
+  }
+}
+
+async function askFeeling(key: string, a: TrackAnalysis, lyr: Lyrics | null, signal: AbortSignal): Promise<boolean> {
   const energyAt = (t: number) => a.sections.find((s) => t >= s.start && t < s.end)?.energy ?? 0.5;
   const byKey = new Map<string, { text: string; t?: number; energy?: number; times: number }>();
   const add = (text: string, t?: number) => {

@@ -1214,7 +1214,7 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   // ("Remake video", a mood and typed wishes always ask again), see planCache.ts
   const cacheKey = s.track ? planKey(s.track.name, a, s.lyrics) : null;
   // with clips or photos (and the line about frames on screen) the video is directed from them, in steps
-  const directed = mediaReady() && framesNoted();
+  const directed = directable();
   if (cacheKey && !wish.trim() && !opts.fresh && !mood) {
     const saved = savedPlan(cacheKey, a, (id) => !!findLook(id));
     // a video saved before Claude had watched the footage is made again, from it
@@ -1226,22 +1226,38 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
       return;
     }
   }
+  // the background plan on its way (or just in, and not seen yet) is the one this Make would ask for
+  const ahead = !directed && !wish.trim() && !mood ? takeAhead(a) : null;
   s.set({ planning: true, makeNote: '' });
   let asked: { plan: VideoPlan; reason: string };
   let end = () => {};
   let check: (() => Promise<void>) | null = null;
-  let draw: (() => void) | undefined;
   if (directed) {
     const made = await directVideo(a, prev, { wish, mood, keepEdits: opts.keepEdits });
     if (!made) return;
     asked = made;
     end = made.end;
     check = made.check;
-    draw = made.draw;
   } else {
-    asked = await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood });
-    // clips nobody asked Claude about are still landed on the song (in this browser)
-    if (clipCount()) {
+    // clips nobody asked Claude about are still landed on the song (in this browser): read meanwhile
+    const timing = clipCount() ? import('../director/footageTiming').then((m) => m.beginTiming()) : null;
+    const song = new AbortController();
+    const off = useStudio.subscribe((x) => (!x.analysis || originalOf(x.analysis) !== a) && song.abort());
+    try {
+      const had = await ahead;
+      asked = had ? { plan: had, reason: '' } : await requestVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id), { wish, mood, signal: song.signal });
+    } catch (err) {
+      // another song went on: nobody is waiting for this one any more
+      if (song.signal.aborted) {
+        useStudio.getState().set({ planning: false });
+        return;
+      }
+      console.warn('the plan could not be asked for', err);
+      asked = { plan: await offlineVideoPlan(a, s.lyrics, freshLocalPlan(a, mood?.id)), reason: '' };
+    } finally {
+      off();
+    }
+    if (timing) {
       const d = await import('../director/footageDirector');
       const run = d.beginMake();
       try {
@@ -1269,7 +1285,6 @@ export async function makeVideo(wish = '', opts: { fresh?: boolean; mood?: MoodI
   now.set({ planning: false });
   const idea = plan.idea ? `${plan.idea} ` : '';
   void startPlan(plan, a, plan.source === 'claude' ? `${idea}${plan.note}` : `${reason ? `${reason} ` : ''}${plan.note}`.trim(), { keep, freshPops: opts.keepEdits === false });
-  if (draw) void draw();
   // the check runs while the video plays; its step line goes when it is done
   if (check) void check().then(end, end);
   else end();
@@ -1289,7 +1304,7 @@ async function directVideo(
   a: TrackAnalysis,
   prev: VideoPlan | null,
   o: { wish: string; mood?: Mood; keepEdits?: boolean },
-): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null; draw?: () => void } | null> {
+): Promise<{ plan: VideoPlan; reason: string; end: () => void; check: (() => Promise<void>) | null } | null> {
   const d = await import('../director/footageDirector');
   const run = d.beginMake();
   const sameSong = () => {
@@ -1315,38 +1330,38 @@ async function directVideo(
     if (asked.reason) run.note('Claude couldn’t plan the looks this time, so Hum did.');
     const keep = o.keepEdits === false ? null : (useStudio.getState().plan ?? prev);
     const { plan, chosen } = await d.chooseShots(withBase(asked.plan, a), a, { keep, story, lyrics, wish: o.wish }, run);
-    let art: Art | null = null;
+    let art: Promise<Art | null> = Promise.resolve(null);
     let stills: { sheets: string[]; parts: number[] } | null = null;
     if (chosen) {
-      const { artOpen, directArt } = await import('../director/footageArt');
+      const { directArt } = await import('../director/footageArt');
       // what can be drawn where depends on the depth of the shots; the stills of the cut need no drawings
       await d.depthFor(chosen, run);
       const checking = d.stillsFor(chosen, run);
-      if (artOpen()) run.say('Deciding what to draw');
-      [art, stills] = await Promise.all([
-        directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint }, run).catch((err: unknown) => {
-          if (!run.signal.aborted) console.warn('no drawings were chosen', err);
-          return null;
-        }),
-        checking,
-      ]);
-      if (art) chosen.cues = plan.cues = art.cues;
+      // the room for drawings is measured now, while nothing plays on it; no drawing is made before the video is
+      // on, so what Claude decides to draw needn't hold it up (joinArt)
+      let measured = () => {};
+      const room = new Promise<void>((r) => (measured = r));
+      art = directArt(chosen, a, { story, lyrics, wish: o.wish, paint: plan.paint, measured }, run).catch((err: unknown) => {
+        if (!run.signal.aborted) console.warn('no drawings were chosen', err);
+        return null;
+      });
+      void art.then(measured);
+      [stills] = await Promise.all([checking, room]);
     }
-    if (art) plan.art = art.art;
     if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const look = art;
+    d.storyUsed();
     return {
       plan: chosen ? plan : await byHum(plan),
       reason: asked.reason,
       end: run.end,
-      check: chosen && stills ? () => d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : null,
-      // what is missing is drawn while the video plays, and looked at where it stands once it is in
-      draw: look
-        ? () => {
-            look.begin();
-            void import('../director/footageArt').then((m) => m.reviewArt(look.art));
+      // while it plays: the weak shots are replaced, and the drawings take their places (then are drawn, and looked at)
+      check: chosen
+        ? async () => {
+            const { joinArt } = await import('../director/footageArt');
+            const checked = stills ? d.reviewCut(chosen, stills, { story, lyrics, wish: o.wish }, run) : Promise.resolve();
+            await Promise.all([checked, joinArt(chosen, art, checked, run)]);
           }
-        : undefined,
+        : null,
     };
   } catch (err) {
     if (!run.signal.aborted) {
@@ -1396,6 +1411,67 @@ function graphicFor(a: TrackAnalysis, i: number, picked: (string | null)[], carr
   return planLooks()
     .filter((p) => !playsClips(p) && !p.custom && !p.sceneId.startsWith('board-') && inWorld(p))
     .sort((x, y) => score(y) - score(x) || (x.id < y.id ? -1 : 1))[0]?.id;
+}
+
+/** a video made now would be directed from the person's footage, with a plan of its own */
+export const directable = () => mediaReady() && framesNoted();
+
+/** a plan asked for before anyone pressed anything (one-tap start) */
+export interface Ahead {
+  a: TrackAnalysis;
+  /** what it was asked with: the same means the same question */
+  key: string;
+  /** null: there is none to be had, or it was stopped */
+  plan: Promise<VideoPlan | null>;
+  stop: () => void;
+  stopped: boolean;
+  /** a Make has taken it over */
+  taken: boolean;
+}
+let aheadNow: Ahead | null = null;
+
+/** everything a plan request without a wish or a mood is made of, besides the song itself */
+function askedWith(a: TrackAnalysis): string {
+  const s = useStudio.getState();
+  return JSON.stringify([s.lyrics, clipCount(), photoCount(), s.mix, tasteSummary(a), planLooks().map((p) => p.id), feelingNow(s.lyrics).by]);
+}
+
+/** ask for Claude's plan quietly, ahead of any Make */
+export function planAhead(a: TrackAnalysis, offline: VideoPlan): Ahead {
+  const ctrl = new AbortController();
+  const ahead: Ahead = {
+    a,
+    key: askedWith(a),
+    plan: requestVideoPlan(a, useStudio.getState().lyrics, offline, { quiet: true, signal: ctrl.signal }).then(
+      (r) => (r.plan.source === 'claude' ? r.plan : null),
+      (err) => {
+        if (!ctrl.signal.aborted) console.warn('the plan in the background failed', err);
+        return null;
+      },
+    ),
+    stop: () => {
+      ahead.stopped = true;
+      ctrl.abort();
+    },
+    stopped: false,
+    taken: false,
+  };
+  aheadNow = ahead;
+  return ahead;
+}
+
+/** the background plan, when it answers just what a Make pressed now would ask and nobody has seen it yet */
+function takeAhead(a: TrackAnalysis): Promise<VideoPlan | null> | null {
+  const x = aheadNow;
+  aheadNow = null;
+  if (!x || x.stopped || x.a !== a || x.key !== askedWith(a)) return null;
+  x.taken = true;
+  return x.plan;
+}
+
+/** the background plan is on screen: a Make is to be a new take */
+export function aheadShown() {
+  aheadNow = null;
 }
 
 interface RequestOpts {
