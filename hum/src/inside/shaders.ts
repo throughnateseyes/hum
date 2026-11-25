@@ -12,7 +12,7 @@ import { FULLSCREEN_VERT } from '../core/glsl';
 
 export { FULLSCREEN_VERT };
 
-const CLIP = /* glsl */ `
+export const CLIP = /* glsl */ `
 uniform sampler2D tFootage;
 uniform vec4 uCrop;
 vec2 clipUv(vec2 f) { return uCrop.xy + (f - 0.5) * uCrop.zw; }
@@ -171,7 +171,7 @@ void main() {
 `;
 
 /** put into every material drawn in the place: is the point behind something in the picture? */
-const HIDE = /* glsl */ `
+export const HIDE = /* glsl */ `
 uniform sampler2D tNear;
 uniform vec2 uRes;
 uniform float uZScale;

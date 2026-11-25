@@ -13,6 +13,8 @@ import { kindOf } from '../draw/kinds';
 import { clamp01, dice, since, smooth } from '../shot/time';
 import { DrawnInPlace, handSeat, seats, seatsAt, spotOf, type Drawn, type Seat, type SeatWhere } from './drawn';
 import { DRAWN_PUTS, DRAWN_SIZES, type DrawnPut, type DrawnSize, type HandPut, type Room } from './drawnIds';
+import { Forms, type FormSpec } from './forms';
+import { spotAt } from './spot';
 import { noteSeat } from './seated';
 import { chunksOf, keepFor, place, standing, type Keep, type Chunk, type FrameBox, type Put, type SungWord } from './layout';
 import type { InsidePalette } from './palettes';
@@ -64,6 +66,8 @@ export interface InsideSpec {
   acts?: ActId[];
   /** a drawing that stands in this shot */
   drawn?: Drawn | null;
+  /** a form that stands in this shot, or is pulled out of it (forms.ts) */
+  form?: FormSpec | null;
 }
 
 interface WordMesh {
@@ -141,6 +145,7 @@ export class InsideShot {
   private readonly ribbons: { m: THREE.Mesh; mat: THREE.ShaderMaterial; i: number; w: number }[] = [];
   private readonly lines: THREE.Mesh[] = [];
   private drawing: DrawnInPlace | null = null;
+  private form: Forms | null = null;
   /** lines along what the clip really has */
   private own: SceneLines | null = null;
   private rays: THREE.ShaderMaterial | null = null;
@@ -202,6 +207,7 @@ export class InsideShot {
     chunks.forEach((chunk, i) => this.standing.push(this.stand(chunk, puts[i])));
     if (s.drawn && seat) this.addDrawing(s.drawn, seat);
     if (s.drawn && s.scene) noteSeat(s.partStart, s.drawn.put, s.drawn.size, !!seat);
+    this.addForm();
     this.addOwn();
     if (this.extras.has('rays')) this.addRays();
     if (this.extras.has('lines')) this.addLines();
@@ -440,6 +446,16 @@ export class InsideShot {
     return [new THREE.Color(first), new THREE.Color(second)];
   }
 
+  private addForm() {
+    const s = this.spec;
+    if (!s.form) return;
+    // a form is the one thing in its shot: nothing made up beside it
+    this.extras.clear();
+    const at = (t: number) => spotAt(s.scene, this.lensAt(t), s.clipAt(t), this.crop, this.cuts2.near * this.cuts2.near * 0.75);
+    this.form = new Forms(s.form, { scene: s.scene, span: this.span, layout: s.layout, start: s.start, end: s.end, beat: s.beat, kicks: s.kicks, snares: s.snares, aspect: s.aspect, nearCut: this.cuts2.near, lens: this.lensAt(s.start), spot: at(s.start + (s.end - s.start) * 0.45), late: at(s.end - 0.05), who: (t) => at(t).mask, dim: 1 - clamp01((s.cuts[1] - 0.28) / 0.14) }, (v, f, u, e) => this.material(v, f, u, e));
+    this.place.add(this.form.group);
+  }
+
   private addRays() {
     const p = this.spec.palette;
     const cut = this.spec.scene ? (this.spec.scene.sky > 0.06 ? 0.0035 : (this.spec.scene.splits[0] ?? 0.02)) : 1;
@@ -610,6 +626,7 @@ export class InsideShot {
     const most = this.hold(t, l, steady);
     this.placeExtras(t, beats, l, now);
     this.own?.update(t, l, this.lineColours(amount, now, p), this.boxes, (0.25 + 0.75 * inK) * (1 - gone) * (black ? 0 : 1));
+    this.form?.update(t, l, { cel: amount, now, palette: p, thr: s.cuts[1], gone });
     this.placeDrawing(t, l);
     this.drawing?.update(t, 1 - amount * 0.75, gone);
 
@@ -840,6 +857,7 @@ export class InsideShot {
 
   dispose() {
     this.drawing?.dispose();
+    this.form?.dispose();
     this.own?.dispose();
     for (const m of this.mats) m.dispose();
     for (const g of this.geos) g.dispose();

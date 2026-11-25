@@ -250,7 +250,7 @@ export class InsidePass {
 }
 
 /** the nearness flat ground would have at a frame point (negative above the horizon) */
-function groundNear(l: Lens, fx: number, fy: number, zScale: number): number {
+export function groundNear(l: Lens, fx: number, fy: number, zScale: number): number {
   // solve for 1/w of the ground point under (fx, fy): frame = (a·X + c·Z + ...)/w with Y = -EYE
   const e = l.matrix.elements;
   const nx = fx * 2 - 1 + e[8];
