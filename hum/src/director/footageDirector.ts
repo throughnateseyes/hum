@@ -27,7 +27,7 @@ import { findLook, partEdits, sectionIndexAt, validPlan, type VideoPlan } from '
 import { parentsOf } from '../state/planCache';
 import { useStudio } from '../state/store';
 import { audioEngine } from '../audio/engine';
-import { requestStep } from './client';
+import { requestStep, type StepReply } from './client';
 import { playsClips } from './footage';
 import { curvesFor, curvesNow, readFeeling } from './feeling';
 import { framesSent } from './footageNotice';
@@ -91,6 +91,21 @@ useStudio.subscribe((s, was) => {
 /** stop the Make that is running, at whatever step it is */
 export function cancelMake() {
   current?.abort();
+}
+
+/** a story no video has come of yet (its Make was stopped): the next Make that asks the very same is given it */
+let unused: { asked: string; r: StepReply } | null = null;
+async function askOnce(mode: 'story', body: Record<string, unknown>, opts: { signal: AbortSignal }): Promise<StepReply> {
+  const asked = JSON.stringify(body);
+  if (unused?.asked === asked) return unused.r;
+  unused = null;
+  const r = await requestStep(mode, body, opts);
+  if (r.ok) unused = { asked, r };
+  return r;
+}
+/** a video came of it, or nothing can: the next one is asked for */
+export function storyUsed() {
+  unused = null;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -192,7 +207,10 @@ const vocabulary = (lyr: Lyrics | null) => ({
 export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: string, run: MakeRun): Promise<{ story: Story | null; closed: boolean }> {
   // (what happens in the clips before how far away things are in them: the watching shows Claude the first)
   beginTiming();
-  void import('./footageDepth').then((m) => m.beginDepth());
+  const depth = import('./footageDepth');
+  void depth.then((m) => m.beginDepth());
+  // (while Claude is waited for, the depth of the seconds its notes name)
+  const likely = (first: string[]) => void depth.then((m) => m.readLikely(run.signal, first));
   // what the words mean is read while the pictures are watched
   const reading = readFeeling(a, lyr, run.signal).catch(() => false);
   await recallNotes();
@@ -204,7 +222,13 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
     framesSent();
     // what happens in the clips is found first: the sheets show it
     await readClips(run);
-    const w = await watchMedia({ signal: run.signal, onProgress: (done, of) => run.say(`Watching your ${what}`, Math.min(of, done + 1), of) });
+    const w = await watchMedia({
+      signal: run.signal,
+      onProgress: (done, of) => {
+        run.say(`Watching your ${what}`, Math.min(of, done + 1), of);
+        if (done) likely([]);
+      },
+    });
     if (w.missed) {
       if (w.closed && !seenMedia().length) {
         run.note(`${w.reason} Hum planned this one by itself.`);
@@ -216,6 +240,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   const seen = seenMedia();
   if (!seen.length) return { story: null, closed: false };
   await readClips(run);
+  likely([]);
   run.say('Feeling the song');
   await reading;
   if (run.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -223,7 +248,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   run.say('Finding the story');
   const mix = useStudio.getState().mix;
   const hints = momentsFor(a, feel);
-  const r = await requestStep(
+  const r = await askOnce(
     'story',
     {
       wish,
@@ -256,6 +281,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
   const paint = INSIDE_PALETTES.find((x) => x.id === r.json.paint)?.id;
   const got = Array.isArray(r.json.sections) ? r.json.sections.filter(isObj) : [];
   if (!idea || !got.length) {
+    storyUsed();
     run.note('Claude couldn’t find a story this time, so the parts follow the song alone.');
     return { story: null, closed: false };
   }
@@ -265,6 +291,7 @@ export async function findStory(a: TrackAnalysis, lyr: Lyrics | null, wish: stri
     return { moment: isMoment(m) ? m : hints[i], media: idsOf(x?.media, seen, 3), footage: x?.footage !== false || (mix === 'most' && (i === 0 || i === a.sections.length - 1)), note: text(x?.note, 140) };
   });
   const deal = dealMix(a, mix, sections.map((x) => x.moment), sections.map((x) => x.footage));
+  likely(sections.flatMap((x) => x.media));
   return {
     story: {
       title: text(r.json.title, 60),
@@ -609,5 +636,6 @@ export async function reviewCut(chosen: Chosen, stills: { sheets: string[]; part
   if (!changed) return;
   const why = plan.why.map((w, i) => cues.find((c) => Math.abs(c.at - bounds[i]) < 0.06 && starts.includes(c.at))?.why ?? w);
   useStudio.getState().set({ plan: { ...plan, shots, why, flat: { ...plan.flat!, src: { ...plan.flat!.src, cues } } } });
+  chosen.cues = cues;
   run.note(`Claude checked the cut and changed ${changed === 1 ? 'one shot' : `${changed} shots`}.`);
 }

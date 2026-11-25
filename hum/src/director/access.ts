@@ -92,6 +92,10 @@ export function learnNeed(): Promise<void> {
  */
 export const aiAllowedQuietly = () => need !== 'off' && !(need === 'code' && !currentCode());
 
+let answered = false;
+/** Claude has answered here this visit, or the site wants no code: the next request won't be refused for want of one */
+export const aiAnswers = () => answered || need === 'open';
+
 export type CheckResult = 'ok' | 'wrong' | 'off' | 'unknown';
 
 /** Ask the server whether `code` works, without calling Claude. 'unknown' = couldn't tell. */
@@ -240,6 +244,7 @@ export async function postDirector(
     });
     if (res.ok) {
       if (!code) setNeed('open');
+      answered = true;
       return res;
     }
     const err = res.status === 403 || res.status === 501 ? await errorOf(res) : '';

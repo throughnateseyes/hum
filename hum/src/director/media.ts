@@ -11,6 +11,7 @@ import { deckIdsOf } from '../shot/run';
 import { ask, NOTES } from '../state/saved';
 import { readMotion } from '../timing';
 import { useStudio } from '../state/store';
+import { aiAnswers } from './access';
 import { requestStep } from './client';
 import { PHOTOS_PER_SHEET, breathe, photoSheet, sampleClip } from './mediaSample';
 
@@ -198,8 +199,8 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
     }
     tell(sent.length);
   };
-  // the first request goes alone (the next sheets are made meanwhile): it may stop to ask for an
-  // access code, or find there is no AI here, and then nothing more is sent
+  // the first request goes alone (the next sheets are made meanwhile) unless Claude is known to answer
+  // here: it may stop to ask for an access code, or find there is no AI, and then nothing more is sent
   let gate: Promise<void> | null = null;
   let refused = false;
   let sheets: string[] = [];
@@ -209,7 +210,7 @@ export async function watchMedia(opts: { signal?: AbortSignal; onProgress?: (don
     const [pics, items] = [sheets, sent];
     sheets = [];
     sent = [];
-    if (gate) await gate;
+    if (gate && !aiAnswers()) await gate;
     if (refused) return;
     while (flying.size >= IN_FLIGHT) await Promise.race(flying);
     const before = freshCount();
