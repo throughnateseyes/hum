@@ -115,13 +115,13 @@ void main() {
   float around = 0.0;
   if (uGuard > 0.0) {
     // the keyline's reach: a tenth of small type, about a hundredth of the frame on huge type, never under two pixels
-    float r = max(2.2 * px, min(0.1, 0.011 * min(uSize.x, uSize.y) * px));
+    float r = max(2.5 * px, min(0.1, 0.011 * min(uSize.x, uSize.y) * px));
     float near = 0.0;
     float far = 0.0;
     for (int i = 0; i < 12; i++) {
       float th = float(i) * 0.5235988;
       vec2 o = vec2(cos(th) / uRatio, sin(th)) * r;
-      near = max(near, ink(uv + o * 0.6));
+      near = max(near, ink(uv + o * 0.8));
       far += ink(uv + o * 1.25);
     }
     around = max(near, smoothstep(0.0, 6.0, far) * 0.75) * need();

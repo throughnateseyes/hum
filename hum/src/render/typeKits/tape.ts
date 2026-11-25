@@ -480,7 +480,7 @@ function drawTerm(k: KitLine, words: Placed[], col: RGB, caret: boolean) {
  * Are the bare phosphor colours lost there? They read on a dark picture (bright ones) or a light one
  * (deep ones), and on nothing in between or both: there the words get their screen's dark glass.
  */
-const needsGlass = (k: KitLine) => holdsSafe(k, !(k.light ? k.inks.hi < 0.07 : k.inks.lo > 0.48));
+const needsGlass = (k: KitLine) => holdsSafe(k, (k.L.role === 'aside' && k.inks.keyed) || !(k.light ? k.inks.hi < 0.07 : k.inks.lo > 0.48));
 
 export function drawTape(k: KitLine) {
   if (k.L.role === 'caption') {

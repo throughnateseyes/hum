@@ -267,6 +267,8 @@ export interface Inks {
   hi: number;
   /** how busy the picture is there */
   edge: number;
+  /** the guard asks for the keyline (a kit that draws its small type its own way answers it its own way) */
+  keyed: boolean;
 }
 
 interface AWord {

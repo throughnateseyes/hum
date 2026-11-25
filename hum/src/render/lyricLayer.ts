@@ -501,7 +501,7 @@ export class LyricLayer {
     if (guarded && this.probe.version > 0 && this.probe.version !== this.probed) {
       this.probed = this.probe.version;
       L.stats = regionStats(this.probe, L.rect);
-      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target * this.strictness(), ladder: this.ladderNow(L, L.stats), pal: o.palette, hold: t - line.t < FADE_IN + 0.12 ? undefined : this.guard.ink });
+      const v = judge(this.probe, L.rect, { inks: this.inkList(L.inks, o.palette, L.stats), target: L.target * this.strictness(), ladder: this.ladderNow(L, L.stats), pal: o.palette, hold: t - line.t < FADE_IN + 0.12 ? undefined : this.guard.held });
       // while the line is still fading in nobody can see a jump, so take the new verdict outright
       // (shots often cut on the very line start, so the first probe may still show the last look)
       if (t - line.t < FADE_IN + 0.12) this.guard.reset(v);
@@ -622,9 +622,11 @@ export class LyricLayer {
   private ladderNow(L: LineState, st: RegionStats): Backing[] {
     // knockout answers a busy picture with its field, not a halo
     if (L.medium === 'knockout') return L.ladder;
+    // drawn over by hand, a thin keyline or a glow round small type dissolves into the marks: it gets a torn
+    // strip of paper instead. Large type keeps the halo, which the drawing lays down as one flat ink
+    if (this.finish === 'hand' && L.target < 4) return ['none', 'halo'];
+    if (this.finish === 'hand') return st.edge >= BUSY_EDGE || coveredShare(L.rect, this.occluders) > OVER_WINDOW ? ['paper'] : ['none', 'paper'];
     if (coveredShare(L.rect, this.occluders) > OVER_WINDOW) return ['halo', ...L.ladder.filter((b) => b === 'band' || b === 'paper')];
-    // drawn over by hand, a thin keyline round small type turns to scribble: a torn strip of paper instead
-    if (this.finish === 'hand' && L.target >= 4) return st.edge >= BUSY_EDGE ? ['halo', 'paper'] : ['none', 'paper'];
     if (st.edge >= BUSY_EDGE) {
       if (L.ladder.includes('soft')) return L.ladder.map((b) => (b === 'soft' ? 'halo' : b));
       const k = L.ladder.findIndex((b) => b === 'band' || b === 'paper');
@@ -655,6 +657,7 @@ export class LyricLayer {
       lo: gd.lo,
       hi: gd.hi,
       edge: gd.edge,
+      keyed: gd.mix.soft > 0.5,
     };
   }
 

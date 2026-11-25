@@ -352,7 +352,7 @@ export function judge(p: FrameProbe, r: Rect, o: JudgeOpts): Verdict {
       }
       if (!best || bad < best.bad - 0.02) best = v;
     }
-    if (pass && o.hold && !held(pass.v.ink) && li + 1 < o.ladder.length) {
+    if (pass && o.hold && !held(pass.v.ink) && li + 1 < o.ladder.length && LEVEL[o.ladder[li + 1]] - LEVEL[backing] <= 1) {
       // the same ink with one step more behind it beats the words changing colour mid-line
       const stay = judge(p, r, { ...o, hold: undefined, inks: o.inks.filter(held), ladder: [o.ladder[li + 1]] });
       if (stay.bad <= slack) return stay;
@@ -502,6 +502,11 @@ export class Guard {
   private joltUntil = 0;
   /** the next verdict is the first of a new picture: it is taken outright, so the words change with the cut */
   private cut = false;
+
+  /** the ink that has been on screen over this picture, if any has (see JudgeOpts.hold) */
+  get held(): RGB | undefined {
+    return this.fresh || this.cut ? undefined : this.ink;
+  }
 
   /** the look under the text just changed (a cut): let the ink and backing follow quickly */
   jolt(now: number) {
