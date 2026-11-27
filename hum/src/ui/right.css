@@ -17,6 +17,44 @@
 .grp > .grp-l {
   margin-bottom: 2px;
 }
+/* a group that folds (More): its label is the button, naming what is inside while closed */
+.grp-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: calc(100% + 2 * var(--s-2));
+  min-height: var(--h-lg);
+  margin: calc(-1 * var(--s-1)) calc(-1 * var(--s-2)) 0;
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: transparent;
+  text-align: left;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.grp-toggle:hover {
+  background: var(--panel-2);
+}
+.grp-toggle .grp-l {
+  flex: none;
+}
+.grp-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2);
+  color: var(--ink-3);
+}
+.grp-toggle .sec-caret {
+  margin-left: auto;
+  flex: none;
+}
+.grp-fold.open .grp-toggle {
+  margin-bottom: 2px;
+}
 
 /* a settings row: its name, what it is set to, a caret; it opens where it stands */
 .sec.row {
@@ -494,4 +532,81 @@
 .tln-kept {
   flex: none;
   color: var(--ink);
+}
+
+/* the finishes as tiles (FinishTiles.tsx): resting on one tries it on the video, a click keeps it */
+.fin-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.fin-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  line-height: 1.15;
+  min-width: 0;
+  cursor: pointer;
+}
+.fin-tile span {
+  max-width: calc(100% - 4px);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fin-tile:hover,
+.fin-tile.trying {
+  border-color: var(--line-2);
+  color: var(--ink);
+  background: #fff;
+}
+.fin-tile.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.fin-tile[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.fin-note {
+  min-height: 2.8em;
+}
+
+/* the Director at rest: one line (Director.tsx), opening when it's clicked, working or has just answered */
+.director.compact {
+  padding-top: var(--s-2);
+}
+.director.compact .dir-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 var(--s-3) var(--s-2);
+  padding: 5px 4px 5px 10px;
+  cursor: text;
+}
+.director.compact .dir-input textarea {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dir-spark {
+  flex: none;
+  color: var(--ink-3);
+}
+.dir-past {
+  flex: none;
+}
+.director.compact .dir-row {
+  display: none;
 }

@@ -1,11 +1,11 @@
 /**
  * The Video tab of the right panel: everything that shapes the whole video. Make / Remake, the idea it
  * had, and what the next Make goes by (the mood, how much footage); then one row a setting, each showing
- * what it is set to and opening where it stands: the surface, the movement, what is on screen. The
- * rarely touched switches sit under Settings.
+ * what it is set to and opening where it stands: the ones reached for most first (Finish open), the rest
+ * folded under More, with the rarely touched switches under Settings in there.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { FINISHES, finishName, type FinishId } from '../core/direction';
+import { finishName, type FinishId } from '../core/direction';
 import { TRANSITIONS } from '../core/transitionList';
 import type { HandStyle } from '../core/types';
 import { ownMedia } from '../director/media';
@@ -15,7 +15,7 @@ import { forgetAccessCode, learnCan, learnNeed, openAccessGate, useAccessGate } 
 import { quality as governor } from '../render/quality';
 import { perfReport, perfSummary } from '../render/perfReport';
 import { KIT_CHOICES, kitFor, warmKit, type KitId } from '../render/typeKits';
-import { activeFinish, playingDirection, setFinish } from '../state/direction';
+import { activeFinish, playingDirection } from '../state/direction';
 import { setGraphic } from '../state/graphics';
 import { inked } from '../state/inks';
 import { InkControls } from './InkColours';
@@ -24,6 +24,8 @@ import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
 import { changeLyrics } from './lyricsOpen';
 import { DrawingsSection } from './Drawings';
+import { FinishTiles, finishTip } from './FinishTiles';
+import { getScene } from '../scenes';
 import { Field, Group, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
 import { MOODS } from '../presets/moods';
@@ -35,22 +37,19 @@ export function VideoPanel() {
   return (
     <div className="vp">
       <MakeBlock />
-      <Group label="Surface">
+      {/* the ones reached for most, Finish open; the rest folded under More (both remembered: controls.tsx) */}
+      <Group label="The look of it">
         <FinishSection />
         <ColourSection />
-        <FramesSection />
-      </Group>
-      <Group label="Movement">
-        <MoveSection />
         <TransitionSection />
-      </Group>
-      <Group label="On screen">
-        <CoversSection />
         <WordsSection />
-        <DrawingsSection />
-        <PopupSection />
+        <CoversSection />
       </Group>
-      <Group>
+      <Group label="More" id="video.morefold" hint="Frames, pace, pop-ups, drawings, settings">
+        <FramesSection />
+        <MoveSection />
+        <PopupSection />
+        <DrawingsSection />
         <MoreSection />
       </Group>
     </div>
@@ -211,36 +210,39 @@ function FramesNote() {
 
 /* ───────── finish, with the hand-drawn settings under it ───────── */
 
-// two rows on a 12-column grid: Auto, Clean and Hand-drawn (the one people reach for) a little wider
-// on top, the four film-like finishes under them
-const FINISH_OPTS: { v: 'auto' | FinishId; label: string; tip?: string; span: number }[] = [
-  { v: 'auto', label: 'Auto', tip: 'Each video picks the finish that fits the song', span: 4 },
-  ...(['clean', 'hand', 'film', 'riso', 'ink', 'tape'] as FinishId[]).map((id, i) => {
-    const f = FINISHES.find((x) => x.id === id)!;
-    return { v: f.id, label: f.name, tip: f.tip, span: i < 2 ? 4 : 3 };
-  }),
-];
-
 function FinishSection() {
   const finish = useStudio((s) => s.finish);
-  const now = useStudio(activeFinish);
   const fullColour = useStudio((s) => s.hand.inks === 0);
   const dir = useStudio(playingDirection);
-  const info = FINISHES.find((f) => f.id === (finish === 'auto' ? now : finish));
+  const lookName = useStudio((s) => getScene(s.sceneId)?.name ?? 'This look');
+  // the tile under the pointer: the line says what it is while the video tries it on
+  const [trying, setTrying] = useState<'auto' | FinishId | null>(null);
+  // what is drawn without the tile being tried (activeFinish reads the preview too)
+  const shown = useStudio((s) => activeFinish({ ...s, finishPreview: null }));
   const note =
-    finish === 'auto'
-      ? dir
-        ? `This video uses ${finishName(dir.finish)}.`
-        : `No video playing, so ${finishName(now)}.`
-      : now === 'hand'
-        ? 'Wobbly lines and flat inks, like hand animation. (H)'
-        : (info?.tip ?? '');
+    trying !== null && !(trying === finish && (trying === 'auto' || shown === trying))
+      ? `${finishTip(trying)} Showing on the video: click to keep it.`
+      : finish === 'auto'
+        ? dir
+          ? `This video uses ${finishName(dir.finish)}.`
+          : `No video playing, so ${finishName(shown)}.`
+        : shown !== finish
+          ? `${lookName} stays clean under ${finishName(finish)}, the default. Click ${finishName(finish)} to draw it anyway.`
+          : finish === 'hand'
+            ? 'Wobbly lines and flat inks, like hand animation. (H)'
+            : finishTip(finish);
   return (
-    <Section id="video.finish" title="Finish" sub="One surface over every look, like shooting it all on the same film." value={finish === 'auto' ? `Auto · ${finishName(now)}` : finishName(now)} collapsible defaultOpen={false}>
-      <Seg value={finish} options={FINISH_OPTS} onChange={setFinish} cols={12} label="Finish" />
-      <p className="field-note">{note}</p>
-      {inked(now) && <InkControls full={now === 'hand' && fullColour} />}
-      {now === 'hand' && <HandSettings />}
+    <Section id="video.finish" title="Finish" sub="One surface over every look, like shooting it all on the same film." value={finish === 'auto' ? `Auto · ${finishName(shown)}` : finishName(shown)} collapsible defaultOpen>
+      <FinishTiles onTry={setTrying} />
+      <p className="field-note fin-note">{note}</p>
+      {/* the finish's own settings fold under one row, so Finish can stay open without filling the tab; they
+          follow the finish picked, not one being tried on, so nothing jumps while hovering */}
+      {inked(shown) && (
+        <Section id="video.finish.tune" title={`Fine-tune ${finishName(shown)}`} value={shown === 'hand' ? 'Colours, lines, paper' : 'Colours'} collapsible defaultOpen={false}>
+          <InkControls full={shown === 'hand' && fullColour} />
+          {shown === 'hand' && <HandSettings />}
+        </Section>
+      )}
     </Section>
   );
 }

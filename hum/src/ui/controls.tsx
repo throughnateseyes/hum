@@ -190,8 +190,29 @@ export function groupParams(defs: ParamDef[]): [string, ParamDef[]][] {
 
 /* ───────── layout pieces shared by the panels ───────── */
 
-/** which collapsible sections are open, kept for this visit so switching tabs doesn't reset them */
-const sectionOpen = new Map<string, boolean>();
+/**
+ * Which collapsible sections are open, kept on this computer: a section left open stays open across
+ * tabs and visits, so the ones a person reaches for are there each time.
+ */
+const SECTIONS_KEY = 'hum.sections';
+const sectionOpen = new Map<string, boolean>(
+  (() => {
+    try {
+      const j = JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '{}') as Record<string, unknown>;
+      return Object.entries(j).filter((e): e is [string, boolean] => typeof e[1] === 'boolean');
+    } catch {
+      return [];
+    }
+  })(),
+);
+function keepOpen(id: string, v: boolean) {
+  sectionOpen.set(id, v);
+  try {
+    localStorage.setItem(SECTIONS_KEY, JSON.stringify(Object.fromEntries(sectionOpen)));
+  } catch {
+    /* private mode: kept for this visit only */
+  }
+}
 
 /**
  * A titled group in a panel. With `collapsible`, the title opens and closes it; `right` holds a
@@ -219,7 +240,7 @@ export function Section({
 }) {
   const [open, setOpenState] = useState(() => sectionOpen.get(id) ?? defaultOpen);
   const setOpen = (v: boolean) => {
-    sectionOpen.set(id, v);
+    keepOpen(id, v);
     setOpenState(v);
   };
   const shown = !collapsible || open;
@@ -262,12 +283,35 @@ export function Section({
   );
 }
 
-/** rows that belong together, under a quiet label */
-export function Group({ label, children }: { label?: string; children: React.ReactNode }) {
+/**
+ * Rows that belong together, under a quiet label. With `id` the label opens and closes them (kept like a
+ * section's), and `hint` names what is inside while it is closed.
+ */
+export function Group({ label, id, hint, children }: { label?: string; id?: string; hint?: string; children: React.ReactNode }) {
+  const [open, setOpenState] = useState(() => (id ? (sectionOpen.get(id) ?? false) : true));
+  if (!id || !label)
+    return (
+      <div className="grp" role="group" aria-label={label}>
+        {label && <span className="grp-l">{label}</span>}
+        {children}
+      </div>
+    );
   return (
-    <div className="grp" role="group" aria-label={label}>
-      {label && <span className="grp-l">{label}</span>}
-      {children}
+    <div className={`grp grp-fold ${open ? 'open' : ''}`} role="group" aria-label={label}>
+      <button
+        type="button"
+        className="grp-toggle"
+        aria-expanded={open}
+        onClick={() => {
+          keepOpen(id, !open);
+          setOpenState(!open);
+        }}
+      >
+        <span className="grp-l">{label}</span>
+        {!open && hint && <span className="grp-hint">{hint}</span>}
+        <Caret open={open} />
+      </button>
+      {open && children}
     </div>
   );
 }

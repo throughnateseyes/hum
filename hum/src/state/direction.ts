@@ -24,7 +24,7 @@ export function playingDirection(s: Pick<StudioState, 'planOn' | 'plan' | 'analy
   return p.direction;
 }
 
-type FinishState = Pick<StudioState, 'finish' | 'finishPicked' | 'hand' | 'planOn' | 'plan' | 'analysis' | 'sceneId' | 'partHand'>;
+type FinishState = Pick<StudioState, 'finish' | 'finishPicked' | 'finishPreview' | 'hand' | 'planOn' | 'plan' | 'analysis' | 'sceneId' | 'partHand'>;
 
 /**
  * Hand-drawn as the person set it for the part playing at song time t (Part tab, timeline menu):
@@ -61,12 +61,15 @@ const playingDirectionOk = (s: Pick<StudioState, 'planOn' | 'plan' | 'analysis'>
  * finish is Hand-drawn. Without `t` it is the finish of the whole video.
  */
 export function activeFinish(s: FinishState, t?: number): FinishId {
-  const f = s.finish !== 'auto' ? s.finish : (playingDirection(s)?.finish ?? (s.hand.on ? 'hand' : 'clean'));
+  // a finish tried on draws as it would once picked (picked, so a clean-leaning look doesn't refuse it)
+  const tried = s.finishPreview;
+  const pick = tried ?? s.finish;
+  const f = pick !== 'auto' ? pick : (playingDirection(s)?.finish ?? (s.hand.on ? 'hand' : 'clean'));
   const own = t === undefined ? null : partHandAt(s, t);
   if (own === true) return 'hand';
   if (own === false) return f === 'hand' ? 'clean' : f;
   // a look that falls apart under hand-drawn (fine snow, soft glows) shows clean until the person picks a finish
-  if (f === 'hand' && !s.finishPicked && getScene(s.sceneId)?.prefersClean) return 'clean';
+  if (f === 'hand' && !tried && !s.finishPicked && getScene(s.sceneId)?.prefersClean) return 'clean';
   return f;
 }
 

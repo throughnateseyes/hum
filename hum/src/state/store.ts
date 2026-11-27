@@ -219,6 +219,8 @@ export interface StudioState extends LookState {
   finish: 'auto' | FinishId;
   /** the person picked a finish themselves; until then every video is Hand-drawn (the house look) */
   finishPicked: boolean;
+  /** a finish being tried on while the pointer rests on it in the Video tab (null: none). Never saved, never undone, never rendered. */
+  finishPreview: 'auto' | FinishId | null;
   /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
   oneTap: boolean;
   /**
@@ -547,6 +549,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   // Hand-drawn is the house look: a plan's own finish only shows once the person picks Auto
   finish: persisted.finish ?? 'hand',
   finishPicked: persisted.finishPicked ?? false,
+  finishPreview: null,
   oneTap: persisted.oneTap ?? true,
   drawings: [],
   drawTrash: [],

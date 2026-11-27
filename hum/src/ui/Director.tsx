@@ -38,7 +38,8 @@ function sourceLabel(m: ChatMsg) {
 }
 
 /**
- * The Director, docked under the right panel: one calm input with the last few messages over it.
+ * The Director, docked under the right panel: one line until it's wanted, then the input with the last
+ * few messages over it.
  * Its mode follows the tab: on the Video tab (with a video) it changes the video, on the Part / Look
  * tab it makes a look. New scene is there for drawing something from scratch.
  */
@@ -59,6 +60,28 @@ export function DirectorPanel() {
   const [open, setOpen] = useState(false);
   const log = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const box = useRef<HTMLElement>(null);
+  // one line until it's wanted: focused, typed in, working, history open, or an answer just came in (it
+  // stays up until the next click somewhere else), so the panel above keeps the room
+  const [focused, setFocused] = useState(false);
+  const [answered, setAnswered] = useState(false);
+  // (an answer to something asked here; notes Hum posts on its own, like the video kept from before a
+  // reload, stay folded: the Video tab shows them)
+  const replied = chat.length > 1 && chat[chat.length - 1].role === 'director' && chat[chat.length - 2].role === 'user';
+  const seen = useRef(chat.length);
+  useEffect(() => {
+    if (chat.length > seen.current && replied) setAnswered(true);
+    seen.current = chat.length;
+  }, [chat.length, replied]);
+  useEffect(() => {
+    if (!answered) return;
+    const away = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setAnswered(false);
+    };
+    document.addEventListener('pointerdown', away, true);
+    return () => document.removeEventListener('pointerdown', away, true);
+  }, [answered]);
+  const compact = !focused && !prompt && !busy && !open && !answered;
 
   // keep the newest message in view
   useEffect(() => {
@@ -125,11 +148,18 @@ export function DirectorPanel() {
   const last = chat.length ? chat[chat.length - 1] : null;
   // (a new video's answer opens with its idea, which the Video tab has at its top)
   const idea = useStudio((s) => s.plan?.idea?.trim() ?? '');
-  const recent = open ? chat.slice(-20) : last && !busy ? [last] : [];
+  const recent = compact ? [] : open ? chat.slice(-20) : last && !busy ? [last] : [];
 
   return (
-    <section className="director">
-      {(chat.length > 0 || busy) && (
+    <section
+      ref={box}
+      className={`director ${compact ? 'compact' : ''}`}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!box.current?.contains(e.relatedTarget as Node)) setFocused(false);
+      }}
+    >
+      {!compact && (chat.length > 0 || busy) && (
         <div className="dir-head">
           <span className="grp-l">Director</span>
           <span className="spacer" />
@@ -179,13 +209,14 @@ export function DirectorPanel() {
           void run(prompt);
         }}
       >
+        {compact && <Sparkle className="dir-spark" width={13} height={13} aria-hidden />}
         <textarea
           id={DIRECTOR_INPUT_ID}
           ref={input}
           rows={1}
           value={prompt}
           maxLength={600}
-          placeholder={mode === 'preset' ? 'Describe a feeling for this look…' : mode === 'plan' ? 'What should change in the video?' : 'Describe something new to draw…'}
+          placeholder={compact ? (mode === 'plan' ? 'Ask Claude to change the video…' : 'Ask Claude for a look…') : mode === 'preset' ? 'Describe a feeling for this look…' : mode === 'plan' ? 'What should change in the video?' : 'Describe something new to draw…'}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -196,6 +227,11 @@ export function DirectorPanel() {
             }
           }}
         />
+        {compact && chat.length > 0 && (
+          <button type="button" className="btn sm ghost dir-past" onClick={() => setOpen(true)} title="What you asked before, and the answers">
+            History
+          </button>
+        )}
         <div className="dir-row">
           <div className="seg dir-modes" role="radiogroup" aria-label="What to change">
             {modes.map((m) => (
