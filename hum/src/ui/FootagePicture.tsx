@@ -11,8 +11,8 @@
  *   Shuffle         another arrangement of the same style; Previous steps back once
  *   Motion          footage looks, when the scene has it: what a clip does in time
  *   Graphics        footage looks: whether anything may cover the picture here (shot/graphics.ts)
- *   Treatment       footage looks: how the picture itself is broken down (folded away)
- *   Framing         footage looks: where the picture is centred and how far it is pushed in (folded away)
+ *   Treatment       footage looks: how the picture itself is broken down (a row that opens)
+ *   Framing         footage looks: where the picture is centred and how far it is pushed in (a row that opens)
  *
  * Photo looks (photo dissolve, mosh, mosaic, ripple, the boards) get the Picture row only, photos only:
  * the stage hands them just the photos chosen (render/stage.ts), so one stays on screen and several
@@ -23,7 +23,7 @@
  * so a style or treatment added there shows up here by itself.
  */
 import { useState } from 'react';
-import type { ParamDef, TrackAnalysis } from '../core/types';
+import type { ParamDef, PartShot, TrackAnalysis } from '../core/types';
 import { getScene } from '../scenes';
 import { FORM_IDS, FORMS, isForm } from '../inside/formIds';
 import { offIn, styleOn, treatmentOn } from '../shot/graphics';
@@ -31,11 +31,12 @@ import { activeFinish } from '../state/direction';
 import { inked } from '../state/inks';
 import { setPartsShot } from '../state/partEdit';
 import { useStudio } from '../state/store';
-import { Seg } from './controls';
+import { Section, Seg } from './controls';
 import { Framing } from './Framing';
 import { canShow, pictureKind, useMedia, type PictureKind, type ShotTarget } from './footageMedia';
 import { useLandings, type Landing } from './landings';
 import { MediaPicker } from './MediaPicker';
+import { seeIn } from './seeTry';
 import { inkName, PartInks } from './InkColours';
 import { fmtTime } from './song';
 
@@ -67,6 +68,12 @@ function selectOptions(sceneId: string, id: string, tips: Record<string, string>
 
 const MIXED = '__mixed';
 
+/** try a change on the shot while the pointer rests on it (Seg tryOn), going to the part when the song is elsewhere */
+function tryOnShot(t: ShotTarget, patch: Partial<PartShot>) {
+  t.set(patch);
+  if (!t.solo) seeIn(Number(t.key.split(',')[0]));
+}
+
 /** the same value in every shot, or MIXED */
 function common<T>(vals: T[]): T | typeof MIXED {
   const j = vals.map((v) => JSON.stringify(v ?? null));
@@ -76,9 +83,6 @@ function common<T>(vals: T[]): T | typeof MIXED {
 /** the arrangement each target had before its last shuffle (null: it followed the look), per cut of the song */
 const seedsBefore = new WeakMap<TrackAnalysis, Map<string, (number | null)[]>>();
 const soloBefore = new Map<string, (number | null)[]>();
-
-/** which folded rows are open; kept while the panel moves between parts */
-const openRows = { inks: false, treat: false, frame: false };
 
 /** Style, then Shuffle / Previous with the arrangement number */
 export function ShotStyle({ t, busy }: { t: ShotTarget; busy: boolean }) {
@@ -131,6 +135,7 @@ export function ShotStyle({ t, busy }: { t: ShotTarget; busy: boolean }) {
           disabled={busy}
           label={`Footage style for ${t.scope}`}
           onChange={(v) => t.set({ style: v === 'auto' ? undefined : v })}
+          tryOn={(v) => tryOnShot(t, { style: v === 'auto' ? undefined : v })}
         />
       )}
       <div className="pp-foot-row">
@@ -205,9 +210,6 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
   const media = all.filter((m) => canShow(kind, m));
   const [hover, setHover] = useState<string | null>(null);
   const finish = useStudio(activeFinish);
-  const [inksOpen, setInksOpen] = useState(openRows.inks);
-  const [treatOpen, setTreatOpen] = useState(openRows.treat);
-  const [frameOpen, setFrameOpen] = useState(openRows.frame);
   const footage = kind === 'footage';
   const shots = t.shots;
   const planned = t.planned.some(Boolean);
@@ -300,7 +302,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
                 <span>Motion</span>
                 <span>{motion === MIXED ? 'Mixed' : shots.some((r) => r?.motion) ? `Set for ${t.scope}` : asLook}</span>
               </div>
-              <Seg value={motion} options={motions} cols={Math.min(5, motions.length)} disabled={busy} label={`What the clip does in ${t.scope}`} onChange={(v) => t.set({ motion: v })} />
+              <Seg value={motion} options={motions} cols={Math.min(5, motions.length)} disabled={busy} label={`What the clip does in ${t.scope}`} onChange={(v) => t.set({ motion: v })} tryOn={(v) => tryOnShot(t, { motion: v })} />
             </>
           )}
 
@@ -319,6 +321,7 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
             disabled={busy}
             label={`Graphics over ${t.scope}`}
             onChange={(v) => t.set({ graphics: v === 'on' || v === 'off' ? v : undefined })}
+            tryOn={(v) => tryOnShot(t, { graphics: v === 'on' || v === 'off' ? v : undefined })}
           />
 
           {(style === 'inside' || style === 'auto' || style === MIXED) && (
@@ -338,101 +341,48 @@ export function FootagePicture({ t, busy, headingId }: { t: ShotTarget; busy: bo
                 disabled={busy || graphics === 'off'}
                 label={`3D form in ${t.scope}`}
                 onChange={(v) => t.set({ form: v === 'song' ? undefined : v })}
+                tryOn={(v) => tryOnShot(t, { form: v === 'song' ? undefined : v })}
               />
               {style !== 'inside' && isForm(form) && <p className="pp-note pp-hint">Forms stand in Inside shots. Pick the Inside style to see it.</p>}
             </>
           )}
 
           {inked(finish) && (
-            <div className="pp-fold">
-              <button
-                className="pp-more"
-                aria-expanded={inksOpen}
-                onClick={() => {
-                  openRows.inks = !inksOpen;
-                  setInksOpen(!inksOpen);
-                }}
-              >
-                <span className={`pp-caret ${inksOpen ? 'open' : ''}`} aria-hidden>
-                  ›
-                </span>
-                Colours
-                <span className="pp-more-h">{inks === MIXED ? 'Mixed' : inkName(inks)}</span>
-              </button>
-              {inksOpen && (
-                <div className="pp-fold-body">
-                  <PartInks value={inks === MIXED ? 'mixed' : inks} disabled={busy} onChange={(v) => t.set({ inks: v })} />
-                </div>
-              )}
-            </div>
+            <Section id="pic.inks" title="Colours" value={inks === MIXED ? 'Mixed' : inkName(inks)} collapsible defaultOpen={false}>
+              <PartInks value={inks === MIXED ? 'mixed' : inks} disabled={busy} onChange={(v) => t.set({ inks: v })} />
+            </Section>
           )}
 
-          <div className="pp-fold">
-            <button
-              className="pp-more"
-              aria-expanded={treatOpen}
-              onClick={() => {
-                openRows.treat = !treatOpen;
-                setTreatOpen(!treatOpen);
-              }}
-            >
-              <span className={`pp-caret ${treatOpen ? 'open' : ''}`} aria-hidden>
-                ›
-              </span>
-              Treatment
-              <span className="pp-more-h">{treatName}</span>
-            </button>
-            {treatOpen && (
-              <div className="pp-fold-body">
-                <Seg value={treat} options={treats} cols={3} disabled={busy} label={`Treatment for ${t.scope}`} onHover={setHover} onChange={(v) => t.set({ treatment: v })} />
-                <p className="pp-note pp-hint">
-                  {treatNote}
-                  {ownTreat !== null && hover === null && (
-                    <>
-                      {' '}
-                      <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ treatment: undefined })}>
-                        {planned ? 'As planned' : 'Follow the look'}
-                      </button>
-                    </>
-                  )}
-                </p>
-              </div>
-            )}
-          </div>
+          <Section id="pic.treat" title="Treatment" value={treatName} collapsible defaultOpen={false}>
+            <Seg value={treat} options={treats} cols={3} disabled={busy} label={`Treatment for ${t.scope}`} onHover={setHover} onChange={(v) => t.set({ treatment: v })} tryOn={(v) => tryOnShot(t, { treatment: v })} />
+            <p className="pp-note pp-hint">
+              {treatNote}
+              {ownTreat !== null && hover === null && (
+                <>
+                  {' '}
+                  <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ treatment: undefined })}>
+                    {planned ? 'As planned' : 'Follow the look'}
+                  </button>
+                </>
+              )}
+            </p>
+          </Section>
 
           {preview && (
-            <div className="pp-fold">
-              <button
-                className="pp-more"
-                aria-expanded={frameOpen}
-                onClick={() => {
-                  openRows.frame = !frameOpen;
-                  setFrameOpen(!frameOpen);
-                }}
-              >
-                <span className={`pp-caret ${frameOpen ? 'open' : ''}`} aria-hidden>
-                  ›
-                </span>
-                Framing
-                <span className="pp-more-h">{frameSub}</span>
-              </button>
-              {frameOpen && (
-                <div className="pp-fold-body">
-                  <Framing item={preview} value={framing} disabled={busy} onChange={(v) => t.set(v)} />
-                  <p className="pp-note pp-hint">
-                    {live.length ? 'Drag the dot to where the picture should centre.' : `Shown on ${preview.name}. It applies to whichever picture plays.`}
-                    {framed && (
-                      <>
-                        {' '}
-                        <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ focusX: undefined, focusY: undefined, zoom: undefined })}>
-                          Reset framing
-                        </button>
-                      </>
-                    )}
-                  </p>
-                </div>
-              )}
-            </div>
+            <Section id="pic.frame" title="Framing" value={frameSub} collapsible defaultOpen={false}>
+              <Framing item={preview} value={framing} disabled={busy} onChange={(v) => t.set(v)} />
+              <p className="pp-note pp-hint">
+                {live.length ? 'Drag the dot to where the picture should centre.' : `Shown on ${preview.name}. It applies to whichever picture plays.`}
+                {framed && (
+                  <>
+                    {' '}
+                    <button type="button" className="pp-link" disabled={busy} onClick={() => t.set({ focusX: undefined, focusY: undefined, zoom: undefined })}>
+                      Reset framing
+                    </button>
+                  </>
+                )}
+              </p>
+            </Section>
           )}
         </>
       )}

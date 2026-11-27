@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { LayerId, ParamDef, ParamValue } from '../core/types';
 import { LAYERS } from '../core/palettes';
 import { onFrame } from '../state/live';
-import { useStudio } from '../state/store';
+import { endTry, hasTrial, tryOn as tryOnStore, useStudio } from '../state/store';
 
 export const LAYER_MIME = 'application/x-hum-layer';
 
@@ -349,6 +349,7 @@ export function Seg<T extends string | number>({
   cols,
   label,
   onHover,
+  tryOn: tryIt,
 }: {
   value: T;
   /** span: how many of the grid's columns a choice takes (with cols) */
@@ -359,13 +360,40 @@ export function Seg<T extends string | number>({
   label?: string;
   /** the choice under the pointer or with keyboard focus (null when none): for a line that explains it */
   onHover?: (v: T | null) => void;
+  /**
+   * Resting on a choice tries it on the video: this makes the change, inside store.tryOn, so it is put
+   * back when the pointer leaves and is never saved or an undo step. A click keeps it.
+   */
+  tryOn?: (v: T) => void;
 }) {
+  const wait = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const mine = useRef(false);
+  const stop = () => {
+    clearTimeout(wait.current);
+    if (mine.current) {
+      mine.current = false;
+      endTry();
+    }
+  };
+  const rest = (v: T) => {
+    if (!tryIt) return;
+    clearTimeout(wait.current);
+    if (v === value) return stop();
+    wait.current = setTimeout(() => {
+      tryOnStore(() => tryIt(v));
+      mine.current = hasTrial();
+    }, 150);
+  };
+  // what was tried on goes with the control (another part, another tab)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => stop, []);
   return (
     <div
       className={`seg ${cols ? 'grid' : 'full'} ${disabled ? 'is-off' : ''}`}
       style={cols ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` } : undefined}
       role="radiogroup"
       aria-label={label}
+      onMouseLeave={tryIt ? stop : undefined}
     >
       {options.map((o) => (
         <button
@@ -376,12 +404,24 @@ export function Seg<T extends string | number>({
           className={value === o.v ? 'on' : ''}
           disabled={disabled}
           title={onHover ? undefined : o.tip}
-          onMouseEnter={onHover ? () => onHover(o.v) : undefined}
+          onMouseEnter={() => {
+            onHover?.(o.v);
+            rest(o.v);
+          }}
           onMouseLeave={onHover ? () => onHover(null) : undefined}
-          onFocus={onHover ? () => onHover(o.v) : undefined}
-          onBlur={onHover ? () => onHover(null) : undefined}
+          onFocus={(e) => {
+            onHover?.(o.v);
+            if (e.currentTarget.matches(':focus-visible')) rest(o.v);
+          }}
+          onBlur={() => {
+            onHover?.(null);
+            if (tryIt) stop();
+          }}
           style={o.span ? { gridColumn: `span ${o.span}` } : undefined}
-          onClick={() => onChange(o.v)}
+          onClick={() => {
+            stop();
+            onChange(o.v);
+          }}
         >
           {o.label}
         </button>

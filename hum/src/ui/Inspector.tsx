@@ -10,7 +10,7 @@ import { clipBlocker } from '../render/clipExport';
 import { clipForTikTok } from '../render/timeline';
 import { takeName } from '../presets/fit';
 import { tweakParts } from '../state/tweaks';
-import { Clamp, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
+import { Clamp, Group, ParamControl, Section, Slider, Toggle, groupParams } from './controls';
 import { Camera, Down, Plus, Up, X } from './Icons';
 import { TakesStrip } from './Takes';
 import { useLookFamily } from './lookFamily';
@@ -103,26 +103,27 @@ function PartTab() {
       {!many && (
         <>
           <TakesStrip compact />
-          <Section id="part.tune" title={<>Fine-tune this look{tweak && <Changed />}</>} sub="Sliders, effects, colours, sound" collapsible defaultOpen={false}>
+          {/* one fold, then rows like everywhere else (no sections inside sections) */}
+          <Group label="Fine-tune this look" id="part.tunefold" hint={tweak ? 'Changed for this song' : 'Sliders, effects, colours, sound'}>
             <div className="tune">
               <TuneHead changed={!!tweak} />
-              <Section id="tune.params" title={<>Parameters{ch.params && <Changed />}</>} collapsible defaultOpen={false}>
+              <Section id="tune.params" title={<>Parameters{ch.params && <Changed />}</>} value="" collapsible defaultOpen={false}>
                 <ParamsBody />
               </Section>
-              <Section id="tune.fx" title={<>Effects{ch.fx && <Changed />}</>} right={fxCount ? <span className="param-val">{fxCount}</span> : undefined} collapsible defaultOpen={false}>
+              <Section id="tune.fx" title={<>Effects{ch.fx && <Changed />}</>} value={fxCount ? String(fxCount) : 'None'} collapsible defaultOpen={false}>
                 <FxBody />
               </Section>
-              <Section id="tune.colours" title={<>Colours{ch.colours && <Changed />}</>} collapsible defaultOpen={false}>
+              <Section id="tune.colours" title={<>Colours{ch.colours && <Changed />}</>} value="" collapsible defaultOpen={false}>
                 <ColoursBody />
               </Section>
-              <Section id="tune.sound" title={<>Reacts to sound{ch.sound && <Changed />}</>} right={modCount ? <span className="param-val">{modCount}</span> : undefined} collapsible defaultOpen={false}>
+              <Section id="tune.sound" title={<>Reacts to sound{ch.sound && <Changed />}</>} value={modCount ? `${modCount} links` : 'None'} collapsible defaultOpen={false}>
                 <SoundBody />
               </Section>
-              <Section id="tune.save" title="Save as a take" collapsible defaultOpen={false}>
+              <Section id="tune.save" title="Save as a take" value="" collapsible defaultOpen={false}>
                 <SaveTake />
               </Section>
             </div>
-          </Section>
+          </Group>
         </>
       )}
     </div>

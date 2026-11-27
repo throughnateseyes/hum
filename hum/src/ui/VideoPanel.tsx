@@ -23,8 +23,10 @@ import { GRAPHIC_IDS, GRAPHICS } from '../shot/graphics';
 import { makeVideo, validPlan } from '../state/plan';
 import { useStudio, type LyricStyle, type Pace, type PopupMode, type SongColors, type TypeKitSetting, type WindowKind } from '../state/store';
 import { changeLyrics } from './lyricsOpen';
+import { Checklist } from './Checklist';
 import { DrawingsSection } from './Drawings';
 import { FinishTiles, finishTip } from './FinishTiles';
+import { seeNextCut, seeWords } from './seeTry';
 import { getScene } from '../scenes';
 import { Field, Group, Section, Seg, Slider, SwitchRow } from './controls';
 import { Lock, Sparkle } from './Icons';
@@ -78,6 +80,7 @@ function MakeBlock() {
   }, []);
   return (
     <div className="vp-make">
+      <Checklist />
       <FramesNote />
       <button
         className={`btn primary vp-go has-tip tip-below ${locked ? 'locked' : ''}`}
@@ -266,7 +269,14 @@ function FramesSection() {
   const note = hover !== null && hover !== fps ? (FRAMES.find((f) => f.v === hover)?.tip ?? '') : FRAMES_NOTE[fps];
   return (
     <Section id="video.frames" title="Frames" value={FRAMES.find((f) => f.v === fps)?.label ?? ''} collapsible defaultOpen={false}>
-      <Seg value={fps} options={FRAMES} onChange={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })} onHover={setHover} label="Frames" />
+      <Seg
+        value={fps}
+        options={FRAMES}
+        onChange={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })}
+        tryOn={(v) => useStudio.getState().set({ hand: { ...useStudio.getState().hand, fps: v } })}
+        onHover={setHover}
+        label="Frames"
+      />
       <p className="field-note">{note}</p>
     </Section>
   );
@@ -402,21 +412,36 @@ function TransitionSection() {
   const beats = useStudio((s) => s.transitionBeats);
   const set = useStudio((s) => s.set);
   const info = TRANSITIONS.find((t) => t.id === transition);
+  const [hover, setHover] = useState<string | null>(null);
+  const tried = hover !== null && hover !== transition ? hover : null;
+  const triedInfo = TRANSITIONS.find((t) => t.id === tried);
   return (
     <Section id="video.trans" title="Transitions" sub="How one look turns into the next." value={`${transition === 'auto' ? 'Auto' : (info?.name ?? transition)}${transition !== 'cut' && beats ? ` · ${beats === 0.5 ? '½' : beats} ${beats <= 1 ? 'beat' : 'beats'}` : ''}`} collapsible defaultOpen={false}>
       <Field
         label="Style"
         tip="Auto: long dissolves in calm parts, wipes on builds, quick pushes or hard cuts when it's loud. Pick one to use it for every change. Big drops always cut."
       >
-        <select className="sel" value={transition} onChange={(e) => set({ transition: e.target.value as typeof transition })} aria-label="Transition">
-          <option value="auto">Auto (fits the song)</option>
-          {TRANSITIONS.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <p className="field-note">{transition === 'auto' ? 'Picked to fit the song and the moment' : transition === 'cut' ? 'Hard cuts, no blending' : `Always ${info?.blurb ?? ''}`}</p>
+        <Seg
+          value={transition}
+          options={[{ v: 'auto' as typeof transition, label: 'Auto' }, ...TRANSITIONS.map((t) => ({ v: t.id as typeof transition, label: t.name }))]}
+          cols={3}
+          onChange={(v) => set({ transition: v })}
+          onHover={setHover}
+          tryOn={(v) => {
+            set({ transition: v });
+            seeNextCut();
+          }}
+          label="Transition"
+        />
+        <p className="field-note">
+          {tried !== null
+            ? `${tried === 'auto' ? 'Picked to fit the song and the moment' : tried === 'cut' ? 'Hard cuts, no blending' : `Always ${triedInfo?.blurb ?? ''}`}. Plays at the next cut while it's playing.`
+            : transition === 'auto'
+              ? 'Picked to fit the song and the moment'
+              : transition === 'cut'
+                ? 'Hard cuts, no blending'
+                : `Always ${info?.blurb ?? ''}`}
+        </p>
       </Field>
       {transition !== 'cut' && (
         <Field label="Length" value="in beats" tip="How long a transition takes, locked to the song's tempo. Auto: longer in calm parts, short and punchy in loud ones.">
@@ -507,12 +532,33 @@ function WordsSection() {
       )}
       {status === 'found' && (
         <Field label="Lyrics" tip="How the song's words show on the video. More lyric settings (font, timing) are under Lyrics in the top bar.">
-          <Seg value={style} options={LYRIC_STYLES} cols={6} onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })} label="Lyrics style" />
+          <Seg
+            value={style}
+            options={LYRIC_STYLES}
+            cols={6}
+            onChange={(v) => set({ lyricStyle: v, lyricStylePicked: true })}
+            tryOn={(v) => {
+              set({ lyricStyle: v, lyricStylePicked: true });
+              seeWords();
+            }}
+            label="Lyrics style"
+          />
         </Field>
       )}
       {status === 'found' && (
         <Field label="Lettering" tip="The kind of type the words are set in. Each finish has its own, or pick one for the whole video.">
-          <Seg value={kit} options={LETTERING} onChange={pick} onHover={setHover} cols={4} label="Lettering" />
+          <Seg
+            value={kit}
+            options={LETTERING}
+            onChange={pick}
+            onHover={setHover}
+            tryOn={(v) => {
+              pick(v);
+              seeWords();
+            }}
+            cols={4}
+            label="Lettering"
+          />
           <p className="field-note">{kitNote}</p>
         </Field>
       )}
@@ -535,7 +581,7 @@ function ColourSection() {
   const songColors = useStudio((s) => s.songColors);
   return (
     <Section id="video.colours" title="Song colours" sub="Makes a video of many looks feel like one piece." value={SONG_COLORS.find((c) => c.v === songColors)?.label ?? ''} collapsible defaultOpen={false}>
-      <Seg value={songColors} options={SONG_COLORS} onChange={(v) => useStudio.getState().set({ songColors: v })} label="Song colours" />
+      <Seg value={songColors} options={SONG_COLORS} onChange={(v) => useStudio.getState().set({ songColors: v })} tryOn={(v) => useStudio.getState().set({ songColors: v })} label="Song colours" />
       <p className="field-note">
         {songColors === 'off' ? 'Each look keeps its own colours.' : songColors === 'blend' ? 'Every look leans toward the colours of the look used most.' : 'Every look uses the colours of the look used most.'}
       </p>

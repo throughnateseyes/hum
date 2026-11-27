@@ -221,6 +221,8 @@ export interface StudioState extends LookState {
   finishPicked: boolean;
   /** a finish being tried on while the pointer rests on it in the Video tab (null: none). Never saved, never undone, never rendered. */
   finishPreview: 'auto' | FinishId | null;
+  /** the song a video or clip was last saved from in this visit (the Video tab's checklist ticks Rendered while it is the one loaded) */
+  rendered: TrackInfo | null;
   /** one-tap start: a song that's dropped, picked or chosen as a demo is analysed, planned and played from the top on its own */
   oneTap: boolean;
   /**
@@ -424,6 +426,56 @@ export function isApplyingLook(): boolean {
 }
 
 /**
+ * Trying a choice on: a change made only to be seen while the pointer rests on a choice (Seg's tryOn).
+ * It is never saved and never an Undo step (history.ts reads isTrying), and endTry puts back every field
+ * it changed that nothing else has changed since. A render starting ends it, so it never reaches a video.
+ */
+let trying = false;
+let trial: { back: Partial<StudioState>; was: Partial<StudioState>; off: () => void } | null = null;
+export function isTrying(): boolean {
+  return trying;
+}
+/** a choice being tried on right now */
+export function hasTrial(): boolean {
+  return !!trial;
+}
+export function tryOn(apply: () => void) {
+  endTry();
+  const before = useStudio.getState();
+  if (before.clip || before.planning) return;
+  trying = true;
+  try {
+    apply();
+  } finally {
+    trying = false;
+  }
+  const after = useStudio.getState() as unknown as Record<string, unknown>;
+  const was = before as unknown as Record<string, unknown>;
+  const keys = Object.keys(after).filter((k) => after[k] !== was[k] && typeof after[k] !== 'function');
+  if (!keys.length) return;
+  const off = useStudio.subscribe((s) => {
+    if (s.clip || s.planning) endTry();
+  });
+  trial = { back: Object.fromEntries(keys.map((k) => [k, was[k]])) as Partial<StudioState>, was: Object.fromEntries(keys.map((k) => [k, after[k]])) as Partial<StudioState>, off };
+}
+export function endTry() {
+  const t = trial;
+  if (!t) return;
+  trial = null;
+  t.off();
+  const s = useStudio.getState() as unknown as Record<string, unknown>;
+  const was = t.was as Record<string, unknown>;
+  const back = Object.fromEntries(Object.entries(t.back).filter(([k]) => s[k] === was[k]));
+  if (!Object.keys(back).length) return;
+  trying = true;
+  try {
+    useStudio.setState(back as Partial<StudioState>);
+  } finally {
+    trying = false;
+  }
+}
+
+/**
  * true while the app itself changes store.soloShot (cleared because another scene came on screen,
  * brought back after a reload): bookkeeping, not an edit, so history.ts folds it in without a step.
  */
@@ -550,6 +602,7 @@ export const useStudio = create<StudioState>((set, get) => ({
   finish: persisted.finish ?? 'hand',
   finishPicked: persisted.finishPicked ?? false,
   finishPreview: null,
+  rendered: null,
   oneTap: persisted.oneTap ?? true,
   drawings: [],
   drawTrash: [],
@@ -705,6 +758,8 @@ export const useStudio = create<StudioState>((set, get) => ({
 
   set: (patch) => {
     set(patch);
+    // (a choice being tried on is never saved: tryOn above)
+    if (trying) return;
     if ('aspect' in patch || 'sensitivity' in patch || 'quality' in patch || 'impact' in patch || 'volume' in patch || 'muted' in patch || 'directorOpen' in patch || 'directorHeight' in patch || 'lyricStyle' in patch || 'lyricsOnBoards' in patch || 'lyricFont' in patch || 'typeKit' in patch || 'lyricsAutoSync' in patch || 'hand' in patch || 'popups' in patch || 'windowKind' in patch || 'songColors' in patch || 'pace' in patch || 'mix' in patch || 'smoothSlow' in patch || 'graphicsOff' in patch || 'inkColors' in patch || 'transition' in patch || 'transitionBeats' in patch || 'finish' in patch || 'oneTap' in patch || 'drawOverlay' in patch || 'drawInScene' in patch) persist(get());
   },
   setPartPops: (i, level) => {

@@ -32,7 +32,7 @@ import type { PartShot, TrackAnalysis } from '../core/types';
 import { STYLE_NAMES } from '../shot/styles';
 import { findLook, partNames, sectionNames, type VideoPlan } from './plan';
 import { duringRecut, keepPlan, originalOf } from './planCache';
-import { isApplyingLook, isSoloQuiet, useStudio, type StudioState } from './store';
+import { isApplyingLook, isSoloQuiet, isTrying, useStudio, type StudioState } from './store';
 import { tweakParts, type LookTweak } from './tweaks';
 
 /** changes closer together than this are one step */
@@ -162,6 +162,8 @@ function follow() {
   for (const f of FIELDS) {
     if (cur[f] === seen[f]) continue;
     const folded =
+      // a choice tried on while the pointer rests on it, and put back after (store.tryOn)
+      isTrying() ||
       // a take's own hand-drawn settings coming on with it (playback)
       (f === 'hand' && isApplyingLook()) ||
       // the look's own picture cleared because another scene came on, or brought back after a reload

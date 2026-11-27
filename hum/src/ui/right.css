@@ -610,3 +610,58 @@
 .director.compact .dir-row {
   display: none;
 }
+
+/* where the video stands: Song · Clips · Lyrics · Made · Rendered (Checklist.tsx) */
+.vp-check {
+  margin-bottom: var(--s-3);
+}
+.vp-steps {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.vp-stepbtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-2);
+  cursor: pointer;
+}
+.vp-stepbtn b {
+  font-weight: 600;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+}
+.vp-stepbtn.done b {
+  color: #2b8a55;
+}
+.vp-stepbtn.next {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.vp-stepbtn.next b {
+  color: var(--accent);
+}
+.vp-stepbtn:disabled {
+  cursor: default;
+}
+.vp-stepbtn:not(:disabled):hover {
+  border-color: var(--line-2);
+}
+.vp-nextstep {
+  margin: 6px 0 0;
+  font-size: var(--fs-1);
+  color: var(--ink-3);
+}

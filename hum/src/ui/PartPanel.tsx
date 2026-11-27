@@ -46,7 +46,8 @@ import { ArrangeHere } from './arrange/ArrangeBar';
 import { PartChoices } from './control/PartChoices';
 import { PartKeep } from './control/PartKeep';
 import { PartRedo } from './control/PartRedo';
-import { Section } from './controls';
+import { Section, Seg } from './controls';
+import { seeIn, seeWords } from './seeTry';
 import { Chevron, Play } from './Icons';
 import { FootagePicture, ShuffleIcon } from './FootagePicture';
 import { lookParam, pictureKind, scrollToPicture, shownMedia, useMedia, usePartsTarget, useSoloTarget } from './footageMedia';
@@ -66,6 +67,10 @@ const HAND: { label: string; v: boolean | null; tip: string }[] = [
   { label: 'On', v: true, tip: 'This part is drawn by hand, whatever the video does' },
   { label: 'Off', v: false, tip: 'This part stays clean of the hand-drawn finish' },
 ];
+
+/** Hand-drawn's three answers as Seg values, and back */
+const handKey = (v: boolean | null) => (v === null ? 'video' : v ? 'on' : 'off');
+const handOf = (k: string): boolean | null => (k === 'on' ? true : k === 'off' ? false : null);
 
 /** the same value in every part, or 'mixed' */
 function common<T>(vals: T[]): T | 'mixed' {
@@ -192,7 +197,6 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const name = one ? sectionNames(a.sections)[i] : `${parts.length} parts selected`;
   const partList = listNames(parts.map((j) => names[j]));
   const { look, fam, ranked } = useRankedLooks(a, i, 'all');
-  const [moreOpen, setMoreOpen] = useState(false);
   // which shot of its section this part is (one look per part: flatPlan.ts)
   const parents = parentsOf(a);
   const siblings = parents.map((p, k) => (p === parents[i] ? k : -1)).filter((k) => k >= 0);
@@ -246,6 +250,51 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
   const kinds = partLooks.map((p) => pictureKind(p?.sceneId));
   const picLook = kinds.every((k) => !!k) ? (partLooks[kinds.indexOf('photos')] ?? partLooks[0]) : undefined;
   const headingId = `pp-${parts.join('-')}`;
+
+  const lookBlock = (
+    <>
+      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
+
+      <section className="pp-sec" aria-labelledby={`${headingId}-look`}>
+        <div className="ps-h">
+          <h3 id={`${headingId}-look`}>Look</h3>
+          {sameLook === 'mixed' && <span>Different in each part</span>}
+        </div>
+        {sameLook !== 'mixed' && look ? (
+          <div className="pp-look">
+            <span className="ps-thumb">
+              <Thumb p={look} />
+            </span>
+            <span className="ps-lt">
+              <b>{fam && fam.takes.length > 1 ? `${fam.name} · ${takeName(look)}` : look.name}</b>
+              <span>{look.description}</span>
+            </span>
+          </div>
+        ) : sameLook === 'mixed' ? (
+          <p className="pp-note">{looksHere.map((p) => p.name).join(', ')}</p>
+        ) : (
+          <p className="pp-note">No look yet.</p>
+        )}
+        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
+          <div className="ps-takes" role="group" aria-label={`Versions of ${fam.name}`}>
+            {fam.takes.map((p) => (
+              <button key={p.id} className={`ps-take ${p.id === look?.id ? 'on' : ''}`} aria-pressed={p.id === look?.id} disabled={busy} title={`${takeName(p)}: ${p.description}`} onClick={() => setPartsLook(parts, p.id)}>
+                <span className="ps-thumb">
+                  <Thumb p={p} />
+                </span>
+                <span className="ps-tn">{takeName(p)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </>
+  );
+  const moreLooks = (
+    <Section id="part.more" title={one ? 'More looks' : 'Swap the look'} value="By how well they fit" collapsible defaultOpen={false}>
+      <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />
+    </Section>
+  );
 
   return (
     <div className="pp">
@@ -305,65 +354,31 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
 
       {picLook && <PartsPicture parts={parts} look={picLook} busy={busy} headingId={headingId} />}
 
-      {quick.length > 0 && <QuickPicks looks={quick} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} />}
-
-      <section className="pp-sec" aria-labelledby={`${headingId}-look`}>
-        <div className="ps-h">
-          <h3 id={`${headingId}-look`}>Look</h3>
-          {sameLook === 'mixed' && <span>Different in each part</span>}
-        </div>
-        {sameLook !== 'mixed' && look ? (
-          <div className="pp-look">
-            <span className="ps-thumb">
-              <Thumb p={look} />
-            </span>
-            <span className="ps-lt">
-              <b>{fam && fam.takes.length > 1 ? `${fam.name} · ${takeName(look)}` : look.name}</b>
-              <span>{look.description}</span>
-            </span>
-          </div>
-        ) : sameLook === 'mixed' ? (
-          <p className="pp-note">{looksHere.map((p) => p.name).join(', ')}</p>
-        ) : (
-          <p className="pp-note">No look yet.</p>
-        )}
-        {sameLook !== 'mixed' && fam && fam.takes.length > 1 && !(look && isFootage(look)) && (
-          <div className="ps-takes" role="group" aria-label={`Versions of ${fam.name}`}>
-            {fam.takes.map((p) => (
-              <button key={p.id} className={`ps-take ${p.id === look?.id ? 'on' : ''}`} aria-pressed={p.id === look?.id} disabled={busy} title={`${takeName(p)}: ${p.description}`} onClick={() => setPartsLook(parts, p.id)}>
-                <span className="ps-thumb">
-                  <Thumb p={p} />
-                </span>
-                <span className="ps-tn">{takeName(p)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div className="pp-sec pp-morewrap">
-        <button className="pp-more" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
-          <span className={`pp-caret ${moreOpen ? 'open' : ''}`} aria-hidden>
-            ›
-          </span>
-          {moreOpen ? 'Fewer looks' : one ? 'More looks' : 'Swap the look'}
-          {!moreOpen && <span className="pp-more-h">Every look, by how well it fits, with moods and a search</span>}
-        </button>
-        {moreOpen && <SwapList a={a} i={i} name={one ? names[i] : partList} busy={busy} onPick={(p) => setPartsLook(parts, p.id)} headingId={`${headingId}-swap`} bestFor={one ? 'this part' : names[i]} />}
-      </div>
+      {/* a part playing a Hum look leads with looks; a part playing your clips leads with its picture
+          (above), and swapping it for a Hum look folds into one row below */}
+      {!picLook && lookBlock}
 
       <div className="pp-rows">
+      {picLook ? (
+        <Section id="part.humlook" title="Use a Hum look instead" value={sameLook === 'mixed' ? 'Mixed' : (look?.name ?? '')} collapsible defaultOpen={false}>
+          {lookBlock}
+          {moreLooks}
+        </Section>
+      ) : (
+        moreLooks
+      )}
       <Section id="part.hand" title="Hand-drawn" sub={`The video is ${finishName(videoFinish).toLowerCase()}.`} value={hand === 'mixed' ? 'Mixed' : (HAND.find((o) => o.v === hand)?.label ?? '')} collapsible defaultOpen={false}>
-        <div className="seg full" role="group" aria-label={`Hand-drawn in ${one ? names[i] : 'these parts'}`}>
-          {HAND.map((o) => {
-            const on = hand === o.v;
-            return (
-              <button key={o.label} className={on ? 'on' : ''} aria-pressed={on} disabled={busy} title={o.tip} onClick={() => setPartsHand(parts, o.v)}>
-                {o.label}
-              </button>
-            );
-          })}
-        </div>
+        <Seg
+          value={hand === 'mixed' ? 'mixed' : handKey(hand)}
+          options={HAND.map((o) => ({ v: handKey(o.v), label: o.label, tip: o.tip }))}
+          disabled={busy}
+          label={`Hand-drawn in ${one ? names[i] : 'these parts'}`}
+          onChange={(v) => setPartsHand(parts, handOf(v))}
+          tryOn={(v) => {
+            setPartsHand(parts, handOf(v));
+            seeIn(i);
+          }}
+        />
       </Section>
 
       <Section
@@ -408,13 +423,19 @@ function PartBody({ a, parts, picked }: { a: TrackAnalysis; parts: number[]; pic
           defaultOpen={false}
         >
           {sungParts.length ? (
-            <div className="seg grid2" role="group" aria-label={`How the lyrics show in ${one ? names[i] : 'these parts'}`}>
-              {MEDIUM_CHOICES.filter((o) => o.m !== 'own' || ownOk || medium === 'own').map((o) => (
-                <button key={o.m} className={medium === o.m ? 'on' : ''} aria-pressed={medium === o.m} disabled={busy} title={o.tip} onClick={() => setPartsLyric(sungParts, o.m as LyricMedium)}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <Seg
+              value={medium ?? ''}
+              options={MEDIUM_CHOICES.filter((o) => o.m !== 'own' || ownOk || medium === 'own').map((o) => ({ v: o.m as string, label: o.label, tip: o.tip }))}
+              cols={2}
+              disabled={busy}
+              label={`How the lyrics show in ${one ? names[i] : 'these parts'}`}
+              onChange={(v) => setPartsLyric(sungParts, v as LyricMedium)}
+              tryOn={(v) => {
+                setPartsLyric(sungParts, v as LyricMedium);
+                seeIn(sungParts[0]);
+                seeWords();
+              }}
+            />
           ) : (
             <p className="pp-note">No words are sung in {one ? 'this part' : 'these parts'}.</p>
           )}

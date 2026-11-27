@@ -466,6 +466,7 @@ export async function renderVideos(req: RenderRequest): Promise<RenderResult> {
   const secs = ((performance.now() - t0) / 1000).toFixed(1);
   const len = Math.round(end - start);
   const flash = useStudio.getState().flash;
+  if (saved.length && useStudio.getState().track === track) useStudio.getState().set({ rendered: track });
   lastRenderStats = { seconds: Number(secs), frames: Math.round((end - start) * req.fps) * saved.length, sizes: saved };
   if (req.keep) {
     if (failure) flash(`The video couldn't be made: ${failure}`);

@@ -146,6 +146,7 @@ export async function exportClip(
       const ext = type.includes('mp4') ? 'mp4' : 'webm';
       const blob = new Blob(chunks, { type });
       restore();
+      if (useStudio.getState().track === before.track) useStudio.getState().set({ rendered: before.track });
       const name = `${slug(songLabel(st) || 'hum')}-clip.${ext}`;
       if (onDone) onDone({ blob, name });
       else {
